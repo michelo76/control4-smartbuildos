@@ -11,7 +11,7 @@
   <created>08/15/2026 12:00:00 PM</created>
   <modified/>
   <combo>true</combo>
-  <minimum_os_version>3.3.0</minimum_os_version>
+  <minimum_os_version>3.3.1</minimum_os_version>
   <composer_categories>
     <category>Utility</category>
   </composer_categories>
@@ -24,6 +24,15 @@
       <description>NAME is STRING</description>
       <true_text>Connected</true_text>
       <false_text>Disconnected</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>SMARTBUILDOS_PAIRED</name>
+      <type>BOOL</type>
+      <condition_statement>SmartBuildOS pairing status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Paired</true_text>
+      <false_text>Not paired</false_text>
     </conditional>
   </conditionals>
   <events>
@@ -40,7 +49,22 @@
     <event>
       <id>3</id>
       <name>Sync Failed</name>
-      <description>When NAME fails to deliver a heartbeat to SmartBuildOS</description>
+      <description>When NAME fails to deliver a payload to SmartBuildOS</description>
+    </event>
+    <event>
+      <id>4</id>
+      <name>Paired</name>
+      <description>When NAME is successfully paired to a SmartBuildOS property</description>
+    </event>
+    <event>
+      <id>5</id>
+      <name>Device Went Offline</name>
+      <description>When a device in this project goes offline</description>
+    </event>
+    <event>
+      <id>6</id>
+      <name>Device Came Online</name>
+      <description>When a device in this project comes back online</description>
     </event>
   </events>
   <config>
@@ -52,12 +76,20 @@
         <command>TEST_CONNECTION</command>
       </action>
       <action>
+        <name>Poll Devices Now</name>
+        <command>POLL_DEVICES</command>
+      </action>
+      <action>
+        <name>Send Full Sync</name>
+        <command>SEND_FULL_SYNC</command>
+      </action>
+      <action>
         <name>Send Heartbeat Now</name>
         <command>SEND_HEARTBEAT</command>
       </action>
       <action>
-        <name>Send Full Inventory</name>
-        <command>SEND_INVENTORY</command>
+        <name>Unpair</name>
+        <command>UNPAIR</command>
       </action>
       <!-- #ifndef DRIVERCENTRAL -->
       <action>
@@ -118,28 +150,63 @@
         <description>Base URL of your SmartBuildOS instance (no trailing slash)</description>
       </property>
       <property>
-        <name>Device Token</name>
+        <name>Pairing Code</name>
         <type>STRING</type>
         <default/>
         <password>true</password>
-        <description>Device token issued by SmartBuildOS for this property</description>
+        <description>Paste the pairing code generated on the SmartBuildOS property. Clears itself once redeemed.</description>
       </property>
       <property>
-        <name>Property ID</name>
+        <name>Paired Property</name>
         <type>STRING</type>
-        <default/>
-        <description>SmartBuildOS property UUID this controller reports against</description>
+        <default>Not paired</default>
+        <readonly>true</readonly>
       </property>
       <property>
         <name>Connection Status</name>
         <type>STRING</type>
-        <default>Not configured</default>
+        <default>Not paired</default>
         <readonly>true</readonly>
       </property>
       <property>
         <name>Last Successful Sync</name>
         <type>STRING</type>
         <default>Never</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Monitoring</name>
+        <type>LABEL</type>
+        <default>Device Monitoring</default>
+      </property>
+      <property>
+        <name>Device Poll Interval</name>
+        <type>LIST</type>
+        <default>5m</default>
+        <items>
+          <item>1m</item>
+          <item>5m</item>
+          <item>15m</item>
+          <item>30m</item>
+        </items>
+        <description>How often Director is polled for device online/offline changes</description>
+      </property>
+      <property>
+        <name>Monitored Endpoints</name>
+        <type>STRING</type>
+        <default/>
+        <description>Non-Control4 devices to reach by ping, comma separated. Label=host or bare host, e.g. Core Switch=192.168.1.2, NAS=192.168.1.10, 192.168.1.50</description>
+      </property>
+      <property>
+        <name>Devices Offline</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Last Device Change</name>
+        <type>STRING</type>
+        <default/>
         <readonly>true</readonly>
       </property>
       <property>
@@ -161,17 +228,7 @@
         <description>How often this controller reports in</description>
       </property>
       <property>
-        <name>Report Device Inventory</name>
-        <type>LIST</type>
-        <default>On</default>
-        <items>
-          <item>Off</item>
-          <item>On</item>
-        </items>
-        <description>Include the project device list with each inventory sync</description>
-      </property>
-      <property>
-        <name>Inventory Interval</name>
+        <name>Full Sync Interval</name>
         <type>LIST</type>
         <default>24h</default>
         <items>
@@ -179,7 +236,7 @@
           <item>12h</item>
           <item>24h</item>
         </items>
-        <description>How often the full device inventory is re-sent</description>
+        <description>How often the complete device snapshot is re-sent for reconciliation</description>
       </property>
       <property>
         <name>Driver</name>
