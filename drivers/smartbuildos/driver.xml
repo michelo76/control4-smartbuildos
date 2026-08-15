@@ -1,0 +1,231 @@
+<devicedata>
+  <name>SmartBuildOS Connector</name>
+  <version/>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>SmartBuildOS Connector</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/15/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>SMARTBUILDOS_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>SmartBuildOS connection status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Connected</true_text>
+      <false_text>Disconnected</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event>
+      <id>1</id>
+      <name>Connected</name>
+      <description>When NAME connects to SmartBuildOS</description>
+    </event>
+    <event>
+      <id>2</id>
+      <name>Disconnected</name>
+      <description>When NAME loses its connection to SmartBuildOS</description>
+    </event>
+    <event>
+      <id>3</id>
+      <name>Sync Failed</name>
+      <description>When NAME fails to deliver a heartbeat to SmartBuildOS</description>
+    </event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action>
+        <name>Test Connection</name>
+        <command>TEST_CONNECTION</command>
+      </action>
+      <action>
+        <name>Send Heartbeat Now</name>
+        <command>SEND_HEARTBEAT</command>
+      </action>
+      <action>
+        <name>Send Full Inventory</name>
+        <command>SEND_INVENTORY</command>
+      </action>
+      <!-- #ifndef DRIVERCENTRAL -->
+      <action>
+        <name>Update Drivers</name>
+        <command>UPDATE_DRIVERS</command>
+      </action>
+      <!-- #endif -->
+    </actions>
+    <commands>
+      <command>
+        <name>SEND_EVENT</name>
+        <description>Send a named event to SmartBuildOS</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>DETAIL</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property>
+        <name>Cloud</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <property>
+        <name>Update Channel</name>
+        <type>LIST</type>
+        <default>Production</default>
+        <items>
+          <item>Production</item>
+          <item>Prerelease</item>
+        </items>
+      </property>
+      <property>
+        <name>SmartBuildOS Settings</name>
+        <type>LABEL</type>
+        <default>SmartBuildOS Connection</default>
+      </property>
+      <property>
+        <name>API URL</name>
+        <type>STRING</type>
+        <default>https://app.smartbuildos.com</default>
+        <description>Base URL of your SmartBuildOS instance (no trailing slash)</description>
+      </property>
+      <property>
+        <name>Device Token</name>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+        <description>Device token issued by SmartBuildOS for this property</description>
+      </property>
+      <property>
+        <name>Property ID</name>
+        <type>STRING</type>
+        <default/>
+        <description>SmartBuildOS property UUID this controller reports against</description>
+      </property>
+      <property>
+        <name>Connection Status</name>
+        <type>STRING</type>
+        <default>Not configured</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Last Successful Sync</name>
+        <type>STRING</type>
+        <default>Never</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Reporting</name>
+        <type>LABEL</type>
+        <default>Reporting</default>
+      </property>
+      <property>
+        <name>Heartbeat Interval</name>
+        <type>LIST</type>
+        <default>15m</default>
+        <items>
+          <item>5m</item>
+          <item>15m</item>
+          <item>30m</item>
+          <item>1h</item>
+          <item>6h</item>
+        </items>
+        <description>How often this controller reports in</description>
+      </property>
+      <property>
+        <name>Report Device Inventory</name>
+        <type>LIST</type>
+        <default>On</default>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <description>Include the project device list with each inventory sync</description>
+      </property>
+      <property>
+        <name>Inventory Interval</name>
+        <type>LIST</type>
+        <default>24h</default>
+        <items>
+          <item>6h</item>
+          <item>12h</item>
+          <item>24h</item>
+        </items>
+        <description>How often the full device inventory is re-sent</description>
+      </property>
+      <property>
+        <name>Driver</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+    </properties>
+  </config>
+  <capabilities/>
+  <proxies/>
+  <connections/>
+</devicedata>
