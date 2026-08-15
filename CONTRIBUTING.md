@@ -40,6 +40,7 @@ then pull the change in with `copier update`.
 - `deferred.lua`: promises/deferred implementation
 - `version.lua`: semver comparison (used by github-updater)
 - `drivers-common-public/`: Control4's official shared libraries
+- `xml/`: XML parser (xml2lua)
 
 **Tools (`tools/`):**
 

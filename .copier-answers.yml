@@ -10,4 +10,4 @@ project_description: Control4 drivers for SmartBuildOS — connect Control4 syst
 project_name: control4-smartbuildos
 readme_build: oss
 readme_driver_slug: smartbuildos
-vendor_modules: json deferred drivers-common-public
+vendor_modules: json deferred drivers-common-public xml

@@ -135,25 +135,25 @@ local function send(path, payload, description)
 
   log:debug("Sending %s to %s", description, url)
   http:post(url, payload, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
-    if response.code >= 200 and response.code < 300 then
-      gFailures = 0
-      UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
-      setConnected(true, "Connected")
-      log:info("%s delivered (HTTP %d)", description, response.code)
-    else
-      -- A 2xx is the only success. Anything else is a rejection worth
-      -- surfacing verbatim: a 401 means the token was revoked and a 404
-      -- means the property was deleted, and those need different fixes.
-      gFailures = gFailures + 1
-      setConnected(false, string.format("HTTP %d", response.code))
-      C4:FireEvent("Sync Failed")
-      log:error("%s rejected with HTTP %d: %s", description, response.code, tostring(response.body))
-    end
+    gFailures = 0
+    UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
+    setConnected(true, "Connected")
+    log:info("%s delivered (HTTP %s)", description, tostring(response.code))
   end, function(err)
+    -- Http:request rejects on *any* non-2xx as well as on transport failure, so
+    -- this one handler covers both. The distinction matters to whoever reads
+    -- Connection Status: a 401 means the token was revoked and a 404 means the
+    -- property is gone, and those need different fixes than "no internet".
     gFailures = gFailures + 1
-    setConnected(false, "Unreachable")
+    local code = err and err.code
+    if type(code) == "number" then
+      setConnected(false, string.format("HTTP %d", code))
+      log:error("%s rejected with HTTP %d: %s", description, code, tostring(err.body))
+    else
+      setConnected(false, "Unreachable")
+      log:error("%s failed after %d attempt(s): %s", description, gFailures, tostring(err and err.error or err))
+    end
     C4:FireEvent("Sync Failed")
-    log:error("%s failed after %d attempt(s): %s", description, gFailures, tostring(err and err.error or err))
   end)
 end
 
