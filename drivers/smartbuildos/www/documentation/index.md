@@ -1,7 +1,7 @@
 # SmartBuildOS Connector
 
 Makes the Control4 Director the source of truth for what is up and what is down
-at a property, and reports it to [SmartBuildOS](https://app.smartbuildos.com).
+at a property, and reports it to [SmartBuildOS](https://app.smartbuildos.io).
 
 Add one instance per project. The driver talks outbound over HTTPS only —
 nothing needs to be opened on the client's firewall.

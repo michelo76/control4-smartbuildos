@@ -146,7 +146,7 @@
       <property>
         <name>API URL</name>
         <type>STRING</type>
-        <default>https://app.smartbuildos.com</default>
+        <default>https://app.smartbuildos.io</default>
         <description>Base URL of your SmartBuildOS instance (no trailing slash)</description>
       </property>
       <property>

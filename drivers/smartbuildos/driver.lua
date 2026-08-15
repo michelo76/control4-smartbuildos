@@ -105,7 +105,7 @@ end
 
 --- Builds the SmartBuildOS ingest URL for a given path.
 --- Trailing slashes on the configured base URL are tolerated so a dealer
---- pasting "https://app.smartbuildos.com/" does not silently produce "//api".
+--- pasting "https://app.smartbuildos.io/" does not silently produce "//api".
 --- @param path string Path beneath the ingest root, with no leading slash.
 --- @return string|nil url The absolute URL, or nil when no base URL is set.
 local function ingestUrl(path)

@@ -196,7 +196,7 @@ local CODE = "H7K2-9QXR"
 local PROPERTY = "0f1c9a52-7d33-4f0e-9a11-2b6c8d4e5f00"
 
 Properties = {
-  ["API URL"] = "https://app.smartbuildos.com",
+  ["API URL"] = "https://app.smartbuildos.io",
   ["Pairing Code"] = "",
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
@@ -320,7 +320,7 @@ EC.SEND_HEARTBEAT()
 local req = requests[1] or {}
 check(
   "URL is the heartbeat path",
-  req.url == "https://app.smartbuildos.com/api/integrations/control4/heartbeat",
+  req.url == "https://app.smartbuildos.io/api/integrations/control4/heartbeat",
   req.url
 )
 check("Authorization is the bearer token", (req.headers or {})["Authorization"] == "Bearer " .. TOKEN)
@@ -330,14 +330,14 @@ check("device total is reported", (req.data or {}).devices_total == 4, (req.data
 print("\n[7] A trailing slash on API URL does not produce a double slash")
 pair()
 reset()
-Properties["API URL"] = "https://app.smartbuildos.com/"
+Properties["API URL"] = "https://app.smartbuildos.io/"
 EC.SEND_HEARTBEAT()
 check(
   "URL has exactly one slash before /api",
-  (requests[1] or {}).url == "https://app.smartbuildos.com/api/integrations/control4/heartbeat",
+  (requests[1] or {}).url == "https://app.smartbuildos.io/api/integrations/control4/heartbeat",
   (requests[1] or {}).url
 )
-Properties["API URL"] = "https://app.smartbuildos.com"
+Properties["API URL"] = "https://app.smartbuildos.io"
 
 print("\n[8] Full sync reports every device Director knows about")
 pair()
