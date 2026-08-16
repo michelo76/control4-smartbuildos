@@ -196,6 +196,16 @@
         <description>How often Director is polled for device online/offline changes</description>
       </property>
       <property>
+        <name>Discover Network Devices</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <description>Listen for devices announcing themselves on the network (SSDP/UPnP) that are not in this Control4 project</description>
+      </property>
+      <property>
         <name>Non Control4 Devices</name>
         <type>STRING</type>
         <default/>

@@ -207,6 +207,22 @@ function C4:GetNetworkConnections()
   return UNUSED_CONNECTIONS
 end
 
+function C4:GetBindingAddress()
+  return ""
+end
+
+function C4:CreateNetworkConnection()
+  return true
+end
+
+function C4:NetConnect()
+  return true
+end
+
+function C4:NetDisconnect()
+  return true
+end
+
 function C4:GetSystemType()
   return "XDT_EA5"
 end
@@ -260,6 +276,7 @@ Properties = {
   ["Connection Status"] = "Not paired",
   ["Last Successful Sync"] = "Never",
   ["Non Control4 Devices"] = "",
+  ["Discover Network Devices"] = "Off",
   ["Devices Offline"] = "0",
   ["Last Device Change"] = "",
   ["Device Poll Interval"] = "5m",

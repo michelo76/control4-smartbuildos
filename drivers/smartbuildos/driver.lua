@@ -22,6 +22,16 @@ require("drivers-common-public.global.url")
 
 JSON = require("JSON")
 
+--- SSDP discovery of devices that are NOT in the Control4 project.
+---
+--- Composer's "Discovered" list is not reachable from a driver — there is no
+--- documented API for it — so the driver announces for itself. This module
+--- creates its own UDP bindings in the 6900-6999 range via
+--- CreateNetworkConnection and hooks the RFN/OCS tables that
+--- drivers-common-public.global.handlers provides, so nothing has to be
+--- declared in driver.xml.
+local ssdpModule = require("drivers-common-public.module.ssdp")
+
 local log = require("lib.logging")
 local http = require("lib.http")
 local persist = require("lib.persist")
@@ -93,6 +103,12 @@ local gDeviceState = {}
 local gHasSnapshot = false
 --- @type boolean Whether the empty-project diagnosis has already been sent.
 local gDiagnosedEmpty = false
+--- Devices heard announcing on the network that are not in the project, keyed
+--- the same way project devices are.
+--- @type table<string, table<string, any>>
+local gDiscovered = {}
+--- @type table|nil The live SSDP searcher, when discovery is switched on.
+local gFinder = nil
 
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
@@ -493,9 +509,18 @@ end
 --- @param done fun(devices: table<string, table<string, any>>)
 local function readAllState(done)
   local devices = readDeviceState()
+
+  -- Discovered devices are merged last and never overwrite a project device.
+  -- A Sonos that IS in the project is better described by its binding — room,
+  -- device id, control state — than by its SSDP announcement.
   pingEndpoints(function(pinged)
     for key, device in pairs(pinged) do
       devices[key] = device
+    end
+    for key, device in pairs(gDiscovered) do
+      if devices[key] == nil then
+        devices[key] = device
+      end
     end
     done(devices)
   end)
@@ -639,6 +664,101 @@ local function scheduleTimers()
   log:debug("Timers armed: heartbeat %ds, device poll %ds, full sync %ds", heartbeat, poll, fullSync)
 end
 
+-- ─── Discovery ────────────────────────────────────────────────────────────────
+
+--- Turns one SSDP announcement into a device record.
+---
+--- An announcement is not a project device: there is no device id, no room and
+--- no control binding, only what the device says about itself. The address is
+--- what makes it useful, so anything without one is dropped rather than shown
+--- as an unidentifiable row.
+---
+--- @param uuid string
+--- @param device table<string, any>
+--- @return table<string, any>|nil
+local function discoveredDevice(uuid, device)
+  local ip = device.IP
+  if not isRealAddress(ip) then
+    return nil
+  end
+  -- Keyed by ADDRESS, not by uuid, so a discovered device and a project device
+  -- at the same address collapse to one entry rather than appearing twice —
+  -- and so the key is stable if the device re-announces with a new uuid.
+  return {
+    key = "discovered:" .. ip,
+    source = "discovered",
+    name = device.friendlyName or device.modelName or device.manufacturer or ip,
+    online = true,
+    connection_type = "ip",
+    address = ip,
+    port = tointeger(device.PORT),
+    firmware = nil,
+    -- SSDP tells us what a device claims to be, which is often the only label
+    -- a dealer will ever have for something not in the project.
+    device_status = device.manufacturer and device.modelName and (device.manufacturer .. " " .. device.modelName)
+      or device.modelName
+      or device.manufacturer,
+  }
+end
+
+--- Starts or stops SSDP discovery to match the property.
+local function applyDiscovery()
+  local wanted = Properties["Discover Network Devices"] == "On"
+
+  if not wanted then
+    if gFinder then
+      pcall(function()
+        gFinder:StopDiscovery()
+      end)
+      gFinder = nil
+    end
+    if next(gDiscovered) ~= nil then
+      gDiscovered = {}
+      log:info("Discovery off; forgetting discovered devices")
+      sendFullSync()
+    end
+    return
+  end
+
+  if gFinder then
+    return
+  end
+
+  -- `upnp:rootdevice` rather than `ssdp:all`: root devices are the physical
+  -- boxes, where ssdp:all also returns every embedded service each one exposes
+  -- and would list a single speaker five times.
+  local ok, finder = pcall(function()
+    return ssdpModule:new("upnp:rootdevice")
+  end)
+  if not ok or finder == nil then
+    log:error("Could not start discovery: %s", tostring(finder))
+    return
+  end
+
+  gFinder = finder
+  finder:SetUpdateDevicesFunction(function(_, devices)
+    local next_ = {}
+    local count = 0
+    for uuid, device in pairs(devices or {}) do
+      local record = discoveredDevice(uuid, device)
+      if record then
+        next_[record.key] = record
+        count = count + 1
+      end
+    end
+    gDiscovered = next_
+    log:info("Discovery: %d device(s) announcing on the network", count)
+    -- A snapshot rather than a delta: discovery replaces the whole discovered
+    -- set each time, and a delta cannot express "these ones stopped answering".
+    sendFullSync()
+  end)
+
+  local started = pcall(function()
+    finder:StartDiscovery()
+  end)
+  log:info("Network discovery %s", started and "started" or "could not be started")
+end
+
 -- ─── Pairing ──────────────────────────────────────────────────────────────────
 
 --- Reflects the current pairing state into the read-only properties.
@@ -774,6 +894,7 @@ function OnDriverLateInit()
   end
 
   registerSystemEvents()
+  applyDiscovery()
   scheduleTimers()
   -- Report in immediately so a controller that just rebooted shows up in
   -- SmartBuildOS without waiting out a full heartbeat interval.
@@ -842,6 +963,12 @@ function OnDriverDestroyed()
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
+  if gFinder then
+    pcall(function()
+      gFinder:StopDiscovery()
+    end)
+    gFinder = nil
+  end
 end
 
 -- ─── Property handlers ────────────────────────────────────────────────────────
@@ -930,6 +1057,14 @@ end
 
 --- Editing the list re-baselines immediately rather than waiting for the next
 --- poll, so a dealer who just added a switch sees it appear.
+--- @param propertyValue string
+function OPC.Discover_Network_Devices(propertyValue)
+  log:trace("OPC.Discover_Network_Devices('%s')", propertyValue)
+  if gInitialized then
+    applyDiscovery()
+  end
+end
+
 function OPC.Non_Control4_Devices(propertyValue)
   log:trace("OPC.Non_Control4_Devices('%s')", propertyValue)
   if gInitialized and isPaired() then

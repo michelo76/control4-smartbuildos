@@ -40,6 +40,22 @@ no online state to report. Put anything you care about that falls in that gap
 behind a `SEND_EVENT` in programming, or give it an IP and list it under Non
 Control4 Devices.
 
+### Discover Network Devices
+
+Off by default. When on, the driver listens for devices announcing themselves
+over SSDP and reports any that are **not in the Control4 project** — the gear
+Composer shows under "Discovered" and that a dealer usually never adds, like
+Sonos subs and surrounds.
+
+These arrive with an address and whatever name the device reports about itself,
+and nothing else: no device id, no room, no control state. SmartBuildOS marks
+them **Not in project**, because there is no driver to open and no binding to
+fix. A device that IS in the project is always described by its binding instead
+— the announcement never replaces it.
+
+Discovery only sees devices that announce. Anything that stays quiet is
+invisible to it, which is what **Non Control4 Devices** below is for.
+
 ### Non Control4 Devices
 
 A comma-separated list. Each entry is either `Label=host` or a bare host:
