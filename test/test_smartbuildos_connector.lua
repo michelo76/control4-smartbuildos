@@ -120,6 +120,8 @@ local PROJECT = {
   [75] = { deviceName = "Configurable Keypad", roomName = "Kitchen", driverFileName = "keypad.c4z" },
   [25] = { deviceName = "Leviton Dimmer", roomName = "Study", driverFileName = "dimmer.c4z" },
   [99] = { deviceName = "IR Blaster", roomName = "Media", driverFileName = "ir.c4z" },
+  [88] = { deviceName = "Unaddressed Dimmer", roomName = "Hall", driverFileName = "dimmer.c4z" },
+  [77] = { deviceName = "Control Only Agent", roomName = "Rack", driverFileName = "agent.c4z" },
 }
 
 --- The shape a real controller returns: the network binding is NESTED under a
@@ -128,6 +130,10 @@ local PROJECT = {
 --- finds nothing — which is exactly the bug this models.
 local BINDINGS = {
   [63] = { networkbindingid = 6001, addr = "127.0.0.1", status = "online", addresstype = 1, deviceid = 63 },
+  -- Configured in the project but never pointed at hardware. Director reports a
+  -- binding, but NOT_SET is not an address, so this must not be monitored — and
+  -- above all must not be counted offline.
+  [88] = { networkbindingid = 6001, addr = "NOT_SET", status = "offline", addresstype = 2, deviceid = 88 },
   [43] = { networkbindingid = 6001, addr = "192.168.1.40", status = "online", addresstype = 2, deviceid = 43 },
   [75] = { networkbindingid = 6001, addr = "000fff000077f532", status = "online", addresstype = 3, deviceid = 75 },
   [25] = { networkbindingid = 6001, addr = "cd94eba9:11", status = "online", addresstype = 8, deviceid = 25 },
@@ -407,6 +413,16 @@ check(
   "a device with no network binding is omitted",
   byName["IR Blaster"] == nil,
   "Director has no link state for IR devices; reporting one would be a guess"
+)
+check(
+  "a control-only device is not reported offline",
+  byName["Control Only Agent"] == nil,
+  "a control binding's unrelated `status` field must not read as a dead link"
+)
+check(
+  "an unaddressed device (NOT_SET) is not monitored",
+  byName["Unaddressed Dimmer"] == nil,
+  "NOT_SET is a placeholder, not an address; unconfigured is not offline"
 )
 check(
   "connection type is decoded to a label",

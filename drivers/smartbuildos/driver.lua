@@ -210,6 +210,22 @@ end
 
 -- ─── Device state, from Director ──────────────────────────────────────────────
 
+--- Whether a binding's address is one a device can actually be reached at.
+---
+--- `NOT_SET` is Control4's literal placeholder for a binding that exists but has
+--- never been addressed — a driver added to the project and not yet pointed at
+--- hardware. Treating that as an address makes an unconfigured device look like
+--- a monitored one, and then like an offline one.
+--- @param addr any
+--- @return boolean
+local function isRealAddress(addr)
+  if type(addr) ~= "string" then
+    return false
+  end
+  local trimmed = addr:gsub("^%s+", ""):gsub("%s+$", "")
+  return trimmed ~= "" and trimmed ~= "NOT_SET" and trimmed ~= "0.0.0.0"
+end
+
 --- Finds the network-binding table for a device, or nil when it has none.
 ---
 --- ── WHY THIS SEARCHES RATHER THAN INDEXES ───────────────────────────────────
@@ -242,23 +258,27 @@ local function networkBinding(deviceId)
     end
     seen[node] = true
 
-    -- An `addr` is unambiguous — only a network binding has one. A bare
-    -- `status` is weaker evidence, since a control binding could plausibly
-    -- carry an unrelated field of that name, so it is held as a fallback and
-    -- only used if nothing addressed turns up anywhere in the structure.
-    if node.addr ~= nil then
-      return node, nil
+    -- An `addr` is the ONLY reliable marker of a network binding.
+    --
+    -- A `status`-only fallback used to be accepted here, and it was wrong:
+    -- control bindings carry unrelated fields of that name, so 20 of 30
+    -- devices on a real system were matched on one and reported offline
+    -- despite having no network link at all. That buried the handful of
+    -- genuine outages in noise and made the offline count worthless.
+    --
+    -- A device Director cannot address is a device with no link state. It is
+    -- not offline; it is unmonitored, and saying so is the honest answer.
+    if isRealAddress(node.addr) then
+      return node
     end
 
-    local fallback = node.status ~= nil and node or nil
     for _, child in pairs(node) do
-      local found, childFallback = findAddressed(child, depth + 1, seen)
+      local found = findAddressed(child, depth + 1, seen)
       if found ~= nil then
-        return found, nil
+        return found
       end
-      fallback = fallback or childFallback
     end
-    return nil, fallback
+    return nil
   end
 
   local getters = {
@@ -270,18 +290,16 @@ local function networkBinding(deviceId)
     end,
   }
 
-  local fallback = nil
   for _, get in ipairs(getters) do
     local ok, raw = pcall(get)
     if ok and type(raw) == "table" then
-      local binding, statusOnly = findAddressed(raw, 0, {})
+      local binding = findAddressed(raw, 0, {})
       if binding ~= nil then
         return binding
       end
-      fallback = fallback or statusOnly
     end
   end
-  return fallback
+  return nil
 end
 
 --- Reads every project device and whatever Director knows about its link.
