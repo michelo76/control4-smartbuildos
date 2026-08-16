@@ -127,6 +127,7 @@ for _, name in ipairs({
   "UNPAIR",
   "SEND_EVENT",
   "REPORT_DIAGNOSTICS",
+  "REPORT_TELEMETRY_SURVEY",
 }) do
   check(string.format("EC.%s is callable", name), type(EC[name]) == "function", type(EC[name]))
 end

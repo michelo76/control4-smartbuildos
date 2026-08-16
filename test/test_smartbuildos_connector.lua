@@ -207,6 +207,24 @@ function C4:GetNetworkConnections()
   return UNUSED_CONNECTIONS
 end
 
+--- The survey's APIs. Deliberately returning empty rather than absent, so the
+--- survey exercises its own defensive handling instead of the pcall fallback.
+function C4:GetProjectHierarchy()
+  return { [10] = { name = "Kitchen", type = "Room" } }
+end
+
+function C4:GetDeviceVariables()
+  return { [1000] = { name = "CURRENT_SELECTED_DEVICE", value = "0" } }
+end
+
+function C4:GetAllCodeItems()
+  return {
+    event_mgr = {
+      { deviceid = 19, eventid = 1, codeitem = { enabled = false, display = "Turn on the NAME", subitems = {} } },
+    },
+  }
+end
+
 function C4:GetBindingAddress()
   return ""
 end
@@ -647,6 +665,34 @@ end
 check("no log line contains the token", not leakedToken, "token appeared in " .. #logLines .. " log lines")
 check("no log line contains the pairing code", not leakedCode, "code appeared in " .. #logLines .. " log lines")
 Properties["Log Mode"] = "Off"
+
+print("\n[19] The telemetry survey runs without a controller")
+
+-- The survey walks four APIs whose shapes are documented loosely. It must not
+-- throw on any of them: a diagnostic that crashes is worse than no diagnostic,
+-- and this one exists precisely because the reference cannot be trusted.
+pair()
+reset()
+local surveyOk, surveyErr = pcall(EC.REPORT_TELEMETRY_SURVEY)
+check("the survey completes", surveyOk, surveyErr)
+check("it reports its findings", #requests > 0, #requests)
+local sawCodeItems = false
+for _, r in ipairs(requests) do
+  local detail = (r.data or {}).detail or ""
+  if detail:find("GetAllCodeItems", 1, true) then
+    sawCodeItems = true
+  end
+end
+check("programming is surveyed", sawCodeItems)
+
+reset()
+-- Every one of these can be missing on an older OS. The survey must degrade,
+-- not die.
+local savedHierarchy, savedVars, savedCode = C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems
+C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = nil, nil, nil
+local degradedOk = pcall(EC.REPORT_TELEMETRY_SURVEY)
+check("it survives every survey API being absent", degradedOk)
+C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = savedHierarchy, savedVars, savedCode
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

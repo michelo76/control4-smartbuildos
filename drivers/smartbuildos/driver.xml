@@ -88,6 +88,10 @@
         <command>SEND_HEARTBEAT</command>
       </action>
       <action>
+        <name>Report Telemetry Survey</name>
+        <command>REPORT_TELEMETRY_SURVEY</command>
+      </action>
+      <action>
         <name>Report Diagnostics</name>
         <command>REPORT_DIAGNOSTICS</command>
       </action>

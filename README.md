@@ -111,6 +111,10 @@ project coming online at once.
 - **Unpair** — discards the stored token.
 - **Report Diagnostics** — prints what Director actually returns for this
   project to the Lua window. Run it when the device list looks wrong.
+- **Report Telemetry Survey** — surveys what this project could support for Home
+  Intelligence reporting: rooms, room variables, device variables and programmed
+  code items. Run once; it does considerably more work than a device poll and is
+  never run on a timer.
 - **Update Drivers** — checks GitHub releases and updates in place.
 
 ## Programming

@@ -1269,6 +1269,166 @@ local function reportDiagnostics(toCloud)
   end
 end
 
+--- Surveys what telemetry this project could support, for the Home Intelligence
+--- and maintenance reports.
+---
+--- Control4 has NO history API — `RecordHistory` writes and nothing reads it
+--- back — so every number in a quarterly report has to come from telemetry we
+--- collect ourselves. Before designing a schema for that, this reports what is
+--- actually available on a real project: which rooms exist, which room variables
+--- are populated, and how much programming there is to cross-reference against.
+---
+--- Runs ONLY from the action, never on a timer. `GetAllCodeItems` and a walk of
+--- every room's variables is far more work than a device poll, and this driver
+--- has already stalled a sync once by doing too much in one pass.
+---
+--- @param lines string[] Accumulator, also printed.
+local function surveyTelemetry(lines)
+  local function note(fmt, ...)
+    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    table.insert(lines, line)
+    log:print(line)
+  end
+
+  local function count(t)
+    if type(t) ~= "table" then
+      return -1
+    end
+    local n = 0
+    for _ in pairs(t) do
+      n = n + 1
+    end
+    return n
+  end
+
+  -- ── Rooms ────────────────────────────────────────────────────────────────
+  local okH, hierarchy = pcall(function()
+    return C4:GetProjectHierarchy()
+  end)
+  if not okH or type(hierarchy) ~= "table" then
+    note("GetProjectHierarchy -> %s %s", tostring(okH), tostring(hierarchy))
+    hierarchy = {}
+  else
+    note("GetProjectHierarchy -> %d location(s)", count(hierarchy))
+    -- The shape is documented loosely ("a table with entries of all of the
+    -- location's children"). Dump one verbatim rather than assume it.
+    for id, loc in pairs(hierarchy) do
+      note("  sample location [%s] = %s", tostring(id), JSON:encode(loc):sub(1, 700))
+      break
+    end
+  end
+
+  -- ── Room variables ───────────────────────────────────────────────────────
+  --
+  -- These are the customer report: Current_Selected_Device says a room is in
+  -- use, Current_Media_Type says what kind of thing is playing, Power_State is
+  -- the cleanest activity signal. What matters is which are actually POPULATED
+  -- on this project, not which the reference lists.
+  local roomsWithVars, sampled = 0, false
+  for id, loc in pairs(hierarchy) do
+    local locId = tointeger(id)
+    local isRoom = type(loc) == "table" and tostring(loc.type or ""):lower():find("room") ~= nil
+    if locId and isRoom then
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(locId)
+      end)
+      if okV and type(vars) == "table" and count(vars) > 0 then
+        roomsWithVars = roomsWithVars + 1
+        if not sampled then
+          sampled = true
+          note("room %s (%s) has %d variable(s); raw shape:", tostring(locId), tostring(loc.name), count(vars))
+          note("  %s", JSON:encode(vars):sub(1, 900))
+        end
+      end
+    end
+  end
+  note("rooms exposing variables: %d", roomsWithVars)
+
+  -- ── Programming ──────────────────────────────────────────────────────────
+  --
+  -- GetAllCodeItems is what turns "19 scenes, 7 used" into a real join, and it
+  -- is also the maintenance report's best source: `enabled = false` is disabled
+  -- programming nobody remembers switching off.
+  local okC, codeItems = pcall(function()
+    return C4:GetAllCodeItems()
+  end)
+  if not okC or type(codeItems) ~= "table" then
+    note("GetAllCodeItems -> %s %s", tostring(okC), tostring(codeItems))
+  else
+    local groups, total, disabled, sampledCode = 0, 0, 0, false
+    for groupName, list in pairs(codeItems) do
+      groups = groups + 1
+      if type(list) == "table" then
+        for _, item in pairs(list) do
+          total = total + 1
+          local ci = type(item) == "table" and item.codeitem or nil
+          if type(ci) == "table" and ci.enabled == false then
+            disabled = disabled + 1
+          end
+          if not sampledCode and type(ci) == "table" then
+            sampledCode = true
+            note("code item sample (group %s): %s", tostring(groupName), JSON:encode(item):sub(1, 800))
+          end
+        end
+      end
+    end
+    note("GetAllCodeItems -> %d group(s), %d item(s), %d disabled", groups, total, disabled)
+  end
+
+  -- ── Device variables ─────────────────────────────────────────────────────
+  --
+  -- Climate is the other half of the customer report. Rather than guess which
+  -- devices are thermostats, report which devices expose variables at all and
+  -- sample one, so the schema is designed from the real shape.
+  local devices = C4:GetDevices({}) or {}
+  local withVars, checked = 0, 0
+  local sampleShown = false
+  for rawId, device in pairs(devices) do
+    if checked >= 40 then
+      break
+    end
+    checked = checked + 1
+    local id = tointeger(rawId)
+    if id then
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(id)
+      end)
+      if okV and type(vars) == "table" and count(vars) > 0 then
+        withVars = withVars + 1
+        if not sampleShown then
+          sampleShown = true
+          note("device %s (%s) variables:", tostring(id), tostring(device.deviceName or device.name))
+          note("  %s", JSON:encode(vars):sub(1, 800))
+        end
+      end
+    end
+  end
+  note("devices sampled: %d, of which %d expose variables", checked, withVars)
+  note("project size: %d device(s) total", count(devices))
+end
+
+--- Runs the survey and posts it, so the result is readable from the platform
+--- rather than copied out of a Lua window.
+function EC.REPORT_TELEMETRY_SURVEY()
+  log:trace("EC.REPORT_TELEMETRY_SURVEY()")
+  local lines = {}
+  local ok, err = pcall(surveyTelemetry, lines)
+  if not ok then
+    table.insert(lines, "survey failed: " .. tostring(err))
+    log:error("Telemetry survey failed: %s", tostring(err))
+  end
+  if not isPaired() then
+    return
+  end
+  for i, line in ipairs(lines) do
+    send("event", {
+      kind = "event",
+      name = string.format("survey %02d", i),
+      detail = line:sub(1, 480),
+    }, "survey line " .. i)
+  end
+end
+
 function EC.REPORT_DIAGNOSTICS()
   log:trace("EC.REPORT_DIAGNOSTICS()")
   reportDiagnostics(true)
