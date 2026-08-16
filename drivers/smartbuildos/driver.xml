@@ -155,7 +155,8 @@
         <name>API URL</name>
         <type>STRING</type>
         <default>https://app.smartbuildos.io</default>
-        <description>Base URL of your SmartBuildOS instance (no trailing slash)</description>
+        <readonly>true</readonly>
+        <description>SmartBuildOS endpoint this driver reports to. Fixed: a mistyped URL silently breaks pairing and every upload.</description>
       </property>
       <property>
         <name>Pairing Code</name>

@@ -175,6 +175,7 @@ function Rooms:apply(roomId, roomName, name, value)
         -- the record makes the client app claim a dark room is playing music.
         r.source_device_id, r.source_name = nil, nil
         r.media_title, r.media_artist, r.media_album, r.media_type = nil, nil, nil, nil
+        r.media_image_url = nil
       end
     end
   elseif name == SOURCE or name == VIDEO_SOURCE then
@@ -191,7 +192,7 @@ function Rooms:apply(roomId, roomName, name, value)
       end
     end
   elseif name == MEDIA or name == MEDIA_INFO or name == MEDIA_WALL then
-    local title, artist, mediaType, album = self.parseMedia(value)
+    local title, artist, mediaType, album, image, device = self.parseMedia(value)
     -- An empty payload must not wipe what another media variable just set:
     -- CURRENT_MEDIA reports an empty shell while CURRENT MEDIA INFO carries the
     -- real record, and they arrive as separate changes.
@@ -201,6 +202,11 @@ function Rooms:apply(roomId, roomName, name, value)
     if title ~= r.media_title or artist ~= r.media_artist or album ~= r.media_album then
       r.media_title, r.media_artist, r.media_album = title, artist, album
       r.media_type = mediaType or r.media_type
+      r.media_image_url = image
+      -- The media record often knows the source when the room variable reads 0.
+      if device and r.source_device_id == nil then
+        r.source_device_id = device
+      end
       changed = true
       -- Deliberately does NOT split the session: a new track is not a new
       -- viewing. The session carries what was playing when it started, and the
@@ -258,7 +264,7 @@ end
 function Rooms.parseMedia(value)
   local s = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
   if s == "" then
-    return nil, nil, nil, nil
+    return nil, nil, nil, nil, nil, nil
   end
 
   if s:find("<", 1, true) then
@@ -287,20 +293,80 @@ function Rooms.parseMedia(value)
       mediaType = mediaType:lower()
     end
 
+    -- <img> holds a BASE64-encoded artwork URL, observed as the Sonos artwork
+    -- endpoint on the local network. Decoded here rather than stored encoded,
+    -- so what reaches the platform is something a viewer could actually fetch.
+    local image = nil
+    local encoded = tag("img") or tag("image") or tag("art")
+    if encoded then
+      image = Rooms.decodeBase64(encoded) or encoded
+    end
+
+    -- The record names its own source. CURRENT_SELECTED_DEVICE reads 0 for a
+    -- room playing music, so this is often the only place the source appears.
+    local device = tonumber(tag("deviceid"))
+
     -- An empty shell — CURRENT_MEDIA reports <mediainfo><mediaid>0</mediaid>
     -- <mediatype/></mediainfo> even while a song is playing — carries nothing.
     if title == nil and artist == nil and album == nil and mediaType == nil then
-      return nil, nil, nil, nil
+      return nil, nil, nil, nil, nil, nil
     end
-    return title, artist, mediaType, album
+    return title, artist, mediaType, album, image, device
   end
 
   -- Plain text. Only a SPACED hyphen separates, so "Spider-Man" stays whole.
   local artist, title = s:match("^(.-)%s+%-%s+(.+)$")
   if artist and title and #artist > 0 and #title > 0 then
-    return title, artist, nil, nil
+    return title, artist, nil, nil, nil, nil
   end
-  return s, nil, nil, nil
+  return s, nil, nil, nil, nil, nil
+end
+
+--- Decodes base64 without depending on C4:Base64Decode, so the parser stays
+--- pure and unit-testable off a controller.
+--- @param data string
+--- @return string|nil
+function Rooms.decodeBase64(data)
+  local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  if type(data) ~= "string" or data == "" then
+    return nil
+  end
+  -- Anything outside the alphabet means this was never base64 — return nil so
+  -- the caller keeps the original rather than emitting mojibake.
+  if data:find("[^" .. chars:gsub("%+", "%%+") .. "=%s]") then
+    return nil
+  end
+  data = data:gsub("%s", "")
+
+  local ok, decoded = pcall(function()
+    local bits = data:gsub("=", ""):gsub(".", function(c)
+      local index = chars:find(c, 1, true)
+      if index == nil then
+        error("bad character")
+      end
+      local out, value = "", index - 1
+      for i = 6, 1, -1 do
+        out = out .. (value % 2 ^ i - value % 2 ^ (i - 1) > 0 and "1" or "0")
+      end
+      return out
+    end)
+    return (
+      bits:gsub("%d%d%d?%d?%d?%d?%d?%d?", function(byte)
+        if #byte ~= 8 then
+          return ""
+        end
+        local value = 0
+        for i = 1, 8 do
+          value = value + (byte:sub(i, i) == "1" and 2 ^ (8 - i) or 0)
+        end
+        return string.char(value)
+      end)
+    )
+  end)
+  if not ok or type(decoded) ~= "string" or decoded == "" then
+    return nil
+  end
+  return decoded
 end
 
 --- Sets climate on a room, sampled rather than watched — temperature moves
@@ -326,6 +392,7 @@ function Rooms:snapshot()
       media_title = r.media_title,
       media_artist = r.media_artist,
       media_album = r.media_album,
+      media_image_url = r.media_image_url,
       media_type = r.media_type,
       volume = r.volume,
       muted = r.muted,

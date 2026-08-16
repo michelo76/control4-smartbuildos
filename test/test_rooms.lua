@@ -100,6 +100,27 @@ check("title comes from its own tag", xTitle == "Mpap Pale", xTitle)
 check("the album is kept whole despite containing ' - '", xAlbum == "Mpap Pale - Single", xAlbum)
 check("media type is normalised", xType == "song", xType)
 
+-- Verbatim from the live system: <img> is a BASE64 artwork URL and <deviceid>
+-- names the source, which matters because CURRENT_SELECTED_DEVICE reads 0 for a
+-- room playing music.
+local REAL = "<mediainfo><roomId>16</roomId><mediatype>SONG</mediatype><artist>Gabel</artist>"
+  .. "<album>BeNi</album><title>Beni</title>"
+  .. "<img>aHR0cDovLzE5Mi4xNjguMS4xMDM6MTQwMC9nZXRhYT9zPTE=</img>"
+  .. "<deviceid>83</deviceid></mediainfo>"
+local rTitle, rArtist, rType, rAlbum, rImage, rDevice = Rooms.parseMedia(REAL)
+check("title from a real record", rTitle == "Beni", rTitle)
+check("artist from a real record", rArtist == "Gabel", rArtist)
+check("album from a real record", rAlbum == "BeNi", rAlbum)
+check("artwork is decoded from base64, not stored encoded", rImage == "http://192.168.1.103:1400/getaa?s=1", rImage)
+check("the source device comes from the record", rDevice == 83, rDevice)
+
+-- Not every <img> will be base64; keeping the original beats emitting mojibake.
+check(
+  "a non-base64 image value is kept as-is",
+  select(5, Rooms.parseMedia("<mediainfo><title>x</title><img>http://plain/url.jpg</img></mediainfo>"))
+    == "http://plain/url.jpg"
+)
+
 -- CURRENT_MEDIA reports this WHILE a song is playing. It must not be mistaken
 -- for real metadata, or it wipes what CURRENT MEDIA INFO just set.
 local eTitle, eArtist = Rooms.parseMedia("<mediainfo><mediaid>0</mediaid><mediatype/></mediainfo>")
@@ -245,6 +266,20 @@ t:apply(16, nil, "CURRENT_MEDIA", "<mediainfo><mediaid>0</mediaid><mediatype/></
 state = t:snapshot()[1]
 check("the real record survives the empty one", state.media_artist == "Joseph Zenny Jr", state.media_artist)
 check("and so does the title", state.media_title == "Mpap Pale", state.media_title)
+
+print("\n[12b] The media record supplies the source when the room variable does not")
+
+t = tracker()
+t:apply(16, "R", "POWER_STATE", "1")
+t:apply(16, nil, "CURRENT_SELECTED_DEVICE", "0")
+t:apply(
+  16,
+  nil,
+  "CURRENT MEDIA INFO",
+  "<mediainfo><mediatype>SONG</mediatype><artist>Gabel</artist><title>Beni</title><deviceid>83</deviceid></mediainfo>"
+)
+state = t:snapshot()[1]
+check("source is taken from the media record", state.source_device_id == 83, state.source_device_id)
 
 print("\n[13] Climate rides alongside activity")
 
