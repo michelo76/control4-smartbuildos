@@ -228,54 +228,59 @@ end
 
 --- Finds the network-binding table for a device, or nil when it has none.
 ---
---- ── WHY THIS SEARCHES RATHER THAN INDEXES ───────────────────────────────────
+--- ── WHAT COUNTS AS ONE ──────────────────────────────────────────────────────
 ---
---- The API reference shows `GetBindingsByDevice` returning a flat table of
---- `addr` / `status` / `networkbindingid`. A real controller returns something
---- else entirely:
+--- The presence of an `addr` KEY, whatever its value. A binding that carries an
+--- address field is a network binding even when the address is `NOT_SET` —
+--- Control4's placeholder for a driver added to the project and not yet pointed
+--- at hardware. Those devices are real, and hiding them was wrong: they are
+--- exactly the "discovered but not configured" list a dealer wants to see.
 ---
----   {"bindings":[{"binding_info":"","bindingclasses":[...],"bindingid":5001,
----                 "boundconsumers":[...]}]}
+--- Whether the address is USABLE is a separate question, answered by
+--- `isRealAddress` at the call site, and it decides whether the device has a
+--- known state or an unknown one. It must not decide whether the device exists.
 ---
---- — control bindings, nested one level under `bindings`. A parser written to
---- the documented shape found no `addr` and rejected every device in the
---- project, which is why nothing was ever reported.
+--- ── WHY THE SEARCH IS BOUNDED THE WAY IT IS ─────────────────────────────────
 ---
---- Rather than swap one assumed shape for another, this walks the structure and
---- takes the first table carrying an `addr` or a `status`, whatever depth it
---- sits at. Both binding APIs are tried, because the network-specific one is a
---- separate call and either may be the one that carries the address.
+--- `GetBindingsByDevice` nests one level: `{bindings = {...}}`. An unbounded
+--- walk of that for 214 devices — two API calls each, no early exit — is enough
+--- work to stall the sync entirely, which is what an over-eager version of this
+--- did. So the known shape is checked directly first, and the generic walk is a
+--- shallow fallback rather than the primary path.
 ---
 --- @param deviceId number
 --- @return table<string, any>|nil binding
 local function networkBinding(deviceId)
-  --- Depth-bounded search for the first table that looks like a network
-  --- binding. Bounded because these structures nest arbitrarily and a cycle
-  --- would otherwise hang the poll.
-  local function findAddressed(node, depth, seen)
-    if type(node) ~= "table" or depth > 6 or seen[node] then
+  --- True for a table that describes a network link, addressed or not.
+  local function isBinding(node)
+    return type(node) == "table" and node.addr ~= nil
+  end
+
+  --- Checks the documented location first, then one shallow level below it.
+  local function search(raw)
+    if isBinding(raw) then
+      return raw
+    end
+    if type(raw) ~= "table" then
       return nil
     end
-    seen[node] = true
 
-    -- An `addr` is the ONLY reliable marker of a network binding.
-    --
-    -- A `status`-only fallback used to be accepted here, and it was wrong:
-    -- control bindings carry unrelated fields of that name, so 20 of 30
-    -- devices on a real system were matched on one and reported offline
-    -- despite having no network link at all. That buried the handful of
-    -- genuine outages in noise and made the offline count worthless.
-    --
-    -- A device Director cannot address is a device with no link state. It is
-    -- not offline; it is unmonitored, and saying so is the honest answer.
-    if isRealAddress(node.addr) then
-      return node
+    -- The real shape: `{bindings = { <binding>, ... }}`.
+    local list = type(raw.bindings) == "table" and raw.bindings or raw
+    for _, entry in pairs(list) do
+      if isBinding(entry) then
+        return entry
+      end
     end
 
-    for _, child in pairs(node) do
-      local found = findAddressed(child, depth + 1, seen)
-      if found ~= nil then
-        return found
+    -- One level deeper, for a shape neither the docs nor this controller show.
+    for _, entry in pairs(list) do
+      if type(entry) == "table" then
+        for _, inner in pairs(entry) do
+          if isBinding(inner) then
+            return inner
+          end
+        end
       end
     end
     return nil
@@ -293,7 +298,7 @@ local function networkBinding(deviceId)
   for _, get in ipairs(getters) do
     local ok, raw = pcall(get)
     if ok and type(raw) == "table" then
-      local binding = findAddressed(raw, 0, {})
+      local binding = search(raw)
       if binding ~= nil then
         return binding
       end
@@ -332,12 +337,21 @@ local function readDeviceState()
         -- is treated as down, so an unexpected value fails visible rather than
         -- silently reporting a dead device as healthy.
         local status = tostring(binding.status or ""):lower()
+        -- An unaddressed binding has no reachability to report. Sending
+        -- `online = false` for it would be a fabricated outage, so the address
+        -- is sent as-is and the platform reads a missing one as "state unknown".
+        local addressable = isRealAddress(binding.addr)
         devices["c4:" .. id] = {
+          -- Driver-local: whether this device has a state worth counting. The
+          -- platform derives the same thing from the address, so this is not
+          -- sent; it exists so the Devices Offline property does not count
+          -- devices that were never installed.
+          addressable = addressable,
           key = "c4:" .. id,
           source = "director",
           device_id = id,
           name = device.deviceName or device.name,
-          online = status == "online",
+          online = addressable and status == "online" or false,
           connection_type = CONNECTION_TYPES[tointeger(binding.addresstype) or -1] or "ip",
           address = binding.addr,
           binding_id = tointeger(binding.networkbindingid),
@@ -506,7 +520,11 @@ end
 local function offlineCount(devices)
   local count = 0
   for _, device in pairs(devices) do
-    if not device.online then
+    -- An unaddressed device has no reachability to be down. Counting it here
+    -- is how a project full of unconfigured drivers reads as a site-wide
+    -- outage. `addressable` is nil for ping targets, which are addressed by
+    -- definition, so they still count.
+    if not device.online and device.addressable ~= false then
       count = count + 1
     end
   end

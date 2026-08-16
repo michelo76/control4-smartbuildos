@@ -383,7 +383,7 @@ check(
 )
 check("Authorization is the bearer token", (req.headers or {})["Authorization"] == "Bearer " .. TOKEN)
 check("property id travels in the header", (req.headers or {})["X-SmartBuildOS-Property"] == PROPERTY)
-check("device total is reported", (req.data or {}).devices_total == 4, (req.data or {}).devices_total)
+check("device total is reported", (req.data or {}).devices_total == 5, (req.data or {}).devices_total)
 
 print("\n[7] A trailing slash on API URL does not produce a double slash")
 pair()
@@ -404,7 +404,7 @@ EC.SEND_FULL_SYNC()
 local sync = lastRequestTo("/devices")
 local devices = ((sync or {}).data or {}).devices or {}
 check("payload is a snapshot", ((sync or {}).data or {}).kind == "snapshot")
-check("all four bound devices are reported", #devices == 4, #devices)
+check("every device with a network binding is reported", #devices == 5, #devices)
 local byName = {}
 for _, d in ipairs(devices) do
   byName[d.name] = d
@@ -419,10 +419,20 @@ check(
   byName["Control Only Agent"] == nil,
   "a control binding's unrelated `status` field must not read as a dead link"
 )
+-- Reported, but never as a fault. NOT_SET is a driver placed in the project
+-- and not yet pointed at hardware — "discovered, not configured", which is
+-- exactly the list a dealer wants. Hiding it lost real information; calling it
+-- offline invented an outage for something never installed.
 check(
-  "an unaddressed device (NOT_SET) is not monitored",
-  byName["Unaddressed Dimmer"] == nil,
-  "NOT_SET is a placeholder, not an address; unconfigured is not offline"
+  "an unaddressed device IS reported",
+  byName["Unaddressed Dimmer"] ~= nil,
+  "a device configured in the project should be visible"
+)
+check("an unaddressed device is not claimed to be online", (byName["Unaddressed Dimmer"] or {}).online == false)
+check(
+  "its address is passed through as the placeholder",
+  (byName["Unaddressed Dimmer"] or {}).address == "NOT_SET",
+  "the platform reads a missing address as unknown, so it must arrive intact"
 )
 check(
   "connection type is decoded to a label",
@@ -459,7 +469,11 @@ check(
   ((((delta or {}).data or {}).devices or {})[1] or {}).name == "8-Channel Relay"
 )
 check("Device Went Offline fired", firedEvents[#firedEvents] == "Device Went Offline", table.concat(firedEvents, ","))
-check("Devices Offline counts one", Properties["Devices Offline"] == "1", Properties["Devices Offline"])
+check(
+  "Devices Offline counts one, not the unaddressed device too",
+  Properties["Devices Offline"] == "1",
+  Properties["Devices Offline"]
+)
 check(
   "Last Device Change names it",
   (Properties["Last Device Change"] or ""):find("8-Channel Relay went offline", 1, true) ~= nil,
@@ -490,7 +504,7 @@ EC.POLL_DEVICES() -- baseline including pings
 reset()
 EC.SEND_FULL_SYNC()
 local all = ((lastRequestTo("/devices") or {}).data or {}).devices or {}
-check("director devices and ping targets are both present", #all == 7, #all)
+check("director devices and ping targets are both present", #all == 8, #all)
 local pinged = {}
 for _, d in ipairs(all) do
   if d.source == "ping" then
