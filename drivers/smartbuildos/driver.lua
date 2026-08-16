@@ -35,6 +35,7 @@ local ssdpModule = require("drivers-common-public.module.ssdp")
 local log = require("lib.logging")
 local http = require("lib.http")
 local persist = require("lib.persist")
+local Rooms = require("telemetry.rooms")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 --#endif
@@ -110,6 +111,37 @@ local gDiscovered = {}
 --- @type table|nil The live SSDP searcher, when discovery is switched on.
 local gFinder = nil
 
+--- Room activity tracking. Wall clock for what gets stored, monotonic for
+--- durations — a controller whose time is corrected mid-session would otherwise
+--- record a negative or wildly long span.
+local gRooms = Rooms.new(function()
+  return C4:GetTickCount()
+end, function()
+  return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end)
+
+--- Monitoring configuration, as told to us by the platform in the heartbeat
+--- response. Defaults are deliberately OFF: this records behavioural data about
+--- someone's home and starts because a dealer chose it.
+local gMonitor =
+  { enabled = false, room_variables = {}, room_ids = {}, climate_enabled = true, climate_sample_minutes = 15 }
+--- room id -> { [variableId] = variableName } for the variables we listen to.
+local gRoomVarNames = {}
+--- room id -> name, from the project hierarchy.
+local gRoomNames = {}
+--- room id -> thermostat device id, from the room's TEMPERATURE_ID.
+local gRoomThermostat = {}
+--- @type boolean Whether listeners are currently registered.
+local gListening = false
+
+local TELEMETRY_TIMER = "SmartBuildOSTelemetry"
+local CLIMATE_TIMER = "SmartBuildOSClimate"
+
+-- Declared here because the heartbeat handler applies configuration, and the
+-- functions that act on it are defined further down.
+local applyMonitoring
+local sendCatalogue
+
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
 --- @return string token The stored device token, or "" when unpaired.
@@ -184,7 +216,8 @@ end
 --- @param path string Ingest path beneath the integration root.
 --- @param payload table<string, any> Body to send, merged with the identity block.
 --- @param description string Label used in log lines.
-local function send(path, payload, description)
+--- @param onOk fun(body: table)|nil Called with the decoded response body.
+local function send(path, payload, description, onOk)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
     setConnected(false, "Not paired")
@@ -206,6 +239,19 @@ local function send(path, payload, description)
     UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
     setConnected(true, "Connected")
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
+
+    if onOk then
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
+      end
+      if type(body) == "table" then
+        pcall(onOk, body)
+      end
+    end
   end, function(err)
     -- Http:request rejects on *any* non-2xx as well as on transport failure, so
     -- this one handler covers both. The distinction matters to whoever reads
@@ -640,12 +686,48 @@ end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
-  send("heartbeat", {
-    kind = "heartbeat",
-    consecutive_failures = gFailures,
-    devices_total = TableLength(gDeviceState),
-    devices_offline = offlineCount(gDeviceState),
-  }, "heartbeat")
+  send(
+    "heartbeat",
+    {
+      kind = "heartbeat",
+      consecutive_failures = gFailures,
+      devices_total = TableLength(gDeviceState),
+      devices_offline = offlineCount(gDeviceState),
+    },
+    "heartbeat",
+    function(body)
+      -- The response is how configuration reaches this driver. It has no inbound
+      -- channel — it sits behind the client's firewall and is never contacted —
+      -- so an installer's choices in SmartBuildOS ride back on a call it already
+      -- makes, rather than costing a second timer to poll for them.
+      local monitor = body.monitor
+      if type(monitor) ~= "table" then
+        return
+      end
+
+      -- Re-registering listeners on every heartbeat would be pointless churn, so
+      -- only a real change is applied.
+      local before = JSON:encode(gMonitor)
+      gMonitor = {
+        enabled = monitor.enabled == true,
+        room_variables = type(monitor.room_variables) == "table" and monitor.room_variables or {},
+        room_ids = type(monitor.room_ids) == "table" and monitor.room_ids or {},
+        climate_enabled = monitor.climate_enabled ~= false,
+        climate_sample_minutes = tointeger(monitor.climate_sample_minutes) or 15,
+      }
+      if JSON:encode(gMonitor) ~= before then
+        log:info(
+          "Monitoring configuration changed (enabled=%s, %d variable(s))",
+          tostring(gMonitor.enabled),
+          #gMonitor.room_variables
+        )
+        applyMonitoring()
+        if gMonitor.enabled then
+          sendCatalogue()
+        end
+      end
+    end
+  )
 end
 
 --- (Re)arms every reporting timer from the current properties.
@@ -757,6 +839,248 @@ local function applyDiscovery()
     finder:StartDiscovery()
   end)
   log:info("Network discovery %s", started and "started" or "could not be started")
+end
+
+-- ─── Room telemetry ───────────────────────────────────────────────────────────
+
+--- Walks the project hierarchy and returns rooms.
+---
+--- The hierarchy is a NESTED tree whose child locations are keyed by id
+--- alongside the `name`/`type` attributes, and `type` is a number: measured on a
+--- real controller, 2=site 3=building 4=floor 8=room.
+--- @return table[] rooms
+local function projectRooms()
+  local rooms = {}
+  local okH, hierarchy = pcall(function()
+    return C4:GetProjectHierarchy()
+  end)
+  if not okH or type(hierarchy) ~= "table" then
+    return rooms
+  end
+
+  local function walk(node, depth)
+    if type(node) ~= "table" or depth > 8 then
+      return
+    end
+    for key, child in pairs(node) do
+      local childId = tointeger(key)
+      if childId ~= nil and type(child) == "table" then
+        if tointeger(child.type) == 8 then
+          rooms[#rooms + 1] = { id = childId, name = child.name }
+        end
+        walk(child, depth + 1)
+      end
+    end
+  end
+
+  for id, loc in pairs(hierarchy) do
+    local topId = tointeger(id)
+    if topId and type(loc) == "table" then
+      if tointeger(loc.type) == 8 then
+        rooms[#rooms + 1] = { id = topId, name = loc.name }
+      end
+      walk(loc, 1)
+    end
+  end
+  return rooms
+end
+
+--- Uploads the catalogue of what this project could report.
+---
+--- This is what the installer's picker in SmartBuildOS is built from, so it
+--- lists everything observable rather than only what is currently watched —
+--- a picker that only offers what is already selected is not a picker.
+function sendCatalogue()
+  local observables = {}
+  local rooms = projectRooms()
+
+  for _, room in ipairs(rooms) do
+    gRoomNames[room.id] = room.name
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(room.id)
+    end)
+    if okV and type(vars) == "table" then
+      for varId, v in pairs(vars) do
+        local id = tointeger(varId)
+        local name = type(v) == "table" and v.name or nil
+        if id and name then
+          observables[#observables + 1] = {
+            kind = "room",
+            source_id = room.id,
+            source_name = room.name,
+            variable_id = id,
+            variable_name = name,
+            sample_value = type(v) == "table" and tostring(v.value or "") or nil,
+            readonly = type(v) == "table" and tostring(v.readonly) == "True" or false,
+          }
+          -- A room points at its thermostat through TEMPERATURE_ID, which is
+          -- how climate reads next to activity rather than as a separate thing.
+          if name == "TEMPERATURE_ID" then
+            local thermostat = tointeger(v.value)
+            if thermostat and thermostat > 0 then
+              gRoomThermostat[room.id] = thermostat
+            end
+          end
+        end
+      end
+    end
+  end
+
+  log:info("Catalogue: %d room(s), %d observable(s)", #rooms, #observables)
+  send("telemetry", { kind = "catalogue", observables = observables }, "catalogue")
+end
+
+--- Registers or clears variable listeners to match the configuration.
+---
+--- Watching all fifty-nine of a room's variables would be a firehose of EQ
+--- noise for no report value, so only the configured names are listened to —
+--- six by default, which produce the entire customer report.
+function applyMonitoring()
+  if C4.UnregisterAllVariableListeners then
+    pcall(function()
+      C4:UnregisterAllVariableListeners()
+    end)
+  end
+  gRoomVarNames = {}
+  gListening = false
+
+  if not gMonitor.enabled then
+    log:info("Room monitoring is off")
+    CancelTimer(TELEMETRY_TIMER)
+    CancelTimer(CLIMATE_TIMER)
+    return
+  end
+
+  local wanted = {}
+  for _, name in ipairs(gMonitor.room_variables or {}) do
+    wanted[name] = true
+  end
+
+  local onlyRooms = nil
+  if gMonitor.room_ids and #gMonitor.room_ids > 0 then
+    onlyRooms = {}
+    for _, id in ipairs(gMonitor.room_ids) do
+      onlyRooms[id] = true
+    end
+  end
+
+  local registered = 0
+  for _, room in ipairs(projectRooms()) do
+    gRoomNames[room.id] = room.name
+    if onlyRooms == nil or onlyRooms[room.id] then
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(room.id)
+      end)
+      if okV and type(vars) == "table" then
+        local names = {}
+        for varId, v in pairs(vars) do
+          local id = tointeger(varId)
+          local name = type(v) == "table" and v.name or nil
+          if id and name and wanted[name] then
+            names[id] = name
+            pcall(function()
+              C4:RegisterVariableListener(room.id, id)
+            end)
+            registered = registered + 1
+            -- Seed from the current value, so a room that is already on does
+            -- not wait for a change before it appears in the client app.
+            gRooms:apply(room.id, room.name, name, v.value)
+          end
+        end
+        gRoomVarNames[room.id] = names
+      end
+    end
+  end
+
+  gListening = registered > 0
+  log:info("Room monitoring on: %d listener(s)", registered)
+
+  SetTimer(TELEMETRY_TIMER, 5 * 60 * ONE_SECOND, function()
+    sendTelemetry()
+  end, true)
+
+  if gMonitor.climate_enabled then
+    local minutes = tointeger(gMonitor.climate_sample_minutes) or 15
+    SetTimer(CLIMATE_TIMER, minutes * 60 * ONE_SECOND, function()
+      sampleClimate()
+    end, true)
+  end
+end
+
+--- Director calls this for every registered variable.
+function OnWatchedVariableChanged(idDevice, idVariable, strValue)
+  local roomId = tointeger(idDevice)
+  local varId = tointeger(idVariable)
+  local names = roomId and gRoomVarNames[roomId] or nil
+  local name = names and varId and names[varId] or nil
+  if name == nil then
+    return
+  end
+  log:debug("room %s %s = %s", tostring(roomId), name, tostring(strValue))
+  gRooms:apply(roomId, gRoomNames[roomId], name, strValue)
+end
+
+--- Samples climate rather than watching it: temperature moves constantly and
+--- every change is not worth an event.
+function sampleClimate()
+  if not gMonitor.enabled or not gMonitor.climate_enabled then
+    return
+  end
+  for roomId, thermostat in pairs(gRoomThermostat) do
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(thermostat)
+    end)
+    if okV and type(vars) == "table" then
+      local temp, heat, cool, mode
+      for _, v in pairs(vars) do
+        if type(v) == "table" and type(v.name) == "string" then
+          local n = v.name:upper()
+          if n == "TEMPERATURE" or n == "CURRENT_TEMPERATURE" then
+            temp = v.value
+          elseif n == "HEAT_SETPOINT" or n == "HEATSETPOINT" then
+            heat = v.value
+          elseif n == "COOL_SETPOINT" or n == "COOLSETPOINT" then
+            cool = v.value
+          elseif n == "HVAC_MODE" or n == "HVACMODE" then
+            mode = v.value
+          end
+        end
+      end
+      if temp ~= nil or heat ~= nil or cool ~= nil then
+        gRooms:setClimate(roomId, temp, heat, cool, mode)
+      end
+    end
+  end
+end
+
+--- Uploads current state and any completed sessions.
+---
+--- Sessions are TAKEN from the tracker, so a successful upload cannot send the
+--- same span twice — and returned on failure, so a network problem does not
+--- silently delete an evening's history.
+function sendTelemetry()
+  if not gMonitor.enabled or not isPaired() then
+    return
+  end
+
+  local rooms = gRooms:snapshot()
+  if #rooms > 0 then
+    send("telemetry", { kind = "state", rooms = rooms }, "room state")
+  end
+
+  local sessions = gRooms:takeSessions()
+  if #sessions > 0 then
+    log:info("Uploading %d completed session(s)", #sessions)
+    send("telemetry", { kind = "sessions", sessions = sessions }, "sessions", function()
+      -- Delivered. Nothing to do: they are already out of the queue.
+    end)
+    -- The send is asynchronous and its failure path cannot see these, so they
+    -- are held for one cycle and returned if the connection is down at the next
+    -- tick. Imperfect, and deliberately biased toward keeping data.
+    if gFailures > 0 then
+      gRooms:returnSessions(sessions)
+    end
+  end
 end
 
 -- ─── Pairing ──────────────────────────────────────────────────────────────────
@@ -963,6 +1287,13 @@ function OnDriverDestroyed()
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
+  CancelTimer(TELEMETRY_TIMER)
+  CancelTimer(CLIMATE_TIMER)
+  -- Close open sessions so an evening's viewing is not lost because the driver
+  -- reloaded at 11pm. They upload on the next start.
+  pcall(function()
+    gRooms:closeAll()
+  end)
   if gFinder then
     pcall(function()
       gFinder:StopDiscovery()
@@ -1559,6 +1890,10 @@ function EC.UNPAIR()
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
+  CancelTimer(TELEMETRY_TIMER)
+  CancelTimer(CLIMATE_TIMER)
+  gMonitor.enabled = false
+  applyMonitoring()
   gDeviceState = {}
   gHasSnapshot = false
   showPairingState()
