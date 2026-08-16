@@ -210,11 +210,34 @@ end
 --- The survey's APIs. Deliberately returning empty rather than absent, so the
 --- survey exercises its own defensive handling instead of the pcall fallback.
 function C4:GetProjectHierarchy()
-  return { [10] = { name = "Kitchen", type = "Room" } }
+  -- Verified shape from a real controller: nested, child locations keyed by id
+  -- alongside `name`/`type`, and `type` is a NUMBER. 2=site 3=building 4=floor
+  -- 8=room.
+  return {
+    [13] = {
+      name = "Home",
+      type = 2,
+      ["14"] = {
+        name = "House",
+        type = 3,
+        ["15"] = {
+          name = "Main",
+          type = 4,
+          ["16"] = { name = "Living Room", type = 8 },
+          ["222"] = { name = "Kitchen", type = 8 },
+          ["94"] = { name = "Master Bedroom", type = 8 },
+        },
+      },
+    },
+  }
 end
 
 function C4:GetDeviceVariables()
-  return { [1000] = { name = "CURRENT_SELECTED_DEVICE", value = "0" } }
+  -- Verified shape: keyed by variable id, each with name/value/type/readonly.
+  return {
+    [1000] = { name = "CURRENT_SELECTED_DEVICE", value = "0", type = "4", readonly = "False" },
+    [1011] = { name = "POWER_STATE", value = "false", type = "3", readonly = "False" },
+  }
 end
 
 function C4:GetAllCodeItems()
@@ -684,6 +707,22 @@ for _, r in ipairs(requests) do
   end
 end
 check("programming is surveyed", sawCodeItems)
+
+-- The first survey reported "rooms exposing variables: 0" on a project with
+-- rooms, because it read a nested tree as a flat map and compared a numeric
+-- `type` against a string. That wrong answer would have been designed around.
+local sawRooms, sawRoomVars = false, false
+for _, r in ipairs(requests) do
+  local detail = (r.data or {}).detail or ""
+  if detail:find("rooms (type 8): 3", 1, true) then
+    sawRooms = true
+  end
+  if detail:find("rooms exposing variables: 3 of 3", 1, true) then
+    sawRoomVars = true
+  end
+end
+check("rooms are found through the nested tree", sawRooms, "a nested hierarchy with numeric types must yield 3 rooms")
+check("room variables are probed", sawRoomVars)
 
 reset()
 -- Every one of these can be missing on an older OS. The survey must degrade,

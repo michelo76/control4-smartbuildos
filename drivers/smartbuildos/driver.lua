@@ -1318,31 +1318,109 @@ local function surveyTelemetry(lines)
     end
   end
 
+  -- ── Rooms ────────────────────────────────────────────────────────────────
+  --
+  -- The hierarchy is a NESTED tree, not the flat map the first version of this
+  -- survey assumed. A location table carries `name` and `type` alongside its
+  -- CHILD LOCATIONS, keyed by their ids:
+  --
+  --   [13] Home(2) -> "14" House(3) -> "15" Main(4) -> "16" Living Room(8), ...
+  --
+  -- and `type` is a number. Measured on a real project: 2=site, 3=building,
+  -- 4=floor, 8=room. The type distribution is reported below rather than
+  -- assumed, so the mapping stays evidence-based.
+  local ROOM_TYPE = 8
+  local rooms, typeCounts = {}, {}
+
+  local function walk(node, depth)
+    if type(node) ~= "table" or depth > 8 then
+      return
+    end
+    for key, child in pairs(node) do
+      -- `name` and `type` are attributes; every other key is a child location
+      -- id. Numeric-looking keys are the children.
+      local childId = tointeger(key)
+      if childId ~= nil and type(child) == "table" then
+        local t = tointeger(child.type)
+        if t ~= nil then
+          typeCounts[t] = (typeCounts[t] or 0) + 1
+          if t == ROOM_TYPE then
+            rooms[#rooms + 1] = { id = childId, name = child.name }
+          end
+        end
+        walk(child, depth + 1)
+      end
+    end
+  end
+
+  for id, loc in pairs(hierarchy) do
+    local topId = tointeger(id)
+    if topId and type(loc) == "table" then
+      local t = tointeger(loc.type)
+      if t then
+        typeCounts[t] = (typeCounts[t] or 0) + 1
+        if t == ROOM_TYPE then
+          rooms[#rooms + 1] = { id = topId, name = loc.name }
+        end
+      end
+      walk(loc, 1)
+    end
+  end
+
+  local typeSummary = {}
+  for t, n in pairs(typeCounts) do
+    typeSummary[#typeSummary + 1] = string.format("type %d x%d", t, n)
+  end
+  table.sort(typeSummary)
+  note("location types found: %s", table.concat(typeSummary, ", "))
+  note("rooms (type %d): %d", ROOM_TYPE, #rooms)
+
+  local names = {}
+  for i, r in ipairs(rooms) do
+    if i > 12 then
+      break
+    end
+    names[#names + 1] = string.format("%s(%d)", tostring(r.name), r.id)
+  end
+  note("  %s", table.concat(names, ", "))
+
   -- ── Room variables ───────────────────────────────────────────────────────
   --
-  -- These are the customer report: Current_Selected_Device says a room is in
+  -- These ARE the customer report: Current_Selected_Device says a room is in
   -- use, Current_Media_Type says what kind of thing is playing, Power_State is
-  -- the cleanest activity signal. What matters is which are actually POPULATED
-  -- on this project, not which the reference lists.
+  -- the cleanest activity signal. Whether a ROOM answers GetDeviceVariables is
+  -- the open question — the reference only ever shows RegisterVariableListener
+  -- against a room id, never GetDeviceVariables — so it is tried and reported.
   local roomsWithVars, sampled = 0, false
-  for id, loc in pairs(hierarchy) do
-    local locId = tointeger(id)
-    local isRoom = type(loc) == "table" and tostring(loc.type or ""):lower():find("room") ~= nil
-    if locId and isRoom then
-      local okV, vars = pcall(function()
-        return C4:GetDeviceVariables(locId)
-      end)
-      if okV and type(vars) == "table" and count(vars) > 0 then
-        roomsWithVars = roomsWithVars + 1
-        if not sampled then
-          sampled = true
-          note("room %s (%s) has %d variable(s); raw shape:", tostring(locId), tostring(loc.name), count(vars))
-          note("  %s", JSON:encode(vars):sub(1, 900))
+  for _, room in ipairs(rooms) do
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(room.id)
+    end)
+    if okV and type(vars) == "table" and count(vars) > 0 then
+      roomsWithVars = roomsWithVars + 1
+      if not sampled then
+        sampled = true
+        note("room %d (%s) exposes %d variable(s):", room.id, tostring(room.name), count(vars))
+        -- Names only: the full table for a room is far too large for one event,
+        -- and the names are what decide which listeners to register.
+        local varNames = {}
+        for varId, v in pairs(vars) do
+          varNames[#varNames + 1] = string.format(
+            "%s=%s",
+            tostring(type(v) == "table" and v.name or varId),
+            tostring(type(v) == "table" and v.value or "?")
+          )
+        end
+        table.sort(varNames)
+        local joined = table.concat(varNames, " | ")
+        -- Chunked across notes so nothing is lost to the 480-char event cap.
+        for i = 1, math.min(#joined, 1800), 440 do
+          note("    %s", joined:sub(i, i + 439))
         end
       end
     end
   end
-  note("rooms exposing variables: %d", roomsWithVars)
+  note("rooms exposing variables: %d of %d", roomsWithVars, #rooms)
 
   -- ── Programming ──────────────────────────────────────────────────────────
   --
@@ -1355,24 +1433,52 @@ local function surveyTelemetry(lines)
   if not okC or type(codeItems) ~= "table" then
     note("GetAllCodeItems -> %s %s", tostring(okC), tostring(codeItems))
   else
-    local groups, total, disabled, sampledCode = 0, 0, 0, false
+    local groups, total, disabled, lines, withText = 0, 0, 0, 0, 0
+    local sampleText = nil
+
+    --- Programming nests: a code item's `subitems` hold the actual commands,
+    --- and the top level is only the event hook. Counting the top level alone
+    --- reports 123 attachments and says nothing about how much programming
+    --- exists, which is the number the report needs.
+    local function countItem(ci, depth)
+      if type(ci) ~= "table" or depth > 12 then
+        return
+      end
+      lines = lines + 1
+      if ci.enabled == false then
+        disabled = disabled + 1
+      end
+      local display = type(ci.display) == "string" and ci.display or ""
+      if display ~= "" then
+        withText = withText + 1
+        if sampleText == nil then
+          sampleText = display
+        end
+      end
+      if type(ci.subitems) == "table" then
+        for _, sub in pairs(ci.subitems) do
+          countItem(sub, depth + 1)
+        end
+      end
+    end
+
     for groupName, list in pairs(codeItems) do
       groups = groups + 1
       if type(list) == "table" then
         for _, item in pairs(list) do
           total = total + 1
-          local ci = type(item) == "table" and item.codeitem or nil
-          if type(ci) == "table" and ci.enabled == false then
-            disabled = disabled + 1
-          end
-          if not sampledCode and type(ci) == "table" then
-            sampledCode = true
-            note("code item sample (group %s): %s", tostring(groupName), JSON:encode(item):sub(1, 800))
+          if type(item) == "table" then
+            countItem(item.codeitem, 0)
           end
         end
       end
+      note("  group %s: %d attachment(s)", tostring(groupName), total)
     end
-    note("GetAllCodeItems -> %d group(s), %d item(s), %d disabled", groups, total, disabled)
+    note("GetAllCodeItems -> %d group(s), %d event attachment(s)", groups, total)
+    note("  programming lines (incl. nested): %d, with readable text: %d, disabled: %d", lines, withText, disabled)
+    if sampleText then
+      note("  sample line: %s", sampleText:sub(1, 200))
+    end
   end
 
   -- ── Device variables ─────────────────────────────────────────────────────
