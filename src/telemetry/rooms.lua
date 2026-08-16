@@ -30,6 +30,9 @@ local SOURCE = "CURRENT_SELECTED_DEVICE"
 local VIDEO_SOURCE = "CURRENT_VIDEO_DEVICE"
 local MEDIA = "CURRENT_MEDIA"
 local MEDIA_INFO = "CURRENT MEDIA INFO"
+--- Nests a whole <mediainfo> inside <wallmediainfo>; useful when the room
+--- variable is empty but the media wall knows what is playing.
+local MEDIA_WALL = "MEDIA WALL INFO"
 local VOLUME = "CURRENT_VOLUME"
 local MUTED = "IS_MUTED"
 local NAVIGATION = "IN_NAVIGATION"
@@ -82,6 +85,7 @@ function Rooms:room(roomId, roomName)
       source_name = nil,
       media_title = nil,
       media_artist = nil,
+      media_album = nil,
       media_type = nil,
       volume = nil,
       muted = false,
@@ -170,7 +174,7 @@ function Rooms:apply(roomId, roomName, name, value)
         -- A room that is off is not playing anything. Leaving stale media on
         -- the record makes the client app claim a dark room is playing music.
         r.source_device_id, r.source_name = nil, nil
-        r.media_title, r.media_artist, r.media_type = nil, nil, nil
+        r.media_title, r.media_artist, r.media_album, r.media_type = nil, nil, nil, nil
       end
     end
   elseif name == SOURCE or name == VIDEO_SOURCE then
@@ -186,10 +190,17 @@ function Rooms:apply(roomId, roomName, name, value)
         self:openSession(r)
       end
     end
-  elseif name == MEDIA or name == MEDIA_INFO then
-    local title, artist = self.parseMedia(value)
-    if title ~= r.media_title or artist ~= r.media_artist then
-      r.media_title, r.media_artist = title, artist
+  elseif name == MEDIA or name == MEDIA_INFO or name == MEDIA_WALL then
+    local title, artist, mediaType, album = self.parseMedia(value)
+    -- An empty payload must not wipe what another media variable just set:
+    -- CURRENT_MEDIA reports an empty shell while CURRENT MEDIA INFO carries the
+    -- real record, and they arrive as separate changes.
+    if title == nil and artist == nil and album == nil then
+      return false
+    end
+    if title ~= r.media_title or artist ~= r.media_artist or album ~= r.media_album then
+      r.media_title, r.media_artist, r.media_album = title, artist, album
+      r.media_type = mediaType or r.media_type
       changed = true
       -- Deliberately does NOT split the session: a new track is not a new
       -- viewing. The session carries what was playing when it started, and the
@@ -225,25 +236,71 @@ function Rooms:apply(roomId, roomName, name, value)
   return changed
 end
 
---- Parses whatever a room reports as "what is playing".
+--- Parses what a room reports as "what is playing".
 ---
---- Control4's media strings are not a schema we control: different sources
---- write different things, and this project's rooms were idle when surveyed so
---- the real formats are unverified. The rules are therefore conservative —
---- recognise the common "Artist - Title" shape, otherwise keep the whole string
---- as the title rather than guessing a split and mislabelling an artist.
---- @return string|nil title, string|nil artist
+--- ── THE FORMAT IS XML, MEASURED NOT ASSUMED ─────────────────────────────────
+---
+--- The first version of this split on " - ", which was a guess. A real system
+--- reports:
+---
+---   <mediainfo><roomId>16</roomId><mediatype>SONG</mediatype>
+---     <artist>Joseph Zenny Jr</artist><album>Mpap Pale - Single</album>...
+---
+--- Note the album contains " - ". The hyphen heuristic would have taken "Mpap
+--- Pale" as an artist — precisely the silent mislabelling it was meant to avoid.
+---
+--- Tags are extracted by name rather than by position, so a field we have not
+--- seen yet is simply ignored instead of shifting everything after it. The
+--- non-XML path is kept because MEDIA WALL INFO and other sources may not use
+--- this shape, and a plain string should still show something useful.
+---
+--- @return string|nil title, string|nil artist, string|nil mediaType, string|nil album
 function Rooms.parseMedia(value)
   local s = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
   if s == "" then
-    return nil, nil
+    return nil, nil, nil, nil
   end
-  -- Only a spaced hyphen: "All By Myself" and "Spider-Man" must not be split.
+
+  if s:find("<", 1, true) then
+    --- @param name string
+    --- @return string|nil
+    local function tag(name)
+      -- Non-greedy, and only the first occurrence: MEDIA WALL INFO nests a
+      -- whole <mediainfo> inside <wallmediainfo>, so a greedy match would span
+      -- from the outer open tag to the inner close.
+      local v = s:match("<" .. name .. ">(.-)</" .. name .. ">")
+      if v == nil then
+        return nil
+      end
+      v = v:gsub("^%s+", ""):gsub("%s+$", "")
+      return v ~= "" and v or nil
+    end
+
+    -- `title` is the expected tag but has not been confirmed on hardware yet,
+    -- so several plausible names are tried before giving up. Anything unknown
+    -- falls through to nil rather than to a wrong field.
+    local title = tag("title") or tag("name") or tag("song") or tag("track")
+    local artist = tag("artist") or tag("albumartist")
+    local album = tag("album")
+    local mediaType = tag("mediatype")
+    if mediaType then
+      mediaType = mediaType:lower()
+    end
+
+    -- An empty shell — CURRENT_MEDIA reports <mediainfo><mediaid>0</mediaid>
+    -- <mediatype/></mediainfo> even while a song is playing — carries nothing.
+    if title == nil and artist == nil and album == nil and mediaType == nil then
+      return nil, nil, nil, nil
+    end
+    return title, artist, mediaType, album
+  end
+
+  -- Plain text. Only a SPACED hyphen separates, so "Spider-Man" stays whole.
   local artist, title = s:match("^(.-)%s+%-%s+(.+)$")
   if artist and title and #artist > 0 and #title > 0 then
-    return title, artist
+    return title, artist, nil, nil
   end
-  return s, nil
+  return s, nil, nil, nil
 end
 
 --- Sets climate on a room, sampled rather than watched — temperature moves
@@ -268,6 +325,7 @@ function Rooms:snapshot()
       source_name = r.source_name,
       media_title = r.media_title,
       media_artist = r.media_artist,
+      media_album = r.media_album,
       media_type = r.media_type,
       volume = r.volume,
       muted = r.muted,

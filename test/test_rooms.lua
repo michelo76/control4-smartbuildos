@@ -77,15 +77,45 @@ print("\n[3] A track change does not split the session")
 -- began; the current track lives in state.
 t, clock = tracker()
 t:apply(16, "Living Room", "POWER_STATE", "1")
-t:apply(16, nil, "CURRENT_MEDIA", "Celine Dion - All By Myself")
+t:apply(16, nil, "CURRENT MEDIA INFO", "Celine Dion - All By Myself")
 clock.ms = 10 * 60 * 1000
-t:apply(16, nil, "CURRENT_MEDIA", "Fleetwood Mac - Dreams")
+t:apply(16, nil, "CURRENT MEDIA INFO", "Fleetwood Mac - Dreams")
 check("still one open session", #t.completed == 0, #t.completed)
 local state = t:snapshot()[1]
 check("state shows the CURRENT track", state.media_title == "Dreams", state.media_title)
 check("and the current artist", state.media_artist == "Fleetwood Mac", state.media_artist)
 
-print("\n[4] Media strings are parsed conservatively")
+print("\n[4a] The real XML format, measured on hardware")
+
+-- Verbatim shape from a live system. The album contains " - ", which the old
+-- hyphen heuristic would have read as an artist separator — the exact silent
+-- mislabelling it was written to avoid.
+local XML = "<mediainfo><roomId>16</roomId><mediatype>SONG</mediatype>"
+  .. "<artist>Joseph Zenny Jr</artist><album>Mpap Pale - Single</album>"
+  .. "<title>Mpap Pale</title></mediainfo>"
+
+local xTitle, xArtist, xType, xAlbum = Rooms.parseMedia(XML)
+check("artist comes from its own tag", xArtist == "Joseph Zenny Jr", xArtist)
+check("title comes from its own tag", xTitle == "Mpap Pale", xTitle)
+check("the album is kept whole despite containing ' - '", xAlbum == "Mpap Pale - Single", xAlbum)
+check("media type is normalised", xType == "song", xType)
+
+-- CURRENT_MEDIA reports this WHILE a song is playing. It must not be mistaken
+-- for real metadata, or it wipes what CURRENT MEDIA INFO just set.
+local eTitle, eArtist = Rooms.parseMedia("<mediainfo><mediaid>0</mediaid><mediatype/></mediainfo>")
+check("an empty shell yields nothing", eTitle == nil and eArtist == nil, tostring(eTitle))
+
+-- MEDIA WALL INFO nests a whole mediainfo inside wallmediainfo. A greedy match
+-- would span from the outer tag to the inner close and capture rubbish.
+local wTitle, wArtist = Rooms.parseMedia(
+  "<wallmediainfo><notifyDevId>83</notifyDevId><mediainfo><roomId>16</roomId>"
+    .. "<mediatype>SONG</mediatype><artist>Joseph Zenny Jr</artist></mediainfo></wallmediainfo>"
+)
+check("nested media wall info still yields the artist", wArtist == "Joseph Zenny Jr", wArtist)
+
+check("an empty wall record yields nothing", (Rooms.parseMedia("<wallmediainfo/>")) == nil)
+
+print("\n[4] Plain-text media is still parsed conservatively")
 
 -- These are not a schema we control: different sources write different things.
 -- Guessing a split wrongly mislabels an artist, which is worse than not
@@ -115,7 +145,7 @@ print("\n[5] A room that is off is not playing anything")
 -- playing music.
 t, clock = tracker()
 t:apply(16, "Living Room", "POWER_STATE", "1")
-t:apply(16, nil, "CURRENT_MEDIA", "Celine Dion - All By Myself")
+t:apply(16, nil, "CURRENT MEDIA INFO", "Celine Dion - All By Myself")
 t:apply(16, nil, "CURRENT_SELECTED_DEVICE", "100")
 clock.ms = 60000
 t:apply(16, nil, "POWER_STATE", "0")
@@ -198,6 +228,23 @@ clock.ms = 45 * 60 * 1000
 t:closeAll()
 check("an open session is closed and kept", #t.completed == 1, #t.completed)
 check("with the duration up to that moment", t.completed[1].duration_seconds == 2700)
+
+print("\n[12a] An empty media payload does not wipe what another variable set")
+
+-- CURRENT_MEDIA and CURRENT MEDIA INFO arrive as separate changes, and the
+-- former is an empty shell while the latter carries the record.
+t = tracker()
+t:apply(16, "R", "POWER_STATE", "1")
+t:apply(
+  16,
+  nil,
+  "CURRENT MEDIA INFO",
+  "<mediainfo><mediatype>SONG</mediatype><artist>Joseph Zenny Jr</artist><title>Mpap Pale</title></mediainfo>"
+)
+t:apply(16, nil, "CURRENT_MEDIA", "<mediainfo><mediaid>0</mediaid><mediatype/></mediainfo>")
+state = t:snapshot()[1]
+check("the real record survives the empty one", state.media_artist == "Joseph Zenny Jr", state.media_artist)
+check("and so does the title", state.media_title == "Mpap Pale", state.media_title)
 
 print("\n[13] Climate rides alongside activity")
 

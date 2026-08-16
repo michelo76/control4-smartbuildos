@@ -976,7 +976,11 @@ function applyMonitoring()
         for varId, v in pairs(vars) do
           local id = tointeger(varId)
           local name = type(v) == "table" and v.name or nil
-          if id and name and wanted[name] then
+          -- Media is always seeded, listener or not: the client app should
+          -- show what is playing the moment monitoring is enabled, and these
+          -- variables are the only source for it.
+          local isMedia = name == "CURRENT MEDIA INFO" or name == "MEDIA WALL INFO" or name == "CURRENT_MEDIA"
+          if id and name and (wanted[name] or isMedia) then
             names[id] = name
             pcall(function()
               C4:RegisterVariableListener(room.id, id)
@@ -994,6 +998,11 @@ function applyMonitoring()
 
   gListening = registered > 0
   log:info("Room monitoring on: %d listener(s)", registered)
+
+  -- Seeded state is uploaded immediately rather than at the first timer tick.
+  -- An installer who has just switched monitoring on should see the rooms
+  -- appear, not wait five minutes wondering whether it worked.
+  sendTelemetry()
 
   SetTimer(TELEMETRY_TIMER, 5 * 60 * ONE_SECOND, function()
     sendTelemetry()
@@ -1848,6 +1857,13 @@ end
 --- rather than copied out of a Lua window.
 function EC.REPORT_TELEMETRY_SURVEY()
   log:trace("EC.REPORT_TELEMETRY_SURVEY()")
+  -- Also refresh the stored catalogue: its sample values are how the platform
+  -- learns what a variable actually looks like, and they only update when this
+  -- runs or the configuration changes.
+  if isPaired() and gMonitor.enabled then
+    pcall(sendCatalogue)
+    pcall(sendTelemetry)
+  end
   local lines = {}
   local ok, err = pcall(surveyTelemetry, lines)
   if not ok then
