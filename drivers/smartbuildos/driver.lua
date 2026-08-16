@@ -13,6 +13,12 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
+-- REQUIRED, even though nothing here names it: `lib.http` calls the GLOBAL
+-- `urlDo`, which this module defines. Without it every request throws
+-- "attempt to call a nil value" inside the handler's xpcall, which prints and
+-- swallows it — so the driver sits on whatever status it set before the call
+-- (a pairing attempt hangs on "Pairing...") and nothing else ever happens.
+require("drivers-common-public.global.url")
 
 JSON = require("JSON")
 
