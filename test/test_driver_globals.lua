@@ -119,16 +119,36 @@ check("IsEmpty is defined", type(IsEmpty) == "function", type(IsEmpty))
 
 print("\n[2] The driver's own entry points are registered")
 
-for _, name in ipairs({ "TEST_CONNECTION", "SEND_HEARTBEAT", "SEND_FULL_SYNC", "POLL_DEVICES", "UNPAIR", "SEND_EVENT" }) do
+for _, name in ipairs({
+  "TEST_CONNECTION",
+  "SEND_HEARTBEAT",
+  "SEND_FULL_SYNC",
+  "POLL_DEVICES",
+  "UNPAIR",
+  "SEND_EVENT",
+  "REPORT_DIAGNOSTICS",
+}) do
   check(string.format("EC.%s is callable", name), type(EC[name]) == "function", type(EC[name]))
 end
 
-for _, name in ipairs({ "Pairing_Code", "API_URL", "Log_Level", "Log_Mode", "Device_Poll_Interval" }) do
+for _, name in ipairs({
+  "Pairing_Code",
+  "API_URL",
+  "Log_Level",
+  "Log_Mode",
+  "Device_Poll_Interval",
+  "Non_Control4_Devices",
+}) do
   check(string.format("OPC.%s is callable", name), type(OPC[name]) == "function", type(OPC[name]))
 end
 
 check("TC.SMARTBUILDOS_CONNECTED is callable", type(TC.SMARTBUILDOS_CONNECTED) == "function")
 check("TC.SMARTBUILDOS_PAIRED is callable", type(TC.SMARTBUILDOS_PAIRED) == "function")
+
+-- Director calls this by name for every registered system event. A rename or a
+-- missing definition means pushed online/offline silently stops working and only
+-- the poll keeps the data alive.
+check("OnSystemEvent is defined for Director to call", type(OnSystemEvent) == "function", type(OnSystemEvent))
 
 print("\n[3] The real transport is reachable, not just present")
 

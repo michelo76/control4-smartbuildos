@@ -225,7 +225,7 @@ Properties = {
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
   ["Last Successful Sync"] = "Never",
-  ["Monitored Endpoints"] = "",
+  ["Non Control4 Devices"] = "",
   ["Devices Offline"] = "0",
   ["Last Device Change"] = "",
   ["Device Poll Interval"] = "5m",
@@ -437,7 +437,7 @@ check("Devices Offline is back to zero", Properties["Devices Offline"] == "0", P
 print("\n[11] Non-Control4 endpoints are monitored by ping")
 pair()
 reset()
-Properties["Monitored Endpoints"] = "Core Switch=192.168.1.2, NAS=192.168.1.10, 192.168.1.99"
+Properties["Non Control4 Devices"] = "Core Switch=192.168.1.2, NAS=192.168.1.10, 192.168.1.99"
 PINGABLE["192.168.1.2"] = true
 PINGABLE["192.168.1.10"] = true
 PINGABLE["192.168.1.99"] = false
@@ -467,7 +467,7 @@ local pingDelta = ((lastRequestTo("/devices") or {}).data or {}).devices or {}
 check("one change reported", #pingDelta == 1, #pingDelta)
 check("it is the core switch", (pingDelta[1] or {}).name == "Core Switch")
 check("Device Went Offline fired", firedEvents[#firedEvents] == "Device Went Offline")
-Properties["Monitored Endpoints"] = ""
+Properties["Non Control4 Devices"] = ""
 PINGABLE = {}
 
 print("\n[13] Connected/Disconnected fire on transition only")

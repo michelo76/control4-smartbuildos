@@ -26,7 +26,7 @@ Three sources, because no single one sees everything:
 | Source          | Covers                                                                                                                        | How                                                                          |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | **Director**    | Everything bound into the project, Control4 or not — a Sony TV over IP, a Denon receiver, an Araknis switch, keypads, dimmers | `GetNetworkConnections`, giving online state plus address, port and firmware |
-| **Ping**        | Anything else with an IP — core switches, access points, NAS, cameras, printers                                               | ICMP against the hosts you list in **Monitored Endpoints**                   |
+| **Ping**        | Anything else with an IP — core switches, access points, NAS, cameras, printers                                               | ICMP against the hosts you list in **Non Control4 Devices**                  |
 | **Programming** | Anything neither of the above can see — a rack door contact, a UPS on battery                                                 | The `SEND_EVENT` command                                                     |
 
 Director reports IP, Zigbee, Z-Wave, SSL and hostname bindings. A binding's
@@ -37,10 +37,10 @@ healthy.
 **What Director cannot tell you:** devices with no network binding at all —
 IR-controlled sources, serial-only gear, dumb loads — never appear, so they have
 no online state to report. Put anything you care about that falls in that gap
-behind a `SEND_EVENT` in programming, or give it an IP and list it under
-Monitored Endpoints.
+behind a `SEND_EVENT` in programming, or give it an IP and list it under Non
+Control4 Devices.
 
-### Monitored Endpoints
+### Non Control4 Devices
 
 A comma-separated list. Each entry is either `Label=host` or a bare host:
 
@@ -80,7 +80,7 @@ project coming online at once.
 | Connection Status    | Read-only. `Connected`, `Unreachable`, `HTTP <code>`, `Not paired`, or a pairing failure. |
 | Last Successful Sync | Read-only timestamp of the last accepted payload.                                         |
 | Device Poll Interval | 1m / 5m / 15m / 30m. Default 5m.                                                          |
-| Monitored Endpoints  | Non-Control4 hosts to reach by ping.                                                      |
+| Non Control4 Devices | Devices with no Control4 driver, reached directly by IP.                                  |
 | Devices Offline      | Read-only count of devices currently down.                                                |
 | Last Device Change   | Read-only. The most recent device to change state.                                        |
 | Heartbeat Interval   | 5m / 15m / 30m / 1h / 6h. Default 15m.                                                    |
@@ -102,6 +102,11 @@ project coming online at once.
 **Events:** `Connected`, `Disconnected`, `Sync Failed`, `Paired`,
 `Device Went Offline`, `Device Came Online`.
 
+Device state is both **pushed and polled**. The driver registers for Director's
+own online/offline system events, so a change is reported within seconds; the
+poll remains as the backstop that reconciles anything missed while the driver
+was reloading.
+
 Connected/Disconnected fire only on a state *transition*, so an extended outage
 produces one notification, not one per heartbeat. The same is true of a device
 that stays down: it is reported once when it drops and once when it recovers.
@@ -112,7 +117,7 @@ that stays down: it is reported once when it drops and once when it recovers.
 
 ## Requirements
 
-Control4 OS **3.3.1** or later. The ping interface used for Monitored Endpoints
+Control4 OS **3.3.1** or later. The ping interface used for Non Control4 Devices
 was added in 3.3.1; on an older controller the driver disables itself and says
 so in Driver Status rather than silently monitoring less than you configured.
 

@@ -196,10 +196,10 @@
         <description>How often Director is polled for device online/offline changes</description>
       </property>
       <property>
-        <name>Monitored Endpoints</name>
+        <name>Non Control4 Devices</name>
         <type>STRING</type>
         <default/>
-        <description>Non-Control4 devices to reach by ping, comma separated. Label=host or bare host, e.g. Core Switch=192.168.1.2, NAS=192.168.1.10, 192.168.1.50</description>
+        <description>Devices with no Control4 driver, reached directly by IP. Comma separated, Label=host or bare host, e.g. Core Switch=192.168.1.2, NAS=192.168.1.10, 192.168.1.50</description>
       </property>
       <property>
         <name>Devices Offline</name>

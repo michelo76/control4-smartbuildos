@@ -295,7 +295,7 @@ end
 
 -- ─── Non-Control4 endpoints, via ICMP ─────────────────────────────────────────
 
---- Parses the Monitored Endpoints property.
+--- Parses the Non Control4 Devices property.
 ---
 --- Director only knows about devices that are bound into the project, so a core
 --- switch, an access point, a NAS or an IP camera with no driver is invisible to
@@ -308,7 +308,7 @@ end
 local function parseEndpoints()
   local endpoints = {}
   local seen = {}
-  for entry in (Properties["Monitored Endpoints"] or ""):gmatch("[^,]+") do
+  for entry in (Properties["Non Control4 Devices"] or ""):gmatch("[^,]+") do
     local name, host = entry:match("^%s*(.-)%s*=%s*(.-)%s*$")
     if host == nil or host == "" then
       host = entry:gsub("^%s+", ""):gsub("%s+$", "")
@@ -340,7 +340,7 @@ local function pingEndpoints(done)
   end
 
   if C4.CreatePingClient == nil then
-    log:warn("This controller's OS does not provide the ping API; skipping %d monitored endpoint(s)", #endpoints)
+    log:warn("This controller's OS does not provide the ping API; skipping %d non-Control4 device(s)", #endpoints)
     done({})
     return
   end
@@ -688,11 +688,68 @@ function OnDriverLateInit()
     return
   end
 
+  registerSystemEvents()
   scheduleTimers()
   -- Report in immediately so a controller that just rebooted shows up in
   -- SmartBuildOS without waiting out a full heartbeat interval.
   sendFullSync()
   sendHeartbeat()
+end
+
+--- Director's own online/offline notifications.
+---
+--- 48/49 fire the moment a device's link changes, so an outage is reported in
+--- seconds rather than at the next poll. Polling stays as the backstop: an event
+--- missed while the driver was reloading would otherwise never be reconciled,
+--- and the periodic snapshot is what repairs that.
+---
+--- 17/18 cover a binding being added or removed — a device joining or leaving
+--- the project — and 78 is SDDP, which is how Control4 learns about announcing
+--- devices in the first place.
+local SYSTEM_EVENTS = {
+  [17] = "OnNetworkBindingAdded",
+  [18] = "OnNetworkBindingRemoved",
+  [48] = "OnDeviceOnline",
+  [49] = "OnDeviceOffline",
+  [78] = "OnSDDPDeviceStatus",
+}
+
+local function registerSystemEvents()
+  if C4.RegisterSystemEvent == nil then
+    log:warn("This controller's OS does not provide RegisterSystemEvent; falling back to polling only")
+    return
+  end
+  for id, name in pairs(SYSTEM_EVENTS) do
+    local ok, err = pcall(function()
+      -- Device id 0 registers for the event system-wide rather than for one
+      -- device, which is the whole point here.
+      C4:RegisterSystemEvent(id, 0)
+    end)
+    if ok then
+      log:debug("Registered for system event %d (%s)", id, name)
+    else
+      log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
+    end
+  end
+end
+
+--- Director calls this for every event registered above.
+---
+--- The payload is documented as event-specific and "in most cases can be
+--- ignored", and it does not reliably say WHICH device moved. So this does not
+--- try to parse it: it debounces into a single poll, which reads the authorative
+--- state for the whole project anyway. A burst of twenty devices coming back
+--- after a switch reboots therefore costs one sync, not twenty.
+function OnSystemEvent(data)
+  log:debug("OnSystemEvent(%s)", tostring(data))
+  if not isPaired() then
+    return
+  end
+  CancelTimer("SystemEventDebounce")
+  SetTimer("SystemEventDebounce", 5 * ONE_SECOND, function()
+    log:info("Director reported a device state change; polling")
+    pollDeviceState()
+  end)
 end
 
 function OnDriverDestroyed()
@@ -786,10 +843,10 @@ function OPC.Device_Poll_Interval(propertyValue)
   end
 end
 
---- Editing the endpoint list re-baselines immediately rather than waiting for
---- the next poll, so a dealer who just added a switch sees it appear.
-function OPC.Monitored_Endpoints(propertyValue)
-  log:trace("OPC.Monitored_Endpoints('%s')", propertyValue)
+--- Editing the list re-baselines immediately rather than waiting for the next
+--- poll, so a dealer who just added a switch sees it appear.
+function OPC.Non_Control4_Devices(propertyValue)
+  log:trace("OPC.Non_Control4_Devices('%s')", propertyValue)
   if gInitialized and isPaired() then
     pollDeviceState()
   end
