@@ -122,6 +122,10 @@ local PROJECT = {
   [99] = { deviceName = "IR Blaster", roomName = "Media", driverFileName = "ir.c4z" },
 }
 
+--- The shape a real controller returns: the network binding is NESTED under a
+--- `bindings` array, next to control bindings that carry no address at all. A
+--- parser that indexes the top level (as the API reference's example implies)
+--- finds nothing — which is exactly the bug this models.
 local BINDINGS = {
   [63] = { networkbindingid = 6001, addr = "127.0.0.1", status = "online", addresstype = 1, deviceid = 63 },
   [43] = { networkbindingid = 6001, addr = "192.168.1.40", status = "online", addresstype = 2, deviceid = 43 },
@@ -133,8 +137,32 @@ function C4:GetDevices()
   return PROJECT
 end
 
+--- Deliberately returns NOTHING useful, so the fallback to GetBindingsByDevice
+--- is exercised rather than assumed.
+function C4:GetNetworkBindingsByDevice()
+  return nil
+end
+
 function C4:GetBindingsByDevice(deviceId)
-  return BINDINGS[deviceId]
+  local binding = BINDINGS[deviceId]
+  if binding == nil then
+    -- A device with only control bindings: nested, and carrying no address.
+    return {
+      bindings = {
+        {
+          binding_info = "",
+          bindingid = 5001,
+          bindingclasses = { { autobind = true, class = "CONTROLLER", rank = 0 } },
+        },
+      },
+    }
+  end
+  return {
+    bindings = {
+      { binding_info = "", bindingid = 5001, bindingclasses = { { autobind = true, class = "CONTROLLER", rank = 0 } } },
+      binding,
+    },
+  }
 end
 
 local UNUSED_CONNECTIONS = {

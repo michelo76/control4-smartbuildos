@@ -210,40 +210,78 @@ end
 
 -- ─── Device state, from Director ──────────────────────────────────────────────
 
---- Returns the network binding for a device, or nil when it has none.
+--- Finds the network-binding table for a device, or nil when it has none.
 ---
---- The shape `C4:GetBindingsByDevice` returns is not something to assume: a
---- single binding comes back as a flat table of keys, several as a list. Both
---- are handled, and anything without an `addr` or `status` is ignored — a
---- serial or IR binding carries neither and says nothing about reachability.
+--- ── WHY THIS SEARCHES RATHER THAN INDEXES ───────────────────────────────────
+---
+--- The API reference shows `GetBindingsByDevice` returning a flat table of
+--- `addr` / `status` / `networkbindingid`. A real controller returns something
+--- else entirely:
+---
+---   {"bindings":[{"binding_info":"","bindingclasses":[...],"bindingid":5001,
+---                 "boundconsumers":[...]}]}
+---
+--- — control bindings, nested one level under `bindings`. A parser written to
+--- the documented shape found no `addr` and rejected every device in the
+--- project, which is why nothing was ever reported.
+---
+--- Rather than swap one assumed shape for another, this walks the structure and
+--- takes the first table carrying an `addr` or a `status`, whatever depth it
+--- sits at. Both binding APIs are tried, because the network-specific one is a
+--- separate call and either may be the one that carries the address.
 ---
 --- @param deviceId number
 --- @return table<string, any>|nil binding
 local function networkBinding(deviceId)
-  local ok, raw = pcall(function()
-    return C4:GetBindingsByDevice(deviceId)
-  end)
-  if not ok or type(raw) ~= "table" then
-    return nil
-  end
+  --- Depth-bounded search for the first table that looks like a network
+  --- binding. Bounded because these structures nest arbitrarily and a cycle
+  --- would otherwise hang the poll.
+  local function findAddressed(node, depth, seen)
+    if type(node) ~= "table" or depth > 6 or seen[node] then
+      return nil
+    end
+    seen[node] = true
 
-  local candidates = {}
-  if raw.status ~= nil or raw.addr ~= nil or raw.networkbindingid ~= nil then
-    candidates[1] = raw
-  else
-    for _, entry in pairs(raw) do
-      if type(entry) == "table" then
-        table.insert(candidates, entry)
+    -- An `addr` is unambiguous — only a network binding has one. A bare
+    -- `status` is weaker evidence, since a control binding could plausibly
+    -- carry an unrelated field of that name, so it is held as a fallback and
+    -- only used if nothing addressed turns up anywhere in the structure.
+    if node.addr ~= nil then
+      return node, nil
+    end
+
+    local fallback = node.status ~= nil and node or nil
+    for _, child in pairs(node) do
+      local found, childFallback = findAddressed(child, depth + 1, seen)
+      if found ~= nil then
+        return found, nil
       end
+      fallback = fallback or childFallback
     end
+    return nil, fallback
   end
 
-  for _, entry in ipairs(candidates) do
-    if entry.status ~= nil or entry.addr ~= nil then
-      return entry
+  local getters = {
+    function()
+      return C4:GetNetworkBindingsByDevice(deviceId)
+    end,
+    function()
+      return C4:GetBindingsByDevice(deviceId)
+    end,
+  }
+
+  local fallback = nil
+  for _, get in ipairs(getters) do
+    local ok, raw = pcall(get)
+    if ok and type(raw) == "table" then
+      local binding, statusOnly = findAddressed(raw, 0, {})
+      if binding ~= nil then
+        return binding
+      end
+      fallback = fallback or statusOnly
     end
   end
-  return nil
+  return fallback
 end
 
 --- Reads every project device and whatever Director knows about its link.
@@ -1031,7 +1069,7 @@ local function diagnose(lines)
       type(rawId),
       tostring(device and (device.deviceName or device.name)),
       tostring(okB),
-      okB and (type(raw) == "table" and JSON:encode(raw):sub(1, 220) or tostring(raw)) or tostring(raw)
+      okB and (type(raw) == "table" and JSON:encode(raw):sub(1, 1200) or tostring(raw)) or tostring(raw)
     )
   end
 end
