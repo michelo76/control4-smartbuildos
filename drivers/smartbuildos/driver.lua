@@ -91,6 +91,8 @@ local gFailures = 0
 local gDeviceState = {}
 --- @type boolean Whether a snapshot has been taken since the driver loaded.
 local gHasSnapshot = false
+--- @type boolean Whether the empty-project diagnosis has already been sent.
+local gDiagnosedEmpty = false
 
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
@@ -466,6 +468,15 @@ local function sendFullSync()
     UpdateProperty("Devices Offline", tostring(offlineCount(devices)))
     log:info("Sending full sync of %d device(s)", #list)
     send("devices", { kind = "snapshot", devices = list }, "full sync")
+
+    -- A project with no visible devices is either a genuinely empty project or a
+    -- driver that cannot see it. Those look identical from the platform, so say
+    -- which — once per driver load, because this is a diagnosis, not telemetry.
+    if #list == 0 and not gDiagnosedEmpty then
+      gDiagnosedEmpty = true
+      log:warn("Full sync found no devices; reporting diagnostics")
+      reportDiagnostics(true)
+    end
   end)
 end
 
@@ -910,67 +921,148 @@ function EC.SEND_FULL_SYNC()
   sendFullSync()
 end
 
---- Prints what Director actually returns, for when it disagrees with the docs.
+--- Reports what Director actually returns, to the log AND to SmartBuildOS.
 ---
---- Two APIs here were documented ambiguously enough to be read the wrong way
---- (`GetNetworkConnections` is per-caller, not system-wide), and each wrong
---- reading cost a release. This prints the raw shapes so the next disagreement
---- is settled by the controller rather than by inference.
+--- Two enumeration APIs have now been read the wrong way from the reference
+--- (`GetNetworkConnections` is per-caller; `GetDevices` may not be returning
+--- what its examples imply), and each wrong reading cost a release. Guessing a
+--- third time is not a plan, so this tries every documented way to enumerate a
+--- project, records what each one yields, and ships the answer somewhere it can
+--- be read without anyone copying text out of a Lua window.
+---
+--- @param lines string[] Accumulator, also printed.
+local function diagnose(lines)
+  local function note(fmt, ...)
+    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    table.insert(lines, line)
+    log:print(line)
+  end
+
+  note(
+    "controller=%s os=%s driver=%s",
+    tostring(C4:GetSystemType()),
+    tostring(C4:GetVersionInfo().version),
+    tostring(C4:GetDriverConfigInfo("version"))
+  )
+
+  --- Counts a table's entries whether it is a list or a map.
+  local function count(t)
+    if type(t) ~= "table" then
+      return -1
+    end
+    local n = 0
+    for _ in pairs(t) do
+      n = n + 1
+    end
+    return n
+  end
+
+  --- Every way the reference documents to enumerate a project. Whichever
+  --- returns something is the one to build on.
+  local attempts = {
+    {
+      "GetDevices({})",
+      function()
+        return C4:GetDevices({})
+      end,
+    },
+    {
+      "GetDevices()",
+      function()
+        return C4:GetDevices()
+      end,
+    },
+    {
+      "GetDevices({},nil)",
+      function()
+        return C4:GetDevices({}, nil)
+      end,
+    },
+    {
+      "GetNetworkConnections()",
+      function()
+        return C4:GetNetworkConnections()
+      end,
+    },
+  }
+
+  local devices = nil
+  for _, attempt in ipairs(attempts) do
+    local ok, result = pcall(attempt[2])
+    if not ok then
+      note("%s -> ERROR %s", attempt[1], tostring(result))
+    else
+      note("%s -> %s, %d entr(ies)", attempt[1], type(result), count(result))
+      if devices == nil and type(result) == "table" and count(result) > 0 then
+        devices = result
+      end
+    end
+  end
+
+  -- GetProjectItems returns XML, so its size alone says whether the project is
+  -- visible to this driver at all.
+  local okItems, items = pcall(function()
+    return C4:GetProjectItems("DEVICES", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+  end)
+  if okItems and type(items) == "string" then
+    note("GetProjectItems -> %d chars; head=%s", #items, items:sub(1, 160))
+  else
+    note("GetProjectItems -> %s %s", tostring(okItems), tostring(items))
+  end
+
+  if devices == nil then
+    note("NO enumeration returned anything. This driver cannot see the project.")
+    return
+  end
+
+  local shown = 0
+  for rawId, device in pairs(devices) do
+    if shown >= 6 then
+      break
+    end
+    shown = shown + 1
+    local id = tointeger(rawId)
+    local okB, raw = pcall(function()
+      return C4:GetBindingsByDevice(id or rawId)
+    end)
+    note(
+      "dev[%s] key=%s name=%s -> bindings %s: %s",
+      tostring(rawId),
+      type(rawId),
+      tostring(device and (device.deviceName or device.name)),
+      tostring(okB),
+      okB and (type(raw) == "table" and JSON:encode(raw):sub(1, 220) or tostring(raw)) or tostring(raw)
+    )
+  end
+end
+
+--- Runs the diagnosis and, when paired, posts it so it can be read remotely.
+--- Chunked because the event endpoint bounds `detail`; one line per event keeps
+--- each well inside that and keeps them readable in order.
+--- @param toCloud boolean
+local function reportDiagnostics(toCloud)
+  local lines = {}
+  local ok, err = pcall(diagnose, lines)
+  if not ok then
+    table.insert(lines, "diagnose() itself failed: " .. tostring(err))
+    log:error("diagnose() failed: %s", tostring(err))
+  end
+
+  if not toCloud or not isPaired() then
+    return
+  end
+  for i, line in ipairs(lines) do
+    send("event", {
+      kind = "event",
+      name = string.format("diagnostics %02d", i),
+      detail = line:sub(1, 480),
+    }, "diagnostic line " .. i)
+  end
+end
+
 function EC.REPORT_DIAGNOSTICS()
   log:trace("EC.REPORT_DIAGNOSTICS()")
-  log:print(
-    "── SmartBuildOS diagnostics ──────────────────────────────"
-  )
-  log:print("controller: %s  OS %s", tostring(C4:GetSystemType()), tostring(C4:GetVersionInfo().version))
-
-  local devices = C4:GetDevices({}) or {}
-  local count = 0
-  for _ in pairs(devices) do
-    count = count + 1
-  end
-  log:print("C4:GetDevices({}) returned %d device(s)", count)
-
-  local shown, withBinding = 0, 0
-  for rawId, device in pairs(devices) do
-    local id = tointeger(rawId)
-    local raw = nil
-    if id ~= nil then
-      local ok, result = pcall(function()
-        return C4:GetBindingsByDevice(id)
-      end)
-      raw = ok and result or nil
-    end
-    local binding = id and networkBinding(id) or nil
-    if binding then
-      withBinding = withBinding + 1
-    end
-    -- Cap the per-device dump: a large project would otherwise flood the window
-    -- and push the summary out of scrollback.
-    if shown < 12 then
-      shown = shown + 1
-      log:print(
-        "  [%s] %s | room=%s | binding=%s | raw=%s",
-        tostring(rawId),
-        tostring(device.deviceName or device.name),
-        tostring(device.roomName),
-        binding
-            and string.format(
-              "addr=%s status=%s type=%s",
-              tostring(binding.addr),
-              tostring(binding.status),
-              tostring(binding.addresstype)
-            )
-          or "none",
-        type(raw) == "table" and JSON:encode(raw) or tostring(raw)
-      )
-    end
-  end
-
-  log:print("%d of %d device(s) have a usable network binding", withBinding, count)
-  log:print("C4:GetNetworkConnections() (this driver only): %s", JSON:encode(C4:GetNetworkConnections() or {}))
-  log:print(
-    "──────────────────────────────────────────────────────────"
-  )
+  reportDiagnostics(true)
 end
 
 function EC.POLL_DEVICES()

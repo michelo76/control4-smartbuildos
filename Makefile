@@ -131,7 +131,7 @@ update-xml-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
-				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d')"; \
+				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d.%H%M')"; \
 		done; \
 	done
 
