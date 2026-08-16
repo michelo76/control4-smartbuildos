@@ -88,6 +88,10 @@
         <command>SEND_HEARTBEAT</command>
       </action>
       <action>
+        <name>Report Diagnostics</name>
+        <command>REPORT_DIAGNOSTICS</command>
+      </action>
+      <action>
         <name>Unpair</name>
         <command>UNPAIR</command>
       </action>

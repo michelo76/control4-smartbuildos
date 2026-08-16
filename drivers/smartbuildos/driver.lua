@@ -42,8 +42,10 @@ local INTERVALS = {
   ["24h"] = 24 * 60 * 60,
 }
 
---- `type` values returned by C4:GetNetworkConnections, mapped to labels the
---- platform can group on. Values come from the DriverWorks API reference.
+--- `addresstype` values on a network binding, mapped to labels the platform can
+--- group on. Same enum the DriverWorks reference documents for connection type.
+--- Anything unrecognised falls back to "ip", which is what a binding carrying an
+--- `addr` overwhelmingly is.
 --- @type table<number, string>
 local CONNECTION_TYPES = {
   [0] = "unknown",
@@ -206,43 +208,86 @@ end
 
 -- ─── Device state, from Director ──────────────────────────────────────────────
 
---- Reads the whole project's connection state from Director.
+--- Returns the network binding for a device, or nil when it has none.
 ---
---- `C4:GetNetworkConnections()` is the only system-wide source of online/offline
---- truth available to a driver: it returns every network binding in the project,
---- not just this driver's. `state == 1` means the connection is active. Z-Wave
---- entries additionally carry `network_status`, which is preferred when present
---- because a sleeping battery device reports `state = 1` while unreachable.
+--- The shape `C4:GetBindingsByDevice` returns is not something to assume: a
+--- single binding comes back as a flat table of keys, several as a list. Both
+--- are handled, and anything without an `addr` or `status` is ignored — a
+--- serial or IR binding carries neither and says nothing about reachability.
 ---
---- Devices with no network binding at all -- IR-controlled sources, serial-only
---- gear, dumb loads -- never appear here and therefore have no online state to
---- report. That is a limitation of Director, not of this driver.
+--- @param deviceId number
+--- @return table<string, any>|nil binding
+local function networkBinding(deviceId)
+  local ok, raw = pcall(function()
+    return C4:GetBindingsByDevice(deviceId)
+  end)
+  if not ok or type(raw) ~= "table" then
+    return nil
+  end
+
+  local candidates = {}
+  if raw.status ~= nil or raw.addr ~= nil or raw.networkbindingid ~= nil then
+    candidates[1] = raw
+  else
+    for _, entry in pairs(raw) do
+      if type(entry) == "table" then
+        table.insert(candidates, entry)
+      end
+    end
+  end
+
+  for _, entry in ipairs(candidates) do
+    if entry.status ~= nil or entry.addr ~= nil then
+      return entry
+    end
+  end
+  return nil
+end
+
+--- Reads every project device and whatever Director knows about its link.
+---
+--- `C4:GetDevices({})` enumerates the whole project — the only system-wide
+--- device list available to a driver. `C4:GetBindingsByDevice(id)` then returns
+--- that device's network binding, carrying `addr` and `status`
+--- ("online"/"offline"), and it accepts ANY device id rather than only this
+--- driver's.
+---
+--- ⚠ `C4:GetNetworkConnections()` is NOT the API for this, despite appearances.
+--- It returns connections for the CALLING device only, so a driver with no
+--- bindings of its own — like this one — gets an empty table and reports zero
+--- devices. That is exactly what shipped first.
+---
+--- Devices with no network binding at all (IR-controlled sources, serial-only
+--- gear, dumb loads) are skipped rather than invented: Director has no link
+--- state for them, and reporting them as online would be a guess presented as a
+--- fact.
 ---
 --- @return table<string, table<string, any>> devices Keyed by "c4:<device id>".
 local function readDeviceState()
   local devices = {}
-  for _, conn in pairs(C4:GetNetworkConnections() or {}) do
-    local id = tointeger(conn.deviceid)
+  for rawId, device in pairs(C4:GetDevices({}) or {}) do
+    local id = tointeger(rawId)
     if id ~= nil then
-      local online = tointeger(conn.state) == 1
-      if conn.network_status ~= nil and conn.network_status ~= "" then
-        online = conn.network_status == "online"
+      local binding = networkBinding(id)
+      if binding ~= nil then
+        -- `status` is the authority. Anything that is not the string "online"
+        -- is treated as down, so an unexpected value fails visible rather than
+        -- silently reporting a dead device as healthy.
+        local status = tostring(binding.status or ""):lower()
+        devices["c4:" .. id] = {
+          key = "c4:" .. id,
+          source = "director",
+          device_id = id,
+          name = device.deviceName or device.name,
+          online = status == "online",
+          connection_type = CONNECTION_TYPES[tointeger(binding.addresstype) or -1] or "ip",
+          address = binding.addr,
+          binding_id = tointeger(binding.networkbindingid),
+          network_status = status ~= "" and status or nil,
+          room = device.roomName,
+          driver_file = device.driverFileName,
+        }
       end
-      devices["c4:" .. id] = {
-        key = "c4:" .. id,
-        source = "director",
-        device_id = id,
-        name = conn.name,
-        online = online,
-        connection_type = CONNECTION_TYPES[tointeger(conn.type) or 0] or "unknown",
-        address = conn.address,
-        port = tointeger(conn.port),
-        firmware = conn.firmware,
-        binding_id = tointeger(conn.bindingid),
-        network_status = conn.network_status,
-        device_status = conn.device_status,
-        wake_status = conn.wake_status,
-      }
     end
   end
   return devices
@@ -806,6 +851,69 @@ end
 function EC.SEND_FULL_SYNC()
   log:trace("EC.SEND_FULL_SYNC()")
   sendFullSync()
+end
+
+--- Prints what Director actually returns, for when it disagrees with the docs.
+---
+--- Two APIs here were documented ambiguously enough to be read the wrong way
+--- (`GetNetworkConnections` is per-caller, not system-wide), and each wrong
+--- reading cost a release. This prints the raw shapes so the next disagreement
+--- is settled by the controller rather than by inference.
+function EC.REPORT_DIAGNOSTICS()
+  log:trace("EC.REPORT_DIAGNOSTICS()")
+  log:print(
+    "── SmartBuildOS diagnostics ──────────────────────────────"
+  )
+  log:print("controller: %s  OS %s", tostring(C4:GetSystemType()), tostring(C4:GetVersionInfo().version))
+
+  local devices = C4:GetDevices({}) or {}
+  local count = 0
+  for _ in pairs(devices) do
+    count = count + 1
+  end
+  log:print("C4:GetDevices({}) returned %d device(s)", count)
+
+  local shown, withBinding = 0, 0
+  for rawId, device in pairs(devices) do
+    local id = tointeger(rawId)
+    local raw = nil
+    if id ~= nil then
+      local ok, result = pcall(function()
+        return C4:GetBindingsByDevice(id)
+      end)
+      raw = ok and result or nil
+    end
+    local binding = id and networkBinding(id) or nil
+    if binding then
+      withBinding = withBinding + 1
+    end
+    -- Cap the per-device dump: a large project would otherwise flood the window
+    -- and push the summary out of scrollback.
+    if shown < 12 then
+      shown = shown + 1
+      log:print(
+        "  [%s] %s | room=%s | binding=%s | raw=%s",
+        tostring(rawId),
+        tostring(device.deviceName or device.name),
+        tostring(device.roomName),
+        binding
+            and string.format(
+              "addr=%s status=%s type=%s",
+              tostring(binding.addr),
+              tostring(binding.status),
+              tostring(binding.addresstype)
+            )
+          or "none",
+        type(raw) == "table" and JSON:encode(raw) or tostring(raw)
+      )
+    end
+  end
+
+  log:print("%d of %d device(s) have a usable network binding", withBinding, count)
+  log:print("C4:GetNetworkConnections() (this driver only): %s", JSON:encode(C4:GetNetworkConnections() or {}))
+  log:print(
+    "──────────────────────────────────────────────────────────"
+  )
 end
 
 function EC.POLL_DEVICES()

@@ -29,11 +29,10 @@ Three sources, because no single one sees everything:
 | **Ping**        | Anything else with an IP — core switches, access points, NAS, cameras, printers                                               | ICMP against the hosts you list in **Monitored Endpoints**                   |
 | **Programming** | Anything neither of the above can see — a rack door contact, a UPS on battery                                                 | The `SEND_EVENT` command                                                     |
 
-Director reports IP, Zigbee, Z-Wave, SSL and hostname bindings. Zigbee and
-Z-Wave entries also carry firmware, and Z-Wave adds `network_status`,
-`device_status` and `wake_status`, which the driver prefers over the raw
-connection state — a sleeping battery device otherwise looks connected while
-being unreachable.
+Director reports IP, Zigbee, Z-Wave, SSL and hostname bindings. A binding's
+`status` is the authority: anything other than `online` is treated as down, so
+an unexpected value fails visibly rather than quietly reporting a dead device as
+healthy.
 
 **What Director cannot tell you:** devices with no network binding at all —
 IR-controlled sources, serial-only gear, dumb loads — never appear, so they have
@@ -94,6 +93,8 @@ project coming online at once.
 - **Send Full Sync** — forces a complete snapshot.
 - **Send Heartbeat Now** — forces a heartbeat.
 - **Unpair** — discards the stored token.
+- **Report Diagnostics** — prints what Director actually returns for this
+  project to the Lua window. Run it when the device list looks wrong.
 - **Update Drivers** — checks GitHub releases and updates in place.
 
 ## Programming

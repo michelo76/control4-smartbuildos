@@ -108,9 +108,36 @@ local logLines = {}
 
 C4 = C4 or {}
 
---- The project as Director reports it. `state` 1 = active. Mutated by tests to
---- model a device dropping off.
-local CONNECTIONS = {
+--- The project as Director reports it, in the two calls the driver actually
+--- makes: GetDevices({}) for the list, GetBindingsByDevice(id) for the link.
+--- Mutated by tests to model a device dropping off.
+---
+--- Device 99 deliberately has NO binding — an IR or serial device — and must
+--- never be reported, because Director knows nothing about its reachability.
+local PROJECT = {
+  [63] = { deviceName = "Home Controller EA5", roomName = "Rack", driverFileName = "control4_ea5.c4z" },
+  [43] = { deviceName = "8-Channel Relay", roomName = "Rack", driverFileName = "relay.c4z" },
+  [75] = { deviceName = "Configurable Keypad", roomName = "Kitchen", driverFileName = "keypad.c4z" },
+  [25] = { deviceName = "Leviton Dimmer", roomName = "Study", driverFileName = "dimmer.c4z" },
+  [99] = { deviceName = "IR Blaster", roomName = "Media", driverFileName = "ir.c4z" },
+}
+
+local BINDINGS = {
+  [63] = { networkbindingid = 6001, addr = "127.0.0.1", status = "online", addresstype = 1, deviceid = 63 },
+  [43] = { networkbindingid = 6001, addr = "192.168.1.40", status = "online", addresstype = 2, deviceid = 43 },
+  [75] = { networkbindingid = 6001, addr = "000fff000077f532", status = "online", addresstype = 3, deviceid = 75 },
+  [25] = { networkbindingid = 6001, addr = "cd94eba9:11", status = "online", addresstype = 8, deviceid = 25 },
+}
+
+function C4:GetDevices()
+  return PROJECT
+end
+
+function C4:GetBindingsByDevice(deviceId)
+  return BINDINGS[deviceId]
+end
+
+local UNUSED_CONNECTIONS = {
   {
     deviceid = 63,
     name = "Home Controller EA5",
@@ -142,11 +169,8 @@ local CONNECTIONS = {
 }
 
 function C4:GetNetworkConnections()
-  return CONNECTIONS
-end
-
-function C4:GetDevices()
-  return {}
+  -- Per-CALLER only, which is why the driver no longer uses it for the project.
+  return UNUSED_CONNECTIONS
 end
 
 function C4:GetSystemType()
@@ -346,12 +370,16 @@ EC.SEND_FULL_SYNC()
 local sync = lastRequestTo("/devices")
 local devices = ((sync or {}).data or {}).devices or {}
 check("payload is a snapshot", ((sync or {}).data or {}).kind == "snapshot")
-check("all four connections are reported", #devices == 4, #devices)
+check("all four bound devices are reported", #devices == 4, #devices)
 local byName = {}
 for _, d in ipairs(devices) do
   byName[d.name] = d
 end
-check("Zigbee keypad reports its firmware", (byName["Configurable Keypad"] or {}).firmware == "4.1.22")
+check(
+  "a device with no network binding is omitted",
+  byName["IR Blaster"] == nil,
+  "Director has no link state for IR devices; reporting one would be a guess"
+)
 check(
   "connection type is decoded to a label",
   (byName["Configurable Keypad"] or {}).connection_type == "zigbee",
@@ -373,7 +401,7 @@ pair()
 reset()
 EC.SEND_FULL_SYNC() -- establish the baseline
 reset()
-CONNECTIONS[2].state = 0 -- the 8-Channel Relay drops
+BINDINGS[43].status = "offline" -- the 8-Channel Relay drops
 EC.POLL_DEVICES()
 local delta = lastRequestTo("/devices")
 check("payload is a delta", ((delta or {}).data or {}).kind == "delta", ((delta or {}).data or {}).kind)
@@ -400,7 +428,7 @@ check("a still-offline device is not re-reported", #requests == 0, #requests)
 check("no repeat event", #firedEvents == 0, table.concat(firedEvents, ","))
 
 reset()
-CONNECTIONS[2].state = 1 -- it comes back
+BINDINGS[43].status = "online" -- it comes back
 EC.POLL_DEVICES()
 check("recovery is reported", #requests == 1, #requests)
 check("Device Came Online fired", firedEvents[#firedEvents] == "Device Came Online", table.concat(firedEvents, ","))
