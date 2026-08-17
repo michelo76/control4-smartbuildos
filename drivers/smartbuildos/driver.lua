@@ -1973,6 +1973,67 @@ local function probeCapabilities(lines)
     end
   end
 
+  -- 5b. THERMOSTATS, found by POINTER rather than by name.
+  --
+  -- `TEMPERATURE_ID` is a room variable holding a thermostat's DEVICE ID -- it
+  -- is not a temperature, which is what made the catalogue look like it was
+  -- reporting 310 degrees. Following it is exact, where matching a device name
+  -- against "thermostat|hvac|temp" is a guess that misses anything named after
+  -- the room it serves.
+  --
+  -- Measured on the live project: rooms point at devices 322 and 410, and the
+  -- TEMPERATURE variable on those reads 310 and 0. Neither is a temperature in
+  -- any unit anyone would display, so the FULL variable set of each thermostat
+  -- is dumped here -- including every name and value -- to find which variable
+  -- carries the real reading and in what scale.
+  local thermostats = {}
+  for _, target in pairs(gRoomThermostat or {}) do
+    thermostats[target] = true
+  end
+  if next(thermostats) == nil then
+    -- The pointer map is only built during a catalogue upload, so a probe run
+    -- before one has to find them itself.
+    for rawId in pairs(devices) do
+      local id = tointeger(rawId)
+      if id ~= nil then
+        local okV, vars = pcall(function()
+          return C4:GetDeviceVariables(id)
+        end)
+        if okV and type(vars) == "table" then
+          for _, v in pairs(vars) do
+            if type(v) == "table" and type(v.name) == "string" and v.name:upper() == "TEMPERATURE_ID" then
+              local target = tointeger(v.value)
+              if target and target > 0 then
+                thermostats[target] = true
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  local thermostatCount = 0
+  for target in pairs(thermostats) do
+    thermostatCount = thermostatCount + 1
+    local okT, vars = pcall(function()
+      return C4:GetDeviceVariables(target)
+    end)
+    if okT and type(vars) == "table" then
+      -- Emitted one variable per line rather than as one encoded blob: the
+      -- whole set does not fit the 480-character event field, and the answer
+      -- may be in the last variable as easily as the first.
+      for _, v in pairs(vars) do
+        if type(v) == "table" then
+          note("PROBE thermostat[%d] %s = %s", target, tostring(v.name), tostring(v.value))
+        end
+      end
+    else
+      note("PROBE thermostat[%d] variables unavailable: %s", target, tostring(vars))
+    end
+  end
+  note("PROBE thermostats found via TEMPERATURE_ID = %d", thermostatCount)
+
   -- 6. Event origin. The whole point of the override-rate metric is knowing
   --    whether a human or a program caused a change. Dump the complete
   --    OnWatchedVariableChanged argument set the next time one fires, rather

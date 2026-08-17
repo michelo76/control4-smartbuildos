@@ -827,6 +827,11 @@ end
 check("it reports a device census", sawDevices, joined:sub(1, 200))
 check("it reports on bindings either way", sawBindingOrNone, joined:sub(1, 200))
 check(
+  "it looks for thermostats by pointer, not by name",
+  joined:find("PROBE thermostats found via TEMPERATURE_ID", 1, true) ~= nil,
+  joined:sub(1, 200)
+)
+check(
   "every probe line fits the event field",
   (function()
     for _, r in ipairs(requests) do
