@@ -2010,33 +2010,51 @@ local function probeCapabilities(lines)
     break
   end
 
-  -- 1. MAC, from a NETWORK binding specifically.
+  -- 1. MAC, from the API that actually returns network bindings.
   --
-  -- The last run dumped whatever binding came first and got MEDIA_PLAYER and
-  -- MediaService -- both type 2, neither carrying an address, and neither the
-  -- binding that would hold a MAC. A network binding is the one with `addr`,
-  -- which is exactly how networkBinding() finds it. Selecting on that, and
-  -- dumping the WHOLE object, is the only way this question gets a real answer.
+  -- Two wrong turns before this, both worth recording because both produced a
+  -- confident negative from a question that was never asked:
+  --
+  --   a) Dumping "the first binding" got MEDIA_PLAYER and MediaService -- type
+  --      2 control bindings that never carry an address.
+  --   b) Filtering those for `addr` then reported "NO device returned a binding
+  --      carrying addr", which CONTRADICTS this driver's own device monitoring:
+  --      73 devices report online/offline, and that requires an addressed
+  --      binding. The contradiction was the tell.
+  --
+  -- The cause is that network bindings come from a DIFFERENT API.
+  -- `networkBinding()` above tries `C4:GetNetworkBindingsByDevice` first and
+  -- only falls back to `GetBindingsByDevice`; the probe was calling the
+  -- fallback and concluding from it.
+  --
+  -- So: dump the raw response of the correct API, whole, plus the exact object
+  -- `networkBinding()` selects. If a MAC is exposed anywhere, one of those two
+  -- carries it, and if neither does then the answer is a real no.
   local netDumped = 0
   for rawId in pairs(devices) do
     local id = tointeger(rawId)
-    if id ~= nil and netDumped < 4 then
-      local okB, bindings = pcall(function()
-        return C4:GetBindingsByDevice(id)
+    if id ~= nil and netDumped < 3 then
+      local okRaw, raw = pcall(function()
+        return C4:GetNetworkBindingsByDevice(id)
       end)
-      if okB and type(bindings) == "table" then
-        local list = type(bindings.bindings) == "table" and bindings.bindings or bindings
-        for _, entry in pairs(list) do
-          if type(entry) == "table" and entry.addr ~= nil and netDumped < 4 then
-            netDumped = netDumped + 1
-            note("PROBE netbinding[%d] = %s", id, dump(entry, 700))
-          end
+      if okRaw and type(raw) == "table" and next(raw) ~= nil then
+        netDumped = netDumped + 1
+        note("PROBE netraw[%d] = %s", id, dump(raw, 900))
+        local selected = networkBinding(id)
+        if type(selected) == "table" then
+          note("PROBE netselected[%d] = %s", id, dump(selected, 900))
         end
       end
     end
   end
   if netDumped == 0 then
-    note("PROBE netbinding: NO device returned a binding carrying addr")
+    -- Said loudly, because the driver monitoring 73 devices proves this cannot
+    -- be true -- it would mean the probe is broken again rather than that
+    -- Control4 exposes nothing.
+    note(
+      "PROBE netraw: GetNetworkBindingsByDevice returned nothing for any device "
+        .. "-- CONTRADICTS working device monitoring, treat as a probe fault"
+    )
   end
 
   -- 2. What kinds of device this project contains, by BINDING CLASS.
