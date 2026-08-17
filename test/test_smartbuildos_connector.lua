@@ -1216,7 +1216,14 @@ do
 end
 check("the flush timer is armed at pairing", flushCb ~= nil)
 
-reset()
+-- Drain whatever the earlier blocks queued: device polls now mirror their
+-- transitions into the telemetry queue, so thirty tests of simulated outages
+-- have left a backlog. Flush until a tick sends nothing.
+repeat
+  reset()
+  flushCb()
+until #requests == 0
+
 EC.REPORT_MEASUREMENT({ NAME = "UPS Battery", VALUE = "37", UNIT = "%" })
 EC.REPORT_STATE({ NAME = "Rack Door", VALUE = "OPEN" })
 EC.REPORT_MEASUREMENT({ NAME = "Broken", VALUE = "thirty-seven" })
@@ -1239,11 +1246,14 @@ check(
   tostring(r.data.events[1].idempotency_key):find(":", 1, true) ~= nil,
   tostring(r.data.events[1].idempotency_key)
 )
-check("an empty queue flush sends nothing", (function()
-  reset()
-  flushCb()
-  return #requests == 0
-end)())
+check(
+  "an empty queue flush sends nothing",
+  (function()
+    reset()
+    flushCb()
+    return #requests == 0
+  end)()
+)
 
 print("\n[35] A failed batch is reconciled at the NEXT tick, then drains with the same key")
 reset()
@@ -1254,10 +1264,14 @@ flushCb()
 -- self-report that every failed non-event send emits (test 29). The report
 -- itself also fails here, and does not recurse -- that guard is the point.
 check("the upload was attempted and self-reported", #requests == 2, #requests)
-check("the second request IS the failure report", tostring(requests[2].data.name) == "sync failed", tostring(requests[2].data.name))
+check(
+  "the second request IS the failure report",
+  tostring(requests[2].data.name) == "sync failed",
+  tostring(requests[2].data.name)
+)
 local firstKey = requests[1].data.events[1].idempotency_key
 
-reset()   -- responses back to success; the failed batch is still in flight
+reset() -- responses back to success; the failed batch is still in flight
 -- The reconciliation tick sets skip=2 and consumes one itself, so the window
 -- is: reconcile(2->1), hold(1->0), resend. Two quiet ticks after a failure.
 flushCb() -- reconciles: requeue, skip 2 -> 1
@@ -1272,13 +1286,50 @@ check(
   tostring(requests[1].data.events[1].idempotency_key) .. " vs " .. tostring(firstKey)
 )
 
+print("\n[35b] Device transitions are journaled with their original shape")
+reset()
+-- Drain, then knock one ping endpoint offline and poll: the delta sends AND
+-- the transition lands in the queue as a DEVICE event.
+repeat
+  reset()
+  flushCb()
+until #requests == 0
+PINGABLE["10.0.0.2"] = true
+Properties["Non Control4 Devices"] = "Switch=10.0.0.2"
+EC.POLL_DEVICES()
+repeat
+  reset()
+  flushCb()
+until #requests == 0
+PINGABLE["10.0.0.2"] = nil
+reset()
+EC.POLL_DEVICES()
+flushCb()
+local journaled
+for _, req in ipairs(requests) do
+  if req.data.kind == "telemetry" then
+    for _, e in ipairs(req.data.events) do
+      if e.category == "DEVICE" and e.source_id == "ping:10.0.0.2" then
+        journaled = e
+      end
+    end
+  end
+end
+check("the offline transition was journaled", journaled ~= nil)
+check("as an offline DEVICE event", journaled ~= nil and journaled.state == "offline" and journaled.event_type == "transition")
+check("with its own timestamp for outage replay", journaled ~= nil and journaled.occurred_at ~= nil)
+
 print("\n[36] The heartbeat declares capabilities and confesses the queue")
 reset()
 EC.REPORT_COUNTER({ NAME = "Doorbell" })
 EC.SEND_HEARTBEAT()
 local hb = requests[#requests]
 check("capabilities are declared", hb.data.capabilities ~= nil and hb.data.capabilities[2] == "telemetry_v1")
-check("queue depth is confessed", tonumber(hb.data.queued_telemetry) ~= nil and hb.data.queued_telemetry >= 1, tostring(hb.data.queued_telemetry))
+check(
+  "queue depth is confessed",
+  tonumber(hb.data.queued_telemetry) ~= nil and hb.data.queued_telemetry >= 1,
+  tostring(hb.data.queued_telemetry)
+)
 check("drop count is confessed", tonumber(hb.data.telemetry_dropped) ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
