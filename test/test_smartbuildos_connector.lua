@@ -1316,7 +1316,10 @@ for _, req in ipairs(requests) do
   end
 end
 check("the offline transition was journaled", journaled ~= nil)
-check("as an offline DEVICE event", journaled ~= nil and journaled.state == "offline" and journaled.event_type == "transition")
+check(
+  "as an offline DEVICE event",
+  journaled ~= nil and journaled.state == "offline" and journaled.event_type == "transition"
+)
 check("with its own timestamp for outage replay", journaled ~= nil and journaled.occurred_at ~= nil)
 
 print("\n[36] The heartbeat declares capabilities and confesses the queue")
