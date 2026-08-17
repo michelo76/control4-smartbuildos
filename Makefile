@@ -127,11 +127,18 @@ gen-squishy: ## Auto-generate squishy files from .c4zproj
 .PHONY: update-xml update-xml-version update-xml-modified
 update-xml: update-xml-version update-xml-modified ## Stamp version + modified in driver.xml
 
+# SECONDS matter. At minute resolution two builds inside the same minute stamped
+# the SAME version, so Composer saw no change and kept serving the driver it
+# already had -- indistinguishable from a code change that did not work, and it
+# has already cost a round trip during a probe cycle.
+#
+# Still monotonic as a decimal: .2224 < .222430 < .222459 < .230000, so builds
+# stamped by the old format stay older than everything after it.
 update-xml-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
-				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d.%H%M')"; \
+				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d.%H%M%S')"; \
 		done; \
 	done
 
