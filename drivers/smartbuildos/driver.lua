@@ -203,6 +203,18 @@ local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 -- functions that act on it are defined further down.
 local applyMonitoring
 local sendCatalogue
+-- ⚠ This forward declaration is a BUG FIX, not tidiness. 
+-- was a  defined at the bottom of the file while two call
+-- sites — including the empty-project self-diagnosis on the very outage path
+-- this driver spent 2026-08-17 in — sat above it, resolving a nil GLOBAL and
+-- failing inside an outer pcall, invisibly. Found by the command-queue test
+-- asking REQUEST_DIAGNOSTICS to actually run.
+local reportDiagnostics
+-- Assigned after every function it dispatches to exists: a local closure binds
+-- upvalues LEXICALLY, so defining this above `sendFullSync` would quietly
+-- resolve the runner targets as nil globals and every remote command would ack
+-- as "attempt to call a nil value".
+local collectCommands
 
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
@@ -1027,7 +1039,7 @@ local function sendFullSync()
     local list = toList(devices)
     UpdateProperty("Devices Offline", tostring(offlineCount(devices)))
     log:info("Sending full sync of %d device(s)", #list)
-    send("devices", { kind = "snapshot", devices = list }, "full sync")
+    send("devices", { kind = "snapshot", devices = list }, "full sync", collectCommands)
 
     -- A project with no visible devices is either a genuinely empty project or a
     -- driver that cannot see it. Those look identical from the platform, so say
@@ -1109,7 +1121,7 @@ local function pollDeviceState()
     end
 
     log:info("Device poll: %d change(s)", #changes)
-    send("devices", { kind = "delta", devices = changes }, "device delta")
+    send("devices", { kind = "delta", devices = changes }, "device delta", collectCommands)
   end)
 end
 
@@ -1137,6 +1149,7 @@ local function sendHeartbeat()
       -- channel — it sits behind the client's firewall and is never contacted —
       -- so an installer's choices in SmartBuildOS ride back on a call it already
       -- makes, rather than costing a second timer to poll for them.
+      collectCommands(body)
       local monitor = body.monitor
       if type(monitor) ~= "table" then
         return
@@ -1165,6 +1178,78 @@ local function sendHeartbeat()
       end
     end
   )
+end
+
+-- ─── Collected commands (Phase 10, T-10.1) ──────────────────────────────────
+--
+-- Commands ride back on responses to requests this driver already makes — the
+-- heartbeat and the device sends. There is no poll, no listener, no inbound
+-- anything: the platform stores a request, and the next time this driver
+-- speaks, the answer to "anything for me?" comes home with the receipt.
+--
+-- Every command in the v1 vocabulary asks this driver to REPORT something it
+-- already reports on its own schedule. Nothing here can act on the house, and
+-- an unknown command is acked as failed with its name — visible on the
+-- dealer's screen rather than swallowed, because "the driver ignored it" and
+-- "the driver cannot do it" deserve different next moves.
+
+--- What each permitted command runs. Thunks, so the table reads as the
+--- allowlist it is.
+local COMMAND_RUNNERS = {
+  REQUEST_FULL_SYNC = function()
+    sendFullSync()
+    return "full sync sent"
+  end,
+  REQUEST_HEARTBEAT = function()
+    sendHeartbeat()
+    return "heartbeat sent"
+  end,
+  REQUEST_DIAGNOSTICS = function()
+    reportDiagnostics(true)
+    return "diagnostics reported"
+  end,
+  RUN_NETWORK_SCAN = function()
+    runNetworkScan("remote")
+    return "network scan started"
+  end,
+  PROBE_CAPABILITIES = function()
+    EC.PROBE_CAPABILITIES()
+    return "capability probe started"
+  end,
+}
+
+--- Executes whatever a response carried and acknowledges every outcome.
+--- @param body table A decoded response body that may carry `commands`.
+collectCommands = function(body)
+  local commands = type(body) == "table" and body.commands or nil
+  if type(commands) ~= "table" or #commands == 0 then
+    return
+  end
+
+  local acks = {}
+  for _, cmd in ipairs(commands) do
+    local id = type(cmd) == "table" and tostring(cmd.id or "") or ""
+    local name = type(cmd) == "table" and tostring(cmd.command or "") or ""
+    if id ~= "" then
+      local runner = COMMAND_RUNNERS[name]
+      if runner == nil then
+        log:warn("Remote command %s is not one this build understands", name)
+        acks[#acks + 1] = { id = id, ok = false, error = "unknown command: " .. name }
+      else
+        log:info("Running remote command %s", name)
+        local ok, result = pcall(runner)
+        if ok then
+          acks[#acks + 1] = { id = id, ok = true, result = tostring(result) }
+        else
+          acks[#acks + 1] = { id = id, ok = false, error = tostring(result):sub(1, 400) }
+        end
+      end
+    end
+  end
+
+  if #acks > 0 then
+    send("commands", { acks = acks }, string.format("%d command ack(s)", #acks))
+  end
 end
 
 --- Uploads queued telemetry, with backoff that fails soft.
@@ -2289,7 +2374,7 @@ end
 --- Chunked because the event endpoint bounds `detail`; one line per event keeps
 --- each well inside that and keeps them readable in order.
 --- @param toCloud boolean
-local function reportDiagnostics(toCloud)
+reportDiagnostics = function(toCloud)
   local lines = {}
   local ok, err = pcall(diagnose, lines)
   if not ok then

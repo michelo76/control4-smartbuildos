@@ -1335,5 +1335,57 @@ check(
 )
 check("drop count is confessed", tonumber(hb.data.telemetry_dropped) ~= nil)
 
+print("\n[37] Collected commands run and acknowledge, and the unknown fails loudly")
+pair()
+reset()
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    commands = {
+      { id = "0b2f6a1e-1111-4222-8333-444455556666", command = "REQUEST_DIAGNOSTICS" },
+      { id = "0b2f6a1e-2222-4222-8333-444455556666", command = "OPEN_GARAGE" },
+    },
+  },
+}
+EC.SEND_HEARTBEAT()
+
+local ackReq
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    ackReq = r
+  end
+end
+check("acks travel to the commands endpoint", ackReq ~= nil)
+check("both commands acknowledged", ackReq ~= nil and #ackReq.data.acks == 2, ackReq and #ackReq.data.acks)
+check("the known command ran and acked ok", ackReq ~= nil and ackReq.data.acks[1].ok == true, ackReq and tostring(ackReq.data.acks[1].result))
+check(
+  "the unknown command acked FAILED with its name -- a version gap must be visible, not swallowed",
+  ackReq ~= nil and ackReq.data.acks[2].ok == false and tostring(ackReq.data.acks[2].error):find("OPEN_GARAGE", 1, true) ~= nil,
+  ackReq and tostring(ackReq.data.acks[2].error)
+)
+check(
+  "REQUEST_DIAGNOSTICS actually reported diagnostics",
+  (function()
+    for _, r in ipairs(requests) do
+      if r.data and r.data.kind == "event" and tostring(r.data.name or ""):find("diagnostic", 1, true) then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+
+print("\n[38] A response with no commands acks nothing")
+reset()
+EC.SEND_HEARTBEAT()
+local stray = 0
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    stray = stray + 1
+  end
+end
+check("no phantom ack traffic", stray == 0, stray)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
