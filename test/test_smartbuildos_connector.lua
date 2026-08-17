@@ -857,5 +857,81 @@ reset()
 local unpairedOk = pcall(EC.PROBE_CAPABILITIES)
 check("it runs unpaired without sending or throwing", unpairedOk and #requests == 0, #requests)
 
+print("\n[26] Climate, against the variables real hardware reports")
+
+-- Verbatim from the 2026-08-17 probe of device 410, a real thermostat.
+local REAL_THERMOSTAT = {
+  { name = "TEMPERATURE", value = "282" },
+  { name = "TEMPERATURE_F", value = "83" },
+  { name = "TEMPERATURE_C", value = "28.5" },
+  { name = "COOL_SETPOINT_F", value = "76" },
+  { name = "COOL_SETPOINT_C", value = "24.5" },
+  { name = "DISPLAY_HEATSETPOINT", value = "77" },
+  { name = "HVAC_MODES_LIST", value = "Off,Heat,Cool,Auto" },
+  { name = "ANA_HVACMODE", value = "Cool" },
+  { name = "HVAC_STATE", value = "Stage 1 Cool" },
+}
+
+-- And device 322, which answers the same proxy but is a WEATHER driver.
+local WEATHER_PROXY = {
+  { name = "MESSAGE", value = "Clear, temperature 82 F" },
+  { name = "HVAC_MODES_LIST", value = "Off,Warn Cool,Warn Heat" },
+  { name = "ANA_INDOORTEMP", value = "277" },
+  { name = "V1 TEMPERATURE", value = "82" },
+  { name = "TEMPERATURE", value = "310" },
+  { name = "ANA_ISCONNECTED", value = "False" },
+}
+
+local real = climateReading(REAL_THERMOSTAT)
+check(
+  "temperature is Fahrenheit, not deci-Celsius",
+  real ~= nil and real.temperature == 83,
+  real and tostring(real.temperature) or "nil"
+)
+check("the cool setpoint is the Fahrenheit one", real ~= nil and real.cool == 76, real and tostring(real.cool) or "nil")
+check(
+  "the heat setpoint falls back to the display value",
+  real ~= nil and real.heat == 77,
+  real and tostring(real.heat) or "nil"
+)
+check(
+  "hvac state is preferred over mode",
+  real ~= nil and real.mode == "Stage 1 Cool",
+  real and tostring(real.mode) or "nil"
+)
+
+-- The bug this section exists to prevent: three rooms on the real project point
+-- at the weather driver, and reporting 31.0 C of OUTDOOR air as room comfort is
+-- worse than reporting nothing at all.
+check(
+  "a weather driver yields no reading",
+  climateReading(WEATHER_PROXY) == nil,
+  tostring(climateReading(WEATHER_PROXY))
+)
+
+-- A thermostat exposing only the raw variable still works, in the right scale.
+check(
+  "raw deci-Celsius is the last resort, converted",
+  (function()
+    local r = climateReading({ { name = "TEMPERATURE", value = "282" } })
+    return r ~= nil and r.temperature == 28.2
+  end)()
+)
+
+-- Every unset setpoint on the measured hardware reads exactly 0.
+check(
+  "a zero setpoint is not a setpoint",
+  (function()
+    local r = climateReading({
+      { name = "TEMPERATURE_F", value = "70" },
+      { name = "COOL_SETPOINT_F", value = "0" },
+    })
+    return r ~= nil and r.cool == nil
+  end)()
+)
+
+check("no readable values yields nil", climateReading({ { name = "FAN_MODE", value = "Auto" } }) == nil)
+check("garbage yields nil rather than throwing", climateReading("nonsense") == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -1029,6 +1029,84 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
   gRooms:apply(roomId, gRoomNames[roomId], name, strValue)
 end
 
+--- Turns a thermostat's raw variable list into a room climate reading.
+---
+--- Pure, and global so it can be tested directly: the values below were
+--- measured on real hardware and the two mistakes they correct are both
+--- invisible in a screenshot.
+---
+--- 1. `TEMPERATURE` IS DECI-CELSIUS, not degrees. The real thermostat reports
+---    TEMPERATURE=282 beside TEMPERATURE_C=28.5 and TEMPERATURE_F=83. That is
+---    where "310 degrees" came from -- 31.0 C = 87.8 F, a correct reading in a
+---    scale nobody displays. The already-converted variables are read directly
+---    rather than dividing by ten and converting, because the thermostat has
+---    done the work and a hand-rolled conversion is one more thing to be wrong
+---    about.
+---
+--- 2. NOT EVERY `TEMPERATURE_ID` TARGET IS A THERMOSTAT. One of the two on the
+---    measured project is a WEATHER driver: it answers the same proxy, carries
+---    a forecast in MESSAGE, reports ANA_ISCONNECTED=False, and lists its modes
+---    as "Off,Warn Cool,Warn Heat". THREE rooms point at it, so treating it as
+---    a thermostat puts the OUTDOOR temperature on a customer's screen labelled
+---    as room comfort.
+---
+--- @return table|nil  { temperature, heat, cool, mode }, or nil for no reading
+function climateReading(vars)
+  if type(vars) ~= "table" then
+    return nil
+  end
+
+  local values = {}
+  for _, v in pairs(vars) do
+    if type(v) == "table" and type(v.name) == "string" then
+      values[v.name:upper()] = v.value
+    end
+  end
+
+  --- First readable number among candidates, in preference order.
+  ---
+  --- Zero is rejected deliberately: every unset setpoint on the measured
+  --- hardware reads exactly 0, and 0 F is not a setpoint anyone configured.
+  local function firstNumber(names)
+    for _, name in ipairs(names) do
+      local n = tonumber(values[name])
+      if n ~= nil and n ~= 0 then
+        return n
+      end
+    end
+    return nil
+  end
+
+  -- Checked before anything is read. A weather station's temperature is
+  -- perfectly valid and perfectly wrong for this purpose.
+  local modesList = tostring(values["HVAC_MODES_LIST"] or "")
+  if modesList:upper():find("WARN", 1, true) ~= nil then
+    return nil
+  end
+
+  -- Fahrenheit first: SCALE reads FAHRENHEIT on the measured project and it is
+  -- what a US homeowner expects. Celsius is the documented fallback, and raw
+  -- deci-Celsius the last resort for a thermostat exposing neither.
+  local temp = firstNumber({ "TEMPERATURE_F", "TEMPERATURE_C" })
+  if temp == nil then
+    local raw = tonumber(values["TEMPERATURE"])
+    if raw ~= nil and raw ~= 0 then
+      temp = raw / 10
+    end
+  end
+
+  local heat = firstNumber({ "HEAT_SETPOINT_F", "DISPLAY_HEATSETPOINT", "HEAT_SETPOINT_C" })
+  local cool = firstNumber({ "COOL_SETPOINT_F", "DISPLAY_COOLSETPOINT", "COOL_SETPOINT_C" })
+  -- HVAC_STATE ("Stage 1 Cool") says what it is DOING; ANA_HVACMODE ("Cool")
+  -- says what it is set to. State is the more useful and falls back to mode.
+  local mode = values["HVAC_STATE"] or values["ANA_HVACMODE"] or values["HVAC_MODE"]
+
+  if temp == nil and heat == nil and cool == nil then
+    return nil
+  end
+  return { temperature = temp, heat = heat, cool = cool, mode = mode }
+end
+
 --- Samples climate rather than watching it: temperature moves constantly and
 --- every change is not worth an event.
 function sampleClimate()
@@ -1039,25 +1117,9 @@ function sampleClimate()
     local okV, vars = pcall(function()
       return C4:GetDeviceVariables(thermostat)
     end)
-    if okV and type(vars) == "table" then
-      local temp, heat, cool, mode
-      for _, v in pairs(vars) do
-        if type(v) == "table" and type(v.name) == "string" then
-          local n = v.name:upper()
-          if n == "TEMPERATURE" or n == "CURRENT_TEMPERATURE" then
-            temp = v.value
-          elseif n == "HEAT_SETPOINT" or n == "HEATSETPOINT" then
-            heat = v.value
-          elseif n == "COOL_SETPOINT" or n == "COOLSETPOINT" then
-            cool = v.value
-          elseif n == "HVAC_MODE" or n == "HVACMODE" then
-            mode = v.value
-          end
-        end
-      end
-      if temp ~= nil or heat ~= nil or cool ~= nil then
-        gRooms:setClimate(roomId, temp, heat, cool, mode)
-      end
+    local reading = climateReading(vars)
+    if reading ~= nil then
+      gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode)
     end
   end
 end
