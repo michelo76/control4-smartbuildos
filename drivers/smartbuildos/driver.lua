@@ -104,6 +104,11 @@ local gDeviceState = {}
 local gHasSnapshot = false
 --- @type boolean Whether the empty-project diagnosis has already been sent.
 local gDiagnosedEmpty = false
+--- Counter making each ping watchdog timer name unique. `SetTimer` is keyed by
+--- name, so a shared one lets a second overlapping read cancel the first's only
+--- way out of a stranded ping.
+--- @type number
+local gPingTimeoutSeq = 0
 --- Devices heard announcing on the network that are not in the project, keyed
 --- the same way project devices are.
 --- @type table<string, table<string, any>>
@@ -259,14 +264,42 @@ local function send(path, payload, description, onOk)
     -- property is gone, and those need different fixes than "no internet".
     gFailures = gFailures + 1
     local code = err and err.code
+    local reason
     if type(code) == "number" then
+      reason = string.format("HTTP %d: %s", code, tostring(err.body))
       setConnected(false, string.format("HTTP %d", code))
       log:error("%s rejected with HTTP %d: %s", description, code, tostring(err.body))
     else
+      reason = tostring(err and err.error or err)
       setConnected(false, "Unreachable")
-      log:error("%s failed after %d attempt(s): %s", description, gFailures, tostring(err and err.error or err))
+      log:error("%s failed after %d attempt(s): %s", description, gFailures, reason)
     end
     C4:FireEvent("Sync Failed")
+
+    -- Tell the PLATFORM, not just the Lua window and a Composer event.
+    --
+    -- A device sync stopped landing on 2026-08-17 and nothing anywhere said so.
+    -- Heartbeats and events kept arriving, so the controller looked healthy from
+    -- SmartBuildOS while its device state sat frozen for hours -- and the only
+    -- record of the failure was `C4:FireEvent("Sync Failed")`, which is a
+    -- Composer programming hook that reaches nobody, plus a log line nobody is
+    -- reading at 3am.
+    --
+    -- Reported on the EVENT path deliberately: it is a different endpoint with
+    -- its own budget, and it is proven to work in exactly the conditions where
+    -- the device path does not. A diagnostic that travels the same road as the
+    -- thing it is diagnosing is no diagnostic.
+    --
+    -- The `path ~= "event"` guard is load-bearing. Without it a platform outage
+    -- turns every failed report into another failed report, and one dead network
+    -- becomes an unbounded retry storm out of a house.
+    if path ~= "event" and isPaired() then
+      send("event", {
+        kind = "event",
+        name = "sync failed",
+        detail = string.format("%s: %s", description, reason):sub(1, 400),
+      }, "sync failure report")
+    end
   end)
 end
 
@@ -576,7 +609,17 @@ local function pingEndpoints(done)
 
   -- A ping client that never calls back would strand the poll forever. Cap the
   -- wait at the worst case a full round set can take, plus a margin.
-  SetTimer("PingTimeout", (PING_ROUNDS * 5 + 10) * ONE_SECOND, function()
+  --
+  -- The timer name must be UNIQUE PER CALL. `SetTimer` is keyed by name, so a
+  -- second `readAllState` starting while the first is still pinging -- the poll
+  -- timer and a full sync overlapping, which is routine -- would replace the
+  -- first call's watchdog and leave it with no way back. Its `done` would then
+  -- never run, and because nothing throws, the whole device sync would go quiet
+  -- with no error anywhere. That is precisely the shape of the outage this
+  -- driver spent 2026-08-17 in.
+  gPingTimeoutSeq = gPingTimeoutSeq + 1
+  local timerName = "PingTimeout" .. gPingTimeoutSeq
+  SetTimer(timerName, (PING_ROUNDS * 5 + 10) * ONE_SECOND, function()
     if settled then
       return
     end

@@ -1049,5 +1049,76 @@ check(
   tostring(Properties["Driver Status"])
 )
 
+print("\n[29] A send that FAILS reports itself to the platform, not just to Composer")
+-- The 2026-08-17 outage in one test: device state stopped landing for hours
+-- while heartbeats and events kept arriving, so SmartBuildOS saw a healthy
+-- controller and frozen devices. The only record was C4:FireEvent("Sync
+-- Failed") -- a Composer hook that reaches nobody -- and a log line.
+pair()
+reset()
+nextResponse = { ok = false, code = 500, error = "boom" }
+-- A full sync rather than a poll: a poll with nothing changed sends no request
+-- at all, so there would be no failure to report. (That is not a quirk of the
+-- test -- it is why a re-paired controller can sit at devices_total = 0
+-- indefinitely without anything looking wrong.)
+EC.SEND_FULL_SYNC()
+-- The snapshot itself fails; the REPORT of that failure must go out on the event
+-- path, which is a different endpoint and is proven to work when this one does
+-- not.
+local reportedPath, reportedName
+for _, r in ipairs(requests) do
+  local name = tostring(r.data and r.data.name or "")
+  if name == "sync failed" then
+    reportedPath, reportedName = tostring(r.url or ""), name
+  end
+end
+check("a failed send is reported to the platform", reportedName == "sync failed", tostring(reportedName))
+check(
+  "the report travels the EVENT path, not the one that just failed",
+  reportedPath ~= nil and reportedPath:find("event", 1, true) ~= nil,
+  tostring(reportedPath)
+)
+
+-- The guard that stops one dead network becoming a retry storm out of a house.
+reset()
+nextResponse = { ok = false, code = 500, error = "boom" }
+EC.SEND_EVENT({ NAME = "anything", DETAIL = "x" })
+check(
+  "a failed EVENT does not report itself, or the loop never ends",
+  #requests == 1,
+  #requests
+)
+
+print("\n[30] Overlapping reads do not cancel each other's ping watchdog")
+-- SetTimer is keyed by NAME. A shared watchdog name meant a full sync starting
+-- while a poll was still pinging replaced the poll's only way out of a stranded
+-- ping client -- and a stranded read never calls back, never throws, and takes
+-- the whole device sync quiet with it.
+pair()
+reset()
+Properties["Non Control4 Devices"] = "Switch=10.0.0.2"
+local timerNames = {}
+local savedSetTimer = SetTimer
+SetTimer = function(name, ...)
+  timerNames[#timerNames + 1] = name
+  return savedSetTimer(name, ...)
+end
+EC.POLL_DEVICES()
+EC.SEND_FULL_SYNC()
+SetTimer = savedSetTimer
+
+local pingTimers = {}
+for _, name in ipairs(timerNames) do
+  if tostring(name):find("PingTimeout", 1, true) == 1 then
+    pingTimers[#pingTimers + 1] = tostring(name)
+  end
+end
+check("both reads armed a ping watchdog", #pingTimers >= 2, #pingTimers)
+check(
+  "and they are DIFFERENT timers, so neither cancels the other",
+  #pingTimers < 2 or pingTimers[1] ~= pingTimers[2],
+  table.concat(pingTimers, ",")
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
