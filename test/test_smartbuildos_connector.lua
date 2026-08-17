@@ -1085,11 +1085,7 @@ check(
 reset()
 nextResponse = { ok = false, code = 500, error = "boom" }
 EC.SEND_EVENT({ NAME = "anything", DETAIL = "x" })
-check(
-  "a failed EVENT does not report itself, or the loop never ends",
-  #requests == 1,
-  #requests
-)
+check("a failed EVENT does not report itself, or the loop never ends", #requests == 1, #requests)
 
 print("\n[30] Overlapping reads do not cancel each other's ping watchdog")
 -- SetTimer is keyed by NAME. A shared watchdog name meant a full sync starting
@@ -1202,11 +1198,88 @@ for _, r in ipairs(requests) do
     swept[#swept + 1] = tostring(r.data.detail or "")
   end
 end
+check("loopback is never swept", #swept > 0 and swept[1]:find("127.0.0", 1, true) == nil, swept[1] or "no report")
+
+print("\n[34] Structured telemetry queues and batches instead of sending")
+-- Capture the flush callback by watching the timer get armed during pairing.
+local flushCb
+do
+  local savedSetTimer = SetTimer
+  SetTimer = function(name, delay, cb, rep)
+    if name == "SmartBuildOSTelemetryQueue" then
+      flushCb = cb
+    end
+    return savedSetTimer(name, delay, cb, rep)
+  end
+  pair()
+  SetTimer = savedSetTimer
+end
+check("the flush timer is armed at pairing", flushCb ~= nil)
+
+reset()
+EC.REPORT_MEASUREMENT({ NAME = "UPS Battery", VALUE = "37", UNIT = "%" })
+EC.REPORT_STATE({ NAME = "Rack Door", VALUE = "OPEN" })
+EC.REPORT_MEASUREMENT({ NAME = "Broken", VALUE = "thirty-seven" })
+check("commands queue rather than send", #requests == 0, #requests)
+
+flushCb()
+check("one batched upload for all of it", #requests == 1, #requests)
+local r = requests[#requests]
+check("the batch is kind=telemetry", r.data.kind == "telemetry")
 check(
-  "loopback is never swept",
-  #swept > 0 and swept[1]:find("127.0.0", 1, true) == nil,
-  swept[1] or "no report"
+  "two events -- the unparseable measurement was refused, not shipped as text",
+  r.data.events ~= nil and #r.data.events == 2,
+  r.data.events ~= nil and #r.data.events or "nil"
 )
+check("the measurement is numeric with its unit", r.data.events[1].value_numeric == 37 and r.data.events[1].unit == "%")
+check("category is CUSTOM", r.data.events[1].category == "CUSTOM")
+check("privacy is INTEGRATOR_ONLY by default", r.data.events[1].privacy_class == "INTEGRATOR_ONLY")
+check(
+  "idempotency keys are stamped",
+  tostring(r.data.events[1].idempotency_key):find(":", 1, true) ~= nil,
+  tostring(r.data.events[1].idempotency_key)
+)
+check("an empty queue flush sends nothing", (function()
+  reset()
+  flushCb()
+  return #requests == 0
+end)())
+
+print("\n[35] A failed batch is reconciled at the NEXT tick, then drains with the same key")
+reset()
+nextResponse = { ok = false, code = 500, error = "boom" }
+EC.REPORT_COUNTER({ NAME = "Garage Cycles" })
+flushCb()
+-- TWO requests, by design: the telemetry attempt, then the sync-failure
+-- self-report that every failed non-event send emits (test 29). The report
+-- itself also fails here, and does not recurse -- that guard is the point.
+check("the upload was attempted and self-reported", #requests == 2, #requests)
+check("the second request IS the failure report", tostring(requests[2].data.name) == "sync failed", tostring(requests[2].data.name))
+local firstKey = requests[1].data.events[1].idempotency_key
+
+reset()   -- responses back to success; the failed batch is still in flight
+-- The reconciliation tick sets skip=2 and consumes one itself, so the window
+-- is: reconcile(2->1), hold(1->0), resend. Two quiet ticks after a failure.
+flushCb() -- reconciles: requeue, skip 2 -> 1
+check("nothing resent during reconciliation", #requests == 0, #requests)
+flushCb() -- skip 1 -> 0
+check("backoff holds for the skip window", #requests == 0, #requests)
+flushCb() -- resends
+check("the batch drains after backoff", #requests == 1, #requests)
+check(
+  "resent with the SAME idempotency key -- the platform dedupes, counts never double",
+  requests[1].data.events[1].idempotency_key == firstKey,
+  tostring(requests[1].data.events[1].idempotency_key) .. " vs " .. tostring(firstKey)
+)
+
+print("\n[36] The heartbeat declares capabilities and confesses the queue")
+reset()
+EC.REPORT_COUNTER({ NAME = "Doorbell" })
+EC.SEND_HEARTBEAT()
+local hb = requests[#requests]
+check("capabilities are declared", hb.data.capabilities ~= nil and hb.data.capabilities[2] == "telemetry_v1")
+check("queue depth is confessed", tonumber(hb.data.queued_telemetry) ~= nil and hb.data.queued_telemetry >= 1, tostring(hb.data.queued_telemetry))
+check("drop count is confessed", tonumber(hb.data.telemetry_dropped) ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

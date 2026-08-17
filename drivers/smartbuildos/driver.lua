@@ -154,6 +154,38 @@ end)
 --- someone's home and starts because a dealer chose it.
 local gMonitor =
   { enabled = false, room_variables = {}, room_ids = {}, climate_enabled = true, climate_sample_minutes = 15 }
+
+--- The general telemetry queue (Phase 2). Bounded per the driver budget:
+--- 500 items, 24h, 200 per batch, drop-oldest, drops counted. The sequence
+--- behind the idempotency keys is PERSISTED -- a driver reload that reset it
+--- would mint keys the platform has already seen, and the first N real events
+--- after every update would be silently swallowed as duplicates.
+local TelemetryQueue = require("telemetry.queue")
+local TELEMETRY_SEQ_KEY = "telemetry_seq"
+local gTelemetry = TelemetryQueue.new({
+  now = os.time,
+  wallClock = function()
+    return os.date("!%Y-%m-%dT%H:%M:%SZ")
+  end,
+  -- The token prefix is stable per pairing and never secret on its own.
+  keyPrefix = (function()
+    local token = persist:get(TOKEN_KEY, "", true) or ""
+    return token:match("^sbc4_([0-9a-f]+)_") or "c4"
+  end)(),
+  loadSeq = function()
+    return persist:get(TELEMETRY_SEQ_KEY, 0)
+  end,
+  saveSeq = function(seq)
+    -- Persisted every 25 events rather than every event: Director persistence
+    -- is a write to flash, and a key that restarts at most 25 late never
+    -- repeats -- gaps are fine, repeats are not.
+    if seq % 25 == 0 then
+      persist:set(TELEMETRY_SEQ_KEY, seq + 25)
+    end
+  end,
+})
+--- Consecutive telemetry upload failures, for backoff.
+local gTelemetryFailures = 0
 --- room id -> { [variableId] = variableName } for the variables we listen to.
 local gRoomVarNames = {}
 --- room id -> name, from the project hierarchy.
@@ -165,6 +197,7 @@ local gListening = false
 
 local TELEMETRY_TIMER = "SmartBuildOSTelemetry"
 local CLIMATE_TIMER = "SmartBuildOSClimate"
+local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 
 -- Declared here because the heartbeat handler applies configuration, and the
 -- functions that act on it are defined further down.
@@ -246,7 +279,12 @@ end
 --- @param payload table<string, any> Body to send, merged with the identity block.
 --- @param description string Label used in log lines.
 --- @param onOk fun(body: table)|nil Called with the decoded response body.
-local function send(path, payload, description, onOk)
+--- @param onDelivered fun()|nil Called on ANY 2xx, before decoding. Delivery
+---   confirmation must not depend on the body being parseable JSON: a proxy
+---   that returns an empty 200 would otherwise turn "delivered" into
+---   "unconfirmed", and anything retrying on unconfirmed would resend the
+---   same payload forever.
+local function send(path, payload, description, onOk, onDelivered)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
     setConnected(false, "Not paired")
@@ -268,6 +306,10 @@ local function send(path, payload, description, onOk)
     UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
     setConnected(true, "Connected")
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
+
+    if onDelivered then
+      pcall(onDelivered)
+    end
 
     if onOk then
       local body = response.body
@@ -907,16 +949,18 @@ local function runNetworkScan(reason)
     send("event", {
       kind = "event",
       name = "network scan",
-      detail = string.format(
-        "%s: %d of %d answered across %s in %ds; %d not in project or monitored list: %s",
-        reason,
-        answered,
-        settled,
-        table.concat(swept, ", "),
-        elapsed,
-        #unknown,
-        #unknown > 0 and table.concat(unknown, " ") or "none"
-      ):sub(1, 400),
+      detail = string
+        .format(
+          "%s: %d of %d answered across %s in %ds; %d not in project or monitored list: %s",
+          reason,
+          answered,
+          settled,
+          table.concat(swept, ", "),
+          elapsed,
+          #unknown,
+          #unknown > 0 and table.concat(unknown, " ") or "none"
+        )
+        :sub(1, 400),
     }, "network scan report")
   end)
 end
@@ -1064,6 +1108,14 @@ local function sendHeartbeat()
       consecutive_failures = gFailures,
       devices_total = TableLength(gDeviceState),
       devices_offline = offlineCount(gDeviceState),
+      -- What this driver can DO, so the platform never sends a command an
+      -- older build cannot run. Strings, not booleans: a newer server reading
+      -- an older driver sees absence, which is the correct claim.
+      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1" },
+      -- The queue confesses its own state. A queue that sheds data invisibly
+      -- turns a gap in a report into "the house was quiet".
+      queued_telemetry = gTelemetry:depth(),
+      telemetry_dropped = gTelemetry:dropped(),
     },
     "heartbeat",
     function(body)
@@ -1101,6 +1153,73 @@ local function sendHeartbeat()
   )
 end
 
+--- Uploads queued telemetry, with backoff that fails soft.
+---
+--- Every 45s when the queue has anything -- inside the 30-60s window the
+--- ingest is budgeted for.
+---
+--- ── FAILURE IS OBSERVED, NOT GUESSED ────────────────────────────────────────
+---
+--- send() is asynchronous: nothing about this request is knowable on the line
+--- after it. So the batch is held IN FLIGHT rather than assumed delivered;
+--- the success callback releases it, and the NEXT tick finding it still held
+--- is the failure signal -- at which point it goes back to the queue (an
+--- upload failure must not delete an evening) and uploading backs off
+--- exponentially, 90s doubling to a 12-minute cap. Collection never pauses;
+--- only uploading does.
+---
+--- A batch that was actually delivered but slowly -- landed after the next
+--- tick already reclaimed it -- gets resent and DEDUPED at ingest by its
+--- idempotency keys. That is what they are for: the failure mode of this
+--- design is a wasted request, never a doubled count.
+local gTelemetrySkip = 0
+local gInflight = nil
+local function flushTelemetry()
+  if not isPaired() then
+    return
+  end
+
+  -- Whatever was in flight at the last tick and never confirmed: failed.
+  if gInflight ~= nil then
+    local returned = gInflight
+    gInflight = nil
+    gTelemetry:putBack(returned)
+    gTelemetryFailures = gTelemetryFailures + 1
+    gTelemetrySkip = math.min(2 ^ gTelemetryFailures, 16)
+    log:warn(
+      "Telemetry batch of %d not confirmed; requeued, backing off %d tick(s)",
+      #returned,
+      gTelemetrySkip
+    )
+  end
+
+  if gTelemetrySkip > 0 then
+    gTelemetrySkip = gTelemetrySkip - 1
+    return
+  end
+  if gTelemetry:depth() == 0 then
+    return
+  end
+
+  local batch = gTelemetry:takeBatch()
+  gInflight = batch
+  send("telemetry", { kind = "telemetry", events = batch }, string.format("telemetry batch of %d", #batch), function(body)
+    -- The platform says how many it kept; a shortfall is dropped-by-policy
+    -- (unknown category, clock out of range) -- worth a line, not an alarm.
+    if type(body) == "table" and tointeger(body.dropped) ~= nil and tointeger(body.dropped) > 0 then
+      log:warn("Platform dropped %d telemetry event(s) by policy", tointeger(body.dropped))
+    end
+  end, function()
+    -- Confirmation rides DELIVERY (any 2xx), deliberately not the decoded
+    -- body: an empty-bodied 200 through some middlebox must read as
+    -- delivered, or this loop resends the same batch forever while ingest
+    -- dedupes it -- an infinite, invisible, low-rate retry.
+    gInflight = nil
+    gTelemetryFailures = 0
+    gTelemetrySkip = 0
+  end)
+end
+
 --- (Re)arms every reporting timer from the current properties.
 local function scheduleTimers()
   CancelTimer(HEARTBEAT_TIMER)
@@ -1115,6 +1234,7 @@ local function scheduleTimers()
   SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, sendHeartbeat, true)
   SetTimer(DEVICE_POLL_TIMER, poll * ONE_SECOND, pollDeviceState, true)
   SetTimer(FULL_SYNC_TIMER, fullSync * ONE_SECOND, sendFullSync, true)
+  SetTimer(TELEMETRY_QUEUE_TIMER, 45 * ONE_SECOND, flushTelemetry, true)
 
   -- Off by DEFAULT, and stays off until somebody chooses it. A subnet sweep is
   -- the one thing this driver does that touches addresses nobody put in the
@@ -2851,6 +2971,85 @@ end
 --- can surface things the driver has no way to observe on its own (a rack door
 --- contact, a UPS on battery, a "client called" button).
 --- @param tParams table<string, string>
+-- ─── Structured telemetry commands (Phase 2, T-2.5) ─────────────────────────
+--
+-- The Composer-facing half of the general telemetry model. SEND_EVENT stays
+-- exactly as it was -- these are ADDITIONS, and they queue rather than send:
+-- a keypad macro that fires REPORT_COUNTER twenty times in a burst becomes one
+-- batched upload, not twenty HTTP requests.
+--
+-- Everything lands as category CUSTOM with privacy INTEGRATOR_ONLY. Custom
+-- telemetry describes racks, generators and garage doors -- integrator
+-- material until a human decides otherwise, which is a platform decision the
+-- driver must not preempt.
+
+--- Queues one custom telemetry event and confirms in the Lua output.
+--- @param eventType string state | measurement | counter | fault | service
+--- @param name string What the installer called it.
+--- @param fields table Extra platform-shape fields.
+local function reportCustom(eventType, name, fields)
+  if name == "" then
+    log:warn("REPORT_%s called with no NAME; ignoring", eventType:upper())
+    return
+  end
+  local event = {
+    subcategory = eventType,
+    source_type = "composer",
+    source_name = name,
+    event_type = eventType,
+    privacy_class = "INTEGRATOR_ONLY",
+  }
+  for k, v in pairs(fields or {}) do
+    event[k] = v
+  end
+  gTelemetry:add("CUSTOM", event)
+  log:info("Queued %s %s (%d queued)", eventType, name, gTelemetry:depth())
+end
+
+function EC.REPORT_STATE(tParams)
+  tParams = tParams or {}
+  reportCustom("state", tostring(tParams.NAME or ""), {
+    state = tostring(tParams.VALUE or ""),
+  })
+end
+
+function EC.REPORT_MEASUREMENT(tParams)
+  tParams = tParams or {}
+  local value = tonumber(tParams.VALUE)
+  if value == nil then
+    -- A measurement whose value does not parse is refused loudly rather than
+    -- shipped as text: "37%" in a numeric column is how a chart goes blank.
+    log:warn("REPORT_MEASUREMENT %s: VALUE %s is not a number; ignoring",
+      tostring(tParams.NAME or ""), tostring(tParams.VALUE or ""))
+    return
+  end
+  reportCustom("measurement", tostring(tParams.NAME or ""), {
+    value_numeric = value,
+    unit = tostring(tParams.UNIT or ""),
+  })
+end
+
+function EC.REPORT_COUNTER(tParams)
+  tParams = tParams or {}
+  reportCustom("counter", tostring(tParams.NAME or ""), {
+    value_numeric = 1,
+  })
+end
+
+function EC.REPORT_FAULT(tParams)
+  tParams = tParams or {}
+  reportCustom("fault", tostring(tParams.NAME or ""), {
+    value_text = tostring(tParams.DETAIL or ""),
+  })
+end
+
+function EC.REPORT_SERVICE_EVENT(tParams)
+  tParams = tParams or {}
+  reportCustom("service", tostring(tParams.NAME or ""), {
+    value_text = tostring(tParams.DETAIL or ""),
+  })
+end
+
 function EC.SEND_EVENT(tParams)
   tParams = tParams or {}
   local name = tParams.NAME or ""

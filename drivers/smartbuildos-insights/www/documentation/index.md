@@ -10,12 +10,12 @@ System**. It is read-only and has no control of anything in the house.
 ## Installing
 
 1. Add **SmartBuildOS Home Insights** to the project.
-2. Get a Home Insights URL for this property. Either:
+1. Get a Home Insights URL for this property. Either:
    - in SmartBuildOS, open the property → **Control4** → **Touchpanels**, or
    - in the **SmartBuildOS Connector** driver, run **Generate Touchpanel URL**
      and copy the value it writes into its own **Touchpanel URL** property.
-3. Paste it into this driver's **URL** property.
-4. Unhide the driver where it should appear. **This step is easy to miss:**
+1. Paste it into this driver's **URL** property.
+1. Unhide the driver where it should appear. **This step is easy to miss:**
    WebView drivers are Experience Buttons and are **hidden from every room and
    every page by default**. Use the **Navigator** tab of Room View to show it in
    the rooms you want, under Watch, Listen, Comfort or Security.
@@ -58,12 +58,12 @@ page normally appears.
 
 One page, three layouts, chosen by the screen it lands on:
 
-| Surface | Layout |
-|---|---|
-| Control4 app, phone | Bottom tab bar, portrait |
-| 5" touchscreens and short viewports | Compact rail, tightened spacing |
-| 7"/10" panels | Rail, standard |
-| 1080p, 1200p and 4K panels | Rail, scaled up for reading at a distance |
+| Surface                             | Layout                                    |
+| ----------------------------------- | ----------------------------------------- |
+| Control4 app, phone                 | Bottom tab bar, portrait                  |
+| 5" touchscreens and short viewports | Compact rail, tightened spacing           |
+| 7"/10" panels                       | Rail, standard                            |
+| 1080p, 1200p and 4K panels          | Rail, scaled up for reading at a distance |
 
 ## Change log
 
