@@ -203,7 +203,7 @@ local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 -- functions that act on it are defined further down.
 local applyMonitoring
 local sendCatalogue
--- ⚠ This forward declaration is a BUG FIX, not tidiness. 
+-- ⚠ This forward declaration is a BUG FIX, not tidiness.
 -- was a  defined at the bottom of the file while two call
 -- sites — including the empty-project self-diagnosis on the very outage path
 -- this driver spent 2026-08-17 in — sat above it, resolving a nil GLOBAL and
@@ -2802,6 +2802,9 @@ local function probeCapabilities(lines)
   -- whatever Control4 actually calls them.
   local classCount = {}
   local scanned = 0
+  -- Devices whose bindings say KEYPAD or BLIND — selection by the project's own
+  -- classification, the method that has now beaten name-matching twice.
+  local keypadIds, blindIds = {}, {}
   for rawId in pairs(devices) do
     local id = tointeger(rawId)
     if id ~= nil then
@@ -2822,6 +2825,11 @@ local function probeCapabilities(lines)
                 if type(bc) == "table" and type(bc.class) == "string" then
                   local key = "class:" .. bc.class
                   classCount[key] = (classCount[key] or 0) + 1
+                  if bc.class == "KEYPAD" and #keypadIds < 3 and keypadIds[#keypadIds] ~= id then
+                    keypadIds[#keypadIds + 1] = id
+                  elseif (bc.class == "BLIND" or bc.class == "BLIND_GROUP") and #blindIds < 3 and blindIds[#blindIds] ~= id then
+                    blindIds[#blindIds + 1] = id
+                  end
                 end
               end
             end
@@ -2833,6 +2841,41 @@ local function probeCapabilities(lines)
   note("PROBE binding census over %d device(s):", scanned)
   for key, n in pairs(classCount) do
     note("PROBE bindingkind %s x%d", key, n)
+  end
+
+  -- ── The T-0.6 residual: is there anything to LISTEN to? ─────────────────
+  --
+  -- The 22:24Z probe proved keypad button IDENTITY (298 named BUTTON_LINK
+  -- bindings) and shade PRESENCE (BLIND class). What it did not answer is
+  -- whether presses and movements are OBSERVABLE: that depends on the devices
+  -- exposing VARIABLES a listener can register on. So dump every variable of
+  -- the class-selected keypads and blinds, verbatim — if a LAST_BUTTON or
+  -- LEVEL variable exists, the collection design writes itself; if nothing
+  -- does, screens 4 and 6 stay honestly gated rather than optimistically
+  -- built.
+  for label, ids in pairs({ keypadvars = keypadIds, blindvars = blindIds }) do
+    if #ids == 0 then
+      note("PROBE %s: no class-selected devices", label)
+    end
+    for _, id in ipairs(ids) do
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(id)
+      end)
+      if okV and type(vars) == "table" then
+        local count = 0
+        for _, v in pairs(vars) do
+          if type(v) == "table" and count < 40 then
+            count = count + 1
+            note("PROBE %s[%d] %s = %s", label, id, tostring(v.name), tostring(v.value):sub(1, 80))
+          end
+        end
+        if count == 0 then
+          note("PROBE %s[%d]: device exposes NO variables — nothing to listen to", label, id)
+        end
+      else
+        note("PROBE %s[%d]: variables unavailable: %s", label, id, tostring(vars))
+      end
+    end
   end
 
   -- 2-5. Every variable, verbatim, for a few candidates of each kind. The
