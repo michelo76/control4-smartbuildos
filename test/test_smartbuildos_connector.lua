@@ -807,5 +807,50 @@ check(
   Properties["Touchpanel URL"]
 )
 
+print("\n[25] The capability probe (T-0.6)")
+pair()
+reset()
+nextResponse = { ok = true, code = 200 }
+EC.PROBE_CAPABILITIES()
+check("the probe uploads its findings", #requests > 0, #requests)
+local sawDevices, sawBindingOrNone, joined = false, false, ""
+for _, r in ipairs(requests) do
+  local d = tostring(r.data and r.data.detail or "")
+  joined = joined .. d .. "\n"
+  if d:find("PROBE devices=", 1, true) then
+    sawDevices = true
+  end
+  if d:find("PROBE binding", 1, true) then
+    sawBindingOrNone = true
+  end
+end
+check("it reports a device census", sawDevices, joined:sub(1, 200))
+check("it reports on bindings either way", sawBindingOrNone, joined:sub(1, 200))
+check(
+  "every probe line fits the event field",
+  (function()
+    for _, r in ipairs(requests) do
+      if #tostring(r.data and r.data.detail or "") > 480 then
+        return false
+      end
+    end
+    return true
+  end)()
+)
+
+-- The probe must never take the house down with it. Every C4 API it touches can
+-- be absent on an older OS, and a probe that throws is a probe nobody runs.
+reset()
+local savedVars, savedCode, savedBind = C4.GetDeviceVariables, C4.GetAllCodeItems, C4.GetBindingsByDevice
+C4.GetDeviceVariables, C4.GetAllCodeItems, C4.GetBindingsByDevice = nil, nil, nil
+local degraded = pcall(EC.PROBE_CAPABILITIES)
+check("it survives every probed API being absent", degraded)
+C4.GetDeviceVariables, C4.GetAllCodeItems, C4.GetBindingsByDevice = savedVars, savedCode, savedBind
+
+EC.UNPAIR()
+reset()
+local unpairedOk = pcall(EC.PROBE_CAPABILITIES)
+check("it runs unpaired without sending or throwing", unpairedOk and #requests == 0, #requests)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

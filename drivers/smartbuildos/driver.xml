@@ -96,6 +96,10 @@
         <command>REPORT_DIAGNOSTICS</command>
       </action>
       <action>
+        <name>Probe Capabilities</name>
+        <command>PROBE_CAPABILITIES</command>
+      </action>
+      <action>
         <name>Generate Touchpanel URL</name>
         <command>GENERATE_DISPLAY_URL</command>
       </action>

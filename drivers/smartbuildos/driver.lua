@@ -1855,6 +1855,151 @@ end
 
 --- Runs the survey and posts it, so the result is readable from the platform
 --- rather than copied out of a Lua window.
+
+-- ─── Capability probe (T-0.6) ────────────────────────────────────────────────
+--
+-- Six things Home Intelligence needs and nobody has measured on hardware:
+--
+--   1. a MAC address per device      -- the only key that joins Control4 to
+--                                       Installed Equipment and UniFi
+--   2. lighting scene activation     -- gates scene utilisation analytics
+--   3. keypad button identity        -- gates keypad analytics
+--   4. shade state                   -- gates shade analytics
+--   5. thermostat variable names     -- production reports 0 and 310, which are
+--                                       not temperatures
+--   6. event ORIGIN (auto vs manual) -- gates automation override rate, the
+--                                       highest-value metric in the brief
+--
+-- This DUMPS REAL STRUCTURES rather than testing for field names it expects.
+-- Four assumptions have already been wrong this month -- GetBindingsByDevice
+-- nests under `bindings`, GetProjectHierarchy is a nested tree with numeric
+-- types, the media payload is XML, and GetNetworkConnections is per-caller --
+-- and every one of them was found by printing the thing instead of believing
+-- the documentation. A probe that only looks for `binding.mac` would report
+-- "no MAC available" on a controller that calls it something else.
+local function probeCapabilities(lines)
+  local function note(fmt, ...)
+    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    table.insert(lines, line)
+    log:print(line)
+  end
+
+  local function dump(value, limit)
+    local ok, encoded = pcall(function()
+      return JSON:encode(value)
+    end)
+    if not ok then
+      return "<unencodable: " .. tostring(encoded) .. ">"
+    end
+    return tostring(encoded):sub(1, limit or 420)
+  end
+
+  -- Classify by NAME, because the proxy id is not reliably exposed here. This
+  -- only chooses what to dump -- it never decides what anything is.
+  local CANDIDATES = {
+    thermostat = "thermostat|hvac|temp|climate|nest|ecobee",
+    shade = "shade|blind|drape|curtain|shutter",
+    keypad = "keypad|button|dimmer|switch|remote",
+    lighting = "light|lamp|scene|load",
+  }
+
+  local devices = C4:GetDevices({}) or {}
+  local total, byKind = 0, {}
+  local samples = {}
+  for kind in pairs(CANDIDATES) do
+    samples[kind] = {}
+  end
+
+  for rawId, device in pairs(devices) do
+    local id = tointeger(rawId)
+    if id ~= nil then
+      total = total + 1
+      local name = tostring(type(device) == "table" and (device.name or device.Name) or device or "")
+      local lowered = name:lower()
+      for kind, pattern in pairs(CANDIDATES) do
+        if lowered:find(pattern) then
+          byKind[kind] = (byKind[kind] or 0) + 1
+          if #samples[kind] < 3 then
+            samples[kind][#samples[kind] + 1] = { id = id, name = name }
+          end
+        end
+      end
+    end
+  end
+
+  note(
+    "PROBE devices=%d thermostat=%d shade=%d keypad=%d lighting=%d",
+    total,
+    byKind.thermostat or 0,
+    byKind.shade or 0,
+    byKind.keypad or 0,
+    byKind.lighting or 0
+  )
+
+  -- 1. MAC. Dump a WHOLE binding table, every field, for the first few devices
+  --    that have one. If a MAC is exposed anywhere, it is visible here.
+  local dumped = 0
+  for rawId in pairs(devices) do
+    local id = tointeger(rawId)
+    if id ~= nil and dumped < 3 then
+      local okB, bindings = pcall(function()
+        return C4:GetBindingsByDevice(id)
+      end)
+      if okB and type(bindings) == "table" and next(bindings) ~= nil then
+        dumped = dumped + 1
+        note("PROBE binding[%d] = %s", id, dump(bindings, 700))
+      end
+    end
+  end
+  if dumped == 0 then
+    note("PROBE binding: no device returned a binding table")
+  end
+
+  -- 2-5. Every variable, verbatim, for a few candidates of each kind. The
+  --      thermostat dump is what will finally explain 0 and 310.
+  for kind, list in pairs(samples) do
+    if #list == 0 then
+      note("PROBE %s: no candidate devices in this project", kind)
+    end
+    for _, entry in ipairs(list) do
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(entry.id)
+      end)
+      if okV and type(vars) == "table" then
+        note("PROBE %s[%d] %s vars=%s", kind, entry.id, entry.name, dump(vars, 620))
+      else
+        note("PROBE %s[%d] %s vars unavailable: %s", kind, entry.id, entry.name, tostring(vars))
+      end
+    end
+  end
+
+  -- 6. Event origin. The whole point of the override-rate metric is knowing
+  --    whether a human or a program caused a change. Dump the complete
+  --    OnWatchedVariableChanged argument set the next time one fires, rather
+  --    than asserting the callback signature.
+  note("PROBE origin: watch payload shape is reported by the listener itself; see 'PROBE origin sample'")
+
+  -- Scene / programming inventory. GetAllCodeItems is already verified; what is
+  -- unknown is whether scene ACTIVATION is observable, so dump what a code item
+  -- actually contains.
+  local okC, items = pcall(function()
+    return C4:GetAllCodeItems()
+  end)
+  if okC and type(items) == "table" then
+    local n = 0
+    for _ in pairs(items) do
+      n = n + 1
+    end
+    note("PROBE codeitems=%d", n)
+    for _, item in pairs(items) do
+      note("PROBE codeitem sample = %s", dump(item, 620))
+      break
+    end
+  else
+    note("PROBE codeitems unavailable: %s", tostring(items))
+  end
+end
+
 function EC.REPORT_TELEMETRY_SURVEY()
   log:trace("EC.REPORT_TELEMETRY_SURVEY()")
   -- Also refresh the stored catalogue: its sample values are how the platform
@@ -1879,6 +2024,32 @@ function EC.REPORT_TELEMETRY_SURVEY()
       name = string.format("survey %02d", i),
       detail = line:sub(1, 480),
     }, "survey line " .. i)
+  end
+end
+
+--- Runs the T-0.6 capability probe and reports it as events.
+---
+--- Read out of `control4_device_events` rather than the Lua window: the findings
+--- are long, and the point is to get REAL structures somewhere they can be
+--- studied against the schema they will drive.
+function EC.PROBE_CAPABILITIES()
+  log:trace("EC.PROBE_CAPABILITIES()")
+  local lines = {}
+  local ok, err = pcall(probeCapabilities, lines)
+  if not ok then
+    table.insert(lines, "probe failed: " .. tostring(err))
+    log:error("Capability probe failed: %s", tostring(err))
+  end
+  if not isPaired() then
+    log:warn("Capability probe ran but the driver is not paired; nothing uploaded")
+    return
+  end
+  for i, line in ipairs(lines) do
+    send("event", {
+      kind = "event",
+      name = string.format("probe %02d", i),
+      detail = line:sub(1, 480),
+    }, "probe line " .. i)
   end
 end
 
