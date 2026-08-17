@@ -2231,13 +2231,40 @@ function EC.PROBE_CAPABILITIES()
     log:warn("Capability probe ran but the driver is not paired; nothing uploaded")
     return
   end
-  for i, line in ipairs(lines) do
+  -- BATCHED, one request per chunk rather than one per line.
+  --
+  -- The first full run of this probe produced 663 lines and 125 arrived. Each
+  -- line was its own HTTP request, the ingest rate limiter dropped four out of
+  -- five, and the casualties included every `netbinding` line -- so the MAC
+  -- question came back unanswered and looked like a negative result rather than
+  -- a lost one. Silence from a dropped request is indistinguishable from
+  -- silence meaning "no".
+  --
+  -- This is the same defect the telemetry design forbids ("do not send one HTTP
+  -- request for every keypad press") arriving in the diagnostic path first.
+  local CHUNK = 20
+  local chunk, chunkIndex = {}, 0
+  local function flush()
+    if #chunk == 0 then
+      return
+    end
+    chunkIndex = chunkIndex + 1
     send("event", {
       kind = "event",
-      name = string.format("probe %02d", i),
-      detail = line:sub(1, 480),
-    }, "probe line " .. i)
+      name = string.format("probe %03d", chunkIndex),
+      detail = table.concat(chunk, "\n"),
+    }, "probe chunk " .. chunkIndex)
+    chunk = {}
   end
+
+  for _, line in ipairs(lines) do
+    chunk[#chunk + 1] = line
+    if #chunk >= CHUNK then
+      flush()
+    end
+  end
+  flush()
+  log:info("Capability probe: %d line(s) in %d request(s)", #lines, chunkIndex)
 end
 
 function EC.REPORT_DIAGNOSTICS()

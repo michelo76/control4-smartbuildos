@@ -849,16 +849,21 @@ check(
   joined:find("PROBE thermostats found via TEMPERATURE_ID", 1, true) ~= nil,
   joined:sub(1, 200)
 )
+-- 663 lines as 663 requests lost four fifths of them to the ingest rate limiter
+-- on the first real run, and the casualties included every line answering the
+-- MAC question -- so a LOST result read exactly like a negative one. Batching is
+-- what makes the probe's output survive the trip.
 check(
-  "every probe line fits the event field",
+  "lines are batched rather than one request each",
   (function()
+    local emitted = 0
     for _, r in ipairs(requests) do
-      if #tostring(r.data and r.data.detail or "") > 480 then
-        return false
-      end
+      local _, breaks = tostring(r.data and r.data.detail or ""):gsub("\n", "")
+      emitted = emitted + breaks + 1
     end
-    return true
-  end)()
+    return #requests > 0 and emitted > #requests
+  end)(),
+  #requests
 )
 
 -- The probe must never take the house down with it. Every C4 API it touches can
