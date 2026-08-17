@@ -1670,6 +1670,62 @@ function sampleClimate()
   end
 end
 
+-- ─── Album art, fetched HERE because only here has a route to it ─────────────
+--
+-- The artwork URL a player reports is a LAN address (http://192.168...). The
+-- page that shows it is HTTPS in a modern WebView, which BLOCKS mixed-content
+-- images -- measured on the Control4 phone app 2026-08-17: a black box where
+-- the art belongs, on a page that renders perfectly on the wall panel WebKit.
+-- And a phone on cellular has no route to the LAN at all. The platform cannot
+-- proxy it either: Vercel cannot reach a private address.
+--
+-- This driver is the one party standing next to the player, so it fetches the
+-- image and ships it INLINE as a data URI. Bounded: raw art over 96KB is
+-- skipped (the URL still travels for WebKits that can use it), failures are
+-- cached so a dead URL is not re-fetched every five minutes, and the cache is
+-- wiped past a dozen entries -- art churns per track, and the current track is
+-- one refetch away.
+
+local MAX_ART_BYTES = 96 * 1024
+--- url -> { data = "data:...;base64,..." } | { failed = true } | { pending = true }
+local gArtCache = {}
+local gArtCacheCount = 0
+
+local function artDataFor(url)
+  local hit = url ~= nil and gArtCache[url] or nil
+  return hit ~= nil and hit.data or nil
+end
+
+local function fetchArt(url)
+  if url == nil or url == "" or gArtCache[url] ~= nil then
+    return
+  end
+  if gArtCacheCount >= 12 then
+    gArtCache = {}
+    gArtCacheCount = 0
+  end
+  gArtCache[url] = { pending = true }
+  gArtCacheCount = gArtCacheCount + 1
+  http:get(url, {}, { timeout = 10 }):next(function(response)
+    local body = response.body
+    if type(body) ~= "string" or #body == 0 or #body > MAX_ART_BYTES then
+      gArtCache[url] = { failed = true }
+      return
+    end
+    local headers = response.headers or {}
+    local contentType = headers["Content-Type"] or headers["content-type"] or "image/jpeg"
+    if type(contentType) ~= "string" or contentType:find("^image/") == nil then
+      contentType = "image/jpeg"
+    end
+    gArtCache[url] = { data = "data:" .. contentType .. ";base64," .. C4:Base64Encode(body) }
+    -- Push promptly: whoever is looking at a placeholder should not wait out
+    -- the five-minute tick for art that just resolved.
+    sendTelemetry()
+  end, function()
+    gArtCache[url] = { failed = true }
+  end)
+end
+
 --- Uploads current state and any completed sessions.
 ---
 --- Sessions are TAKEN from the tracker, so a successful upload cannot send the
@@ -1682,6 +1738,14 @@ function sendTelemetry()
 
   local rooms = gRooms:snapshot()
   if #rooms > 0 then
+    for _, room in ipairs(rooms) do
+      local data = artDataFor(room.media_image_url)
+      if data ~= nil then
+        room.media_image_data = data
+      elseif room.media_image_url ~= nil then
+        fetchArt(room.media_image_url)
+      end
+    end
     send("telemetry", { kind = "state", rooms = rooms }, "room state")
   end
 
