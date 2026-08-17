@@ -226,9 +226,35 @@ test: ## Run the Lua test suite (test/test_*.lua)
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
-build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
+build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip install-local ## Full build
 
-build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
+# ─── Install to Composer ──────────────────────────────────────────────────────
+#
+# Composer Pro loads drivers from ~/Documents/Control4/Drivers. Copying there as
+# part of the build removes the step where a driver is built, handed over, and
+# the OLD one is loaded because nobody moved the file -- which looks exactly
+# like a code change that did not work.
+#
+# Overwrites deliberately: one file per driver, always the newest build. The
+# version inside driver.xml is what identifies it, and the controller reports
+# that back on every heartbeat, so which build is loaded is never a guess.
+#
+# Silent no-op when the folder is absent, so the build still works on a machine
+# without Composer installed.
+.PHONY: install-local
+COMPOSER_DRIVERS ?= $(HOME)/Documents/Control4/Drivers
+install-local: ## Copy built .c4z into the Composer drivers folder
+	@if [ -d "$(COMPOSER_DRIVERS)" ]; then \
+		for f in dist/*/*.c4z; do \
+			[ -e "$$f" ] || continue; \
+			cp -f "$$f" "$(COMPOSER_DRIVERS)/" && \
+			echo "installed $$(basename $$f) -> $(COMPOSER_DRIVERS)"; \
+		done; \
+	else \
+		echo "skipped: $(COMPOSER_DRIVERS) does not exist"; \
+	fi
+
+build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package install-local ## Build without docs
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 
