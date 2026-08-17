@@ -68,7 +68,10 @@ package.preload["lib.http"] = function()
         return settled(true, { url = url, code = 200, headers = {}, body = pairBody })
       end
       if nextResponse.ok then
-        return settled(true, { url = url, code = nextResponse.code, headers = {}, body = "" })
+        -- `nextResponse.body` lets a test drive an onOk callback that reads the
+        -- response. Defaults to empty, which is what every existing test that
+        -- ignores the body already expects.
+        return settled(true, { url = url, code = nextResponse.code, headers = {}, body = nextResponse.body or "" })
       end
       return settled(false, {
         url = url,
@@ -316,6 +319,8 @@ Properties = {
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
   ["Last Successful Sync"] = "Never",
+  ["Touchpanel Name"] = "Touchpanel",
+  ["Touchpanel URL"] = "Not generated",
   ["Non Control4 Devices"] = "",
   ["Discover Network Devices"] = "Off",
   ["Devices Offline"] = "0",
@@ -732,6 +737,75 @@ C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = nil, nil, ni
 local degradedOk = pcall(EC.REPORT_TELEMETRY_SURVEY)
 check("it survives every survey API being absent", degradedOk)
 C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = savedHierarchy, savedVars, savedCode
+
+print("\n[24] Generating a touchpanel URL")
+pair()
+reset()
+Properties["Touchpanel Name"] = "  Kitchen T4  "
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = '{"ok":true,"url":"https://app.smartbuildos.io/display/c4/sbc4d_aaaabbbb_secret","label":"Kitchen T4"}',
+}
+EC.GENERATE_DISPLAY_URL()
+check(
+  "it posts to the display endpoint",
+  #requests == 1 and requests[1].url:find("/display", 1, true) ~= nil,
+  #requests > 0 and requests[1].url or "no request"
+)
+check(
+  "the panel name is trimmed before sending",
+  #requests > 0 and requests[1].data.label == "Kitchen T4",
+  #requests > 0 and tostring(requests[1].data.label) or "no request"
+)
+check(
+  "the returned URL lands in the property",
+  Properties["Touchpanel URL"] == "https://app.smartbuildos.io/display/c4/sbc4d_aaaabbbb_secret",
+  Properties["Touchpanel URL"]
+)
+
+-- An empty name must not send an empty label: the dealer's list would show a
+-- row with nothing to identify which panel it is.
+reset()
+Properties["Touchpanel Name"] = "   "
+nextResponse =
+  { ok = true, code = 200, body = '{"ok":true,"url":"https://app.smartbuildos.io/display/c4/sbc4d_ccccdddd_secret"}' }
+EC.GENERATE_DISPLAY_URL()
+check(
+  "a blank name falls back rather than sending empty",
+  #requests > 0 and requests[1].data.label == "Touchpanel",
+  #requests > 0 and tostring(requests[1].data.label) or "no request"
+)
+
+-- The failure cases all have to be VISIBLE in the property, because that is the
+-- only place an installer looks after running an action.
+reset()
+nextResponse = { ok = false, code = 503 }
+EC.GENERATE_DISPLAY_URL()
+check(
+  "a rejected request does not leave a stale URL claiming success",
+  Properties["Touchpanel URL"] ~= "https://app.smartbuildos.io/display/c4/sbc4d_ccccdddd_secret",
+  Properties["Touchpanel URL"]
+)
+
+reset()
+nextResponse = { ok = true, code = 200, body = '{"ok":true}' }
+EC.GENERATE_DISPLAY_URL()
+check(
+  "a response with no url is reported as a failure",
+  Properties["Touchpanel URL"]:find("Failed", 1, true) ~= nil,
+  Properties["Touchpanel URL"]
+)
+
+EC.UNPAIR()
+reset()
+EC.GENERATE_DISPLAY_URL()
+check("an unpaired driver sends nothing", #requests == 0, #requests)
+check(
+  "and says so in the property",
+  Properties["Touchpanel URL"] == "Pair the driver first",
+  Properties["Touchpanel URL"]
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

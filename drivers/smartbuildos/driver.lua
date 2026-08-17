@@ -1892,6 +1892,54 @@ function EC.POLL_DEVICES()
   pollDeviceState()
 end
 
+--- Mints a touchpanel URL and writes it into the driver's own properties.
+---
+--- Exists because the person configuring a panel is standing at the rack in
+--- Composer and very often has no SmartBuildOS session -- the owner of the
+--- client record and the installer wiring the house are frequently not the same
+--- person, and the second cannot be blocked on the first.
+---
+--- The URL is stored HERE, in the driver, because SmartBuildOS keeps only a hash
+--- and cannot show it again. That is not a weakening: this driver already holds
+--- a device token, which is a strictly stronger credential, and it lives inside
+--- the client's own rack.
+---
+--- Every run mints a NEW panel and deliberately does not revoke the last one, so
+--- an installer who runs this twice -- or a year later, adding a second panel --
+--- cannot silently kill the panel already hanging on the wall.
+function EC.GENERATE_DISPLAY_URL()
+  log:trace("EC.GENERATE_DISPLAY_URL()")
+
+  if not isPaired() then
+    -- Said in the property itself rather than only the log. An installer runs
+    -- an action and looks at the property; nobody opens Lua output for this.
+    UpdateProperty("Touchpanel URL", "Pair the driver first")
+    log:warn("Cannot generate a touchpanel URL: driver is not paired")
+    return
+  end
+
+  local label = Properties["Touchpanel Name"] or ""
+  label = label:match("^%s*(.-)%s*$")
+  if label == "" then
+    label = "Touchpanel"
+  end
+
+  UpdateProperty("Touchpanel URL", "Generating...")
+
+  send("display", { kind = "display", label = label }, "touchpanel URL request", function(body)
+    -- Only ever set from a URL the server actually returned. Writing anything
+    -- optimistic here would hand the installer a link that 404s on the panel
+    -- they just configured.
+    if type(body.url) == "string" and body.url ~= "" then
+      UpdateProperty("Touchpanel URL", body.url)
+      log:info("Touchpanel URL generated for '%s'", label)
+    else
+      UpdateProperty("Touchpanel URL", "Failed - see Lua output")
+      log:error("Touchpanel URL response carried no url")
+    end
+  end)
+end
+
 --- Forgets the token locally. SmartBuildOS is told first so the property stops
 --- expecting heartbeats, but a failure there must not strand the driver in a
 --- paired state it cannot leave -- the local wipe happens either way.
@@ -1903,6 +1951,10 @@ function EC.UNPAIR()
   persist:delete(TOKEN_KEY)
   persist:delete(PROPERTY_KEY)
   persist:delete(PROPERTY_NAME_KEY)
+  -- The panels themselves keep working: a display URL is its own credential and
+  -- is revoked from SmartBuildOS, not from here. What is cleared is this
+  -- driver's COPY, which after unpairing is no longer a URL it can vouch for.
+  UpdateProperty("Touchpanel URL", "Not generated")
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
