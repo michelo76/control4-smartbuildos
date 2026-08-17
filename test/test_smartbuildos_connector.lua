@@ -1358,10 +1358,16 @@ for _, r in ipairs(requests) do
 end
 check("acks travel to the commands endpoint", ackReq ~= nil)
 check("both commands acknowledged", ackReq ~= nil and #ackReq.data.acks == 2, ackReq and #ackReq.data.acks)
-check("the known command ran and acked ok", ackReq ~= nil and ackReq.data.acks[1].ok == true, ackReq and tostring(ackReq.data.acks[1].result))
+check(
+  "the known command ran and acked ok",
+  ackReq ~= nil and ackReq.data.acks[1].ok == true,
+  ackReq and tostring(ackReq.data.acks[1].result)
+)
 check(
   "the unknown command acked FAILED with its name -- a version gap must be visible, not swallowed",
-  ackReq ~= nil and ackReq.data.acks[2].ok == false and tostring(ackReq.data.acks[2].error):find("OPEN_GARAGE", 1, true) ~= nil,
+  ackReq ~= nil
+    and ackReq.data.acks[2].ok == false
+    and tostring(ackReq.data.acks[2].error):find("OPEN_GARAGE", 1, true) ~= nil,
   ackReq and tostring(ackReq.data.acks[2].error)
 )
 check(
