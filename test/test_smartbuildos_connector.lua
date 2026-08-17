@@ -826,6 +826,24 @@ for _, r in ipairs(requests) do
 end
 check("it reports a device census", sawDevices, joined:sub(1, 200))
 check("it reports on bindings either way", sawBindingOrNone, joined:sub(1, 200))
+-- A device entry dumped whole is what explains a census that finds nothing: the
+-- first run reported 0 keypads across 221 devices, which was the method
+-- failing, not the project being empty.
+check(
+  "it dumps a device entry so a failed census can be explained",
+  joined:find("PROBE devsample", 1, true) ~= nil,
+  joined:sub(1, 200)
+)
+check(
+  "it censuses binding kinds rather than guessing at names",
+  joined:find("PROBE binding census", 1, true) ~= nil,
+  joined:sub(1, 200)
+)
+check(
+  "it says something about network bindings either way",
+  joined:find("PROBE netbinding", 1, true) ~= nil,
+  joined:sub(1, 200)
+)
 check(
   "it looks for thermostats by pointer, not by name",
   joined:find("PROBE thermostats found via TEMPERATURE_ID", 1, true) ~= nil,

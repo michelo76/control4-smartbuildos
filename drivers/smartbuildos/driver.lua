@@ -1998,23 +1998,87 @@ local function probeCapabilities(lines)
     byKind.lighting or 0
   )
 
-  -- 1. MAC. Dump a WHOLE binding table, every field, for the first few devices
-  --    that have one. If a MAC is exposed anywhere, it is visible here.
-  local dumped = 0
+  -- 0. What a device entry actually LOOKS like.
+  --
+  -- The name-matching census above reported 0 thermostats, 0 shades, 0 keypads
+  -- and 0 lighting across 221 devices, which cannot be true. Rather than guess
+  -- why, dump one entry whole. The previous run's null results were a broken
+  -- method reporting nothing, not a project containing nothing, and that
+  -- distinction is worth a single line of output.
+  for rawId, device in pairs(devices) do
+    note("PROBE devsample [%s] = %s", tostring(rawId), dump(device, 700))
+    break
+  end
+
+  -- 1. MAC, from a NETWORK binding specifically.
+  --
+  -- The last run dumped whatever binding came first and got MEDIA_PLAYER and
+  -- MediaService -- both type 2, neither carrying an address, and neither the
+  -- binding that would hold a MAC. A network binding is the one with `addr`,
+  -- which is exactly how networkBinding() finds it. Selecting on that, and
+  -- dumping the WHOLE object, is the only way this question gets a real answer.
+  local netDumped = 0
   for rawId in pairs(devices) do
     local id = tointeger(rawId)
-    if id ~= nil and dumped < 3 then
+    if id ~= nil and netDumped < 4 then
       local okB, bindings = pcall(function()
         return C4:GetBindingsByDevice(id)
       end)
-      if okB and type(bindings) == "table" and next(bindings) ~= nil then
-        dumped = dumped + 1
-        note("PROBE binding[%d] = %s", id, dump(bindings, 700))
+      if okB and type(bindings) == "table" then
+        local list = type(bindings.bindings) == "table" and bindings.bindings or bindings
+        for _, entry in pairs(list) do
+          if type(entry) == "table" and entry.addr ~= nil and netDumped < 4 then
+            netDumped = netDumped + 1
+            note("PROBE netbinding[%d] = %s", id, dump(entry, 700))
+          end
+        end
       end
     end
   end
-  if dumped == 0 then
-    note("PROBE binding: no device returned a binding table")
+  if netDumped == 0 then
+    note("PROBE netbinding: NO device returned a binding carrying addr")
+  end
+
+  -- 2. What kinds of device this project contains, by BINDING CLASS.
+  --
+  -- Replaces the name matching that failed. A project describes its own device
+  -- kinds through binding classes -- MEDIA_PLAYER, MediaService and so on --
+  -- and those are assigned by Control4 rather than typed by whoever named the
+  -- device. If keypads, shades or lighting loads exist, they say so here, under
+  -- whatever Control4 actually calls them.
+  local classCount = {}
+  local scanned = 0
+  for rawId in pairs(devices) do
+    local id = tointeger(rawId)
+    if id ~= nil then
+      local okB, bindings = pcall(function()
+        return C4:GetBindingsByDevice(id)
+      end)
+      if okB and type(bindings) == "table" then
+        scanned = scanned + 1
+        local list = type(bindings.bindings) == "table" and bindings.bindings or bindings
+        for _, entry in pairs(list) do
+          if type(entry) == "table" then
+            if type(entry.name) == "string" and entry.name ~= "" then
+              local key = "name:" .. entry.name
+              classCount[key] = (classCount[key] or 0) + 1
+            end
+            if type(entry.bindingclasses) == "table" then
+              for _, bc in pairs(entry.bindingclasses) do
+                if type(bc) == "table" and type(bc.class) == "string" then
+                  local key = "class:" .. bc.class
+                  classCount[key] = (classCount[key] or 0) + 1
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  note("PROBE binding census over %d device(s):", scanned)
+  for key, n in pairs(classCount) do
+    note("PROBE bindingkind %s x%d", key, n)
   end
 
   -- 2-5. Every variable, verbatim, for a few candidates of each kind. The
