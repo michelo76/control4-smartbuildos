@@ -2030,31 +2030,44 @@ local function probeCapabilities(lines)
   -- So: dump the raw response of the correct API, whole, plus the exact object
   -- `networkBinding()` selects. If a MAC is exposed anywhere, one of those two
   -- carries it, and if neither does then the answer is a real no.
-  local netDumped = 0
+  --
+  -- THIRD attempt at this question, so the selection is now explicit about what
+  -- "has a network binding" means. `GetNetworkBindingsByDevice` answers
+  -- `{networkbindings = {}}` for a device with none -- the WRAPPER is always
+  -- present and non-empty, so testing the response table for emptiness passed
+  -- every device and spent all three dump slots on media devices that have no
+  -- network binding at all.
+  local netDumped, withNet, scannedNet = 0, 0, 0
   for rawId in pairs(devices) do
     local id = tointeger(rawId)
-    if id ~= nil and netDumped < 3 then
+    if id ~= nil then
+      scannedNet = scannedNet + 1
       local okRaw, raw = pcall(function()
         return C4:GetNetworkBindingsByDevice(id)
       end)
-      if okRaw and type(raw) == "table" and next(raw) ~= nil then
-        netDumped = netDumped + 1
-        note("PROBE netraw[%d] = %s", id, dump(raw, 900))
-        local selected = networkBinding(id)
-        if type(selected) == "table" then
-          note("PROBE netselected[%d] = %s", id, dump(selected, 900))
+      if okRaw and type(raw) == "table" then
+        local list = raw.networkbindings
+        -- The ARRAY, not the wrapper.
+        if type(list) == "table" and #list > 0 then
+          withNet = withNet + 1
+          if netDumped < 3 then
+            netDumped = netDumped + 1
+            note("PROBE netraw[%d] = %s", id, dump(raw, 900))
+            local selected = networkBinding(id)
+            if type(selected) == "table" then
+              note("PROBE netselected[%d] = %s", id, dump(selected, 900))
+            end
+          end
         end
       end
     end
   end
-  if netDumped == 0 then
-    -- Said loudly, because the driver monitoring 73 devices proves this cannot
-    -- be true -- it would mean the probe is broken again rather than that
-    -- Control4 exposes nothing.
-    note(
-      "PROBE netraw: GetNetworkBindingsByDevice returned nothing for any device "
-        .. "-- CONTRADICTS working device monitoring, treat as a probe fault"
-    )
+  -- The count is the sanity check: device monitoring reports on 73 devices, so a
+  -- number near that means the right question was finally asked. Far from it
+  -- means the probe is still wrong, whatever the dumps appear to say.
+  note("PROBE netbindings: %d of %d device(s) carry a network binding", withNet, scannedNet)
+  if withNet == 0 then
+    note("PROBE netbindings: zero CONTRADICTS working device monitoring -- probe fault, not a finding")
   end
 
   -- 2. What kinds of device this project contains, by BINDING CLASS.

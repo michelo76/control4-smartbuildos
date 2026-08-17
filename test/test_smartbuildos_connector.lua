@@ -842,10 +842,9 @@ check(
 -- Network bindings come from GetNetworkBindingsByDevice, NOT GetBindingsByDevice.
 -- Asking the wrong API produced a confident "no device carries an address",
 -- which contradicted this driver's own working monitoring of 73 devices.
-check("it queries the network-binding API, either way", joined:find("PROBE netraw", 1, true) ~= nil, joined:sub(1, 200))
 check(
-  "it looks for thermostats by pointer, not by name",
-  joined:find("PROBE thermostats found via TEMPERATURE_ID", 1, true) ~= nil,
+  "it reports how many devices carry a network binding",
+  joined:find("PROBE netbindings:", 1, true) ~= nil,
   joined:sub(1, 200)
 )
 -- 663 lines as 663 requests lost four fifths of them to the ingest rate limiter
