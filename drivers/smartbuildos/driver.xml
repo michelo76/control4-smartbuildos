@@ -133,6 +133,76 @@
           </param>
         </params>
       </command>
+      <command>
+        <name>REPORT_STATE</name>
+        <description>Report a named state to SmartBuildOS telemetry (e.g. Rack Door = OPEN)</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>VALUE</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>REPORT_MEASUREMENT</name>
+        <description>Report a numeric measurement to SmartBuildOS telemetry (e.g. UPS Battery = 37 %)</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>VALUE</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>UNIT</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>REPORT_COUNTER</name>
+        <description>Increment a named counter in SmartBuildOS telemetry (e.g. Garage Door Cycles)</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>REPORT_FAULT</name>
+        <description>Report a fault to SmartBuildOS telemetry (e.g. Generator: Low battery)</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>DETAIL</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>REPORT_SERVICE_EVENT</name>
+        <description>Report a service-relevant event to SmartBuildOS telemetry (e.g. Filter replaced)</description>
+        <params>
+          <param>
+            <name>NAME</name>
+            <type>STRING</type>
+          </param>
+          <param>
+            <name>DETAIL</name>
+            <type>STRING</type>
+          </param>
+        </params>
+      </command>
     </commands>
     <properties>
       <property>
