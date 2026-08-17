@@ -1015,5 +1015,39 @@ check(
   macFromUuid("Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55") ~= "00d46a914f16"
 )
 
+print("\n[28] A full sync that throws reports itself")
+pair()
+reset()
+-- readAllState reaching the controller is exactly what fails on real hardware;
+-- simulate the throw at its source.
+local savedGetDevices = C4.GetDevices
+C4.GetDevices = function()
+  error("simulated Director failure")
+end
+local survived = pcall(EC.SEND_FULL_SYNC)
+C4.GetDevices = savedGetDevices
+
+check("the action does not throw out to Composer", survived)
+check(
+  "the failure is posted as an event",
+  (function()
+    for _, r in ipairs(requests) do
+      if tostring(r.data and r.data.name or "") == "full sync failed" then
+        return true
+      end
+    end
+    return false
+  end)(),
+  #requests
+)
+-- Deliberately NOT Connection Status: send()'s success handler sets that back
+-- to "Connected" as soon as the failure report is delivered, so the signal
+-- would erase itself.
+check(
+  "Driver Status carries the failure for the installer to see",
+  tostring(Properties["Driver Status"]):find("Full sync failed", 1, true) ~= nil,
+  tostring(Properties["Driver Status"])
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

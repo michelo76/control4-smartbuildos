@@ -1576,9 +1576,37 @@ function EC.SEND_HEARTBEAT()
   sendHeartbeat()
 end
 
+--- Runs a full sync and REPORTS its own failure.
+---
+--- Device syncs stopped reaching the platform at 02:00 on 2026-08-17 while
+--- heartbeats kept arriving, which is the signature of `readAllState` throwing
+--- before anything is sent: the platform sees a healthy controller and no
+--- devices, and nothing anywhere says why. The Lua window would show it, but
+--- nobody is watching the Lua window at 3am.
+---
+--- Events still work when device sync does not -- they take a different code
+--- path and are proven by every probe run -- so the error is posted as one. A
+--- diagnostic that only works when the thing being diagnosed works is no
+--- diagnostic at all.
 function EC.SEND_FULL_SYNC()
   log:trace("EC.SEND_FULL_SYNC()")
-  sendFullSync()
+  local ok, err = pcall(sendFullSync)
+  if not ok then
+    local detail = tostring(err):sub(1, 400)
+    log:error("Full sync failed before sending: %s", detail)
+    -- NOT Connection Status: that property is owned by send(), whose success
+    -- handler sets it back to "Connected" the moment the failure REPORT below
+    -- is delivered. It is also arguably right -- the platform is reachable; it
+    -- is the read from Director that failed, which is a different fault.
+    UpdateProperty("Driver Status", "Full sync failed: " .. detail:sub(1, 120))
+    if isPaired() then
+      send("event", {
+        kind = "event",
+        name = "full sync failed",
+        detail = detail,
+      }, "full sync failure report")
+    end
+  end
 end
 
 --- Reports what Director actually returns, to the log AND to SmartBuildOS.
