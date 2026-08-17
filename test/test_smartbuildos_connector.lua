@@ -851,6 +851,27 @@ check(
 -- on the first real run, and the casualties included every line answering the
 -- MAC question -- so a LOST result read exactly like a negative one. Batching is
 -- what makes the probe's output survive the trip.
+-- The platform caps event detail at 500 characters. A chunk over that arrives
+-- truncated, which silently discarded the network-binding dump this probe
+-- exists to collect.
+check(
+  "no chunk exceeds the platform's 500-character detail cap",
+  (function()
+    for _, r in ipairs(requests) do
+      if #tostring(r.data and r.data.detail or "") > 500 then
+        return false
+      end
+    end
+    return true
+  end)(),
+  (function()
+    local longest = 0
+    for _, r in ipairs(requests) do
+      longest = math.max(longest, #tostring(r.data and r.data.detail or ""))
+    end
+    return longest
+  end)()
+)
 check(
   "lines are batched rather than one request each",
   (function()

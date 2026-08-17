@@ -2170,24 +2170,14 @@ local function probeCapabilities(lines)
     end
   end
 
+  -- Thermostat VARIABLE dumps are deliberately not repeated. That question is
+  -- answered -- TEMPERATURE is deci-Celsius, one of the two targets is a
+  -- weather driver -- and re-sending ~180 lines of it every run crowds out the
+  -- unknowns this probe still exists to measure. The count stays, because it is
+  -- how a newly added thermostat announces itself.
   local thermostatCount = 0
-  for target in pairs(thermostats) do
+  for _ in pairs(thermostats) do
     thermostatCount = thermostatCount + 1
-    local okT, vars = pcall(function()
-      return C4:GetDeviceVariables(target)
-    end)
-    if okT and type(vars) == "table" then
-      -- Emitted one variable per line rather than as one encoded blob: the
-      -- whole set does not fit the 480-character event field, and the answer
-      -- may be in the last variable as easily as the first.
-      for _, v in pairs(vars) do
-        if type(v) == "table" then
-          note("PROBE thermostat[%d] %s = %s", target, tostring(v.name), tostring(v.value))
-        end
-      end
-    else
-      note("PROBE thermostat[%d] variables unavailable: %s", target, tostring(vars))
-    end
   end
   note("PROBE thermostats found via TEMPERATURE_ID = %d", thermostatCount)
 
@@ -2273,8 +2263,20 @@ function EC.PROBE_CAPABILITIES()
   --
   -- This is the same defect the telemetry design forbids ("do not send one HTTP
   -- request for every keypad press") arriving in the diagnostic path first.
-  local CHUNK = 20
-  local chunk, chunkIndex = {}, 0
+  -- Chunked by CHARACTER BUDGET, not by line count.
+  --
+  -- The platform caps an event's `detail` at 500 characters. Batching twenty
+  -- lines into one field made the REQUESTS survive the rate limiter and then
+  -- threw most of their CONTENT away at the other end -- the network-binding
+  -- dump, the entire point of the run, arrived cut off mid-object.
+  --
+  -- Budgeting under the cap means a long line lands in a chunk of its own
+  -- rather than being truncated by its neighbours, which matters because the
+  -- longest lines here are the raw structure dumps this probe exists to
+  -- collect. Nothing is silently lost: a single line over the cap is split
+  -- across chunks rather than clipped.
+  local BUDGET = 470
+  local chunk, chunkLen, chunkIndex = {}, 0, 0
   local function flush()
     if #chunk == 0 then
       return
@@ -2285,14 +2287,23 @@ function EC.PROBE_CAPABILITIES()
       name = string.format("probe %03d", chunkIndex),
       detail = table.concat(chunk, "\n"),
     }, "probe chunk " .. chunkIndex)
-    chunk = {}
+    chunk, chunkLen = {}, 0
   end
 
   for _, line in ipairs(lines) do
-    chunk[#chunk + 1] = line
-    if #chunk >= CHUNK then
+    -- A line longer than the whole budget is split rather than dropped.
+    local remaining = line
+    while #remaining > BUDGET do
+      flush()
+      chunk, chunkLen = { remaining:sub(1, BUDGET) }, BUDGET
+      flush()
+      remaining = remaining:sub(BUDGET + 1)
+    end
+    if chunkLen + #remaining + 1 > BUDGET then
       flush()
     end
+    chunk[#chunk + 1] = remaining
+    chunkLen = chunkLen + #remaining + 1
   end
   flush()
   log:info("Capability probe: %d line(s) in %d request(s)", #lines, chunkIndex)
