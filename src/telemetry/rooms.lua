@@ -91,6 +91,7 @@ function Rooms:room(roomId, roomName)
       muted = false,
       in_navigation = false,
       temperature = nil,
+      temperature_device_id = nil,
       changed_at = self.wallClock(),
       -- Open session, if any.
       session = nil,
@@ -371,12 +372,24 @@ end
 
 --- Sets climate on a room, sampled rather than watched — temperature moves
 --- constantly and every change is not worth an event.
-function Rooms:setClimate(roomId, temperature, heat, cool, mode)
+---
+--- `deviceId` is the THERMOSTAT the reading came from, and sending it is not
+--- optional detail. A room points at a thermostat through `TEMPERATURE_ID`, and
+--- on a real system several rooms point at the SAME one: on the measured house,
+--- six rooms all resolve to one thermostat. Copying its reading onto each of
+--- them without saying where it came from turns one thermostat into six
+--- identical "zones", which is a fabricated picture of the house — every room
+--- appearing to have its own climate control when one does.
+---
+--- With the device id attached the platform can group by thermostat and say
+--- what is true: one thermostat, serving these rooms.
+function Rooms:setClimate(roomId, temperature, heat, cool, mode, deviceId)
   local r = self:room(roomId, nil)
   r.temperature = number(temperature)
   r.setpoint_heat = number(heat)
   r.setpoint_cool = number(cool)
   r.hvac_mode = mode
+  r.temperature_device_id = number(deviceId)
 end
 
 --- Current state for every known room, shaped for the platform.
@@ -398,6 +411,7 @@ function Rooms:snapshot()
       muted = r.muted,
       in_navigation = r.in_navigation,
       temperature = r.temperature,
+      temperature_device_id = r.temperature_device_id,
       setpoint_heat = r.setpoint_heat,
       setpoint_cool = r.setpoint_cool,
       hvac_mode = r.hvac_mode,

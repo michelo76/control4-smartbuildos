@@ -1,0 +1,114 @@
+<devicedata>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <creator>SmartBuildOS</creator>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <name>SmartBuildOS Home Insights</name>
+  <model>Home Insights</model>
+  <created>8/17/2026 12:00:00 AM</created>
+  <modified>8/17/2026 12:00:00 AM</modified>
+  <!-- WebView support landed in OS 3.0; below that this driver installs and
+       shows nothing, which is worse than refusing to install. -->
+  <minimum_os_version>3.0.0</minimum_os_version>
+  <auto_update>true</auto_update>
+  <force_auto_update>false</force_auto_update>
+  <version>1</version>
+
+  <small image_source="c4z">icons/device_sm.png</small>
+  <large image_source="c4z">icons/device_lg.png</large>
+  <control>lua_gen</control>
+  <controlmethod>other</controlmethod>
+  <driver>DriverWorks</driver>
+
+  <!-- A WebView driver IS a `uibutton` proxy. That is not a workaround: it is
+       what Control4's own WebView Sample does, and it is why this appears in
+       Navigator as an experience tile rather than as a device. -->
+  <proxies>
+    <proxy proxybindingid="5001" name="Home Insights" primary="True" image_source="c4z"
+           large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+  </proxies>
+
+  <config>
+    <documentation file="www/documentation/index.md"/>
+    <script file="driver.lua" />
+    <actions>
+      <action>
+        <name>Get URL From Connector</name>
+        <command>PULL_URL</command>
+      </action>
+      <action>
+        <name>Reload Now</name>
+        <command>RELOAD</command>
+      </action>
+    </actions>
+    <properties>
+      <property>
+        <name>Driver Name</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>SmartBuildOS Home Insights</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default></default>
+      </property>
+      <property>
+        <name>URL</name>
+        <type>STRING</type>
+        <readonly>false</readonly>
+        <!-- Deliberately EMPTY rather than pointed at a marketing page. An
+             unconfigured panel that says so is honest; one that silently shows
+             somebody's home page looks configured and is not. -->
+        <default></default>
+        <description>The Home Insights URL for this property. Generate it in SmartBuildOS, or in the SmartBuildOS Connector driver's Generate Touchpanel URL action, then paste it here. This URL is a credential — treat it like one.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>No URL set</default>
+      </property>
+    </properties>
+    <commands></commands>
+  </config>
+
+  <capabilities>
+    <!-- The URL the proxy loads. Kept in step with the URL property by
+         driver.lua, which notifies the proxy on every change. -->
+    <web_view_url proxybindingid="5001"></web_view_url>
+    <!-- Renders in the Control4 app on phones and tablets as well as on
+         touchscreens. The page has a portrait layout for exactly this. -->
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <!-- These paths embed the PACKAGED .c4z NAME, not the proxy name. Rename
+             the driver file and every one of these has to move with it, or
+             Navigator renders a tile with no icon. -->
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-insights/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-insights/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-insights/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-insights/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-insights/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>
