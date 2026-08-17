@@ -1508,7 +1508,10 @@ function sampleClimate()
     end)
     local reading = climateReading(vars)
     if reading ~= nil then
-      gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode)
+      -- The thermostat travels with the reading. Several rooms routinely share
+      -- one, and without this the platform cannot tell six copies of one
+      -- thermostat from six thermostats.
+      gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode, thermostat)
     end
   end
 end
