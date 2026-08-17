@@ -323,6 +323,8 @@ Properties = {
   ["Touchpanel URL"] = "Not generated",
   ["Non Control4 Devices"] = "",
   ["Discover Network Devices"] = "Off",
+  ["Network Scan"] = "Off",
+  ["Last Network Scan"] = "Never",
   ["Devices Offline"] = "0",
   ["Last Device Change"] = "",
   ["Device Poll Interval"] = "5m",
@@ -1118,6 +1120,92 @@ check(
   "and they are DIFFERENT timers, so neither cancels the other",
   #pingTimers < 2 or pingTimers[1] ~= pingTimers[2],
   table.concat(pingTimers, ",")
+)
+
+print("\n[31] The subnet sweep finds what the project does not know about")
+pair()
+reset()
+-- A live house: the project's own devices sit on 192.168.1, and three addresses
+-- answer that nothing in the project or the monitored list has ever heard of.
+PINGABLE["192.168.1.10"] = true
+PINGABLE["192.168.1.77"] = true
+PINGABLE["192.168.1.201"] = true
+EC.SCAN_NETWORK()
+
+local scanReport
+for _, r in ipairs(requests) do
+  if tostring(r.data and r.data.name or "") == "network scan" then
+    scanReport = tostring(r.data.detail or "")
+  end
+end
+check("a scan reports its result to the platform", scanReport ~= nil, tostring(scanReport))
+check(
+  "it names the subnet it swept",
+  scanReport ~= nil and scanReport:find("192.168.1.0/24", 1, true) ~= nil,
+  tostring(scanReport)
+)
+check(
+  "it lists the addresses the project does not account for",
+  scanReport ~= nil
+    and scanReport:find("192.168.1.77", 1, true) ~= nil
+    and scanReport:find("192.168.1.201", 1, true) ~= nil,
+  tostring(scanReport)
+)
+check(
+  "Last Network Scan is stamped for the installer",
+  tostring(Properties["Last Network Scan"]):find("found", 1, true) ~= nil,
+  tostring(Properties["Last Network Scan"])
+)
+
+print("\n[32] A sweep result is NOT silently promoted to a monitored device")
+-- The whole reason results go out as an inventory event rather than into the
+-- snapshot. Fold them into devices and every phone that answers once becomes a
+-- monitored device, generating an appeared/removed pair each time it sleeps --
+-- which buries real outages and makes the offline count meaningless.
+local promoted = false
+for _, r in ipairs(requests) do
+  for _, d in ipairs((r.data and r.data.devices) or {}) do
+    if tostring(d.key or ""):find("192.168.1.77", 1, true) then
+      promoted = true
+    end
+  end
+end
+check("a swept address does not enter the device snapshot", not promoted)
+
+print("\n[33] The sweep is bounded, and derives its range rather than guessing")
+reset()
+-- Loopback is what a controller finds when it pings itself; sweeping it reports
+-- a house full of equipment that is one box.
+local concurrent, peak = 0, 0
+local savedCreate = C4.CreatePingClient
+C4.CreatePingClient = function(...)
+  local client = savedCreate(...)
+  local savedPing = client.Ping
+  function client:Ping(host, rounds)
+    concurrent = concurrent + 1
+    if concurrent > peak then
+      peak = concurrent
+    end
+    local result = savedPing(self, host, rounds)
+    concurrent = concurrent - 1
+    return result
+  end
+  return client
+end
+EC.SCAN_NETWORK()
+C4.CreatePingClient = savedCreate
+
+check("the in-flight window is never exceeded", peak <= 24, peak)
+local swept = {}
+for _, r in ipairs(requests) do
+  if tostring(r.data and r.data.name or "") == "network scan" then
+    swept[#swept + 1] = tostring(r.data.detail or "")
+  end
+end
+check(
+  "loopback is never swept",
+  #swept > 0 and swept[1]:find("127.0.0", 1, true) == nil,
+  swept[1] or "no report"
 )
 
 print(string.format("\n%d passed, %d failed", pass, fail))

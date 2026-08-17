@@ -73,6 +73,7 @@ local CONNECTION_TYPES = {
 local HEARTBEAT_TIMER = "SmartBuildOSHeartbeat"
 local DEVICE_POLL_TIMER = "SmartBuildOSDevicePoll"
 local FULL_SYNC_TIMER = "SmartBuildOSFullSync"
+local NETWORK_SCAN_TIMER = "SmartBuildOSNetworkScan"
 
 --- Persist keys. The token is stored encrypted; the project file is handed
 --- around between dealers and backed up, so it must not carry a usable secret.
@@ -90,6 +91,29 @@ local REQUEST_TIMEOUT = 30
 --- ride out a single dropped packet without stretching past the 1m floor on the
 --- poll interval.
 local PING_ROUNDS = 3
+
+--- ── SUBNET SWEEP BUDGET ─────────────────────────────────────────────────────
+---
+--- A /24 is 254 addresses and Director runs the house, so the sweep is bounded
+--- on both axes rather than fired all at once.
+---
+--- ONE round, not three. `PING_ROUNDS` is tuned for MONITORING, where a dropped
+--- packet must not read as an outage. A sweep asks a different question --
+--- "is anything at this address" -- and a live host answers on the first round.
+--- Only DEAD addresses cost the full timeout, and on a home subnet most
+--- addresses are dead, so this is the difference between a sweep that takes ~1
+--- minute and one that takes ~3.
+local SCAN_ROUNDS = 1
+
+--- How many pings are in flight at once. 254 concurrent ping clients is the
+--- obvious implementation and the wrong one: it is a burst of socket
+--- allocations on a controller whose day job is running somebody's home. At 24
+--- a /24 completes in roughly 11 waves.
+local SCAN_CONCURRENCY = 24
+
+--- Ceiling on addresses per sweep, across all subnets. A misconfigured mask
+--- must not turn into a /16 walk.
+local SCAN_MAX_HOSTS = 512
 
 --- @type boolean Whether the last delivery attempt succeeded.
 local gConnected = false
@@ -642,6 +666,261 @@ local function pingEndpoints(done)
   end)
 end
 
+-- ─── Subnet sweep ─────────────────────────────────────────────────────────────
+--
+-- ── WHAT THIS IS AND IS NOT ─────────────────────────────────────────────────
+--
+-- It answers "what else is on this network" -- the gap between the 214 devices
+-- Control4 knows about and the 173 the network inventory holds. It is an
+-- INVENTORY question, not a monitoring one, and the difference decides where
+-- the results are allowed to go.
+--
+-- A swept address that answers ICMP gives an IP and nothing else. No MAC, no
+-- name, no identity. So it does NOT solve the Control4-to-installed_devices
+-- join -- that still needs the binding MAC. Anyone reading a sweep result as
+-- device identity will be matching on an address DHCP is free to move tomorrow.
+--
+-- ── WHY SILENCE IS NOT ABSENCE ──────────────────────────────────────────────
+--
+-- Plenty of real devices never answer a ping: host firewalls drop ICMP by
+-- default on Windows, and a fair number of IoT boxes ignore it. A sweep
+-- therefore UNDERCOUNTS, and "did not answer" must never render as "not
+-- present". Same rule as everywhere else here -- zero and unknown are different
+-- and must not look the same.
+--
+-- ── AND WHY IT IS NOT BORROWED FROM OvrC ────────────────────────────────────
+--
+-- Some Control4 controllers do run an OvrC agent that scans the LAN, so the box
+-- demonstrably knows how. But that agent is a separate service with no
+-- DriverWorks surface: there is no documented Lua call that starts an OvrC scan
+-- or reads its results. This sweep therefore uses `C4:CreatePingClient`, which
+-- is the one network primitive measured working on this hardware.
+
+--- Works out which /24s to sweep from the addresses Director already gave us.
+---
+--- No new Control4 API and nothing guessed: the network bindings read every
+--- poll already carry the controller's neighbours, so the subnet is derivable
+--- from data in hand. Asking Director for its own interface configuration would
+--- mean a fifth unverified API this month.
+---
+--- @param devices table<string, table<string, any>> Current device state.
+--- @return string[] prefixes Dotted /24 prefixes, e.g. "192.168.1".
+local function deriveSubnets(devices)
+  local counts, order = {}, {}
+  for _, device in pairs(devices or {}) do
+    local a, b, c = tostring(device.address or ""):match("^(%d+)%.(%d+)%.(%d+)%.%d+$")
+    -- 127/8 is loopback and 169.254/16 is what an interface gives itself when
+    -- DHCP failed. Sweeping either finds the controller talking to itself and
+    -- reports it as a house full of equipment.
+    if a ~= nil and a ~= "127" and not (a == "169" and b == "254") then
+      local prefix = a .. "." .. b .. "." .. c
+      if counts[prefix] == nil then
+        counts[prefix] = 0
+        order[#order + 1] = prefix
+      end
+      counts[prefix] = counts[prefix] + 1
+    end
+  end
+
+  -- Busiest first, so a capped sweep spends its budget where the equipment is
+  -- rather than on whichever subnet happened to sort first.
+  table.sort(order, function(x, y)
+    if counts[x] ~= counts[y] then
+      return counts[x] > counts[y]
+    end
+    return x < y
+  end)
+  return order
+end
+
+--- Sweeps a list of addresses with bounded concurrency, calling `done` with the
+--- ones that answered.
+---
+--- @param hosts string[]
+--- @param done fun(found: string[], answered: number, swept: number)
+local function sweepHosts(hosts, done)
+  if #hosts == 0 or C4.CreatePingClient == nil then
+    done({}, 0, 0)
+    return
+  end
+
+  local found, nextIndex, inFlight, settledCount = {}, 1, 0, 0
+  local finished = false
+
+  local function finish()
+    if finished then
+      return
+    end
+    finished = true
+    table.sort(found)
+    done(found, #found, settledCount)
+  end
+
+  local pump
+
+  --- One address settled, either way. Refills the window so it stays full
+  --- rather than draining to zero between waves.
+  local function settle(host, online)
+    settledCount = settledCount + 1
+    inFlight = inFlight - 1
+    if online then
+      found[#found + 1] = host
+    end
+    if settledCount >= #hosts then
+      finish()
+      return
+    end
+    pump()
+  end
+
+  --- Fills the in-flight window, re-entrantly SAFE.
+  ---
+  --- The guard is not a nicety. A ping client is free to resolve synchronously
+  --- -- the test shim does, and nothing documents that hardware never will --
+  --- in which case `Ping` calls back into `settle` before it returns, `settle`
+  --- calls back into here, and a 512-address sweep becomes 512 frames of
+  --- recursion. With the guard the nested call returns immediately and the
+  --- ORIGINAL while loop keeps going, so a synchronous client drains the sweep
+  --- iteratively and an asynchronous one refills a slot at a time. Both are
+  --- correct and neither grows the stack.
+  local pumping = false
+  pump = function()
+    if pumping then
+      return
+    end
+    pumping = true
+    while inFlight < SCAN_CONCURRENCY and nextIndex <= #hosts do
+      local host = hosts[nextIndex]
+      nextIndex = nextIndex + 1
+      inFlight = inFlight + 1
+
+      local client = C4:CreatePingClient()
+      if client == nil then
+        settle(host, false)
+      else
+        -- Guarded: a client that fires twice would double-count `settledCount`
+        -- and finish the sweep early on a partial result.
+        local reported = false
+        client:SetOnResult(function(_, success)
+          if reported then
+            return
+          end
+          reported = true
+          settle(host, success == true)
+        end)
+        local ok = client:Ping(host, SCAN_ROUNDS)
+        if ok == nil and not reported then
+          reported = true
+          settle(host, false)
+        end
+      end
+    end
+    pumping = false
+  end
+
+  pump()
+
+  -- The sweep's own watchdog, on its own timer name for the reason the ping
+  -- watchdog now has one: a shared name lets a second sweep cancel the first's
+  -- only way out. Budget is the worst case -- every address dead, every wave
+  -- paying the full round timeout -- plus margin.
+  gPingTimeoutSeq = gPingTimeoutSeq + 1
+  local waves = math.ceil(#hosts / SCAN_CONCURRENCY)
+  SetTimer("SweepTimeout" .. gPingTimeoutSeq, (waves * (SCAN_ROUNDS * 5 + 2) + 15) * ONE_SECOND, function()
+    if finished then
+      return
+    end
+    log:warn("Subnet sweep timed out with %d of %d address(es) settled", settledCount, #hosts)
+    finish()
+  end)
+end
+
+--- Sweeps the derived subnets and reports what answered.
+---
+--- Results are reported as an EVENT rather than folded into the device
+--- snapshot, and that is deliberate. A snapshot is authoritative: anything it
+--- omits gets retired. Feeding sweep results into it would mean every phone,
+--- laptop and guest device that answered once becomes a monitored device, and
+--- then generates an appeared/removed pair every time it sleeps -- burying real
+--- outages under churn and making the offline count meaningless. An integrator
+--- who wants one of these actually monitored adds it to Non Control4 Devices,
+--- which is what that property is for.
+---
+--- @param reason string What triggered this sweep, for the log and the report.
+local function runNetworkScan(reason)
+  local prefixes = deriveSubnets(gDeviceState)
+  if #prefixes == 0 then
+    log:warn("Network scan: no usable subnet could be derived from device addresses")
+    if isPaired() then
+      send("event", {
+        kind = "event",
+        name = "network scan",
+        detail = "No usable subnet: no device reported a routable IPv4 address.",
+      }, "network scan report")
+    end
+    return
+  end
+
+  local hosts, swept = {}, {}
+  for _, prefix in ipairs(prefixes) do
+    for octet = 1, 254 do
+      if #hosts >= SCAN_MAX_HOSTS then
+        break
+      end
+      hosts[#hosts + 1] = prefix .. "." .. octet
+    end
+    swept[#swept + 1] = prefix .. ".0/24"
+    if #hosts >= SCAN_MAX_HOSTS then
+      break
+    end
+  end
+
+  log:info("Network scan (%s): sweeping %d address(es) across %s", reason, #hosts, table.concat(swept, ", "))
+  local startedAt = os.time()
+
+  sweepHosts(hosts, function(found, answered, settled)
+    local elapsed = os.time() - startedAt
+    UpdateProperty("Last Network Scan", string.format("%s — %d found", os.date("%Y-%m-%d %H:%M:%S"), answered))
+    log:info("Network scan: %d of %d address(es) answered in %ds", answered, settled, elapsed)
+
+    if not isPaired() then
+      return
+    end
+
+    -- Which of these are already accounted for. The useful number is not "how
+    -- many answered" but "how many answered that nothing in the project or the
+    -- monitored list knows about" -- that is the reconciliation gap, and it is
+    -- the only reason to run this at all.
+    local known = {}
+    for _, device in pairs(gDeviceState) do
+      if device.address ~= nil then
+        known[tostring(device.address)] = true
+      end
+    end
+    local unknown = {}
+    for _, host in ipairs(found) do
+      if not known[host] then
+        unknown[#unknown + 1] = host
+      end
+    end
+
+    send("event", {
+      kind = "event",
+      name = "network scan",
+      detail = string.format(
+        "%s: %d of %d answered across %s in %ds; %d not in project or monitored list: %s",
+        reason,
+        answered,
+        settled,
+        table.concat(swept, ", "),
+        elapsed,
+        #unknown,
+        #unknown > 0 and table.concat(unknown, " ") or "none"
+      ):sub(1, 400),
+    }, "network scan report")
+  end)
+end
+
 --- Reads Director state and pings monitored endpoints, then hands the merged
 --- picture to `done`.
 --- @param done fun(devices: table<string, table<string, any>>)
@@ -827,6 +1106,7 @@ local function scheduleTimers()
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
+  CancelTimer(NETWORK_SCAN_TIMER)
 
   local heartbeat = INTERVALS[Properties["Heartbeat Interval"] or ""] or INTERVALS["15m"]
   local poll = INTERVALS[Properties["Device Poll Interval"] or ""] or INTERVALS["5m"]
@@ -835,7 +1115,24 @@ local function scheduleTimers()
   SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, sendHeartbeat, true)
   SetTimer(DEVICE_POLL_TIMER, poll * ONE_SECOND, pollDeviceState, true)
   SetTimer(FULL_SYNC_TIMER, fullSync * ONE_SECOND, sendFullSync, true)
-  log:debug("Timers armed: heartbeat %ds, device poll %ds, full sync %ds", heartbeat, poll, fullSync)
+
+  -- Off by DEFAULT, and stays off until somebody chooses it. A subnet sweep is
+  -- the one thing this driver does that touches addresses nobody put in the
+  -- project, so it is opt-in rather than something a dealer discovers running.
+  local scanLabel = Properties["Network Scan"] or "Off"
+  local scan = INTERVALS[scanLabel]
+  if scan ~= nil then
+    SetTimer(NETWORK_SCAN_TIMER, scan * ONE_SECOND, function()
+      runNetworkScan("scheduled")
+    end, true)
+  end
+  log:debug(
+    "Timers armed: heartbeat %ds, device poll %ds, full sync %ds, network scan %s",
+    heartbeat,
+    poll,
+    fullSync,
+    scan ~= nil and tostring(scan) .. "s" or "off"
+  )
 end
 
 -- ─── Discovery ────────────────────────────────────────────────────────────────
@@ -2437,6 +2734,30 @@ end
 function EC.POLL_DEVICES()
   log:trace("EC.POLL_DEVICES()")
   pollDeviceState()
+end
+
+--- Sweeps the subnet now, rather than waiting for the schedule.
+---
+--- Wrapped the way SEND_FULL_SYNC is: an action that throws out to Composer
+--- shows the installer a red box with no detail, and the throw is the only
+--- record. This one can fail on a controller whose OS has no ping API, which is
+--- a perfectly ordinary thing to discover from a button.
+function EC.SCAN_NETWORK()
+  log:trace("EC.SCAN_NETWORK()")
+  if C4.CreatePingClient == nil then
+    log:error("Network scan unavailable: this controller's OS provides no ping API")
+    UpdateProperty("Last Network Scan", "Unavailable: no ping API on this controller")
+    return
+  end
+  local ok, err = pcall(runNetworkScan, "manual")
+  if not ok then
+    local detail = tostring(err):sub(1, 400)
+    log:error("Network scan failed: %s", detail)
+    UpdateProperty("Last Network Scan", "Failed: " .. detail:sub(1, 120))
+    if isPaired() then
+      send("event", { kind = "event", name = "network scan failed", detail = detail }, "network scan failure")
+    end
+  end
 end
 
 --- Mints a touchpanel URL and writes it into the driver's own properties.

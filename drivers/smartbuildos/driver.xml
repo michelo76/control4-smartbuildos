@@ -88,6 +88,10 @@
         <command>SEND_HEARTBEAT</command>
       </action>
       <action>
+        <name>Scan Network Now</name>
+        <command>SCAN_NETWORK</command>
+      </action>
+      <action>
         <name>Report Telemetry Survey</name>
         <command>REPORT_TELEMETRY_SURVEY</command>
       </action>
@@ -235,6 +239,25 @@
           <item>On</item>
         </items>
         <description>Listen for devices announcing themselves on the network (SSDP/UPnP) that are not in this Control4 project</description>
+      </property>
+      <property>
+        <name>Network Scan</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>1h</item>
+          <item>6h</item>
+          <item>12h</item>
+          <item>24h</item>
+        </items>
+        <description>Ping every address on the subnet to find equipment that is not in this Control4 project. Reports an inventory only — nothing found here is monitored until you add it to Non Control4 Devices</description>
+      </property>
+      <property>
+        <name>Last Network Scan</name>
+        <type>STRING</type>
+        <default>Never</default>
+        <readonly>true</readonly>
       </property>
       <property>
         <name>Non Control4 Devices</name>
