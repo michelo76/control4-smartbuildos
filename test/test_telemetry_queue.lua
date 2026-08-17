@@ -22,13 +22,23 @@ local clock = { t = 1000000 }
 local savedSeq = nil
 local function newQueue(over)
   local opts = {
-    now = function() return clock.t end,
-    wallClock = function() return "iso:" .. clock.t end,
+    now = function()
+      return clock.t
+    end,
+    wallClock = function()
+      return "iso:" .. clock.t
+    end,
     keyPrefix = "ab12",
-    loadSeq = function() return savedSeq end,
-    saveSeq = function(s) savedSeq = s end,
+    loadSeq = function()
+      return savedSeq
+    end,
+    saveSeq = function(s)
+      savedSeq = s
+    end,
   }
-  for k, v in pairs(over or {}) do opts[k] = v end
+  for k, v in pairs(over or {}) do
+    opts[k] = v
+  end
   return Queue.new(opts)
 end
 
@@ -46,7 +56,7 @@ check("the transport-private timestamp is stripped", batch[1]._at == nil)
 check("fields pass through", batch[1].room_id == 5 and batch[2].value_numeric == 72)
 
 print("[2] The sequence survives a reload — keys must never repeat")
-local q2 = newQueue()  -- loadSeq returns savedSeq (currently 2)
+local q2 = newQueue() -- loadSeq returns savedSeq (currently 2)
 q2:add("SYSTEM", {})
 local b2 = q2:takeBatch()
 check("a reloaded queue continues the sequence", b2[1].idempotency_key == "ab12:3", b2[1].idempotency_key)
@@ -81,7 +91,9 @@ check("prune counts as a drop", q5:dropped() == 1)
 print("[6] Batch size is capped; the rest waits")
 savedSeq = nil
 local q6 = newQueue({ maxBatch = 3 })
-for i = 1, 7 do q6:add("ROOM", { value_numeric = i }) end
+for i = 1, 7 do
+  q6:add("ROOM", { value_numeric = i })
+end
 local b6 = q6:takeBatch()
 check("batch holds maxBatch", #b6 == 3)
 check("remainder stays queued", q6:depth() == 4)
@@ -89,8 +101,10 @@ check("remainder stays queued", q6:depth() == 4)
 print("[7] A failed upload puts the batch back, in order, in front")
 savedSeq = nil
 local q7 = newQueue({ maxBatch = 2 })
-for i = 1, 4 do q7:add("ROOM", { value_numeric = i }) end
-local b7 = q7:takeBatch()          -- takes 1,2 ; leaves 3,4
+for i = 1, 4 do
+  q7:add("ROOM", { value_numeric = i })
+end
+local b7 = q7:takeBatch() -- takes 1,2 ; leaves 3,4
 q7:putBack(b7)
 local b7b = q7:takeBatch()
 check("returned batch leads the queue again", b7b[1].value_numeric == 1 and b7b[2].value_numeric == 2)
@@ -101,11 +115,11 @@ savedSeq = nil
 local q8 = newQueue({ maxItems = 3, maxBatch = 2 })
 q8:add("ROOM", { value_numeric = 1 })
 q8:add("ROOM", { value_numeric = 2 })
-local b8 = q8:takeBatch()          -- queue empty, holding 1,2
+local b8 = q8:takeBatch() -- queue empty, holding 1,2
 q8:add("ROOM", { value_numeric = 3 })
 q8:add("ROOM", { value_numeric = 4 })
-q8:add("ROOM", { value_numeric = 5 })  -- queue full at 3,4,5
-q8:putBack(b8)                     -- 1,2,3,4,5 -> cap 3 -> keep 3,4,5
+q8:add("ROOM", { value_numeric = 5 }) -- queue full at 3,4,5
+q8:putBack(b8) -- 1,2,3,4,5 -> cap 3 -> keep 3,4,5
 check("cap holds after putBack", q8:depth() == 3, q8:depth())
 local b8b = q8:takeBatch()
 check("oldest gave way", b8b[1].value_numeric == 3 and b8b[2].value_numeric == 4)

@@ -1068,6 +1068,20 @@ local function pollDeviceState()
         )
         C4:FireEvent(device.online and "Device Came Online" or "Device Went Offline")
         log:info("Device %s %s", tostring(device.name), device.online and "came online" or "went offline")
+        -- Mirrored into the telemetry queue (T-2.1). The delta above is
+        -- CURRENT STATE and a failed delta is only healed by the next full
+        -- sync; the queued event survives an outage and replays with its
+        -- ORIGINAL timestamp -- which is the whole point of a local journal:
+        -- the internet being down is exactly when transitions matter.
+        gTelemetry:add("DEVICE", {
+          subcategory = device.online and "online" or "offline",
+          source_type = device.source,
+          source_id = device.key,
+          source_name = device.name,
+          control4_device_id = device.device_id,
+          event_type = "transition",
+          state = device.online and "online" or "offline",
+        })
       end
     end
 
@@ -1186,11 +1200,7 @@ local function flushTelemetry()
     gTelemetry:putBack(returned)
     gTelemetryFailures = gTelemetryFailures + 1
     gTelemetrySkip = math.min(2 ^ gTelemetryFailures, 16)
-    log:warn(
-      "Telemetry batch of %d not confirmed; requeued, backing off %d tick(s)",
-      #returned,
-      gTelemetrySkip
-    )
+    log:warn("Telemetry batch of %d not confirmed; requeued, backing off %d tick(s)", #returned, gTelemetrySkip)
   end
 
   if gTelemetrySkip > 0 then
@@ -1203,21 +1213,27 @@ local function flushTelemetry()
 
   local batch = gTelemetry:takeBatch()
   gInflight = batch
-  send("telemetry", { kind = "telemetry", events = batch }, string.format("telemetry batch of %d", #batch), function(body)
-    -- The platform says how many it kept; a shortfall is dropped-by-policy
-    -- (unknown category, clock out of range) -- worth a line, not an alarm.
-    if type(body) == "table" and tointeger(body.dropped) ~= nil and tointeger(body.dropped) > 0 then
-      log:warn("Platform dropped %d telemetry event(s) by policy", tointeger(body.dropped))
+  send(
+    "telemetry",
+    { kind = "telemetry", events = batch },
+    string.format("telemetry batch of %d", #batch),
+    function(body)
+      -- The platform says how many it kept; a shortfall is dropped-by-policy
+      -- (unknown category, clock out of range) -- worth a line, not an alarm.
+      if type(body) == "table" and tointeger(body.dropped) ~= nil and tointeger(body.dropped) > 0 then
+        log:warn("Platform dropped %d telemetry event(s) by policy", tointeger(body.dropped))
+      end
+    end,
+    function()
+      -- Confirmation rides DELIVERY (any 2xx), deliberately not the decoded
+      -- body: an empty-bodied 200 through some middlebox must read as
+      -- delivered, or this loop resends the same batch forever while ingest
+      -- dedupes it -- an infinite, invisible, low-rate retry.
+      gInflight = nil
+      gTelemetryFailures = 0
+      gTelemetrySkip = 0
     end
-  end, function()
-    -- Confirmation rides DELIVERY (any 2xx), deliberately not the decoded
-    -- body: an empty-bodied 200 through some middlebox must read as
-    -- delivered, or this loop resends the same batch forever while ingest
-    -- dedupes it -- an infinite, invisible, low-rate retry.
-    gInflight = nil
-    gTelemetryFailures = 0
-    gTelemetrySkip = 0
-  end)
+  )
 end
 
 --- (Re)arms every reporting timer from the current properties.
@@ -1632,6 +1648,24 @@ function sampleClimate()
       -- one, and without this the platform cannot tell six copies of one
       -- thermostat from six thermostats.
       gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode, thermostat)
+      -- Each sample also feeds the telemetry tiers, and with it a capability
+      -- current-state never had: zone temperature HISTORY. The hourly rollup
+      -- stores count and sum per room, so mean-per-hour is one division away
+      -- -- no raw row survives longer than the 7-day partition window.
+      if reading.temperature ~= nil then
+        gTelemetry:add("CLIMATE", {
+          subcategory = "temperature",
+          source_type = "thermostat",
+          source_id = tostring(thermostat),
+          room_id = roomId,
+          room_name = gRoomNames[roomId],
+          value_numeric = reading.temperature,
+          unit = "F",
+          -- Comfort is the one customer-safe reading in this file: it is what
+          -- the Home Insights climate screen already shows.
+          privacy_class = "CUSTOMER_SAFE",
+        })
+      end
     end
   end
 end
@@ -3019,8 +3053,11 @@ function EC.REPORT_MEASUREMENT(tParams)
   if value == nil then
     -- A measurement whose value does not parse is refused loudly rather than
     -- shipped as text: "37%" in a numeric column is how a chart goes blank.
-    log:warn("REPORT_MEASUREMENT %s: VALUE %s is not a number; ignoring",
-      tostring(tParams.NAME or ""), tostring(tParams.VALUE or ""))
+    log:warn(
+      "REPORT_MEASUREMENT %s: VALUE %s is not a number; ignoring",
+      tostring(tParams.NAME or ""),
+      tostring(tParams.VALUE or "")
+    )
     return
   end
   reportCustom("measurement", tostring(tParams.NAME or ""), {
