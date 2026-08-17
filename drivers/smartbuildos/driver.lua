@@ -369,6 +369,33 @@ local function networkBinding(deviceId)
   return nil
 end
 
+--- Pulls a MAC address out of a network binding's `uuid`.
+---
+--- SSDP bindings carry it on the end of an identifier
+--- ("Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55"); Zigbee bindings put a
+--- 16-hex-digit address there instead ("000fff0000d4f655"). Matching the MAC
+--- SHAPE rather than taking the tail keeps the second from being mistaken for
+--- the first.
+---
+--- Returned lowercase and colon-free, matching `installed_devices.mac_normalized`
+--- so the two can be compared without either side normalising again.
+--- @return string|nil
+function macFromUuid(uuid)
+  if type(uuid) ~= "string" or uuid == "" then
+    return nil
+  end
+  -- The separator must be CONSISTENT, enforced with a back-reference. Allowing
+  -- ":" and "-" to mix matched straight across the model number in
+  -- "...-2D-1200-D4:6A:91:4F:16:55" and produced "00d46a914f16" — a
+  -- well-formed MAC that belongs to no device, which would have silently
+  -- mis-joined this device to whatever else happened to carry it.
+  local a, sep, b, c, d, e, f = uuid:match("(%x%x)([:%-])(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)")
+  if a == nil then
+    return nil
+  end
+  return (a .. b .. c .. d .. e .. f):lower()
+end
+
 --- Reads every project device and whatever Director knows about its link.
 ---
 --- `C4:GetDevices({})` enumerates the whole project — the only system-wide
@@ -420,6 +447,28 @@ local function readDeviceState()
           network_status = status ~= "" and status or nil,
           room = device.roomName,
           driver_file = device.driverFileName,
+          -- MEASURED 2026-08-17. The `uuid` on an SSDP-discovered binding
+          -- carries the device's MAC on the end of its identifier:
+          --
+          --   "Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55"
+          --
+          -- That MAC is the ONLY identifier Control4 shares with UniFi and with
+          -- `installed_devices` -- Control4 knows a device by its binding and
+          -- UniFi by its MAC, and until now the two could only be matched on IP,
+          -- which DHCP moves and which only 14 of 72 devices even had. Five
+          -- probe runs went into finding it, so it is extracted rather than
+          -- left in a string nobody parses.
+          --
+          -- Zigbee bindings put their own address in `uuid` instead
+          -- ("000fff0000d4f655"), which is why this matches the MAC SHAPE
+          -- rather than taking the tail of the string.
+          mac = macFromUuid(binding.uuid),
+          -- The SSDP type is what Control4 itself calls the device
+          -- ("Amplifier", "c4:control4_light:C4-V-ODIM120"). A far better
+          -- classifier than the device name, which is whatever an installer
+          -- typed -- and it is how lighting, dimmers and keypads identify
+          -- themselves without any name matching.
+          device_type = binding.ssdptype ~= "" and binding.ssdptype or nil,
         }
       end
     end

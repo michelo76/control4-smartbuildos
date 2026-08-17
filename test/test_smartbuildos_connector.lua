@@ -975,5 +975,45 @@ check(
 check("no readable values yields nil", climateReading({ { name = "FAN_MODE", value = "Auto" } }) == nil)
 check("garbage yields nil rather than throwing", climateReading("nonsense") == nil)
 
+print("\n[27] MAC extraction, against real network bindings")
+
+-- Verbatim uuids from the 2026-08-17 probe.
+check(
+  "an SSDP uuid yields its MAC, normalised",
+  macFromUuid("Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55") == "d46a914f1655",
+  tostring(macFromUuid("Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55"))
+)
+
+-- A Zigbee address is 16 hex digits with no separators. Taking the tail of the
+-- string would turn it into a plausible-looking MAC that matches nothing.
+check("a Zigbee uuid yields no MAC", macFromUuid("000fff0000d4f655") == nil, tostring(macFromUuid("000fff0000d4f655")))
+
+check("an empty uuid yields no MAC", macFromUuid("") == nil)
+check("a nil uuid yields no MAC", macFromUuid(nil) == nil)
+check("a non-string yields no MAC rather than throwing", macFromUuid(42) == nil)
+check(
+  "hyphen-separated MACs are accepted",
+  macFromUuid("dev-AA-BB-CC-DD-EE-FF") == "aabbccddeeff",
+  tostring(macFromUuid("dev-AA-BB-CC-DD-EE-FF"))
+)
+check(
+  "the result is comparable with installed_devices.mac_normalized",
+  macFromUuid("x D4:6A:91:4F:16:55") == "d46a914f1655"
+)
+
+-- The separator must be consistent. Allowing ":" and "-" to mix matched across
+-- the model number in the real uuid and produced "00d46a914f16" — a well-formed
+-- MAC belonging to no device, which would silently mis-join this device to
+-- whatever else carried it. A wrong join is worse than no join.
+check(
+  "a mixed-separator run is not mistaken for a MAC",
+  macFromUuid("AMP-2D-1200-D4:6A") == nil,
+  tostring(macFromUuid("AMP-2D-1200-D4:6A"))
+)
+check(
+  "the model number in a real uuid is not matched",
+  macFromUuid("Amplifier-EA-HYB-AMP-2D-1200-D4:6A:91:4F:16:55") ~= "00d46a914f16"
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
