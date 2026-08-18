@@ -1561,7 +1561,8 @@ check(
 )
 check(
   "a 0% corroborated by a status IS a reading",
-  (sensorReading({ { name = "BATTERY_LEVEL", value = "0" }, { name = "BATTERY_STATUS", value = "Critical" } }) or {}).battery_level == 0
+  (sensorReading({ { name = "BATTERY_LEVEL", value = "0" }, { name = "BATTERY_STATUS", value = "Critical" } }) or {}).battery_level
+    == 0
 )
 check(
   "a contact NAMED motion is a motion sensor, and reads Motion/Clear",
@@ -1582,6 +1583,35 @@ check(
   "a real UPS says on battery, not Open",
   (sensorReading({ { name = "ON_BATTERY", value = "true" } }, "Rack UPS") or {}).state == "On battery"
 )
+
+print("\n[40] A driver start is classified, not guessed")
+
+-- The only signal available is the driver version. A start at a NEW version
+-- was an update; a start at the same version means Director came back under
+-- an unchanged driver. A controller reboot, a Director restart and a project
+-- reload are indistinguishable from inside the driver, and none is claimed.
+check("the very first start is not a reload", classifyStart(nil, "20260818.1", 0) == "first")
+check("a start with no prior count is not a reload", classifyStart(nil, "20260818.1", nil) == "first")
+check(
+  "a NEW version is an update, not a reboot -- eight releases in a day must not read as eight reboots",
+  classifyStart("20260818.1", "20260818.2", 4) == "update"
+)
+check("the SAME version means Director came back", classifyStart("20260818.1", "20260818.1", 4) == "reload")
+check(
+  "an unreadable version falls back to reload rather than inventing an update",
+  classifyStart("20260818.1", nil, 4) == "reload"
+)
+
+print("\n[41] Email preferences travel with the alert; the platform sends it")
+Properties["Alert Email"] = "  ops@example.com  "
+Properties["Email on Director Reload"] = "On"
+Properties["Email on Device Offline"] = "Off"
+local prefs = alertPreferences()
+check("the address is trimmed", prefs.email == "ops@example.com", prefs.email)
+check("an enabled alert reads true", prefs.on_reload == true)
+check("a disabled alert reads false, not nil", prefs.on_device_offline == false)
+Properties["Alert Email"] = "   "
+check("a blank address is nil, so the platform has nothing to send to", alertPreferences().email == nil)
 
 print("\n[38] A response with no commands acks nothing")
 reset()

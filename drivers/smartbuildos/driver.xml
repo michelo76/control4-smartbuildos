@@ -35,6 +35,24 @@
       <false_text>Not paired</false_text>
     </conditional>
   </conditionals>
+  <variables>
+    <variable>
+      <id>2000</id>
+      <name>DIRECTOR_RELOADS</name>
+      <type>NUMBER</type>
+      <default>0</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2001</id>
+      <name>LAST_RELOAD</name>
+      <type>STRING</type>
+      <default></default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+  </variables>
   <events>
     <event>
       <id>1</id>
@@ -65,6 +83,11 @@
       <id>6</id>
       <name>Device Came Online</name>
       <description>When a device in this project comes back online</description>
+    </event>
+    <event>
+      <id>7</id>
+      <name>Director Reloaded</name>
+      <description>When Director comes back up under this driver — a controller reboot, a Director restart or a project reload. Deliberately NOT fired by a driver update, which restarts the driver without the controller having gone anywhere.</description>
     </event>
   </events>
   <config>
@@ -346,6 +369,71 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Director Reloads</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+        <description>How many times Director has come back up under this driver. A driver update is not counted — it restarts the driver without the controller having gone anywhere.</description>
+      </property>
+      <property>
+        <name>Last Reload</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+        <description>When this driver last started, and what caused it</description>
+      </property>
+      <property>
+        <name>Email Alerts</name>
+        <type>LABEL</type>
+        <default>Email Alerts</default>
+      </property>
+      <property>
+        <name>Alert Email</name>
+        <type>STRING</type>
+        <default/>
+        <description>Where alerts are sent. SmartBuildOS sends the message — a driver has no mail transport worth relying on — so this address is passed along with each alert.</description>
+      </property>
+      <property>
+        <name>Email on Director Reload</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <description>Email when the controller reboots or Director reloads, including how many times it has happened</description>
+      </property>
+      <property>
+        <name>Email on Device Offline</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <description>Email when a device in this project goes offline</description>
+      </property>
+      <property>
+        <name>Email on Low Battery</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <description>Email when a battery-powered device reports a low battery</description>
+      </property>
+      <property>
+        <name>Email on Sync Failure</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <description>Email when this driver cannot deliver to SmartBuildOS</description>
       </property>
       <property>
         <name>Reporting</name>

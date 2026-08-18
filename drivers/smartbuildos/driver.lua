@@ -82,6 +82,25 @@ local NETWORK_SCAN_TIMER = "SmartBuildOSNetworkScan"
 local TOKEN_KEY = "device_token"
 local PROPERTY_KEY = "property_id"
 local PROPERTY_NAME_KEY = "property_name"
+--- How many times this driver has started, and when it last did.
+---
+--- ── WHAT THIS ACTUALLY MEASURES ─────────────────────────────────────────────
+---
+--- OnDriverLateInit runs when the driver loads, and the driver loads when
+--- Director does: a controller reboot, a Director restart, a project reload,
+--- or a driver update all produce exactly one of these. There is no
+--- documented API that says "the controller rebooted" on its own, so rather
+--- than claim one, this counts STARTS — a fact — and classifies the cause by
+--- the one signal available: if the driver version changed since the last
+--- start, the cause was an update; otherwise Director reloaded underneath a
+--- driver that did not change.
+---
+--- `persist` survives the restart (Director stores it), which is what makes
+--- counting possible at all.
+local RELOAD_COUNT_KEY = "director_reload_count"
+local RELOAD_AT_KEY = "director_reload_at"
+local RELOAD_VERSION_KEY = "director_reload_version"
+local RELOAD_KIND_KEY = "director_reload_kind"
 
 --- Requests are given a generous ceiling: a controller on a saturated uplink
 --- should retry on the next tick rather than pile up in-flight posts.
@@ -208,6 +227,9 @@ local gThermostatSnapshot = {}
 --- What the self-update channel last did, so the platform can see it.
 --- @type table
 local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
+--- What this driver start was: count, timestamp, and cause.
+--- @type table
+local gStart = { count = 0, at = nil, kind = nil }
 --- Devices that reported a sensor or battery signature at the last catalogue
 --- walk: id -> { name, room }. Re-read on each state upload.
 --- @type table<number, table>
@@ -240,6 +262,85 @@ local reportDiagnostics
 -- resolve the runner targets as nil globals and every remote command would ack
 -- as "attempt to call a nil value".
 local collectCommands
+
+--- Classify a driver start from what changed since the last one.
+---
+--- Pure and global so the rule is testable without a controller. The only
+--- distinguishing signal available is the driver version: a start whose
+--- version differs from the last recorded one was caused by an UPDATE, and a
+--- start at the same version means Director came up underneath an unchanged
+--- driver — a reboot, a restart or a project reload, which are not
+--- distinguishable from in here and are not claimed to be.
+--- @return string kind  "first" | "update" | "reload"
+function classifyStart(previousVersion, currentVersion, previousCount)
+  if previousCount == nil or previousCount == 0 then
+    return "first"
+  end
+  if previousVersion ~= nil and currentVersion ~= nil and previousVersion ~= currentVersion then
+    return "update"
+  end
+  return "reload"
+end
+
+--- Record this start, and answer what it was.
+--- @return table { count, at, kind, previous_version, version }
+local function recordStart()
+  local previousCount = tointeger(persist:get(RELOAD_COUNT_KEY, 0)) or 0
+  local previousVersion = persist:get(RELOAD_VERSION_KEY, nil)
+  local okV, currentVersion = pcall(function()
+    return C4:GetDriverConfigInfo("version")
+  end)
+  currentVersion = okV and currentVersion or nil
+
+  local kind = classifyStart(previousVersion, currentVersion, previousCount)
+  -- A driver UPDATE is not a controller reboot, and counting it as one would
+  -- inflate the number on every release — of which there were eight today.
+  local count = kind == "reload" and previousCount + 1 or previousCount
+  local at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+
+  persist:set(RELOAD_COUNT_KEY, count)
+  persist:set(RELOAD_AT_KEY, at)
+  persist:set(RELOAD_KIND_KEY, kind)
+  if currentVersion ~= nil then
+    persist:set(RELOAD_VERSION_KEY, currentVersion)
+  end
+
+  return {
+    count = count,
+    at = at,
+    kind = kind,
+    previous_version = previousVersion,
+    version = currentVersion,
+  }
+end
+
+--- What the installer asked to be emailed about, as configured in Composer.
+---
+--- ── WHY THE DRIVER DOES NOT SEND THE EMAIL ──────────────────────────────────
+---
+--- A Control4 driver has no mail transport worth relying on: no SMTP
+--- credentials, no sender reputation, no retry, and nowhere to see that a
+--- message bounced. SmartBuildOS already sends mail for the rest of the
+--- product, with a domain that is set up to be delivered.
+---
+--- So the CHOICE lives here — in Composer, next to the system it is about,
+--- which is where an installer expects to configure it — and the SENDING
+--- happens on the platform. The driver states its preferences with every
+--- alert it raises; the platform is what turns one into a message.
+--- @return table
+function alertPreferences()
+  local function on(name)
+    return tostring(Properties[name] or "Off") == "On"
+  end
+  local to = tostring(Properties["Alert Email"] or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  return {
+    email = to ~= "" and to or nil,
+    on_reload = on("Email on Director Reload"),
+    on_device_offline = on("Email on Device Offline"),
+    on_low_battery = on("Email on Low Battery"),
+    on_sync_failure = on("Email on Sync Failure"),
+  }
+end
 
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
@@ -1171,6 +1272,12 @@ local function sendHeartbeat()
       heartbeat_seconds = activeHeartbeatSeconds(),
       -- The self-update channel's own account of itself.
       update_channel = gUpdate,
+      -- How many times Director has come back under this driver, and when.
+      -- On the heartbeat rather than only on the event, so a platform that
+      -- missed the event still converges on the truth.
+      director_reloads = gStart.count,
+      last_reload_at = gStart.at,
+      last_reload_kind = gStart.kind,
     },
     "heartbeat",
     function(body)
@@ -1609,8 +1716,11 @@ function sendCatalogue()
         -- Sensors, locks, openings and batteries — anything reporting a state
         -- worth watching. A thermostat can also carry a battery, so this is
         -- not exclusive with the branch above.
-        if okV and sensors < MAX_SENSORS
-          and sensorReading(vars, type(device) == "table" and device.deviceName or nil) ~= nil then
+        if
+          okV
+          and sensors < MAX_SENSORS
+          and sensorReading(vars, type(device) == "table" and device.deviceName or nil) ~= nil
+        then
           gSensorDevices[id] = {
             name = type(device) == "table" and device.deviceName or nil,
             room = type(device) == "table" and device.roomName or nil,
@@ -2612,6 +2722,28 @@ function OnDriverLateInit()
   UpdateProperty("Driver Status", "Online")
   showPairingState()
 
+  -- ── This start, recorded and announced ───────────────────────────────────
+  --
+  -- Composer sees it as read-only properties, programming sees it as an event
+  -- and a variable, and SmartBuildOS hears about it on the event path. All
+  -- four are the same fact stated four ways; none of them is computed twice.
+  gStart = recordStart()
+  UpdateProperty("Director Reloads", tostring(gStart.count))
+  UpdateProperty(
+    "Last Reload",
+    string.format("%s (%s)", gStart.at:gsub("T", " "):gsub("Z", " UTC"), gStart.kind)
+  )
+  pcall(function()
+    C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
+    C4:SetVariable("LAST_RELOAD", gStart.at)
+  end)
+  -- Programming fires only for an actual reload. A driver update restarts the
+  -- driver too, and firing "the controller rebooted" on every release would
+  -- teach somebody to ignore it.
+  if gStart.kind == "reload" then
+    C4:FireEvent("Director Reloaded")
+  end
+
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
     -- The update channel REPORTS ITSELF now. It went five releases without
@@ -2656,6 +2788,20 @@ function OnDriverLateInit()
       UpdateProperty("Heartbeat Interval", "1m")
       log:info("Heartbeat Interval migrated %s -> 1m (one-time fast check-in default)", tostring(current))
     end
+  end
+
+  -- Announced immediately rather than at the next heartbeat: a reboot is the
+  -- thing somebody configured an alert for, and "within a minute" is not the
+  -- same promise as "when it happened".
+  if gStart.kind == "reload" and isPaired() then
+    send("event", {
+      kind = "event",
+      name = "director_reloaded",
+      detail = string.format("Director reload #%d", gStart.count),
+      director_reloads = gStart.count,
+      last_reload_at = gStart.at,
+      alerts = alertPreferences(),
+    }, "director reload")
   end
 
   registerSystemEvents()
