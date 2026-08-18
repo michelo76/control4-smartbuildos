@@ -342,6 +342,58 @@ function alertPreferences()
   }
 end
 
+--- Tell Composer, programming and SmartBuildOS about this start.
+---
+--- Every call here is optional, and every one can fail without costing
+--- anything that matters: a property that did not update, an event nobody
+--- received. What must NOT happen is any of it stopping the driver from
+--- reporting — which is why the whole thing is guarded, and why it runs only
+--- after the timers are armed.
+local function announceStart()
+  local ok, err = pcall(function()
+    UpdateProperty("Director Reloads", tostring(gStart.count))
+    UpdateProperty(
+      "Last Reload",
+      string.format("%s (%s)", (gStart.at or ""):gsub("T", " "):gsub("Z", " UTC"), gStart.kind or "unknown")
+    )
+    C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
+    C4:SetVariable("LAST_RELOAD", gStart.at)
+  end)
+  if not ok then
+    log:warn("Could not publish the start state to Composer: %s", tostring(err))
+  end
+
+  -- Programming fires only for an actual reload. A driver update restarts the
+  -- driver too, and firing "the controller rebooted" on every release would
+  -- teach somebody to ignore it.
+  if gStart.kind ~= "reload" then
+    return
+  end
+
+  local firedOk, fireErr = pcall(function()
+    C4:FireEvent("Director Reloaded")
+  end)
+  if not firedOk then
+    log:warn("Could not fire the Director Reloaded event: %s", tostring(fireErr))
+  end
+
+  if isPaired() then
+    local sentOk, sendErr = pcall(function()
+      send("event", {
+        kind = "event",
+        name = "director_reloaded",
+        detail = string.format("Director reload #%d", gStart.count),
+        director_reloads = gStart.count,
+        last_reload_at = gStart.at,
+        alerts = alertPreferences(),
+      }, "director reload")
+    end)
+    if not sentOk then
+      log:warn("Could not report the reload to SmartBuildOS: %s", tostring(sendErr))
+    end
+  end
+end
+
 -- ─── Pairing state ────────────────────────────────────────────────────────────
 
 --- @return string token The stored device token, or "" when unpaired.
@@ -2722,27 +2774,9 @@ function OnDriverLateInit()
   UpdateProperty("Driver Status", "Online")
   showPairingState()
 
-  -- ── This start, recorded and announced ───────────────────────────────────
-  --
-  -- Composer sees it as read-only properties, programming sees it as an event
-  -- and a variable, and SmartBuildOS hears about it on the event path. All
-  -- four are the same fact stated four ways; none of them is computed twice.
+  -- Recording the start is safe: persist plus a pcall'd version read.
+  -- ANNOUNCING it is not, and is deferred until the timers are armed.
   gStart = recordStart()
-  UpdateProperty("Director Reloads", tostring(gStart.count))
-  UpdateProperty(
-    "Last Reload",
-    string.format("%s (%s)", gStart.at:gsub("T", " "):gsub("Z", " UTC"), gStart.kind)
-  )
-  pcall(function()
-    C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
-    C4:SetVariable("LAST_RELOAD", gStart.at)
-  end)
-  -- Programming fires only for an actual reload. A driver update restarts the
-  -- driver too, and firing "the controller rebooted" on every release would
-  -- teach somebody to ignore it.
-  if gStart.kind == "reload" then
-    C4:FireEvent("Director Reloaded")
-  end
 
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
@@ -2790,23 +2824,24 @@ function OnDriverLateInit()
     end
   end
 
-  -- Announced immediately rather than at the next heartbeat: a reboot is the
-  -- thing somebody configured an alert for, and "within a minute" is not the
-  -- same promise as "when it happened".
-  if gStart.kind == "reload" and isPaired() then
-    send("event", {
-      kind = "event",
-      name = "director_reloaded",
-      detail = string.format("Director reload #%d", gStart.count),
-      director_reloads = gStart.count,
-      last_reload_at = gStart.at,
-      alerts = alertPreferences(),
-    }, "director reload")
-  end
-
   registerSystemEvents()
   applyDiscovery()
   scheduleTimers()
+
+  -- ⚠ ANNOUNCED ONLY AFTER THE TIMERS ARE ARMED, AND NEVER FATALLY.
+  --
+  -- This block used to sit ABOVE scheduleTimers with an unguarded
+  -- C4:FireEvent in it, and it took the connector down at 17:30 on
+  -- 2026-08-18. The shape is worth keeping: it runs only when kind ==
+  -- "reload", so the driver UPDATE that installed it took the safe path and
+  -- looked perfect for three minutes — and the first real Director restart
+  -- afterwards threw, aborted OnDriverLateInit, and left a driver with no
+  -- heartbeat timer AND no update timer. Silent, and unable to update itself
+  -- out of it.
+  --
+  -- Telling somebody about a restart is decoration. Reporting at all is the
+  -- product. Decoration never runs before the product, and never uncaught.
+  announceStart()
   -- Report in immediately so a controller that just rebooted shows up in
   -- SmartBuildOS without waiting out a full heartbeat interval.
   sendFullSync()
