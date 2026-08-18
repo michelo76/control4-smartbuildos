@@ -194,6 +194,13 @@ local gRoomVarNames = {}
 local gRoomNames = {}
 --- room id -> thermostat device id, from the room's TEMPERATURE_ID.
 local gRoomThermostat = {}
+--- Thermostats found by their own VARIABLES rather than by a room pointing at
+--- them. Measured 2026-08-18: every room's TEMPERATURE_ID on the real project
+--- points at ONE unit (the Living Room's), while a second real thermostat
+--- ("Master Bedroom", named after its room) is nobody's TEMPERATURE_ID at
+--- all. Room-linked discovery alone reports half the house's climate.
+--- @type table<number, boolean>
+local gDiscoveredThermostats = {}
 --- The latest full thermostat readings, refreshed by `sampleClimate` and
 --- shipped with every state upload. A list, not a map: it travels as JSON.
 --- @type table[]
@@ -209,6 +216,9 @@ local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 -- functions that act on it are defined further down.
 local applyMonitoring
 local sendCatalogue
+-- Called from the heartbeat response (config apply) which is defined above
+-- the definition — same lexical trap as collectCommands below.
+local scheduleTimers
 -- ⚠ This forward declaration is a BUG FIX, not tidiness.
 -- was a  defined at the bottom of the file while two call
 -- sites — including the empty-project self-diagnosis on the very outage path
@@ -1148,6 +1158,8 @@ local function sendHeartbeat()
       -- turns a gap in a report into "the house was quiet".
       queued_telemetry = gTelemetry:depth(),
       telemetry_dropped = gTelemetry:dropped(),
+      -- The cadence actually in force, stated rather than inferred.
+      heartbeat_seconds = activeHeartbeatSeconds(),
     },
     "heartbeat",
     function(body)
@@ -1164,12 +1176,22 @@ local function sendHeartbeat()
       -- Re-registering listeners on every heartbeat would be pointless churn, so
       -- only a real change is applied.
       local before = JSON:encode(gMonitor)
+      local heartbeatSeconds = tointeger(monitor.heartbeat_seconds)
+      if heartbeatSeconds ~= nil then
+        heartbeatSeconds = math.max(30, math.min(heartbeatSeconds, 3600))
+      end
       gMonitor = {
         enabled = monitor.enabled == true,
         room_variables = type(monitor.room_variables) == "table" and monitor.room_variables or {},
         room_ids = type(monitor.room_ids) == "table" and monitor.room_ids or {},
         climate_enabled = monitor.climate_enabled ~= false,
         climate_sample_minutes = tointeger(monitor.climate_sample_minutes) or 15,
+        -- Platform-set check-in cadence, nil = the Composer property decides.
+        -- This exists because the property CANNOT be trusted to hold a value:
+        -- an open Composer session re-pushes its cached properties after a
+        -- driver restart, which is how the 1m migration got silently reverted
+        -- to 5m on 2026-08-18. The platform is the management plane.
+        heartbeat_seconds = heartbeatSeconds,
       }
       if JSON:encode(gMonitor) ~= before then
         log:info(
@@ -1177,6 +1199,8 @@ local function sendHeartbeat()
           tostring(gMonitor.enabled),
           #gMonitor.room_variables
         )
+        -- The cadence may be what changed, and timers are armed from config.
+        scheduleTimers()
         applyMonitoring()
         if gMonitor.enabled then
           sendCatalogue()
@@ -1327,14 +1351,24 @@ local function flushTelemetry()
   )
 end
 
---- (Re)arms every reporting timer from the current properties.
-local function scheduleTimers()
+--- The check-in interval actually in force: the platform's monitor config
+--- wins, the Composer property is the fallback. Global so the heartbeat can
+--- REPORT it — cadence should be a stated fact on the platform, not a
+--- timestamp-gap inference (which is how a reverted value went unnoticed).
+function activeHeartbeatSeconds()
+  return gMonitor.heartbeat_seconds
+    or INTERVALS[Properties["Heartbeat Interval"] or ""]
+    or INTERVALS["15m"]
+end
+
+--- (Re)arms every reporting timer from the current properties and config.
+function scheduleTimers()
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
   CancelTimer(NETWORK_SCAN_TIMER)
 
-  local heartbeat = INTERVALS[Properties["Heartbeat Interval"] or ""] or INTERVALS["15m"]
+  local heartbeat = activeHeartbeatSeconds()
   local poll = INTERVALS[Properties["Device Poll Interval"] or ""] or INTERVALS["5m"]
   local fullSync = INTERVALS[Properties["Full Sync Interval"] or ""] or INTERVALS["24h"]
 
@@ -1544,6 +1578,31 @@ function sendCatalogue()
 
   log:info("Catalogue: %d room(s), %d observable(s)", #rooms, #observables)
 
+  -- ── Thermostats, found by SIGNATURE over the whole project ────────────────
+  -- TEMPERATURE_ID discovery alone found half the house (see the note on
+  -- gDiscoveredThermostats). One GetDeviceVariables per device, once per
+  -- catalogue — the same order of work the capability probe already does.
+  gDiscoveredThermostats = {}
+  local found = 0
+  local okD, devs = pcall(function()
+    return C4:GetDevices()
+  end)
+  if okD and type(devs) == "table" then
+    for rawId in pairs(devs) do
+      local id = tointeger(rawId)
+      if id ~= nil then
+        local okV, vars = pcall(function()
+          return C4:GetDeviceVariables(id)
+        end)
+        if okV and looksLikeThermostat(vars) then
+          gDiscoveredThermostats[id] = true
+          found = found + 1
+        end
+      end
+    end
+  end
+  log:info("Thermostat discovery: %d unit(s) by variable signature", found)
+
   -- The catalogue walk is what populates room -> thermostat, so this is the
   -- first moment a full climate sample is possible. Sampling here (and
   -- pushing) means thermostats appear when monitoring turns on, not at the
@@ -1732,6 +1791,29 @@ function climateReading(vars)
   return { temperature = temp, heat = heat, cool = cool, mode = mode }
 end
 
+--- Whether a device's variable set says "thermostat".
+---
+--- By SIGNATURE, not by name or proxy class — the two ways that have already
+--- been wrong on this project (a WEATHER driver answers the thermostat proxy,
+--- and name-matching scored 0/223 twice). HVAC_MODE plus a converted
+--- temperature is the signature; the weather guard still applies on top.
+--- Pure and global so it can be tested directly.
+function looksLikeThermostat(vars)
+  if type(vars) ~= "table" then
+    return false
+  end
+  local names = {}
+  for _, v in pairs(vars) do
+    if type(v) == "table" and type(v.name) == "string" then
+      names[v.name:upper()] = tostring(v.value or "")
+    end
+  end
+  if (names["HVAC_MODES_LIST"] or ""):upper():find("WARN", 1, true) ~= nil then
+    return false
+  end
+  return names["HVAC_MODE"] ~= nil and (names["TEMPERATURE_F"] ~= nil or names["TEMPERATURE_C"] ~= nil)
+end
+
 --- The FULL thermostat record, from the device's own variables.
 ---
 --- The room endpoint carries one number; the thermostat itself carries the
@@ -1841,16 +1923,9 @@ function sampleClimate()
     return
   end
 
-  -- Invert room -> thermostat into thermostat -> rooms served.
-  local served = {}
-  for roomId, thermostat in pairs(gRoomThermostat) do
-    served[thermostat] = served[thermostat] or {}
-    served[thermostat][#served[thermostat] + 1] = roomId
-  end
-
   -- The device's own name. On the measured project each thermostat is named
   -- after its room ("Master Bedroom", "Living Room"), which is exactly the
-  -- label a screen should show.
+  -- label a screen should show — and, below, the attribution of last resort.
   local deviceNames = {}
   local okD, devs = pcall(function()
     return C4:GetDevices()
@@ -1860,6 +1935,57 @@ function sampleClimate()
       local id = tointeger(rawId)
       if id ~= nil and type(d) == "table" and type(d.deviceName) == "string" then
         deviceNames[id] = d.deviceName
+      end
+    end
+  end
+
+  -- Invert room -> thermostat into thermostat -> rooms served, skipping the
+  -- rooms Control4 hides from its own navigator (Equipment, Cloud): they are
+  -- wiring, and "serves Equipment" on a comfort card is a database export.
+  local served = {}
+  for roomId, thermostat in pairs(gRoomThermostat) do
+    local roomName = gRoomNames[roomId] or ""
+    if not roomName:lower():match("^equipment$") and not roomName:lower():match("^cloud$") then
+      served[thermostat] = served[thermostat] or {}
+      served[thermostat][#served[thermostat] + 1] = roomId
+    end
+  end
+
+  -- Signature-discovered units join the map even when no room points at them.
+  for thermostat in pairs(gDiscoveredThermostats) do
+    served[thermostat] = served[thermostat] or {}
+  end
+
+  -- A room NAMED after a thermostat belongs to THAT thermostat. Measured
+  -- 2026-08-18: every room's TEMPERATURE_ID points at the Living Room unit,
+  -- while the Master Bedroom's own thermostat (named "Master Bedroom") is
+  -- nobody's TEMPERATURE_ID. The name is the installer's statement of where
+  -- the device lives, and it beats a shared project-wide pointer.
+  for thermostat in pairs(served) do
+    local unitName = (deviceNames[thermostat] or ""):lower()
+    if unitName ~= "" then
+      for roomId, roomName in pairs(gRoomNames) do
+        if type(roomName) == "string" and roomName:lower() == unitName then
+          for other, roomIds in pairs(served) do
+            if other ~= thermostat then
+              for i = #roomIds, 1, -1 do
+                if roomIds[i] == roomId then
+                  table.remove(roomIds, i)
+                end
+              end
+            end
+          end
+          local mine = served[thermostat]
+          local already = false
+          for _, id in ipairs(mine) do
+            if id == roomId then
+              already = true
+            end
+          end
+          if not already then
+            mine[#mine + 1] = roomId
+          end
+        end
       end
     end
   end
