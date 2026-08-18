@@ -1609,7 +1609,8 @@ function sendCatalogue()
         -- Sensors, locks, openings and batteries — anything reporting a state
         -- worth watching. A thermostat can also carry a battery, so this is
         -- not exclusive with the branch above.
-        if okV and sensors < MAX_SENSORS and sensorReading(vars) ~= nil then
+        if okV and sensors < MAX_SENSORS
+          and sensorReading(vars, type(device) == "table" and device.deviceName or nil) ~= nil then
           gSensorDevices[id] = {
             name = type(device) == "table" and device.deviceName or nil,
             room = type(device) == "table" and device.roomName or nil,
@@ -1937,7 +1938,7 @@ end
 --- Pure and global so the classification can be tested directly — this is the
 --- part that can be quietly wrong: a lock misread as a contact renders
 --- perfectly and tells a dealer the wrong thing about somebody's front door.
-function sensorReading(vars)
+function sensorReading(vars, name)
   local values = variableMap(vars)
   if values == nil then
     return nil
@@ -1954,6 +1955,20 @@ function sensorReading(vars)
     battery = nil
   end
   local batteryStatus = firstOf(values, { "BATTERY_STATUS", "BATTERY STATUS" })
+  -- ⚠ EXACTLY ZERO IS CONTROL4'S UNSET, NOT A FLAT BATTERY.
+  --
+  -- Measured 2026-08-18 on the live project: two locks added for testing and
+  -- never paired both reported BATTERY_LEVEL 0, and they would have ranked
+  -- ABOVE a genuinely low remote at 10% — sending somebody out with
+  -- batteries for devices that have none. The same rule already governs
+  -- thermostat setpoints, which also read 0 when unset.
+  --
+  -- A battery that truly reaches 0 belongs to a device that has already
+  -- stopped talking, and a driver that means it says so in BATTERY_STATUS.
+  -- So a zero survives only when a status corroborates it.
+  if battery == 0 and IsEmpty(batteryStatus) then
+    battery = nil
+  end
   local lowBatteryRaw = firstOf(values, { "LOW_BATTERY", "LOW BATTERY", "BATTERY_LOW" })
   local lowBattery = nil
   if lowBatteryRaw ~= nil then
@@ -1995,11 +2010,31 @@ function sensorReading(vars)
   elseif motionRaw ~= nil then
     category, state = "motion", normalizeState(motionRaw, "motion")
   elseif contactRaw ~= nil then
-    category, state = "contact", normalizeState(contactRaw, "contact")
+    -- Control4 motion sensors report CONTACT_STATE — they ARE contacts
+    -- electrically. Signature alone therefore files six devices named
+    -- "Motion Sensor" under Contacts reading "Closed", which is true and
+    -- tells nobody anything. The name refines the label only AFTER the
+    -- signature has established what kind of device this is; it is never
+    -- the thing that finds the device.
+    if type(name) == "string" and name:lower():find("motion", 1, true) ~= nil then
+      category, state = "motion", normalizeState(contactRaw, "motion")
+    else
+      category, state = "contact", normalizeState(contactRaw, "contact")
+    end
   elseif relayRaw ~= nil then
     category, state = "relay", normalizeState(relayRaw, "relay")
   elseif powerRaw ~= nil then
-    category, state = "power", normalizeState(powerRaw, "power")
+    -- A THERMOSTAT reports "Running on Battery" too, and it already has a
+    -- far richer record of its own. Measured 2026-08-18: both real
+    -- thermostats landed here as "power" sensors reading "Open", which is
+    -- meaningless for a thermostat and duplicated a device already shown.
+    if looksLikeThermostat(vars) then
+      return nil
+    end
+    category = "power"
+    -- On battery / on mains — not open / closed.
+    local onBattery = tostring(powerRaw):lower()
+    state = (onBattery == "true" or onBattery == "1") and "On battery" or "On mains"
   elseif battery ~= nil or batteryStatus ~= nil or lowBattery ~= nil then
     -- Battery with no state of its own: a keypad, a remote, a thermostat.
     -- Still worth reporting — the battery IS the finding.
@@ -2303,7 +2338,7 @@ function sampleSensors()
       return C4:GetDeviceVariables(id)
     end)
     if okV then
-      local reading = sensorReading(vars)
+      local reading = sensorReading(vars, info.name)
       if reading ~= nil then
         reading.device_id = id
         reading.name = info.name
