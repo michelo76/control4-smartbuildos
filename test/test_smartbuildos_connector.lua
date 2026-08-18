@@ -1410,6 +1410,51 @@ check(
   end)()
 )
 
+print("\n[38a] The FULL thermostat record, from the screenshots' own variables")
+
+-- Verbatim shape from Composer 2026-08-18, device 599 ("Master Bedroom" — the
+-- thermostat is named after its room). Unset numerics read exactly 0.
+local FULL_THERMOSTAT = {
+  { name = "TEMPERATURE_F", value = "78" },
+  { name = "TEMPERATURE_C", value = "25.5" },
+  { name = "HEAT_SETPOINT_F", value = "74" },
+  { name = "COOL_SETPOINT_F", value = "74" },
+  { name = "SINGLE_SETPOINT_F", value = "0" },
+  { name = "HVAC_MODE", value = "Heat" },
+  { name = "HVAC_STATE", value = "Off" },
+  { name = "FAN_MODE", value = "Auto" },
+  { name = "FAN_STATE", value = "Off" },
+  { name = "HUMIDITY", value = "56" },
+  { name = "HUMIDITY_MODE", value = "Off" },
+  { name = "SCALE", value = "F" },
+  { name = "OUTDOOR_TEMPERATURE_F", value = "0" },
+  { name = "Battery Status", value = "Good" },
+  { name = "Running on Battery", value = "True" },
+  { name = "Heating Active", value = "False" },
+  { name = "Cooling Active", value = "False" },
+  { name = "IS_CONNECTED", value = "True" },
+  { name = "HEATPUMP", value = "True" },
+  { name = "HVAC_MODES_LIST", value = "Off,Heat,Cool,Auto" },
+}
+
+local full = thermostatReading(FULL_THERMOSTAT)
+check("temperature in the device's scale", full ~= nil and full.temperature_f == 78, full and full.temperature_f)
+check("both setpoints extracted", full and full.heat_setpoint_f == 74 and full.cool_setpoint_f == 74)
+check("mode is what it is SET to, state is what it is DOING",
+  full and full.hvac_mode == "Heat" and full.hvac_state == "Off",
+  full and (tostring(full.hvac_mode) .. "/" .. tostring(full.hvac_state)))
+check("fan travels", full and full.fan_mode == "Auto" and full.fan_state == "Off")
+check("humidity travels with its mode", full and full.humidity == 56 and full.humidity_mode == "Off")
+check("battery diagnostics travel -- Good BESIDE running-on-battery True",
+  full and full.battery_status == "Good" and full.running_on_battery == true)
+check("an unset 0 is absent, not a reading", full and full.single_setpoint_f == nil and full.outdoor_temperature_f == nil)
+check("spaced variable names resolve", full and full.heating_active == false and full.cooling_active == false)
+check("connection and heat pump flags", full and full.is_connected == true and full.heatpump == true)
+check("the weather proxy is still refused", thermostatReading(WEATHER_PROXY) == nil)
+check("garbage yields nil rather than throwing", thermostatReading("nonsense") == nil)
+check("a record with no temp and no setpoint is nil",
+  thermostatReading({ { name = "FAN_MODE", value = "Auto" }, { name = "HVAC_MODE", value = "Off" } }) == nil)
+
 print("\n[38] A response with no commands acks nothing")
 reset()
 EC.SEND_HEARTBEAT()

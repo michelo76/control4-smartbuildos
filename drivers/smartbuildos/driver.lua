@@ -43,7 +43,9 @@ local githubUpdater = require("lib.github-updater")
 --- Interval labels mapped to seconds.
 --- @type table<string, number>
 local INTERVALS = {
+  ["30s"] = 30,
   ["1m"] = 60,
+  ["2m"] = 2 * 60,
   ["5m"] = 5 * 60,
   ["15m"] = 15 * 60,
   ["30m"] = 30 * 60,
@@ -192,6 +194,10 @@ local gRoomVarNames = {}
 local gRoomNames = {}
 --- room id -> thermostat device id, from the room's TEMPERATURE_ID.
 local gRoomThermostat = {}
+--- The latest full thermostat readings, refreshed by `sampleClimate` and
+--- shipped with every state upload. A list, not a map: it travels as JSON.
+--- @type table[]
+local gThermostatSnapshot = {}
 --- @type boolean Whether listeners are currently registered.
 local gListening = false
 
@@ -1537,6 +1543,15 @@ function sendCatalogue()
   end
 
   log:info("Catalogue: %d room(s), %d observable(s)", #rooms, #observables)
+
+  -- The catalogue walk is what populates room -> thermostat, so this is the
+  -- first moment a full climate sample is possible. Sampling here (and
+  -- pushing) means thermostats appear when monitoring turns on, not at the
+  -- climate timer up to fifteen minutes later.
+  if gMonitor.enabled and gMonitor.climate_enabled then
+    sampleClimate()
+    sendTelemetry()
+  end
   send("telemetry", { kind = "catalogue", observables = observables }, "catalogue")
 end
 
@@ -1717,33 +1732,164 @@ function climateReading(vars)
   return { temperature = temp, heat = heat, cool = cool, mode = mode }
 end
 
+--- The FULL thermostat record, from the device's own variables.
+---
+--- The room endpoint carries one number; the thermostat itself carries the
+--- whole picture — measured in Composer 2026-08-18 on the two real units
+--- (each named after its room): TEMPERATURE_F 78, HEAT/COOL_SETPOINT_F,
+--- HVAC_MODE "Heat", HVAC_STATE "Off", FAN_MODE/STATE, HUMIDITY 56,
+--- "Battery Status" Good beside "Running on Battery" True, OUTDOOR_
+--- TEMPERATURE_F, SCALE F. Pure and global like `climateReading`, and
+--- guarded by the same weather-driver check: a forecast station answers the
+--- same proxy and must never render as a room's comfort.
+---
+--- Unset numbers read exactly 0 on the measured hardware (setpoints,
+--- humidity, outdoor temperature on a unit with no outdoor sensor), so 0 is
+--- read as absent for every field where 0 is not a value anyone configured.
+---
+--- @return table|nil a flat record for the state payload, or nil
+function thermostatReading(vars)
+  if type(vars) ~= "table" then
+    return nil
+  end
+  local values = {}
+  for _, v in pairs(vars) do
+    if type(v) == "table" and type(v.name) == "string" then
+      values[v.name:upper()] = v.value
+    end
+  end
+
+  local modesList = tostring(values["HVAC_MODES_LIST"] or "")
+  if modesList:upper():find("WARN", 1, true) ~= nil then
+    return nil
+  end
+
+  local function numNonZero(name)
+    local n = tonumber(values[name])
+    if n ~= nil and n ~= 0 then
+      return n
+    end
+    return nil
+  end
+  local function str(name)
+    local s = values[name]
+    if s == nil then
+      return nil
+    end
+    s = tostring(s)
+    return s ~= "" and s:sub(1, 60) or nil
+  end
+  local function boolOrNil(name)
+    local s = values[name]
+    if s == nil then
+      return nil
+    end
+    s = tostring(s):lower()
+    if s == "true" or s == "1" then
+      return true
+    end
+    if s == "false" or s == "0" then
+      return false
+    end
+    return nil
+  end
+
+  local reading = {
+    scale = str("SCALE"),
+    temperature_f = numNonZero("TEMPERATURE_F"),
+    temperature_c = numNonZero("TEMPERATURE_C"),
+    heat_setpoint_f = numNonZero("HEAT_SETPOINT_F"),
+    cool_setpoint_f = numNonZero("COOL_SETPOINT_F"),
+    single_setpoint_f = numNonZero("SINGLE_SETPOINT_F"),
+    hvac_mode = str("HVAC_MODE") or str("ANA_HVACMODE"),
+    hvac_state = str("HVAC_STATE"),
+    fan_mode = str("FAN_MODE"),
+    fan_state = str("FAN_STATE"),
+    -- Real indoor humidity is never 0%; a unit without the sensor reads 0.
+    humidity = numNonZero("HUMIDITY"),
+    humidity_mode = str("HUMIDITY_MODE"),
+    humidity_state = str("HUMIDITY_STATE"),
+    outdoor_temperature_f = numNonZero("OUTDOOR_TEMPERATURE_F"),
+    battery_status = str("BATTERY STATUS"),
+    running_on_battery = boolOrNil("RUNNING ON BATTERY"),
+    heating_active = boolOrNil("HEATING ACTIVE"),
+    cooling_active = boolOrNil("COOLING ACTIVE"),
+    is_connected = boolOrNil("IS_CONNECTED"),
+    heatpump = boolOrNil("HEATPUMP"),
+  }
+
+  if
+    reading.temperature_f == nil
+    and reading.temperature_c == nil
+    and reading.heat_setpoint_f == nil
+    and reading.cool_setpoint_f == nil
+    and reading.single_setpoint_f == nil
+  then
+    return nil
+  end
+  return reading
+end
+
 --- Samples climate rather than watching it: temperature moves constantly and
 --- every change is not worth an event.
+---
+--- One read per THERMOSTAT, not per room: several rooms routinely share a
+--- unit, and reading it once both saves Director calls and keeps the full
+--- snapshot to one record per physical device.
 function sampleClimate()
   if not gMonitor.enabled or not gMonitor.climate_enabled then
     return
   end
+
+  -- Invert room -> thermostat into thermostat -> rooms served.
+  local served = {}
   for roomId, thermostat in pairs(gRoomThermostat) do
+    served[thermostat] = served[thermostat] or {}
+    served[thermostat][#served[thermostat] + 1] = roomId
+  end
+
+  -- The device's own name. On the measured project each thermostat is named
+  -- after its room ("Master Bedroom", "Living Room"), which is exactly the
+  -- label a screen should show.
+  local deviceNames = {}
+  local okD, devs = pcall(function()
+    return C4:GetDevices()
+  end)
+  if okD and type(devs) == "table" then
+    for rawId, d in pairs(devs) do
+      local id = tointeger(rawId)
+      if id ~= nil and type(d) == "table" and type(d.deviceName) == "string" then
+        deviceNames[id] = d.deviceName
+      end
+    end
+  end
+
+  local snapshot = {}
+  for thermostat, roomIds in pairs(served) do
     local okV, vars = pcall(function()
       return C4:GetDeviceVariables(thermostat)
     end)
+    if not okV then
+      vars = nil
+    end
+
     local reading = climateReading(vars)
     if reading ~= nil then
-      -- The thermostat travels with the reading. Several rooms routinely share
-      -- one, and without this the platform cannot tell six copies of one
-      -- thermostat from six thermostats.
-      gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode, thermostat)
-      -- Each sample also feeds the telemetry tiers, and with it a capability
-      -- current-state never had: zone temperature HISTORY. The hourly rollup
-      -- stores count and sum per room, so mean-per-hour is one division away
-      -- -- no raw row survives longer than the 7-day partition window.
+      for _, roomId in ipairs(roomIds) do
+        -- The thermostat travels with the reading, so the platform can tell
+        -- six copies of one thermostat from six thermostats.
+        gRooms:setClimate(roomId, reading.temperature, reading.heat, reading.cool, reading.mode, thermostat)
+      end
+      -- Telemetry history is per THERMOSTAT (attributed to its first room):
+      -- one shared unit sampled into six rooms would count six-fold in the
+      -- hourly mean.
       if reading.temperature ~= nil then
         gTelemetry:add("CLIMATE", {
           subcategory = "temperature",
           source_type = "thermostat",
           source_id = tostring(thermostat),
-          room_id = roomId,
-          room_name = gRoomNames[roomId],
+          room_id = roomIds[1],
+          room_name = gRoomNames[roomIds[1]],
           value_numeric = reading.temperature,
           unit = "F",
           -- Comfort is the one customer-safe reading in this file: it is what
@@ -1752,7 +1898,36 @@ function sampleClimate()
         })
       end
     end
+
+    -- The FULL record for the state payload (screens show setpoints, mode,
+    -- fan, humidity, battery — not just one number).
+    local full = thermostatReading(vars)
+    if full ~= nil then
+      full.device_id = thermostat
+      full.name = deviceNames[thermostat]
+      local roomNames = {}
+      for _, roomId in ipairs(roomIds) do
+        roomNames[#roomNames + 1] = gRoomNames[roomId] or tostring(roomId)
+      end
+      full.room_ids = roomIds
+      full.room_names = roomNames
+      full.changed_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+      snapshot[#snapshot + 1] = full
+      if full.humidity ~= nil then
+        gTelemetry:add("CLIMATE", {
+          subcategory = "humidity",
+          source_type = "thermostat",
+          source_id = tostring(thermostat),
+          room_id = roomIds[1],
+          room_name = gRoomNames[roomIds[1]],
+          value_numeric = full.humidity,
+          unit = "%",
+          privacy_class = "CUSTOMER_SAFE",
+        })
+      end
+    end
   end
+  gThermostatSnapshot = snapshot
 end
 
 -- ─── Album art, fetched HERE because only here has a route to it ─────────────
@@ -1848,7 +2023,7 @@ function sendTelemetry()
   end
 
   local rooms = gRooms:snapshot()
-  if #rooms > 0 then
+  if #rooms > 0 or #gThermostatSnapshot > 0 then
     for _, room in ipairs(rooms) do
       local data = artDataFor(room.media_image_url)
       if data ~= nil then
@@ -1857,7 +2032,9 @@ function sendTelemetry()
         fetchArt(room.media_image_url)
       end
     end
-    send("telemetry", { kind = "state", rooms = rooms }, "room state")
+    -- Thermostats ride the same state upload: they ARE state, and giving them
+    -- their own send would double the request count for no isolation gain.
+    send("telemetry", { kind = "state", rooms = rooms, thermostats = gThermostatSnapshot }, "room state")
   end
 
   local sessions = gRooms:takeSessions()
@@ -2007,6 +2184,23 @@ function OnDriverLateInit()
     setConnected(false, "Not paired")
     log:warn("SmartBuildOS Connector is not paired. Paste a pairing code from SmartBuildOS.")
     return
+  end
+
+  -- One-time migration to the fast check-in default (2026-08-18). Composer
+  -- properties persist across updates, so installs configured before the 30s/
+  -- 1m/2m options existed would sit on the old 5m/15m defaults forever —
+  -- and the property is the command latency. Deliberately narrow: only the
+  -- two old DEFAULT values are moved, an installer's explicit 30m/1h choice
+  -- is not overridden, and the flag makes it happen once, so choosing 5m
+  -- again afterwards sticks.
+  if persist:get("hb_fast_default_applied") == nil then
+    persist:set("hb_fast_default_applied", true)
+    local current = Properties["Heartbeat Interval"]
+    if current == "5m" or current == "15m" then
+      Properties["Heartbeat Interval"] = "1m"
+      UpdateProperty("Heartbeat Interval", "1m")
+      log:info("Heartbeat Interval migrated %s -> 1m (one-time fast check-in default)", tostring(current))
+    end
   end
 
   registerSystemEvents()

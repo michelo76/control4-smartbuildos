@@ -300,10 +300,10 @@ print("\n[14] XML entities decode — the title is text, not markup")
 -- with the literal entity on every surface.
 local dTitle, dArtist = Rooms.parseMedia(
   "<mediainfo><title>K-dilak Mesaje a &amp; Bedjine</title>"
-  .. "<artist>D&#39;Angelo &quot;D&quot; &lt;Live&gt;</artist></mediainfo>"
+    .. "<artist>D&#39;Angelo &quot;D&quot; &lt;Live&gt;</artist></mediainfo>"
 )
 check("&amp; decodes to &", dTitle == "K-dilak Mesaje a & Bedjine", dTitle)
-check("numeric, quote and angle entities decode", dArtist == "D'Angelo \"D\" <Live>", dArtist)
+check("numeric, quote and angle entities decode", dArtist == 'D\'Angelo "D" <Live>', dArtist)
 check(
   "&amp;lt; does not double-decode",
   (Rooms.parseMedia("<mediainfo><title>a &amp;lt; b</title></mediainfo>")) == "a &lt; b"
