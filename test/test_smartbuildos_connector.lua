@@ -1602,6 +1602,28 @@ check(
   classifyStart("20260818.1", nil, 4) == "reload"
 )
 
+print("\n[40b] Nothing decorative may run before the timers are armed")
+
+-- ⚠ THIS PINS A PRODUCTION OUTAGE. On 2026-08-18 the start-state
+-- announcement sat ABOVE scheduleTimers with an unguarded C4:FireEvent in
+-- it. It ran only for kind == "reload", so the driver update that shipped it
+-- took the safe path and looked healthy for three minutes — and the first
+-- real Director restart threw, aborted OnDriverLateInit, and left the
+-- connector with no heartbeat timer AND no update timer: silent, and unable
+-- to update itself out of it.
+local source = io.open("drivers/smartbuildos/driver.lua"):read("*a")
+local timersAt = source:find("\n  scheduleTimers()", 1, true)
+local announceAt = source:find("\n  announceStart()", 1, true)
+check("the driver arms its timers before it announces anything", timersAt ~= nil and announceAt ~= nil and timersAt < announceAt)
+check(
+  "the reload event is fired inside a pcall -- a failed announcement must not stop reporting",
+  source:find('pcall%(function%(%)%s*C4:FireEvent%("Director Reloaded"%)') ~= nil
+)
+check(
+  "the reload report to SmartBuildOS is guarded too",
+  source:find("local sentOk, sendErr = pcall") ~= nil
+)
+
 print("\n[41] Email preferences travel with the alert; the platform sends it")
 Properties["Alert Email"] = "  ops@example.com  "
 Properties["Email on Director Reload"] = "On"
