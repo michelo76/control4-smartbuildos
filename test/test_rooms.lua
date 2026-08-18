@@ -294,5 +294,20 @@ end
 check("temperature is recorded for the room", state and state.temperature == 78, state and state.temperature)
 check("setpoints too", state and state.setpoint_heat == 70 and state.setpoint_cool == 74)
 
+print("\n[14] XML entities decode — the title is text, not markup")
+
+-- Seen in production 2026-08-18: "K-dilak Mesaje a &amp; Bedjine" rendered
+-- with the literal entity on every surface.
+local dTitle, dArtist = Rooms.parseMedia(
+  "<mediainfo><title>K-dilak Mesaje a &amp; Bedjine</title>"
+  .. "<artist>D&#39;Angelo &quot;D&quot; &lt;Live&gt;</artist></mediainfo>"
+)
+check("&amp; decodes to &", dTitle == "K-dilak Mesaje a & Bedjine", dTitle)
+check("numeric, quote and angle entities decode", dArtist == "D'Angelo \"D\" <Live>", dArtist)
+check(
+  "&amp;lt; does not double-decode",
+  (Rooms.parseMedia("<mediainfo><title>a &amp;lt; b</title></mediainfo>")) == "a &lt; b"
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

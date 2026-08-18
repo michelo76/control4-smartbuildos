@@ -280,6 +280,17 @@ function Rooms.parseMedia(value)
         return nil
       end
       v = v:gsub("^%s+", ""):gsub("%s+$", "")
+      -- The payload is XML, so its text is entity-escaped: a real title
+      -- reading "K-dilak Mesaje a & Bedjine" arrived as "...a &amp; Bedjine"
+      -- and rendered that way on every surface (seen in production
+      -- 2026-08-18). Decode the five named entities plus numeric forms —
+      -- &amp; LAST, or "&amp;lt;" would double-decode into "<".
+      v = v:gsub("&#(%d+);", function(n)
+        n = tonumber(n)
+        return (n and n < 256) and string.char(n) or ""
+      end)
+      v = v:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"')
+      v = v:gsub("&apos;", "'"):gsub("&amp;", "&")
       return v ~= "" and v or nil
     end
 
