@@ -205,6 +205,9 @@ local gDiscoveredThermostats = {}
 --- shipped with every state upload. A list, not a map: it travels as JSON.
 --- @type table[]
 local gThermostatSnapshot = {}
+--- What the self-update channel last did, so the platform can see it.
+--- @type table
+local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- Devices that reported a sensor or battery signature at the last catalogue
 --- walk: id -> { name, room }. Re-read on each state upload.
 --- @type table<number, table>
@@ -1166,6 +1169,8 @@ local function sendHeartbeat()
       telemetry_dropped = gTelemetry:dropped(),
       -- The cadence actually in force, stated rather than inferred.
       heartbeat_seconds = activeHeartbeatSeconds(),
+      -- The self-update channel's own account of itself.
+      update_channel = gUpdate,
     },
     "heartbeat",
     function(body)
@@ -1896,17 +1901,33 @@ local function normalizeState(raw, kind)
   local openish = { ["1"] = true, ["true"] = true, ["open"] = true, ["opened"] = true, ["on"] = true }
   local closedish = { ["0"] = true, ["false"] = true, ["close"] = true, ["closed"] = true, ["off"] = true }
   if kind == "lock" then
-    if s == "1" or s == "true" or s == "locked" then return "Locked" end
-    if s == "0" or s == "false" or s == "unlocked" then return "Unlocked" end
+    if s == "1" or s == "true" or s == "locked" then
+      return "Locked"
+    end
+    if s == "0" or s == "false" or s == "unlocked" then
+      return "Unlocked"
+    end
   elseif kind == "motion" then
-    if openish[s] or s == "motion" or s == "detected" then return "Motion" end
-    if closedish[s] or s == "no motion" or s == "clear" then return "Clear" end
+    if openish[s] or s == "motion" or s == "detected" then
+      return "Motion"
+    end
+    if closedish[s] or s == "no motion" or s == "clear" then
+      return "Clear"
+    end
   elseif kind == "leak" then
-    if openish[s] or s == "wet" or s == "detected" then return "Leak detected" end
-    if closedish[s] or s == "dry" then return "Dry" end
+    if openish[s] or s == "wet" or s == "detected" then
+      return "Leak detected"
+    end
+    if closedish[s] or s == "dry" then
+      return "Dry"
+    end
   else
-    if openish[s] then return "Open" end
-    if closedish[s] then return "Closed" end
+    if openish[s] then
+      return "Open"
+    end
+    if closedish[s] then
+      return "Closed"
+    end
   end
   return tostring(raw):sub(1, 40)
 end
@@ -1923,7 +1944,11 @@ function sensorReading(vars)
   end
 
   local battery = tonumber(firstOf(values, {
-    "BATTERY_LEVEL", "BATTERY LEVEL", "BATTERY_PERCENT", "BATTERY", "BATTERYLEVEL",
+    "BATTERY_LEVEL",
+    "BATTERY LEVEL",
+    "BATTERY_PERCENT",
+    "BATTERY",
+    "BATTERYLEVEL",
   }))
   if battery ~= nil and (battery < 0 or battery > 100) then
     battery = nil
@@ -1949,10 +1974,12 @@ function sensorReading(vars)
   -- calling it a contact sensor loses what it is.
   local category, state
   local lockRaw = firstOf(values, { "LOCK_STATUS", "LOCK STATUS", "LOCKED", "LOCK_STATE", "LOCKSTATE" })
-  local partitionRaw = firstOf(values, { "PARTITION_STATE", "PARTITION STATE", "ARM_STATE", "ARMED_STATE", "SECURITY_STATE" })
+  local partitionRaw =
+    firstOf(values, { "PARTITION_STATE", "PARTITION STATE", "ARM_STATE", "ARMED_STATE", "SECURITY_STATE" })
   local leakRaw = firstOf(values, { "LEAK", "LEAK_DETECTED", "WATER_DETECTED", "LEAKDETECTED" })
   local motionRaw = firstOf(values, { "MOTION_STATE", "MOTION STATE", "MOTION", "MOTIONSTATE" })
-  local doorRaw = firstOf(values, { "DOOR_STATE", "DOOR STATE", "GARAGE_STATE", "GATE_STATE", "OPENSTATE", "OPEN_STATE" })
+  local doorRaw =
+    firstOf(values, { "DOOR_STATE", "DOOR STATE", "GARAGE_STATE", "GATE_STATE", "OPENSTATE", "OPEN_STATE" })
   local contactRaw = firstOf(values, { "CONTACT_STATE", "CONTACT STATE", "CONTACTSTATE", "SENSOR_STATE" })
   local relayRaw = firstOf(values, { "RELAY_STATE", "RELAY STATE", "RELAYSTATE" })
   local powerRaw = firstOf(values, { "POWER_LOST", "ON_BATTERY", "RUNNING ON BATTERY", "AC_POWER" })
@@ -2552,9 +2579,23 @@ function OnDriverLateInit()
 
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
-    if toboolean(Properties["Automatic Updates"]) then
-      log:info("Checking for driver update")
+    -- The update channel REPORTS ITSELF now. It went five releases without
+    -- updating on 2026-08-18 while every other signal looked healthy, and
+    -- the only way to tell was to remember what had been published. A
+    -- channel nobody can observe is a channel nobody can fix.
+    gUpdate.checked_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    gUpdate.automatic = toboolean(Properties["Automatic Updates"]) and true or false
+    -- What the updater will compare against — the value that silently
+    -- rejected every check when it came back nil.
+    local okV, seen = pcall(function()
+      return GetDriverVersion("smartbuildos.c4z")
+    end)
+    gUpdate.reads_version_as = okV and tostring(seen or "nil") or "error"
+    if gUpdate.automatic then
+      log:info("Checking for driver update (installed version reads as %s)", gUpdate.reads_version_as)
       UpdateDrivers()
+    else
+      log:info("Automatic Updates is off; not checking")
     end
   end, true)
   --#endif
