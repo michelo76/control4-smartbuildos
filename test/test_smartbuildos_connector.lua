@@ -1554,6 +1554,35 @@ check(
 check("a device with none of it is not a sensor", sensorReading({ { name = "CURRENT_VOLUME", value = "20" } }) == nil)
 check("garbage does not throw", sensorReading("junk") == nil)
 
+-- MEASURED 2026-08-18 on the live project, all three from real rows.
+check(
+  "an unpaired device's 0% is NOT a flat battery -- it would outrank a real 10%",
+  sensorReading({ { name = "BATTERY_LEVEL", value = "0" } }) == nil
+)
+check(
+  "a 0% corroborated by a status IS a reading",
+  (sensorReading({ { name = "BATTERY_LEVEL", value = "0" }, { name = "BATTERY_STATUS", value = "Critical" } }) or {}).battery_level == 0
+)
+check(
+  "a contact NAMED motion is a motion sensor, and reads Motion/Clear",
+  (function()
+    local r = sensorReading({ { name = "CONTACT_STATE", value = "0" } }, "Motion Sensor T5")
+    return r ~= nil and r.category == "motion" and r.state == "Clear"
+  end)()
+)
+check(
+  "a contact not named motion stays a contact",
+  (sensorReading({ { name = "CONTACT_STATE", value = "0" } }, "Door Contact Sensor") or {}).category == "contact"
+)
+check(
+  "a THERMOSTAT is not a power sensor -- it has its own record",
+  sensorReading(FULL_THERMOSTAT, "Master Bedroom") == nil
+)
+check(
+  "a real UPS says on battery, not Open",
+  (sensorReading({ { name = "ON_BATTERY", value = "true" } }, "Rack UPS") or {}).state == "On battery"
+)
+
 print("\n[38] A response with no commands acks nothing")
 reset()
 EC.SEND_HEARTBEAT()
