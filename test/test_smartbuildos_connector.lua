@@ -1533,11 +1533,24 @@ check("a dry leak sensor says Dry", leak and leak.category == "leak" and leak.st
 local batteryOnly = sensorReading({ { name = "Battery Status", value = "Good" } })
 check("a battery with no state of its own still reports", batteryOnly and batteryOnly.category == "battery")
 check("a Good status is not low", batteryOnly and batteryOnly.low_battery == false)
-check("a Replace status IS low", (sensorReading({ { name = "BATTERY_STATUS", value = "Replace" } }) or {}).low_battery == true)
+check(
+  "a Replace status IS low",
+  (sensorReading({ { name = "BATTERY_STATUS", value = "Replace" } }) or {}).low_battery == true
+)
 
-check("an unknown state passes through rather than being forced", (sensorReading({ { name = "PARTITION_STATE", value = "Armed Away" } }) or {}).state == "Armed Away")
-check("link quality travels for mesh diagnostics", (sensorReading({ { name = "CONTACT_STATE", value = "0" }, { name = "LINK_QUALITY", value = "38" } }) or {}).link_quality == 38)
-check("an impossible battery percentage is refused", sensorReading({ { name = "BATTERY_LEVEL", value = "255" } }) == nil)
+check(
+  "an unknown state passes through rather than being forced",
+  (sensorReading({ { name = "PARTITION_STATE", value = "Armed Away" } }) or {}).state == "Armed Away"
+)
+check(
+  "link quality travels for mesh diagnostics",
+  (sensorReading({ { name = "CONTACT_STATE", value = "0" }, { name = "LINK_QUALITY", value = "38" } }) or {}).link_quality
+    == 38
+)
+check(
+  "an impossible battery percentage is refused",
+  sensorReading({ { name = "BATTERY_LEVEL", value = "255" } }) == nil
+)
 check("a device with none of it is not a sensor", sensorReading({ { name = "CURRENT_VOLUME", value = "20" } }) == nil)
 check("garbage does not throw", sensorReading("junk") == nil)
 

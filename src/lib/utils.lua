@@ -81,10 +81,37 @@ end
 --- Gets the version of a driver from its driver.xml file.
 --- @param filename string The filename of the driver.
 --- @return string|nil version The version of the driver, or nil if not found.
+--- The installed version of a driver, for the updater's "am I behind?" check.
+---
+--- ⚠ THE XML READ GUESSES A DIRECTORY FROM A FILENAME, AND THAT GUESS FAILS.
+---
+--- `FileSetDir("C4Z_ROOT", basename)` assumes the driver is installed in a
+--- directory named after the .c4z the updater is asking about. When it is
+--- not — a renamed file, a driver Composer stored under its own name — the
+--- read returns nothing, this returns nil, and `getOutdatedDriverAssets`
+--- REJECTS with "failed to determine the current driver version". No update
+--- is fetched and nothing says why: the driver keeps heartbeating happily,
+--- reporting a version it got from a different API that always works.
+---
+--- Measured 2026-08-18: this connector went five releases without updating
+--- while reporting its version correctly on every heartbeat. So the
+--- filename-derived read is now a first attempt, not the answer, and
+--- `GetDriverConfigInfo` — which asks Director about THIS driver rather
+--- than about a path — is the fallback.
 function GetDriverVersion(filename)
   local basename, _ = filename:match("(.*)%.(.*)")
   C4:FileSetDir("C4Z_ROOT", basename)
-  return Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version") or nil
+  local fromFile = Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version")
+  if not IsEmpty(fromFile) then
+    return fromFile
+  end
+  local ok, reported = pcall(function()
+    return C4:GetDriverConfigInfo("version")
+  end)
+  if ok and not IsEmpty(reported) then
+    return reported
+  end
+  return nil
 end
 
 --- Logs and invokes a C4 method, trimming trailing nil arguments.
