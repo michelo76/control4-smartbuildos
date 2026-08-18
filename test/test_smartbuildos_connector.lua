@@ -60,8 +60,26 @@ local function settled(isOk, value)
   }
 end
 
+--- GET requests (the driver only GETs album art), newest last.
+--- @type table[]
+local getRequests = {}
+--- Response the next GET resolves/rejects with.
+local nextGetResponse = { ok = true, code = 200, body = "", headers = {} }
+
 package.preload["lib.http"] = function()
   return {
+    get = function(_, url, headers, options)
+      table.insert(getRequests, { url = url, headers = headers, options = options })
+      if nextGetResponse.ok then
+        return settled(true, {
+          url = url,
+          code = nextGetResponse.code,
+          headers = nextGetResponse.headers or {},
+          body = nextGetResponse.body or "",
+        })
+      end
+      return settled(false, { url = url, code = nextGetResponse.code, error = nextGetResponse.error or "request failed" })
+    end,
     post = function(_, url, data, headers, options)
       table.insert(requests, { url = url, data = data, headers = headers, options = options })
       if url:find("/pair$") and pairBody ~= nil and nextResponse.ok then
@@ -269,6 +287,13 @@ end
 
 function C4:GetSystemType()
   return "XDT_EA5"
+end
+
+--- Deliberately a WRAPPING encoder: real platforms disagree about line breaks
+--- in base64 output, and the driver must strip whitespace before the platform
+--- validator sees it. Ignores its input so tests can pin the exact data URI.
+function C4:Base64Encode()
+  return "QUJD\nREVG"
 end
 
 function C4:FireEvent(name)
@@ -1392,6 +1417,55 @@ for _, r in ipairs(requests) do
   end
 end
 check("no phantom ack traffic", stray == 0, stray)
+
+print("\n[39] Album art: cap, cool-off retry, and base64 hygiene")
+reset()
+
+-- (a) Success inlines a data URI with the encoder's line breaks stripped.
+getRequests = {}
+nextGetResponse = { ok = true, code = 200, body = string.rep("x", 1000), headers = { ["Content-Type"] = "image/png" } }
+fetchArt("http://10.0.0.9:1400/art-1")
+check("art is fetched once", #getRequests == 1, #getRequests)
+check(
+  "inline art is a whitespace-free data URI -- the platform validator rejects wrapped base64",
+  artDataFor("http://10.0.0.9:1400/art-1") == "data:image/png;base64,QUJDREVG",
+  tostring(artDataFor("http://10.0.0.9:1400/art-1"))
+)
+fetchArt("http://10.0.0.9:1400/art-1")
+check("cached art is not re-fetched", #getRequests == 1, #getRequests)
+
+-- (b) Oversize art fails WITHOUT sticking forever. Measured 2026-08-18: Sonos
+-- getaa served a 261KB PNG for an Apple Music track; the old 96KB cap rejected
+-- it and cached the URL as failed permanently. That was the missing-cover-art
+-- bug: a healthy pipeline showing placeholders for every large-art track.
+getRequests = {}
+nextGetResponse = { ok = true, code = 200, body = string.rep("y", 400 * 1024), headers = { ["Content-Type"] = "image/png" } }
+fetchArt("http://10.0.0.9:1400/art-2")
+check("oversize art is refused", artDataFor("http://10.0.0.9:1400/art-2") == nil)
+fetchArt("http://10.0.0.9:1400/art-2")
+check("a fresh failure is not hammered", #getRequests == 1, #getRequests)
+local realTime = os.time
+os.time = function()
+  return realTime() + 700
+end
+nextGetResponse = { ok = true, code = 200, body = "small", headers = { ["Content-Type"] = "image/jpeg" } }
+fetchArt("http://10.0.0.9:1400/art-2")
+os.time = realTime
+check("a failure is retried after the cool-off", #getRequests == 2, #getRequests)
+check("the retried art is served", artDataFor("http://10.0.0.9:1400/art-2") ~= nil)
+
+-- (c) The measured real-world size fits under the new cap.
+getRequests = {}
+nextGetResponse = { ok = true, code = 200, body = string.rep("z", 267641), headers = { ["Content-Type"] = "image/png" } }
+fetchArt("http://10.0.0.9:1400/art-3")
+check("the measured 261KB Sonos art is accepted", artDataFor("http://10.0.0.9:1400/art-3") ~= nil)
+
+-- (d) A transport failure also cools off rather than sticking.
+getRequests = {}
+nextGetResponse = { ok = false, code = 0, error = "timeout" }
+fetchArt("http://10.0.0.9:1400/art-4")
+check("transport failure yields no art", artDataFor("http://10.0.0.9:1400/art-4") == nil)
+check("transport failure was attempted once", #getRequests == 1, #getRequests)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

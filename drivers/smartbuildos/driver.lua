@@ -1771,18 +1771,34 @@ end
 -- wiped past a dozen entries -- art churns per track, and the current track is
 -- one refetch away.
 
-local MAX_ART_BYTES = 96 * 1024
---- url -> { data = "data:...;base64,..." } | { failed = true } | { pending = true }
+-- MEASURED 2026-08-18: the Sonos getaa endpoint served a 261KB PNG for an
+-- Apple Music track. The original 96KB cap rejected it — and every track like
+-- it — then cached the URL as failed FOREVER, which is exactly how "cover art
+-- is missing" presented with a perfectly healthy pipeline. The platform
+-- validator accepts a 512KB data URI; base64 inflates by 4/3, so 360KB of raw
+-- image is the largest art that survives the trip.
+local MAX_ART_BYTES = 360 * 1024
+--- Failures cool off instead of sticking: the first fetch can race a player
+--- that is still buffering, and a transient error must not blank the art for
+--- the rest of the track.
+local ART_RETRY_SECONDS = 600
+--- url -> { data = "data:...;base64,..." } | { failed = true, at = <epoch> } | { pending = true }
 local gArtCache = {}
 local gArtCacheCount = 0
 
-local function artDataFor(url)
+-- Global, like computeClimate, so the cap/retry/sanitise rules can be tested
+-- directly — the cache is local state no test can reach otherwise.
+function artDataFor(url)
   local hit = url ~= nil and gArtCache[url] or nil
   return hit ~= nil and hit.data or nil
 end
 
-local function fetchArt(url)
-  if url == nil or url == "" or gArtCache[url] ~= nil then
+function fetchArt(url)
+  if url == nil or url == "" then
+    return
+  end
+  local hit = gArtCache[url]
+  if hit ~= nil and (hit.failed ~= true or os.time() - (hit.at or 0) < ART_RETRY_SECONDS) then
     return
   end
   if gArtCacheCount >= 12 then
@@ -1794,7 +1810,13 @@ local function fetchArt(url)
   http:get(url, {}, { timeout = 10 }):next(function(response)
     local body = response.body
     if type(body) ~= "string" or #body == 0 or #body > MAX_ART_BYTES then
-      gArtCache[url] = { failed = true }
+      gArtCache[url] = { failed = true, at = os.time() }
+      log:warn(
+        "Art fetch unusable (%s bytes, cap %d): %s",
+        type(body) == "string" and tostring(#body) or "no",
+        MAX_ART_BYTES,
+        url
+      )
       return
     end
     local headers = response.headers or {}
@@ -1802,12 +1824,16 @@ local function fetchArt(url)
     if type(contentType) ~= "string" or contentType:find("^image/") == nil then
       contentType = "image/jpeg"
     end
-    gArtCache[url] = { data = "data:" .. contentType .. ";base64," .. C4:Base64Encode(body) }
+    -- Some base64 encoders wrap lines; the platform validator rejects any
+    -- whitespace, so strip it here rather than trust the encoder's dialect.
+    local encoded = (C4:Base64Encode(body):gsub("%s+", ""))
+    gArtCache[url] = { data = "data:" .. contentType .. ";base64," .. encoded }
     -- Push promptly: whoever is looking at a placeholder should not wait out
     -- the five-minute tick for art that just resolved.
     sendTelemetry()
-  end, function()
-    gArtCache[url] = { failed = true }
+  end, function(err)
+    gArtCache[url] = { failed = true, at = os.time() }
+    log:warn("Art fetch failed (%s): %s", tostring(type(err) == "table" and err.error or err), url)
   end)
 end
 
@@ -2827,7 +2853,11 @@ local function probeCapabilities(lines)
                   classCount[key] = (classCount[key] or 0) + 1
                   if bc.class == "KEYPAD" and #keypadIds < 3 and keypadIds[#keypadIds] ~= id then
                     keypadIds[#keypadIds + 1] = id
-                  elseif (bc.class == "BLIND" or bc.class == "BLIND_GROUP") and #blindIds < 3 and blindIds[#blindIds] ~= id then
+                  elseif
+                    (bc.class == "BLIND" or bc.class == "BLIND_GROUP")
+                    and #blindIds < 3
+                    and blindIds[#blindIds] ~= id
+                  then
                     blindIds[#blindIds + 1] = id
                   end
                 end
