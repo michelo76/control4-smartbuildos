@@ -1440,20 +1440,62 @@ local FULL_THERMOSTAT = {
 local full = thermostatReading(FULL_THERMOSTAT)
 check("temperature in the device's scale", full ~= nil and full.temperature_f == 78, full and full.temperature_f)
 check("both setpoints extracted", full and full.heat_setpoint_f == 74 and full.cool_setpoint_f == 74)
-check("mode is what it is SET to, state is what it is DOING",
+check(
+  "mode is what it is SET to, state is what it is DOING",
   full and full.hvac_mode == "Heat" and full.hvac_state == "Off",
-  full and (tostring(full.hvac_mode) .. "/" .. tostring(full.hvac_state)))
+  full and (tostring(full.hvac_mode) .. "/" .. tostring(full.hvac_state))
+)
 check("fan travels", full and full.fan_mode == "Auto" and full.fan_state == "Off")
 check("humidity travels with its mode", full and full.humidity == 56 and full.humidity_mode == "Off")
-check("battery diagnostics travel -- Good BESIDE running-on-battery True",
-  full and full.battery_status == "Good" and full.running_on_battery == true)
-check("an unset 0 is absent, not a reading", full and full.single_setpoint_f == nil and full.outdoor_temperature_f == nil)
+check(
+  "battery diagnostics travel -- Good BESIDE running-on-battery True",
+  full and full.battery_status == "Good" and full.running_on_battery == true
+)
+check(
+  "an unset 0 is absent, not a reading",
+  full and full.single_setpoint_f == nil and full.outdoor_temperature_f == nil
+)
 check("spaced variable names resolve", full and full.heating_active == false and full.cooling_active == false)
 check("connection and heat pump flags", full and full.is_connected == true and full.heatpump == true)
 check("the weather proxy is still refused", thermostatReading(WEATHER_PROXY) == nil)
 check("garbage yields nil rather than throwing", thermostatReading("nonsense") == nil)
-check("a record with no temp and no setpoint is nil",
-  thermostatReading({ { name = "FAN_MODE", value = "Auto" }, { name = "HVAC_MODE", value = "Off" } }) == nil)
+check(
+  "a record with no temp and no setpoint is nil",
+  thermostatReading({ { name = "FAN_MODE", value = "Auto" }, { name = "HVAC_MODE", value = "Off" } }) == nil
+)
+
+print("\n[38b] Check-in cadence: platform config wins, and the driver states it")
+reset()
+Properties["Heartbeat Interval"] = "5m"
+-- The platform's monitor config carries the cadence — this exists because an
+-- open Composer session re-pushes cached properties after a driver restart,
+-- which silently reverted the 1m migration to 5m on 2026-08-18.
+nextResponse = { ok = true, code = 200, body = { monitor = { enabled = false, heartbeat_seconds = 60 } } }
+EC.SEND_HEARTBEAT()
+reset()
+EC.SEND_HEARTBEAT()
+local hb = requests[#requests]
+check("the heartbeat STATES its active cadence", hb.data.heartbeat_seconds == 60, hb.data.heartbeat_seconds)
+
+nextResponse = { ok = true, code = 200, body = { monitor = { enabled = false, heartbeat_seconds = 5 } } }
+EC.SEND_HEARTBEAT()
+reset()
+EC.SEND_HEARTBEAT()
+check("a sub-30s config clamps to 30 -- the platform cannot ask for a busy loop",
+  requests[#requests].data.heartbeat_seconds == 30, requests[#requests].data.heartbeat_seconds)
+
+nextResponse = { ok = true, code = 200, body = { monitor = { enabled = false } } }
+EC.SEND_HEARTBEAT()
+reset()
+EC.SEND_HEARTBEAT()
+check("config withdrawn falls back to the Composer property",
+  requests[#requests].data.heartbeat_seconds == 300, requests[#requests].data.heartbeat_seconds)
+
+print("\n[38c] looksLikeThermostat: signature, not name or proxy class")
+check("the full thermostat matches", looksLikeThermostat(FULL_THERMOSTAT) == true)
+check("the weather proxy is refused", looksLikeThermostat(WEATHER_PROXY) == false)
+check("a bare temperature sensor is refused", looksLikeThermostat({ { name = "TEMPERATURE_F", value = "78" } }) == false)
+check("garbage does not throw", looksLikeThermostat("junk") == false)
 
 print("\n[38] A response with no commands acks nothing")
 reset()
