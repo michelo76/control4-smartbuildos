@@ -1481,21 +1481,65 @@ nextResponse = { ok = true, code = 200, body = { monitor = { enabled = false, he
 EC.SEND_HEARTBEAT()
 reset()
 EC.SEND_HEARTBEAT()
-check("a sub-30s config clamps to 30 -- the platform cannot ask for a busy loop",
-  requests[#requests].data.heartbeat_seconds == 30, requests[#requests].data.heartbeat_seconds)
+check(
+  "a sub-30s config clamps to 30 -- the platform cannot ask for a busy loop",
+  requests[#requests].data.heartbeat_seconds == 30,
+  requests[#requests].data.heartbeat_seconds
+)
 
 nextResponse = { ok = true, code = 200, body = { monitor = { enabled = false } } }
 EC.SEND_HEARTBEAT()
 reset()
 EC.SEND_HEARTBEAT()
-check("config withdrawn falls back to the Composer property",
-  requests[#requests].data.heartbeat_seconds == 300, requests[#requests].data.heartbeat_seconds)
+check(
+  "config withdrawn falls back to the Composer property",
+  requests[#requests].data.heartbeat_seconds == 300,
+  requests[#requests].data.heartbeat_seconds
+)
 
 print("\n[38c] looksLikeThermostat: signature, not name or proxy class")
 check("the full thermostat matches", looksLikeThermostat(FULL_THERMOSTAT) == true)
 check("the weather proxy is refused", looksLikeThermostat(WEATHER_PROXY) == false)
-check("a bare temperature sensor is refused", looksLikeThermostat({ { name = "TEMPERATURE_F", value = "78" } }) == false)
+check(
+  "a bare temperature sensor is refused",
+  looksLikeThermostat({ { name = "TEMPERATURE_F", value = "78" } }) == false
+)
 check("garbage does not throw", looksLikeThermostat("junk") == false)
+
+print("\n[38d] sensorReading: category by signature, batteries everywhere")
+
+-- A door lock also reports a contact. Calling it a contact sensor loses what
+-- it is, so the specific category wins.
+local lock = sensorReading({
+  { name = "LOCK_STATUS", value = "Locked" },
+  { name = "CONTACT_STATE", value = "1" },
+  { name = "Battery Level", value = "62" },
+})
+check("a lock is a lock, not a contact", lock and lock.category == "lock", lock and lock.category)
+check("its state is normalised", lock and lock.state == "Locked", lock and lock.state)
+check("its battery travels", lock and lock.battery_level == 62)
+
+local motion = sensorReading({ { name = "MOTION_STATE", value = "1" }, { name = "LOW_BATTERY", value = "True" } })
+check("motion normalises 1 to Motion", motion and motion.state == "Motion", motion and motion.state)
+check("low battery is read as a fact", motion and motion.low_battery == true)
+
+local garage = sensorReading({ { name = "DOOR_STATE", value = "opened" } })
+check("an opening reports Open", garage and garage.category == "opening" and garage.state == "Open")
+
+local leak = sensorReading({ { name = "LEAK", value = "false" } })
+check("a dry leak sensor says Dry", leak and leak.category == "leak" and leak.state == "Dry")
+
+-- The thermostat's own battery pair: Good BESIDE running-on-battery.
+local batteryOnly = sensorReading({ { name = "Battery Status", value = "Good" } })
+check("a battery with no state of its own still reports", batteryOnly and batteryOnly.category == "battery")
+check("a Good status is not low", batteryOnly and batteryOnly.low_battery == false)
+check("a Replace status IS low", (sensorReading({ { name = "BATTERY_STATUS", value = "Replace" } }) or {}).low_battery == true)
+
+check("an unknown state passes through rather than being forced", (sensorReading({ { name = "PARTITION_STATE", value = "Armed Away" } }) or {}).state == "Armed Away")
+check("link quality travels for mesh diagnostics", (sensorReading({ { name = "CONTACT_STATE", value = "0" }, { name = "LINK_QUALITY", value = "38" } }) or {}).link_quality == 38)
+check("an impossible battery percentage is refused", sensorReading({ { name = "BATTERY_LEVEL", value = "255" } }) == nil)
+check("a device with none of it is not a sensor", sensorReading({ { name = "CURRENT_VOLUME", value = "20" } }) == nil)
+check("garbage does not throw", sensorReading("junk") == nil)
 
 print("\n[38] A response with no commands acks nothing")
 reset()
