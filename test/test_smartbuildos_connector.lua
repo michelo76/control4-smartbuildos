@@ -78,7 +78,10 @@ package.preload["lib.http"] = function()
           body = nextGetResponse.body or "",
         })
       end
-      return settled(false, { url = url, code = nextGetResponse.code, error = nextGetResponse.error or "request failed" })
+      return settled(
+        false,
+        { url = url, code = nextGetResponse.code, error = nextGetResponse.error or "request failed" }
+      )
     end,
     post = function(_, url, data, headers, options)
       table.insert(requests, { url = url, data = data, headers = headers, options = options })
@@ -1439,7 +1442,8 @@ check("cached art is not re-fetched", #getRequests == 1, #getRequests)
 -- it and cached the URL as failed permanently. That was the missing-cover-art
 -- bug: a healthy pipeline showing placeholders for every large-art track.
 getRequests = {}
-nextGetResponse = { ok = true, code = 200, body = string.rep("y", 400 * 1024), headers = { ["Content-Type"] = "image/png" } }
+nextGetResponse =
+  { ok = true, code = 200, body = string.rep("y", 400 * 1024), headers = { ["Content-Type"] = "image/png" } }
 fetchArt("http://10.0.0.9:1400/art-2")
 check("oversize art is refused", artDataFor("http://10.0.0.9:1400/art-2") == nil)
 fetchArt("http://10.0.0.9:1400/art-2")
@@ -1456,7 +1460,8 @@ check("the retried art is served", artDataFor("http://10.0.0.9:1400/art-2") ~= n
 
 -- (c) The measured real-world size fits under the new cap.
 getRequests = {}
-nextGetResponse = { ok = true, code = 200, body = string.rep("z", 267641), headers = { ["Content-Type"] = "image/png" } }
+nextGetResponse =
+  { ok = true, code = 200, body = string.rep("z", 267641), headers = { ["Content-Type"] = "image/png" } }
 fetchArt("http://10.0.0.9:1400/art-3")
 check("the measured 261KB Sonos art is accepted", artDataFor("http://10.0.0.9:1400/art-3") ~= nil)
 
