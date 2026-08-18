@@ -205,6 +205,12 @@ local gDiscoveredThermostats = {}
 --- shipped with every state upload. A list, not a map: it travels as JSON.
 --- @type table[]
 local gThermostatSnapshot = {}
+--- Devices that reported a sensor or battery signature at the last catalogue
+--- walk: id -> { name, room }. Re-read on each state upload.
+--- @type table<number, table>
+local gSensorDevices = {}
+--- Bounded: a project with a thousand contacts is a firehose, not a report.
+local MAX_SENSORS = 200
 --- @type boolean Whether listeners are currently registered.
 local gListening = false
 
@@ -1356,9 +1362,7 @@ end
 --- REPORT it — cadence should be a stated fact on the platform, not a
 --- timestamp-gap inference (which is how a reverted value went unnoticed).
 function activeHeartbeatSeconds()
-  return gMonitor.heartbeat_seconds
-    or INTERVALS[Properties["Heartbeat Interval"] or ""]
-    or INTERVALS["15m"]
+  return gMonitor.heartbeat_seconds or INTERVALS[Properties["Heartbeat Interval"] or ""] or INTERVALS["15m"]
 end
 
 --- (Re)arms every reporting timer from the current properties and config.
@@ -1576,19 +1580,18 @@ function sendCatalogue()
     end
   end
 
-  log:info("Catalogue: %d room(s), %d observable(s)", #rooms, #observables)
-
   -- ── Thermostats, found by SIGNATURE over the whole project ────────────────
   -- TEMPERATURE_ID discovery alone found half the house (see the note on
   -- gDiscoveredThermostats). One GetDeviceVariables per device, once per
   -- catalogue — the same order of work the capability probe already does.
   gDiscoveredThermostats = {}
-  local found = 0
+  gSensorDevices = {}
+  local found, sensors = 0, 0
   local okD, devs = pcall(function()
     return C4:GetDevices()
   end)
   if okD and type(devs) == "table" then
-    for rawId in pairs(devs) do
+    for rawId, device in pairs(devs) do
       local id = tointeger(rawId)
       if id ~= nil then
         local okV, vars = pcall(function()
@@ -1598,10 +1601,49 @@ function sendCatalogue()
           gDiscoveredThermostats[id] = true
           found = found + 1
         end
+        -- Sensors, locks, openings and batteries — anything reporting a state
+        -- worth watching. A thermostat can also carry a battery, so this is
+        -- not exclusive with the branch above.
+        if okV and sensors < MAX_SENSORS and sensorReading(vars) ~= nil then
+          gSensorDevices[id] = {
+            name = type(device) == "table" and device.deviceName or nil,
+            room = type(device) == "table" and device.roomName or nil,
+          }
+          sensors = sensors + 1
+          -- Ship this device's variables to the catalogue. The names above are
+          -- CANDIDATES from documentation and one project; this is how the
+          -- next round reads what the project actually said instead of
+          -- guessing again. Bounded per device.
+          if okV and type(vars) == "table" then
+            local shipped = 0
+            for varId, v in pairs(vars) do
+              local vid = tointeger(varId)
+              local vname = type(v) == "table" and v.name or nil
+              if vid and vname and shipped < 40 and #observables < 3800 then
+                observables[#observables + 1] = {
+                  kind = "device",
+                  source_id = id,
+                  source_name = type(device) == "table" and device.deviceName or nil,
+                  variable_id = vid,
+                  variable_name = vname,
+                  sample_value = tostring(v.value or ""),
+                  readonly = tostring(v.readonly) == "True",
+                }
+                shipped = shipped + 1
+              end
+            end
+          end
+        end
       end
     end
   end
-  log:info("Thermostat discovery: %d unit(s) by variable signature", found)
+  log:info(
+    "Catalogue: %d room(s), %d observable(s); %d thermostat(s) and %d sensor/battery device(s) by signature",
+    #rooms,
+    #observables,
+    found,
+    sensors
+  )
 
   -- The catalogue walk is what populates room -> thermostat, so this is the
   -- first moment a full climate sample is possible. Sampling here (and
@@ -1789,6 +1831,168 @@ function climateReading(vars)
     return nil
   end
   return { temperature = temp, heat = heat, cool = cool, mode = mode }
+end
+
+-- ─── Sensors, batteries and openings ────────────────────────────────────────
+--
+-- Everything in a project that reports a STATE worth watching but is not a
+-- thermostat and not an up/down device: door locks, contacts, motion, water
+-- leaks, garage doors and gates, security partitions, UPS/power, and the
+-- battery in any of them.
+--
+-- ── DETECTION IS BY VARIABLE SIGNATURE ──────────────────────────────────────
+--
+-- Not by name and not by proxy class, the two methods this project has
+-- already disproved: name-matching scored 0 of 223 devices twice, and a
+-- WEATHER driver answers the thermostat proxy. A device that reports
+-- CONTACT_STATE is a contact sensor no matter what anybody called it.
+--
+-- ── THE NAMES BELOW ARE CANDIDATES, NOT MEASUREMENTS ────────────────────────
+--
+-- Control4 driver authors are inconsistent: BATTERY_LEVEL, "Battery Level"
+-- and BATTERY_PERCENT all appear in the wild, and a single project mixes
+-- them (this one reports "Battery Status" and "Running on Battery" on the
+-- thermostat, "Battery Level" on the remote). So each field lists every
+-- plausible spelling, matching is case-insensitive, and the catalogue now
+-- ships DEVICE variables too — which turns the next round of this from
+-- guessing into reading what the project actually said.
+
+--- Case-folded variable map for a device.
+local function variableMap(vars)
+  if type(vars) ~= "table" then
+    return nil
+  end
+  local values = {}
+  for _, v in pairs(vars) do
+    if type(v) == "table" and type(v.name) == "string" then
+      values[v.name:upper()] = v.value
+    end
+  end
+  return values
+end
+
+--- First present value among candidate names.
+local function firstOf(values, names)
+  for _, name in ipairs(names) do
+    local v = values[name]
+    if v ~= nil and tostring(v) ~= "" then
+      return tostring(v)
+    end
+  end
+  return nil
+end
+
+--- A state string normalised to the vocabulary a screen renders.
+---
+--- Control4 reports the same fact as "0"/"1", "true"/"false", "Open"/"Closed"
+--- and "OPENED" depending on the driver. One vocabulary here means the UI
+--- never has to guess, and a value nobody has seen passes through verbatim
+--- rather than being forced into a bucket it may not belong in.
+local function normalizeState(raw, kind)
+  if raw == nil then
+    return nil
+  end
+  local s = tostring(raw):lower()
+  local openish = { ["1"] = true, ["true"] = true, ["open"] = true, ["opened"] = true, ["on"] = true }
+  local closedish = { ["0"] = true, ["false"] = true, ["close"] = true, ["closed"] = true, ["off"] = true }
+  if kind == "lock" then
+    if s == "1" or s == "true" or s == "locked" then return "Locked" end
+    if s == "0" or s == "false" or s == "unlocked" then return "Unlocked" end
+  elseif kind == "motion" then
+    if openish[s] or s == "motion" or s == "detected" then return "Motion" end
+    if closedish[s] or s == "no motion" or s == "clear" then return "Clear" end
+  elseif kind == "leak" then
+    if openish[s] or s == "wet" or s == "detected" then return "Leak detected" end
+    if closedish[s] or s == "dry" then return "Dry" end
+  else
+    if openish[s] then return "Open" end
+    if closedish[s] then return "Closed" end
+  end
+  return tostring(raw):sub(1, 40)
+end
+
+--- One sensor/battery record for a device, or nil when it is neither.
+---
+--- Pure and global so the classification can be tested directly — this is the
+--- part that can be quietly wrong: a lock misread as a contact renders
+--- perfectly and tells a dealer the wrong thing about somebody's front door.
+function sensorReading(vars)
+  local values = variableMap(vars)
+  if values == nil then
+    return nil
+  end
+
+  local battery = tonumber(firstOf(values, {
+    "BATTERY_LEVEL", "BATTERY LEVEL", "BATTERY_PERCENT", "BATTERY", "BATTERYLEVEL",
+  }))
+  if battery ~= nil and (battery < 0 or battery > 100) then
+    battery = nil
+  end
+  local batteryStatus = firstOf(values, { "BATTERY_STATUS", "BATTERY STATUS" })
+  local lowBatteryRaw = firstOf(values, { "LOW_BATTERY", "LOW BATTERY", "BATTERY_LOW" })
+  local lowBattery = nil
+  if lowBatteryRaw ~= nil then
+    local l = lowBatteryRaw:lower()
+    lowBattery = (l == "true" or l == "1" or l == "yes")
+  end
+  -- A status string of its own can also mean low, e.g. "Low"/"Replace".
+  if lowBattery == nil and batteryStatus ~= nil then
+    local b = batteryStatus:lower()
+    if b == "low" or b == "replace" or b == "critical" or b == "bad" then
+      lowBattery = true
+    elseif b == "good" or b == "normal" or b == "ok" then
+      lowBattery = false
+    end
+  end
+
+  -- Category, most specific first: a door lock reports a contact too, and
+  -- calling it a contact sensor loses what it is.
+  local category, state
+  local lockRaw = firstOf(values, { "LOCK_STATUS", "LOCK STATUS", "LOCKED", "LOCK_STATE", "LOCKSTATE" })
+  local partitionRaw = firstOf(values, { "PARTITION_STATE", "PARTITION STATE", "ARM_STATE", "ARMED_STATE", "SECURITY_STATE" })
+  local leakRaw = firstOf(values, { "LEAK", "LEAK_DETECTED", "WATER_DETECTED", "LEAKDETECTED" })
+  local motionRaw = firstOf(values, { "MOTION_STATE", "MOTION STATE", "MOTION", "MOTIONSTATE" })
+  local doorRaw = firstOf(values, { "DOOR_STATE", "DOOR STATE", "GARAGE_STATE", "GATE_STATE", "OPENSTATE", "OPEN_STATE" })
+  local contactRaw = firstOf(values, { "CONTACT_STATE", "CONTACT STATE", "CONTACTSTATE", "SENSOR_STATE" })
+  local relayRaw = firstOf(values, { "RELAY_STATE", "RELAY STATE", "RELAYSTATE" })
+  local powerRaw = firstOf(values, { "POWER_LOST", "ON_BATTERY", "RUNNING ON BATTERY", "AC_POWER" })
+
+  if lockRaw ~= nil then
+    category, state = "lock", normalizeState(lockRaw, "lock")
+  elseif partitionRaw ~= nil then
+    category, state = "security", tostring(partitionRaw):sub(1, 40)
+  elseif leakRaw ~= nil then
+    category, state = "leak", normalizeState(leakRaw, "leak")
+  elseif doorRaw ~= nil then
+    category, state = "opening", normalizeState(doorRaw, "opening")
+  elseif motionRaw ~= nil then
+    category, state = "motion", normalizeState(motionRaw, "motion")
+  elseif contactRaw ~= nil then
+    category, state = "contact", normalizeState(contactRaw, "contact")
+  elseif relayRaw ~= nil then
+    category, state = "relay", normalizeState(relayRaw, "relay")
+  elseif powerRaw ~= nil then
+    category, state = "power", normalizeState(powerRaw, "power")
+  elseif battery ~= nil or batteryStatus ~= nil or lowBattery ~= nil then
+    -- Battery with no state of its own: a keypad, a remote, a thermostat.
+    -- Still worth reporting — the battery IS the finding.
+    category, state = "battery", nil
+  else
+    return nil
+  end
+
+  -- Mesh quality, where the driver exposes it. An integrator diagnostic: a
+  -- Zigbee sensor at 30% link quality is a truck roll waiting to happen.
+  local link = tonumber(firstOf(values, { "LINK_QUALITY", "LINK QUALITY", "LQI", "RSSI", "SIGNAL_STRENGTH" }))
+
+  return {
+    category = category,
+    state = state,
+    battery_level = battery,
+    battery_status = batteryStatus and batteryStatus:sub(1, 40) or nil,
+    low_battery = lowBattery,
+    link_quality = link,
+  }
 end
 
 --- Whether a device's variable set says "thermostat".
@@ -2056,6 +2260,50 @@ function sampleClimate()
   gThermostatSnapshot = snapshot
 end
 
+--- Re-reads every discovered sensor/battery device.
+---
+--- Read on each state upload rather than watched: a contact that opens twice
+--- a minute would be an event storm for a screen that shows current state,
+--- and the devices worth ALERTING on (leak, low battery) do not change on a
+--- timescale where a few minutes matters. Bounded by the discovery cap.
+function sampleSensors()
+  if not gMonitor.enabled then
+    return {}
+  end
+  local out = {}
+  for id, info in pairs(gSensorDevices) do
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(id)
+    end)
+    if okV then
+      local reading = sensorReading(vars)
+      if reading ~= nil then
+        reading.device_id = id
+        reading.name = info.name
+        reading.room_name = info.room
+        reading.changed_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        out[#out + 1] = reading
+        -- Battery level is a NUMBER that trends — the one sensor field worth
+        -- history, because "it was at 40% a month ago" is what turns a
+        -- replacement into a scheduled visit instead of a callback.
+        if reading.battery_level ~= nil then
+          gTelemetry:add("MEASUREMENT", {
+            subcategory = "battery",
+            source_type = "device",
+            source_id = tostring(id),
+            room_name = info.room,
+            value_numeric = reading.battery_level,
+            unit = "%",
+            -- A battery percentage says nothing about what anyone did.
+            privacy_class = "CUSTOMER_SAFE",
+          })
+        end
+      end
+    end
+  end
+  return out
+end
+
 -- ─── Album art, fetched HERE because only here has a route to it ─────────────
 --
 -- The artwork URL a player reports is a LAN address (http://192.168...). The
@@ -2148,8 +2396,9 @@ function sendTelemetry()
     return
   end
 
+  local sensors = sampleSensors()
   local rooms = gRooms:snapshot()
-  if #rooms > 0 or #gThermostatSnapshot > 0 then
+  if #rooms > 0 or #gThermostatSnapshot > 0 or #sensors > 0 then
     for _, room in ipairs(rooms) do
       local data = artDataFor(room.media_image_url)
       if data ~= nil then
@@ -2160,7 +2409,11 @@ function sendTelemetry()
     end
     -- Thermostats ride the same state upload: they ARE state, and giving them
     -- their own send would double the request count for no isolation gain.
-    send("telemetry", { kind = "state", rooms = rooms, thermostats = gThermostatSnapshot }, "room state")
+    send(
+      "telemetry",
+      { kind = "state", rooms = rooms, thermostats = gThermostatSnapshot, sensors = sensors },
+      "room state"
+    )
   end
 
   local sessions = gRooms:takeSessions()
