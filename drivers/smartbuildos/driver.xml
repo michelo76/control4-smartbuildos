@@ -355,15 +355,18 @@
       <property>
         <name>Heartbeat Interval</name>
         <type>LIST</type>
-        <default>15m</default>
+        <default>1m</default>
         <items>
+          <item>30s</item>
+          <item>1m</item>
+          <item>2m</item>
           <item>5m</item>
           <item>15m</item>
           <item>30m</item>
           <item>1h</item>
           <item>6h</item>
         </items>
-        <description>How often this controller reports in</description>
+        <description>How often this controller reports in. Remote commands from SmartBuildOS are picked up at each check-in, so this is also the command latency.</description>
       </property>
       <property>
         <name>Full Sync Interval</name>
