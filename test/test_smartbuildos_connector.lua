@@ -1614,15 +1614,15 @@ print("\n[40b] Nothing decorative may run before the timers are armed")
 local source = io.open("drivers/smartbuildos/driver.lua"):read("*a")
 local timersAt = source:find("\n  scheduleTimers()", 1, true)
 local announceAt = source:find("\n  announceStart()", 1, true)
-check("the driver arms its timers before it announces anything", timersAt ~= nil and announceAt ~= nil and timersAt < announceAt)
+check(
+  "the driver arms its timers before it announces anything",
+  timersAt ~= nil and announceAt ~= nil and timersAt < announceAt
+)
 check(
   "the reload event is fired inside a pcall -- a failed announcement must not stop reporting",
   source:find('pcall%(function%(%)%s*C4:FireEvent%("Director Reloaded"%)') ~= nil
 )
-check(
-  "the reload report to SmartBuildOS is guarded too",
-  source:find("local sentOk, sendErr = pcall") ~= nil
-)
+check("the reload report to SmartBuildOS is guarded too", source:find("local sentOk, sendErr = pcall") ~= nil)
 
 print("\n[41] Email preferences travel with the alert; the platform sends it")
 Properties["Alert Email"] = "  ops@example.com  "

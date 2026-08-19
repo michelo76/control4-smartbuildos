@@ -3200,6 +3200,66 @@ local function diagnose(lines)
     note("GetProjectItems -> %s %s", tostring(okItems), tostring(items))
   end
 
+  -- ── What Control4 calls this project ─────────────────────────────────────
+  --
+  -- SmartBuildOS wants to label a system with the integrator's own word for
+  -- it instead of "Main Property", the default nickname every paired system
+  -- inherits. Whether a driver can read the Composer project name is not
+  -- documented anywhere we trust, and it has already cost two releases to
+  -- read an enumeration API the wrong way from the reference, so this asks
+  -- every plausible source and REPORTS what each returns rather than picking
+  -- one and hoping.
+  --
+  -- Deliberately in diagnose() and not surveyTelemetry(): the latter runs
+  -- only from the Actions tab in Composer, which is why its project-hierarchy
+  -- dump has never once reached the cloud — eleven REQUEST_DIAGNOSTICS runs,
+  -- twelve lines every time, and the answer sitting in a function nobody
+  -- remote can trigger.
+  local function probe(label, fn)
+    local okP, value = pcall(fn)
+    if not okP then
+      note("project? %s -> ERROR %s", label, tostring(value):sub(1, 160))
+    elseif type(value) == "table" then
+      note("project? %s -> table %s", label, JSON:encode(value):sub(1, 320))
+    else
+      note("project? %s -> %s", label, tostring(value):sub(1, 200))
+    end
+  end
+
+  probe("GetProjectName", function()
+    return C4:GetProjectName()
+  end)
+  probe("GetSystemName", function()
+    return C4:GetSystemName()
+  end)
+  probe("GetProjectId", function()
+    return C4:GetProjectId()
+  end)
+  probe("GetControllerName", function()
+    return C4:GetControllerName()
+  end)
+  -- Item 1 is the project root in Composer's tree; if the name lives anywhere
+  -- addressable, this is the most likely place.
+  probe("GetDeviceData(1,name)", function()
+    return C4:GetDeviceData(1, "name")
+  end)
+  probe("GetDeviceData(0,name)", function()
+    return C4:GetDeviceData(0, "name")
+  end)
+  -- The top of the location tree: type 2 is the site. On this project it is
+  -- named "Home", which may well be the Control4 default rather than anything
+  -- an integrator chose — worth confirming against a second project.
+  probe("hierarchy top", function()
+    local h = C4:GetProjectHierarchy()
+    local tops = {}
+    for id, loc in pairs(type(h) == "table" and h or {}) do
+      if type(loc) == "table" then
+        tops[#tops + 1] = string.format("[%s]%s(%s)", tostring(id), tostring(loc.name), tostring(loc.type))
+      end
+    end
+    return table.concat(tops, " ")
+  end)
+
   if devices == nil then
     note("NO enumeration returned anything. This driver cannot see the project.")
     return
