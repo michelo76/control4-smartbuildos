@@ -3202,13 +3202,26 @@ local function diagnose(lines)
 
   -- ── What Control4 calls this project ─────────────────────────────────────
   --
-  -- SmartBuildOS wants to label a system with the integrator's own word for
-  -- it instead of "Main Property", the default nickname every paired system
-  -- inherits. Whether a driver can read the Composer project name is not
-  -- documented anywhere we trust, and it has already cost two releases to
-  -- read an enumeration API the wrong way from the reference, so this asks
-  -- every plausible source and REPORTS what each returns rather than picking
-  -- one and hoping.
+  -- ⚠ ANSWERED 2026-08-19, on a live XDT_CORE1 running OS 4.2.0. A DRIVER
+  -- CANNOT READ THE COMPOSER PROJECT NAME. Measured, every one of them:
+  --
+  --   GetProjectName        nil — the method does not exist
+  --   GetSystemName         nil — the method does not exist
+  --   GetProjectId          nil — the method does not exist
+  --   GetControllerName     nil — the method does not exist
+  --   GetDeviceData(1,name) nil
+  --   GetDeviceData(0,name) nil
+  --   hierarchy top         [13]Home(2)
+  --
+  -- The only project-level identity reachable is the SITE location, and on
+  -- this project it is named "Home" — the Control4 default, which identifies
+  -- nothing. SmartBuildOS therefore labels a system by CUSTOMER and PROPERTY
+  -- ADDRESS, and its `project_name` plumbing was removed rather than left
+  -- inert.
+  --
+  -- Kept, and not deleted, because a negative result is worth exactly as much
+  -- as a positive one and costs a release to rediscover. Re-run it against a
+  -- different OS version before concluding anything has changed.
   --
   -- Deliberately in diagnose() and not surveyTelemetry(): the latter runs
   -- only from the Actions tab in Composer, which is why its project-hierarchy
