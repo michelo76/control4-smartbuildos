@@ -483,6 +483,47 @@ EC.UNPAIR()
 check("unpair cleared the system id", store["system_id"] == nil, tostring(store["system_id"]))
 check("unpair left the driver unpaired", TC.SMARTBUILDOS_PAIRED() == false)
 
+print("\n[2c] Composer shows the ADDRESS, not a uuid")
+-- A raw uuid answers nothing for somebody at a rack asking which house this
+-- controller is in. The platform composes the label; the driver renders it.
+reset()
+gInitialized = true
+pairBody = {
+  token = TOKEN,
+  system_id = SYSTEM,
+  property_name = "Julie Dwyer",
+  site_label = "4560 Sheridan Ave, Miami Beach, FL 33140",
+}
+OPC.Pairing_Code(CODE)
+check(
+  "Paired Property shows name and address",
+  Properties["Paired Property"] == "Julie Dwyer (4560 Sheridan Ave, Miami Beach, FL 33140)",
+  Properties["Paired Property"]
+)
+
+-- A corrected address must land on the HEARTBEAT, or Composer keeps showing
+-- the old one until somebody re-pairs.
+-- `nextResponse.body` is how the harness drives a response the driver reads.
+nextResponse = { ok = true, code = 200, body = { ok = true, site_label = "1200 Ocean Drive, Miami Beach, FL 33139" } }
+EC.SEND_HEARTBEAT()
+nextResponse = { ok = true, code = 200 }
+check(
+  "an address correction lands on the next check-in",
+  Properties["Paired Property"] == "Julie Dwyer (1200 Ocean Drive, Miami Beach, FL 33139)",
+  Properties["Paired Property"]
+)
+
+-- With no address at all the id is the honest fallback -- unhelpful, but true.
+reset()
+gInitialized = true
+pairBody = { token = TOKEN, system_id = SYSTEM, property_name = "Julie Dwyer" }
+OPC.Pairing_Code(CODE)
+check(
+  "no address falls back to the id, never empty brackets",
+  Properties["Paired Property"] == "Julie Dwyer (" .. SYSTEM .. ")",
+  Properties["Paired Property"]
+)
+
 print("\n[3] A bad pairing code is reported as such, not as an outage")
 reset()
 gInitialized = true

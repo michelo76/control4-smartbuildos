@@ -93,6 +93,13 @@ local PROPERTY_KEY = "property_id"
 --- three orphan controllers, and no way for the dealer to tell.
 local SYSTEM_KEY = "system_id"
 local PROPERTY_NAME_KEY = "property_name"
+--- The site's street address, as SmartBuildOS composes it.
+---
+--- Composed on the platform, never here: a system linked to a property uses
+--- the property's address and a standalone Control4 customer uses its own, and
+--- that rule should not exist in two languages. The driver renders what it is
+--- handed.
+local SITE_LABEL_KEY = "site_label"
 --- How many times this driver has started, and when it last did.
 ---
 --- ── WHAT THIS ACTUALLY MEASURES ─────────────────────────────────────────────
@@ -261,6 +268,11 @@ local sendCatalogue
 -- Called from the heartbeat response (config apply) which is defined above
 -- the definition — same lexical trap as collectCommands below.
 local scheduleTimers
+-- Same trap again: the heartbeat refreshes the site address and repaints the
+-- "Paired Property" line, and that painter is defined with the pairing code
+-- far below. Without this it resolves to a nil GLOBAL and dies inside the
+-- response callback's pcall, where nothing would ever report it.
+local showPairingState
 -- ⚠ This forward declaration is a BUG FIX, not tidiness.
 -- was a  defined at the bottom of the file while two call
 -- sites — including the empty-project self-diagnosis on the very outage path
@@ -1367,6 +1379,22 @@ local function sendHeartbeat()
       -- so an installer's choices in SmartBuildOS ride back on a call it already
       -- makes, rather than costing a second timer to poll for them.
       collectCommands(body)
+
+      -- ⚠ ABOVE the monitor early-return, deliberately. An address correction
+      -- must land whether or not the response carries a monitoring block, and
+      -- putting it below would make the refresh depend on an unrelated
+      -- feature being configured.
+      --
+      -- Refreshed every heartbeat rather than only at pairing: an address
+      -- fixed in SmartBuildOS would otherwise stay wrong in Composer until
+      -- somebody re-paired, and a stale address on a rack is worse than none.
+      local label = type(body.site_label) == "string" and body.site_label or ""
+      if label ~= (persist:get(SITE_LABEL_KEY, "") or "") then
+        persist:set(SITE_LABEL_KEY, label)
+        showPairingState()
+        log:info("Site address updated to %s", label ~= "" and label or "(none)")
+      end
+
       local monitor = body.monitor
       if type(monitor) ~= "table" then
         return
@@ -2687,13 +2715,15 @@ end
 -- ─── Pairing ──────────────────────────────────────────────────────────────────
 
 --- Reflects the current pairing state into the read-only properties.
-local function showPairingState()
+showPairingState = function()
   if isPaired() then
-    -- Show whichever id this pairing actually has. A property-less system
-    -- printing an empty pair of brackets reads as a fault.
+    -- Name and ADDRESS. The uuid is the last resort, not the default: it is
+    -- the one thing here that answers nothing for somebody at a rack trying to
+    -- work out which house this controller is in.
     local name = persist:get(PROPERTY_NAME_KEY, "") or ""
-    local id = propertyId() ~= "" and propertyId() or systemId()
-    UpdateProperty("Paired Property", name ~= "" and string.format("%s (%s)", name, id) or id)
+    local label = persist:get(SITE_LABEL_KEY, "") or ""
+    local detail = label ~= "" and label or (propertyId() ~= "" and propertyId() or systemId())
+    UpdateProperty("Paired Property", name ~= "" and string.format("%s (%s)", name, detail) or detail)
   else
     UpdateProperty("Paired Property", "Not paired")
   end
@@ -2752,6 +2782,7 @@ local function redeemPairingCode(code)
       persist:set(PROPERTY_KEY, body.property_id or "")
       persist:set(SYSTEM_KEY, body.system_id or "")
       persist:set(PROPERTY_NAME_KEY, body.property_name or "")
+      persist:set(SITE_LABEL_KEY, body.site_label or "")
       showPairingState()
       C4:FireEvent("Paired")
       log:info(
@@ -4145,6 +4176,7 @@ function EC.UNPAIR()
   -- dealer believes they disconnected.
   persist:delete(SYSTEM_KEY)
   persist:delete(PROPERTY_NAME_KEY)
+  persist:delete(SITE_LABEL_KEY)
   -- The panels themselves keep working: a display URL is its own credential and
   -- is revoked from SmartBuildOS, not from here. What is cleared is this
   -- driver's COPY, which after unpairing is no longer a URL it can vouch for.
