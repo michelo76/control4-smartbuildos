@@ -340,6 +340,7 @@ require("c4_shim")
 local TOKEN = "sbo_live_supersecrettoken_0123456789"
 local CODE = "H7K2-9QXR"
 local PROPERTY = "0f1c9a52-7d33-4f0e-9a11-2b6c8d4e5f00"
+local SYSTEM = "7e14128e-fb05-4645-929f-e1ee9e1ee964"
 
 Properties = {
   ["API URL"] = "https://app.smartbuildos.io",
@@ -432,6 +433,55 @@ check(
 )
 check("the Paired event fired", firedEvents[1] == "Paired", table.concat(firedEvents, ","))
 check("the pairing code was cleared", Properties["Pairing Code"] == "", Properties["Pairing Code"])
+
+print("\n[2b] A system with NO property pairs anyway")
+-- ⚠ REGRESSION. SmartBuildOS tracks Control4 projects for customers who are
+-- not its clients, and those systems have no property at all. The platform
+-- re-keyed on the system and made property_id advisory; this driver did not
+-- follow, and required a property id in the pair response. The result was a
+-- pairing that SUCCEEDED on the server -- code redeemed, controller minted,
+-- token issued -- while Composer said "Pairing failed - unexpected response".
+-- Measured in production: three attempts, three spent codes, three orphan
+-- controllers, and nothing to tell the dealer the fault was ours.
+reset()
+gInitialized = true
+pairBody = { token = TOKEN, system_id = SYSTEM, property_name = "Julie Dwyer" }
+OPC.Pairing_Code(CODE)
+check("the token was stored", store["device_token"] == TOKEN)
+check("the system id was stored", store["system_id"] == SYSTEM, store["system_id"])
+check("the driver reports itself paired", TC.SMARTBUILDOS_PAIRED() == true)
+check(
+  "Connection Status is not a failure",
+  (Properties["Connection Status"] or ""):find("failed") == nil,
+  Properties["Connection Status"]
+)
+check(
+  "Paired Property shows the system, not empty brackets",
+  (Properties["Paired Property"] or ""):find("Julie Dwyer", 1, true) ~= nil,
+  Properties["Paired Property"]
+)
+check("the Paired event fired", firedEvents[1] == "Paired", table.concat(firedEvents, ","))
+
+-- The token alone is not enough: with no id at all the response IS broken.
+reset()
+gInitialized = true
+pairBody = { token = TOKEN }
+OPC.Pairing_Code(CODE)
+check(
+  "a response with neither id is still refused",
+  (Properties["Connection Status"] or ""):find("unexpected response") ~= nil,
+  Properties["Connection Status"]
+)
+
+-- Unpair must clear BOTH ids. isPaired() accepts either, so a surviving
+-- system id would leave the driver "paired" with no token.
+reset()
+gInitialized = true
+pairBody = { token = TOKEN, system_id = SYSTEM }
+OPC.Pairing_Code(CODE)
+EC.UNPAIR()
+check("unpair cleared the system id", store["system_id"] == nil, tostring(store["system_id"]))
+check("unpair left the driver unpaired", TC.SMARTBUILDOS_PAIRED() == false)
 
 print("\n[3] A bad pairing code is reported as such, not as an outage")
 reset()

@@ -81,6 +81,17 @@ local NETWORK_SCAN_TIMER = "SmartBuildOSNetworkScan"
 --- around between dealers and backed up, so it must not carry a usable secret.
 local TOKEN_KEY = "device_token"
 local PROPERTY_KEY = "property_id"
+--- The system this driver is paired to.
+---
+--- ⚠ A SYSTEM NEED NOT HAVE A PROPERTY. SmartBuildOS tracks Control4 projects
+--- for customers who are not its clients, and those systems carry no property
+--- at all — the platform re-keyed on the system and made `property_id`
+--- advisory. This driver did not follow, and the result was a pairing that
+--- SUCCEEDED on the server (code redeemed, controller minted, token issued)
+--- and reported "Pairing failed - unexpected response" in Composer, because
+--- the response carried no property id. Three attempts, three spent codes,
+--- three orphan controllers, and no way for the dealer to tell.
+local SYSTEM_KEY = "system_id"
 local PROPERTY_NAME_KEY = "property_name"
 --- How many times this driver has started, and when it last did.
 ---
@@ -406,9 +417,23 @@ local function propertyId()
   return persist:get(PROPERTY_KEY, "") or ""
 end
 
---- @return boolean paired Whether the driver holds a usable token.
+--- @return string systemId The paired SmartBuildOS system id, or "".
+local function systemId()
+  return persist:get(SYSTEM_KEY, "") or ""
+end
+
+--- Whether the driver holds a usable credential.
+---
+--- The TOKEN is the credential: the server resolves company, system and
+--- property from it and treats anything the driver asserts as advisory. So a
+--- system with no property is paired, and requiring a property id here is what
+--- made a property-less pairing impossible to complete.
+---
+--- Either id satisfies the second half, so a driver paired before this change
+--- — which stored a property and no system — stays paired across the upgrade.
+--- @return boolean paired
 local function isPaired()
-  return deviceToken() ~= "" and propertyId() ~= ""
+  return deviceToken() ~= "" and (systemId() ~= "" or propertyId() ~= "")
 end
 
 -- ─── HTTP ─────────────────────────────────────────────────────────────────────
@@ -433,7 +458,10 @@ local function authHeaders()
   return {
     ["Authorization"] = "Bearer " .. deviceToken(),
     ["Content-Type"] = "application/json",
+    -- Both are advisory; the token decides. Sent when known, omitted rather
+    -- than sent empty so a property-less system does not assert a blank one.
     ["X-SmartBuildOS-Property"] = propertyId(),
+    ["X-SmartBuildOS-System"] = systemId(),
   }
 end
 
@@ -442,6 +470,7 @@ end
 local function systemIdentity()
   return {
     property_id = propertyId(),
+    system_id = systemId(),
     controller_type = C4:GetSystemType(),
     os_version = C4:GetVersionInfo().version,
     driver_version = C4:GetDriverConfigInfo("version"),
@@ -2660,8 +2689,11 @@ end
 --- Reflects the current pairing state into the read-only properties.
 local function showPairingState()
   if isPaired() then
+    -- Show whichever id this pairing actually has. A property-less system
+    -- printing an empty pair of brackets reads as a fault.
     local name = persist:get(PROPERTY_NAME_KEY, "") or ""
-    UpdateProperty("Paired Property", name ~= "" and string.format("%s (%s)", name, propertyId()) or propertyId())
+    local id = propertyId() ~= "" and propertyId() or systemId()
+    UpdateProperty("Paired Property", name ~= "" and string.format("%s (%s)", name, id) or id)
   else
     UpdateProperty("Paired Property", "Not paired")
   end
@@ -2706,7 +2738,9 @@ local function redeemPairingCode(code)
         body = ok and decoded or nil
       end
 
-      if type(body) ~= "table" or IsEmpty(body.token) or IsEmpty(body.property_id) then
+      -- A system need not have a property, so a missing property id is NOT a
+      -- broken response. The token plus SOME identity is the contract.
+      if type(body) ~= "table" or IsEmpty(body.token) or (IsEmpty(body.property_id) and IsEmpty(body.system_id)) then
         -- A 2xx with an unusable body is a server-side contract break, not a
         -- dealer error. Say so plainly rather than leaving "Pairing..." up.
         UpdateProperty("Connection Status", "Pairing failed - unexpected response")
@@ -2715,11 +2749,16 @@ local function redeemPairingCode(code)
       end
 
       persist:set(TOKEN_KEY, body.token, true)
-      persist:set(PROPERTY_KEY, body.property_id)
+      persist:set(PROPERTY_KEY, body.property_id or "")
+      persist:set(SYSTEM_KEY, body.system_id or "")
       persist:set(PROPERTY_NAME_KEY, body.property_name or "")
       showPairingState()
       C4:FireEvent("Paired")
-      log:info("Paired to property %s", tostring(body.property_id))
+      log:info(
+        "Paired to system %s (property %s)",
+        tostring(body.system_id),
+        body.property_id and tostring(body.property_id) or "none"
+      )
 
       -- The code is spent. Clearing it keeps it out of the project file and
       -- makes the field obviously reusable for a future re-pair.
@@ -4100,6 +4139,11 @@ function EC.UNPAIR()
   end
   persist:delete(TOKEN_KEY)
   persist:delete(PROPERTY_KEY)
+  -- ⚠ Must be cleared too. `isPaired()` is satisfied by EITHER id, so a
+  -- surviving system id would leave the driver claiming to be paired with no
+  -- token — authenticated requests failing forever against a system the
+  -- dealer believes they disconnected.
+  persist:delete(SYSTEM_KEY)
   persist:delete(PROPERTY_NAME_KEY)
   -- The panels themselves keep working: a display URL is its own credential and
   -- is revoked from SmartBuildOS, not from here. What is cleared is this
