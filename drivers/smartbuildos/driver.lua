@@ -1972,6 +1972,48 @@ function sendCatalogue()
     keypadListeners,
     gKeypadsSilent
   )
+  -- ── Climate targets ship their variables UNCONDITIONALLY ─────────────────
+  --
+  -- Measured need, 2026-08-21, on the first real customer site: 37 rooms point
+  -- at three climate devices and ZERO thermostat records formed — their driver
+  -- speaks a vocabulary climateReading does not know, and nothing anywhere
+  -- showed what that vocabulary IS. An unrecognised thermostat was invisible:
+  -- the rooms name it, the read returns nothing, and the platform sees empty.
+  --
+  -- So every device a room's TEMPERATURE_ID points at ships its variable list
+  -- to the catalogue, recognised or not. Recognition is the sampler's job;
+  -- VISIBILITY is the catalogue's, and tying visibility to recognition is how
+  -- this blind spot happened. Deduplicated — many rooms share one thermostat —
+  -- and bounded like every other shipper in this walk.
+  local climateShipped = {}
+  for _, target in pairs(gRoomThermostat) do
+    if not climateShipped[target] and #observables < 3800 then
+      climateShipped[target] = true
+      local okT, tvars = pcall(function()
+        return C4:GetDeviceVariables(target)
+      end)
+      if okT and type(tvars) == "table" then
+        local shipped = 0
+        for varId, v in pairs(tvars) do
+          local vid = tointeger(varId)
+          local vname = type(v) == "table" and v.name or nil
+          if vid and vname and shipped < 40 and #observables < 3800 then
+            observables[#observables + 1] = {
+              kind = "device",
+              source_id = target,
+              source_name = "climate target " .. tostring(target),
+              variable_id = vid,
+              variable_name = vname,
+              sample_value = tostring(v.value or ""),
+              readonly = tostring(v.readonly) == "True",
+            }
+            shipped = shipped + 1
+          end
+        end
+      end
+    end
+  end
+
   log:info(
     "Catalogue: %d room(s), %d observable(s); %d thermostat(s) and %d sensor/battery device(s) by signature",
     #rooms,

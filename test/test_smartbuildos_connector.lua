@@ -1952,5 +1952,48 @@ check(
 
 C4.GetDevices, C4.GetDeviceVariables = savedGetDevices42, savedGetVars42
 
+print("\n[43] An unrecognised thermostat is visible in the catalogue")
+pair()
+reset()
+-- A room pointing at a climate device whose vocabulary climateReading does NOT
+-- know — the Dwyer site's exact shape, where three such devices were invisible.
+local savedGetDevices43, savedGetVars43 = C4.GetDevices, C4.GetDeviceVariables
+C4.GetDevices = function()
+  return { ["16"] = { deviceName = "Kitchen", roomName = "Kitchen", roomId = 16 } }
+end
+C4.GetDeviceVariables = function(_, id)
+  if id == 16 then
+    return { ["1001"] = { name = "TEMPERATURE_ID", value = "777" } }
+  end
+  if id == 777 then
+    return { ["2001"] = { name = "ZONE_TEMP_DECI", value = "215" } }
+  end
+  return {}
+end
+-- The config is already enabled from an earlier section, so an identical
+-- config cannot re-trigger the walk; the catalogue COMMAND is the honest
+-- trigger — and exercises the same path a dealer's button press takes.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    monitor = { enabled = true },
+    commands = { { id = "0b2f6a1e-4444-4222-8333-444455556666", command = "REQUEST_CATALOGUE" } },
+  },
+}
+EC.SEND_HEARTBEAT()
+local sawUnknownThermostat = false
+for _, r in ipairs(requests) do
+  if r.data and r.data.kind == "catalogue" then
+    for _, o in ipairs(r.data.observables or {}) do
+      if o.kind == "device" and o.source_id == 777 and o.variable_name == "ZONE_TEMP_DECI" then
+        sawUnknownThermostat = true
+      end
+    end
+  end
+end
+check("the pointed-at device's variables ship, recognised or not", sawUnknownThermostat)
+C4.GetDevices, C4.GetDeviceVariables = savedGetDevices43, savedGetVars43
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
