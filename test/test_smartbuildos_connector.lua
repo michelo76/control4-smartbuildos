@@ -1788,5 +1788,122 @@ fetchArt("http://10.0.0.9:1400/art-4")
 check("transport failure yields no art", artDataFor("http://10.0.0.9:1400/art-4") == nil)
 check("transport failure was attempted once", #getRequests == 1, #getRequests)
 
+print("\n[42] Lights: discovery, state upload, debounced push, keypad events")
+pair()
+reset()
+
+-- A project with one dimmer (with measured watts), one keypad with a button
+-- variable, and one keypad that exposes nothing watchable.
+local LIGHT_ID, KEYPAD_ID, SILENT_ID = 701, 702, 703
+local savedGetDevices42, savedGetVars42 = C4.GetDevices, C4.GetDeviceVariables
+C4.GetDevices = function()
+  return {
+    [tostring(LIGHT_ID)] = { deviceName = "Island Pendants", roomName = "Kitchen", roomId = 16 },
+    [tostring(KEYPAD_ID)] = { deviceName = "Kitchen Keypad", roomName = "Kitchen", roomId = 16 },
+    [tostring(SILENT_ID)] = { deviceName = "Patio Keypad", roomName = "Patio", roomId = 17 },
+  }
+end
+C4.GetDeviceVariables = function(_, id)
+  if id == LIGHT_ID then
+    return {
+      ["1001"] = { name = "LIGHT_LEVEL", value = "60" },
+      ["1002"] = { name = "CURRENT_POWER", value = "42.5" },
+    }
+  end
+  if id == KEYPAD_ID then
+    return { ["2001"] = { name = "BUTTON_ACTION_3", value = "0" } }
+  end
+  if id == SILENT_ID then
+    return { ["3001"] = { name = "BATTERY_LEVEL", value = "77" } }
+  end
+  return {}
+end
+
+-- Monitoring on via the heartbeat config, which is what runs the catalogue walk.
+nextResponse = { ok = true, code = 200, body = { monitor = { enabled = true } } }
+EC.SEND_HEARTBEAT()
+reset()
+
+nextResponse = { ok = true, code = 200 }
+sendTelemetry()
+local stateReq = nil
+for _, r in ipairs(requests) do
+  if r.data and r.data.kind == "state" then
+    stateReq = r.data
+  end
+end
+check(
+  "the state upload carries lights",
+  stateReq ~= nil and type(stateReq.lights) == "table",
+  stateReq and "no lights field"
+)
+local island = stateReq and stateReq.lights and stateReq.lights[1] or nil
+check(
+  "the light is on at 60",
+  island and island.on == true and island.level == 60,
+  island and string.format("on=%s level=%s", tostring(island.on), tostring(island.level))
+)
+check("measured watts ride along", island and island.watts == 42.5, island and tostring(island.watts))
+check("the light knows its room", island and island.room_name == "Kitchen", island and tostring(island.room_name))
+
+-- A change on the light's watched variable arms ONE debounced push, not an
+-- immediate send per event: a scene ramping twelve loads is one upload.
+reset()
+OnWatchedVariableChanged(LIGHT_ID, 1001, "0")
+OnWatchedVariableChanged(LIGHT_ID, 1001, "10")
+OnWatchedVariableChanged(LIGHT_ID, 1001, "35")
+check("no immediate upload per change", #requests == 0, #requests)
+
+-- A keypad press is an EVENT: it rides the journaled queue and ships in the
+-- next telemetry batch with the variable's real name verbatim.
+local flushCb42
+do
+  local savedSetTimer = SetTimer
+  SetTimer = function(name, delay, cb, rep)
+    if name == "SmartBuildOSTelemetryQueue" then
+      flushCb42 = cb
+    end
+    return savedSetTimer(name, delay, cb, rep)
+  end
+  pair()
+  SetTimer = savedSetTimer
+end
+-- Re-enable monitoring after the re-pair, then drain the backlog other
+-- sections left behind so the next flush shows only this press.
+nextResponse = { ok = true, code = 200, body = { monitor = { enabled = true } } }
+EC.SEND_HEARTBEAT()
+repeat
+  reset()
+  flushCb42()
+until #requests == 0
+
+OnWatchedVariableChanged(KEYPAD_ID, 2001, "2")
+check("a press queues rather than sends", #requests == 0, #requests)
+flushCb42()
+local press = nil
+for _, r in ipairs(requests) do
+  if r.data and r.data.kind == "telemetry" then
+    for _, e in ipairs(r.data.events or {}) do
+      if e.category == "KEYPAD" then
+        press = e
+      end
+    end
+  end
+end
+check("the press ships as a KEYPAD event", press ~= nil)
+check(
+  "the real variable name is forwarded verbatim",
+  press and press.subcategory == "BUTTON_ACTION_3",
+  press and tostring(press.subcategory)
+)
+check("the value rides as text", press and press.value_text == "2", press and tostring(press.value_text))
+check(
+  "presses are integrator-only by default",
+  press and press.privacy_class == "INTEGRATOR_ONLY",
+  press and tostring(press.privacy_class)
+)
+
+C4.GetDevices, C4.GetDeviceVariables = savedGetDevices42, savedGetVars42
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -200,6 +200,7 @@ local gMonitor =
 --- would mint keys the platform has already seen, and the first N real events
 --- after every update would be silently swallowed as duplicates.
 local TelemetryQueue = require("telemetry.queue")
+local Lights = require("telemetry.lights")
 local TELEMETRY_SEQ_KEY = "telemetry_seq"
 local gTelemetry = TelemetryQueue.new({
   now = os.time,
@@ -252,14 +253,31 @@ local gStart = { count = 0, at = nil, kind = nil }
 --- walk: id -> { name, room }. Re-read on each state upload.
 --- @type table<number, table>
 local gSensorDevices = {}
+--- Lights found by signature: id -> { name, room, watch = {varId -> varName} }.
+local gLightDevices = {}
+--- Keypads found by signature: id -> { name, room, watch = {varId -> varName} }.
+local gKeypadDevices = {}
+--- Keypads that exposed NO button variables — the count IS the measurement
+--- finding 7 left open, so it is kept and reported rather than discarded.
+local gKeypadsSilent = 0
 --- Bounded: a project with a thousand contacts is a firehose, not a report.
 local MAX_SENSORS = 200
+local MAX_LIGHTS = 150
+--- Listener budget, spent on the lights nearest the front of the walk. Every
+--- light is still SAMPLED on the telemetry tick; listeners only buy immediacy,
+--- so running out of them degrades freshness, never coverage. Keeps total
+--- listeners inside the plan's §P budget.
+local MAX_LIGHT_LISTENERS = 40
+local MAX_KEYPAD_LISTENERS = 30
 --- @type boolean Whether listeners are currently registered.
 local gListening = false
 
 local TELEMETRY_TIMER = "SmartBuildOSTelemetry"
 local CLIMATE_TIMER = "SmartBuildOSClimate"
 local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
+--- One-shot: a light changing arms this instead of sending immediately, so a
+--- scene that moves twelve loads produces one upload, not twelve.
+local LIGHT_PUSH_TIMER = "SmartBuildOSLightPush"
 
 -- Declared here because the heartbeat handler applies configuration, and the
 -- functions that act on it are defined further down.
@@ -1807,7 +1825,11 @@ function sendCatalogue()
   -- catalogue — the same order of work the capability probe already does.
   gDiscoveredThermostats = {}
   gSensorDevices = {}
+  gLightDevices = {}
+  gKeypadDevices = {}
+  gKeypadsSilent = 0
   local found, sensors = 0, 0
+  local lights, lightListeners, keypadListeners = 0, 0, 0
   local okD, devs = pcall(function()
     return C4:GetDevices()
   end)
@@ -1859,9 +1881,89 @@ function sendCatalogue()
             end
           end
         end
+
+        -- ── Lights, by signature ────────────────────────────────────────────
+        --
+        -- Same walk, same variables, zero extra Director reads. A dimmer keypad
+        -- can land here AND in the keypad branch below; both are true.
+        local lightWatch = okV and Lights.signature(vars) or nil
+        if lightWatch ~= nil and lights < MAX_LIGHTS then
+          gLightDevices[id] = {
+            name = type(device) == "table" and device.deviceName or nil,
+            room = type(device) == "table" and device.roomName or nil,
+            room_id = type(device) == "table" and tointeger(device.roomId) or nil,
+            watch = lightWatch,
+          }
+          lights = lights + 1
+          if lightListeners < MAX_LIGHT_LISTENERS then
+            for varId in pairs(lightWatch) do
+              pcall(function()
+                C4:RegisterVariableListener(id, varId)
+              end)
+            end
+            lightListeners = lightListeners + 1
+          end
+          -- Ship this light's variables to the catalogue: the candidate names
+          -- in telemetry/lights.lua are guesses until a project confirms them,
+          -- and this is the loop that turns guesses into vocabulary — it is
+          -- how the thermostat and sensor names got corrected.
+          if type(vars) == "table" then
+            local shippedLight = 0
+            for varId, v in pairs(vars) do
+              local vid = tointeger(varId)
+              local vname = type(v) == "table" and v.name or nil
+              if vid and vname and shippedLight < 40 and #observables < 3800 then
+                observables[#observables + 1] = {
+                  kind = "light",
+                  source_id = id,
+                  source_name = type(device) == "table" and device.deviceName or nil,
+                  variable_id = vid,
+                  variable_name = vname,
+                  sample_value = tostring(v.value or ""),
+                  readonly = tostring(v.readonly) == "True",
+                }
+                shippedLight = shippedLight + 1
+              end
+            end
+          end
+        end
+
+        -- ── Keypads, by signature ───────────────────────────────────────────
+        local keypadWatch = okV and Lights.keypadWatch(vars) or nil
+        if keypadWatch ~= nil then
+          gKeypadDevices[id] = {
+            name = type(device) == "table" and device.deviceName or nil,
+            room = type(device) == "table" and device.roomName or nil,
+            watch = keypadWatch,
+          }
+          if keypadListeners < MAX_KEYPAD_LISTENERS then
+            for varId in pairs(keypadWatch) do
+              pcall(function()
+                C4:RegisterVariableListener(id, varId)
+              end)
+            end
+            keypadListeners = keypadListeners + 1
+          end
+        elseif okV and type(vars) == "table" then
+          -- A device the binding census calls a KEYPAD but which exposes no
+          -- button variables is the open half of finding 7: presses may only
+          -- exist as proxy notifications a third-party driver cannot see.
+          -- Counted here, reported below — absence measured, not assumed.
+          local dt = type(device) == "table" and tostring(device.deviceName or ""):upper() or ""
+          if dt:find("KEYPAD", 1, true) then
+            gKeypadsSilent = gKeypadsSilent + 1
+          end
+        end
       end
     end
   end
+  log:info(
+    "Catalogue: %d light(s) (%d listening), %d keypad(s) listening, %d keypad(s) silent",
+    lights,
+    lightListeners,
+    keypadListeners,
+    gKeypadsSilent
+  )
   log:info(
     "Catalogue: %d room(s), %d observable(s); %d thermostat(s) and %d sensor/battery device(s) by signature",
     #rooms,
@@ -1967,17 +2069,53 @@ function applyMonitoring()
   end
 end
 
---- Director calls this for every registered variable.
+--- Director calls this for every registered variable — rooms, lights, keypads.
 function OnWatchedVariableChanged(idDevice, idVariable, strValue)
-  local roomId = tointeger(idDevice)
+  local deviceId = tointeger(idDevice)
   local varId = tointeger(idVariable)
-  local names = roomId and gRoomVarNames[roomId] or nil
-  local name = names and varId and names[varId] or nil
-  if name == nil then
+  if deviceId == nil or varId == nil then
     return
   end
-  log:debug("room %s %s = %s", tostring(roomId), name, tostring(strValue))
-  gRooms:apply(roomId, gRoomNames[roomId], name, strValue)
+
+  local names = gRoomVarNames[deviceId]
+  local name = names and names[varId] or nil
+  if name ~= nil then
+    log:debug("room %s %s = %s", tostring(deviceId), name, tostring(strValue))
+    gRooms:apply(deviceId, gRoomNames[deviceId], name, strValue)
+    return
+  end
+
+  -- A light moved. The reading is re-sampled at push time rather than patched
+  -- from this one variable, and the push is DEBOUNCED: a scene that ramps
+  -- twelve loads should arrive as one upload showing the settled state, not
+  -- twelve uploads showing a staircase.
+  local light = gLightDevices[deviceId]
+  if light ~= nil and light.watch[varId] ~= nil then
+    log:debug("light %s %s = %s", tostring(deviceId), light.watch[varId], tostring(strValue))
+    SetTimer(LIGHT_PUSH_TIMER, 10 * ONE_SECOND, function()
+      sendTelemetry()
+    end)
+    return
+  end
+
+  -- A keypad variable. Presses are EVENTS, not state — they ride the journaled
+  -- queue with their timestamp and the variable's real name verbatim, which is
+  -- how the platform learns the true button vocabulary from the first press
+  -- (the candidate matching in telemetry/lights.lua only casts the net).
+  local keypad = gKeypadDevices[deviceId]
+  if keypad ~= nil and keypad.watch[varId] ~= nil then
+    log:debug("keypad %s %s = %s", tostring(deviceId), keypad.watch[varId], tostring(strValue))
+    gTelemetry:add("KEYPAD", {
+      subcategory = keypad.watch[varId],
+      source_type = "device",
+      source_id = tostring(deviceId),
+      source_name = keypad.name,
+      room_name = keypad.room,
+      value_text = tostring(strValue or ""):sub(1, 120),
+      -- Which button was pressed in which room is household-pattern data.
+      privacy_class = "INTEGRATOR_ONLY",
+    })
+  end
 end
 
 --- Turns a thermostat's raw variable list into a room climate reading.
@@ -2585,6 +2723,39 @@ function sampleSensors()
   return out
 end
 
+--- Reads every discovered light. One GetDeviceVariables per light per tick —
+--- the same order of work sampleSensors already does for up to 200 sensors.
+--- Sampling is the COVERAGE path; listeners only add immediacy for the subset
+--- inside the listener budget, so a project with 150 lights still reports all
+--- of them, just on the tick.
+function sampleLights()
+  if not gMonitor.enabled then
+    return {}
+  end
+  local out = {}
+  for id, info in pairs(gLightDevices) do
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(id)
+    end)
+    if okV then
+      local reading = Lights.reading(vars)
+      if reading ~= nil then
+        out[#out + 1] = {
+          device_id = id,
+          name = info.name,
+          room_id = info.room_id,
+          room_name = info.room,
+          on = reading.on,
+          level = reading.level,
+          watts = reading.watts,
+          changed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        }
+      end
+    end
+  end
+  return out
+end
+
 -- ─── Album art, fetched HERE because only here has a route to it ─────────────
 --
 -- The artwork URL a player reports is a LAN address (http://192.168...). The
@@ -2678,8 +2849,9 @@ function sendTelemetry()
   end
 
   local sensors = sampleSensors()
+  local lightStates = sampleLights()
   local rooms = gRooms:snapshot()
-  if #rooms > 0 or #gThermostatSnapshot > 0 or #sensors > 0 then
+  if #rooms > 0 or #gThermostatSnapshot > 0 or #sensors > 0 or #lightStates > 0 then
     for _, room in ipairs(rooms) do
       local data = artDataFor(room.media_image_url)
       if data ~= nil then
@@ -2692,7 +2864,7 @@ function sendTelemetry()
     -- their own send would double the request count for no isolation gain.
     send(
       "telemetry",
-      { kind = "state", rooms = rooms, thermostats = gThermostatSnapshot, sensors = sensors },
+      { kind = "state", rooms = rooms, thermostats = gThermostatSnapshot, sensors = sensors, lights = lightStates },
       "room state"
     )
   end
