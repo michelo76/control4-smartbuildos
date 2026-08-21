@@ -201,6 +201,8 @@ local gMonitor =
 --- after every update would be silently swallowed as duplicates.
 local TelemetryQueue = require("telemetry.queue")
 local Lights = require("telemetry.lights")
+local RealtimeClient = require("telemetry.realtime")
+local WebSocket = require("drivers-common-public.module.websocket")
 local TELEMETRY_SEQ_KEY = "telemetry_seq"
 local gTelemetry = TelemetryQueue.new({
   now = os.time,
@@ -279,6 +281,15 @@ local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 --- scene that moves twelve loads produces one upload, not twelve.
 local flushTelemetry
 local LIGHT_PUSH_TIMER = "SmartBuildOSLightPush"
+local REALTIME_HB_TIMER = "SmartBuildOSRealtimeHeartbeat"
+local REALTIME_RECONNECT_TIMER = "SmartBuildOSRealtimeReconnect"
+--- Ping reactions are debounced: a burst of doorbell rings is one check-in.
+local REALTIME_PING_TIMER = "SmartBuildOSRealtimePing"
+
+--- The doorbell socket. `config` is what the platform last offered; comparing
+--- against it is how a changed channel or key reconnects and an unchanged one
+--- does not. `backoff` doubles 15s→300s across failures and resets on join.
+local gRealtime = { ws = nil, client = nil, config = nil, backoff = 15 }
 --- One-shot fast flush: armed by the first queued event of a burst, so a
 --- keypad press reaches the platform in seconds while the 45s cycle remains
 --- the backstop. Re-arming on every event would STARVE the flush during a
@@ -1380,7 +1391,14 @@ local function sendHeartbeat()
       -- What this driver can DO, so the platform never sends a command an
       -- older build cannot run. Strings, not booleans: a newer server reading
       -- an older driver sees absence, which is the correct claim.
-      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1", "catalogue_v1", "notify_v1" },
+      capabilities = {
+        "device_monitoring",
+        "telemetry_v1",
+        "home_insights_v1",
+        "catalogue_v1",
+        "notify_v1",
+        "realtime_v1",
+      },
       -- The queue confesses its own state. A queue that sheds data invisibly
       -- turns a gap in a report into "the house was quiet".
       queued_telemetry = gTelemetry:depth(),
@@ -1418,6 +1436,12 @@ local function sendHeartbeat()
         showPairingState()
         log:info("Site address updated to %s", label ~= "" and label or "(none)")
       end
+
+      -- The doorbell offer rides every heartbeat and is applied ABOVE the
+      -- monitor early-return for the same reason the site label is: it must
+      -- land whether or not the response carries a monitoring block. pcall'd
+      -- because the accelerator must never break the transport it accelerates.
+      pcall(applyRealtimeConfig, body.realtime)
 
       local monitor = body.monitor
       if type(monitor) ~= "table" then
@@ -3598,6 +3622,120 @@ function EC.SEND_HEARTBEAT()
   sendHeartbeat()
 end
 
+--- Closes the doorbell socket and stops its timers.
+local function realtimeStop()
+  CancelTimer(REALTIME_HB_TIMER)
+  CancelTimer(REALTIME_RECONNECT_TIMER)
+  if gRealtime.ws ~= nil then
+    pcall(function()
+      gRealtime.ws:delete()
+    end)
+  end
+  gRealtime.ws = nil
+  gRealtime.client = nil
+end
+
+--- Connects (or reconnects) the doorbell to the platform-offered channel.
+---
+--- The socket is an ACCELERATOR, never a dependency: every failure path ends
+--- in a scheduled retry while the heartbeat timers carry on regardless, so
+--- the worst a dead Realtime service can do is return command latency to one
+--- heartbeat interval — exactly where it was before this existed.
+local function realtimeConnect()
+  local cfg = gRealtime.config
+  if cfg == nil or not gMonitor then
+    return
+  end
+  realtimeStop()
+
+  local url = RealtimeClient.socketUrl(cfg.url, cfg.key)
+  if url == nil or IsEmpty(cfg.channel) then
+    return
+  end
+
+  local client = RealtimeClient.new({
+    encode = function(t)
+      return JSON:encode(t)
+    end,
+    decode = function(raw)
+      return JSON:decode(raw)
+    end,
+  })
+
+  local ws = WebSocket:new(url)
+  if ws == nil then
+    log:warn("Realtime: could not create the socket; retrying in %ds", gRealtime.backoff)
+    SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
+    gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+    return
+  end
+
+  gRealtime.ws = ws
+  gRealtime.client = client
+
+  ws:SetEstablishedFunction(function()
+    ws:Send(client:joinFrame(cfg.channel))
+    -- Phoenix reaps silent sockets; ~30s keeps this one alive.
+    SetTimer(REALTIME_HB_TIMER, 30 * ONE_SECOND, function()
+      if gRealtime.ws ~= nil and gRealtime.client ~= nil then
+        pcall(function()
+          gRealtime.ws:Send(gRealtime.client:heartbeatFrame())
+        end)
+      end
+    end, true)
+  end)
+
+  ws:SetProcessMessageFunction(function(_, data)
+    local event = client:handleFrame(data)
+    if event.type == "joined" then
+      gRealtime.backoff = 15
+      log:info("Realtime doorbell connected (channel %s)", tostring(cfg.channel))
+    elseif event.type == "ping" then
+      -- The doorbell rang. The REACTION is the ordinary authenticated
+      -- heartbeat — the socket itself is never trusted with instructions.
+      log:debug("Realtime ping; checking in")
+      SetTimer(REALTIME_PING_TIMER, 2 * ONE_SECOND, function()
+        sendHeartbeat()
+      end)
+    elseif event.type == "closed" then
+      log:warn("Realtime channel closed; reconnecting in %ds", gRealtime.backoff)
+      SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
+      gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+    end
+  end)
+
+  ws:SetClosedByRemoteFunction(function()
+    log:warn("Realtime socket closed by remote; reconnecting in %ds", gRealtime.backoff)
+    SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
+    gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+  end)
+
+  ws:Start()
+end
+
+--- Accepts (or drops) the platform's doorbell offer from a heartbeat response.
+function applyRealtimeConfig(offer)
+  if type(offer) ~= "table" or IsEmpty(offer.url) or IsEmpty(offer.key) or IsEmpty(offer.channel) then
+    if gRealtime.config ~= nil then
+      log:info("Realtime offer withdrawn; closing the doorbell")
+      gRealtime.config = nil
+      realtimeStop()
+    end
+    return
+  end
+  local next = { url = tostring(offer.url), key = tostring(offer.key), channel = tostring(offer.channel) }
+  local unchanged = gRealtime.config ~= nil
+    and gRealtime.config.url == next.url
+    and gRealtime.config.key == next.key
+    and gRealtime.config.channel == next.channel
+  if unchanged and gRealtime.ws ~= nil then
+    return
+  end
+  gRealtime.config = next
+  gRealtime.backoff = 15
+  realtimeConnect()
+end
+
 --- Runs a full sync and REPORTS its own failure.
 ---
 --- Device syncs stopped reaching the platform at 02:00 on 2026-08-17 while
@@ -4620,6 +4758,8 @@ function EC.UNPAIR()
   end
   persist:delete(TOKEN_KEY)
   UpdateProperty("Pairing Backup", "", true)
+  gRealtime.config = nil
+  realtimeStop()
   persist:delete(PROPERTY_KEY)
   -- ⚠ Must be cleared too. `isPaired()` is satisfied by EITHER id, so a
   -- surviving system id would leave the driver claiming to be paired with no

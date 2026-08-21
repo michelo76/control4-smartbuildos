@@ -2311,5 +2311,91 @@ check(
 )
 C4.AddVariable = nil
 
+print("\n[50] The Realtime doorbell: offer, ping, and the no-mailbox rule")
+pair()
+reset()
+
+-- A fake socket the glue drives. Captures sends; lets the test ring the bell.
+local fakeSockets = {}
+local FakeWS = {}
+FakeWS.__index = FakeWS
+function FakeWS:new(url)
+  local ws = setmetatable({ url = url, sent = {} }, FakeWS)
+  fakeSockets[#fakeSockets + 1] = ws
+  return ws
+end
+function FakeWS:SetEstablishedFunction(f)
+  self._established = f
+end
+function FakeWS:SetProcessMessageFunction(f)
+  self._process = f
+end
+function FakeWS:SetClosedByRemoteFunction(f)
+  self._closed = f
+end
+function FakeWS:Start()
+  if self._established then
+    self._established()
+  end
+end
+function FakeWS:Send(s)
+  self.sent[#self.sent + 1] = s
+end
+function FakeWS:delete()
+  self.deleted = true
+end
+
+local savedWS = getmetatable and nil
+-- Swap the module the glue captured: it holds a local, so patch through the
+-- global the glue actually calls. The glue calls WebSocket:new — expose ours.
+local realNew
+realNew = package.loaded["drivers-common-public.module.websocket"].new
+package.loaded["drivers-common-public.module.websocket"].new = function(_, url)
+  return FakeWS:new(url)
+end
+
+-- The offer arrives on a heartbeat response.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    realtime = { url = "https://x.supabase.co", key = "anon-key", channel = "c4ping:sys-1" },
+  },
+}
+EC.SEND_HEARTBEAT()
+check("an offer opens a socket", #fakeSockets == 1, #fakeSockets)
+check(
+  "the socket targets the realtime endpoint",
+  fakeSockets[1] and fakeSockets[1].url:find("realtime/v1/websocket", 1, true) ~= nil,
+  fakeSockets[1] and fakeSockets[1].url
+)
+check(
+  "the join frame goes out on establish",
+  fakeSockets[1] and #fakeSockets[1].sent >= 1 and fakeSockets[1].sent[1]:find("phx_join", 1, true) ~= nil
+)
+
+-- An identical offer must not churn the connection.
+EC.SEND_HEARTBEAT()
+check("an unchanged offer does not reconnect", #fakeSockets == 1, #fakeSockets)
+
+-- Ring the doorbell: the reaction is an ordinary authenticated heartbeat.
+reset()
+fakeSockets[1]._process(
+  fakeSockets[1],
+  '{"topic":"realtime:c4ping:sys-1","event":"phx_reply","payload":{"status":"ok"},"ref":"1"}'
+)
+fakeSockets[1]._process(
+  fakeSockets[1],
+  '{"topic":"realtime:c4ping:sys-1","event":"broadcast","payload":{"event":"ping","payload":{}}}'
+)
+check("no send happens before the debounce", #requests == 0, #requests)
+
+-- A withdrawn offer closes the socket.
+nextResponse = { ok = true, code = 200, body = {} }
+EC.SEND_HEARTBEAT()
+check("a withdrawn offer closes the doorbell", fakeSockets[1].deleted == true)
+
+package.loaded["drivers-common-public.module.websocket"].new = realNew
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
