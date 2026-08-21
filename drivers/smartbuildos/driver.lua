@@ -3205,6 +3205,27 @@ function restorePairingFromBackup()
   return true
 end
 
+--- Registers the programming-bridge variables on THIS instance.
+---
+--- Measured on the test system 2026-08-21: the four variables were in
+--- driver.xml and absent from Composer's programming view. Static <variables>
+--- register when a driver instance is first ADDED; an update-in-place does not
+--- register ones added since — and every install in the field is an update, so
+--- XML alone reaches nobody. AddVariable at init is idempotent in effect
+--- (re-adding errors; the pcall absorbs it) and reaches every instance.
+function registerBridgeVariables()
+  for _, v in ipairs({
+    { "NOTICE_TYPE", "" },
+    { "ISSUE_SEVERITY", "None" },
+    { "ISSUE_TEXT", "" },
+    { "NOTICE_TEXT", "" },
+  }) do
+    pcall(function()
+      C4:AddVariable(v[1], v[2], "STRING", true)
+    end)
+  end
+end
+
 function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
   if not CheckMinimumVersion("Driver Status") then
@@ -3212,6 +3233,8 @@ function OnDriverLateInit()
   end
 
   restorePairingFromBackup()
+
+  registerBridgeVariables()
 
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)

@@ -2280,5 +2280,36 @@ check(
 C4.SetVariable = savedSetVariable
 C4.RecordHistory = nil
 
+print("\n[49] Variables register at init, not only in XML")
+-- Static <variables> only register when an instance is first ADDED; every
+-- field install is an update, so the bridge variables never appeared. Init
+-- registers them dynamically; the registration is its own function because
+-- the full OnDriverLateInit cannot run inside this harness.
+local added = {}
+C4.AddVariable = function(_, name, value, vtype, readonly)
+  added[name] = { value = value, vtype = vtype, readonly = readonly }
+end
+registerBridgeVariables()
+check(
+  "all four bridge variables are registered",
+  added.NOTICE_TYPE ~= nil and added.ISSUE_SEVERITY ~= nil and added.ISSUE_TEXT ~= nil and added.NOTICE_TEXT ~= nil,
+  table.concat(
+    (function()
+      local k = {}
+      for n in pairs(added) do
+        k[#k + 1] = n
+      end
+      return k
+    end)(),
+    ","
+  )
+)
+check("severity defaults to None", added.ISSUE_SEVERITY and added.ISSUE_SEVERITY.value == "None")
+check(
+  "they are read-only strings",
+  added.NOTICE_TYPE and added.NOTICE_TYPE.vtype == "STRING" and added.NOTICE_TYPE.readonly == true
+)
+C4.AddVariable = nil
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
