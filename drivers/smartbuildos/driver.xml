@@ -85,6 +85,21 @@
       <description>When a device in this project comes back online</description>
     </event>
     <event>
+      <id>8</id>
+      <name>Service Update</name>
+      <description>When SmartBuildOS sends a routine service notice for this home (wire to a push notification)</description>
+    </event>
+    <event>
+      <id>9</id>
+      <name>Issue Detected</name>
+      <description>When SmartBuildOS reports a problem needing attention at this home (wire to a push notification)</description>
+    </event>
+    <event>
+      <id>10</id>
+      <name>Issue Resolved</name>
+      <description>When SmartBuildOS reports a previously detected problem is resolved (wire to a push notification)</description>
+    </event>
+    <event>
       <id>7</id>
       <name>Director Reloaded</name>
       <description>When Director comes back up under this driver — a controller reboot, a Director restart or a project reload. Deliberately NOT fired by a driver update, which restarts the driver without the controller having gone anywhere.</description>

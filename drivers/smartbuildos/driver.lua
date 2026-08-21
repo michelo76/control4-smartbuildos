@@ -277,7 +277,13 @@ local CLIMATE_TIMER = "SmartBuildOSClimate"
 local TELEMETRY_QUEUE_TIMER = "SmartBuildOSTelemetryQueue"
 --- One-shot: a light changing arms this instead of sending immediately, so a
 --- scene that moves twelve loads produces one upload, not twelve.
+local flushTelemetry
 local LIGHT_PUSH_TIMER = "SmartBuildOSLightPush"
+--- One-shot fast flush: armed by the first queued event of a burst, so a
+--- keypad press reaches the platform in seconds while the 45s cycle remains
+--- the backstop. Re-arming on every event would STARVE the flush during a
+--- sustained burst; a one-shot cannot.
+local TELEMETRY_FAST_FLUSH_TIMER = "SmartBuildOSTelemetryFastFlush"
 
 -- Declared here because the heartbeat handler applies configuration, and the
 -- functions that act on it are defined further down.
@@ -1374,7 +1380,7 @@ local function sendHeartbeat()
       -- What this driver can DO, so the platform never sends a command an
       -- older build cannot run. Strings, not booleans: a newer server reading
       -- an older driver sees absence, which is the correct claim.
-      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1", "catalogue_v1" },
+      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1", "catalogue_v1", "notify_v1" },
       -- The queue confesses its own state. A queue that sheds data invisibly
       -- turns a gap in a report into "the house was quiet".
       queued_telemetry = gTelemetry:depth(),
@@ -1499,6 +1505,48 @@ local COMMAND_RUNNERS = {
     sendCatalogue()
     return "catalogue sent"
   end,
+  -- A platform-authored notice, surfaced through Control4's OWN channels.
+  --
+  -- Two halves, verified against the SDK docs 2026-08-21, because they solve
+  -- different halves of the problem:
+  --
+  --   FireEvent    fixed-name events ("Issue Detected") the dealer wires to
+  --                the Notification Agent ONCE — that wiring is what makes the
+  --                phone buzz. Event names cannot carry text.
+  --   RecordHistory the dynamic text, into the app's History feed — which is
+  --                where a 3.4+ push deep-links to. Returns nil (not an
+  --                error) when the History agent is not installed.
+  --
+  -- The driver never invents a message: it relays what the platform sent,
+  -- bounded, and acks exactly which halves landed so the platform can tell
+  -- "delivered" from "no History agent on this site".
+  SEND_NOTIFICATION = function(payload)
+    local kind = tostring(payload.kind or "update")
+    local title = tostring(payload.title or ""):sub(1, 120)
+    local detail = tostring(payload.detail or ""):sub(1, 400)
+    if title == "" then
+      error("notification without a title")
+    end
+
+    local EVENT_FOR = {
+      update = "Service Update",
+      issue = "Issue Detected",
+      resolved = "Issue Resolved",
+    }
+    local eventName = EVENT_FOR[kind] or EVENT_FOR.update
+    C4:FireEvent(eventName)
+
+    local uuid = nil
+    local severity = kind == "issue" and "Warning" or "Info"
+    pcall(function()
+      uuid = C4:RecordHistory(severity, title, "SmartBuildOS", eventName, detail)
+    end)
+
+    if uuid ~= nil then
+      return string.format("event %s fired; history %s", eventName, tostring(uuid))
+    end
+    return string.format("event %s fired; history unavailable on this controller", eventName)
+  end,
 }
 
 --- Executes whatever a response carried and acknowledges every outcome.
@@ -1520,7 +1568,7 @@ collectCommands = function(body)
         acks[#acks + 1] = { id = id, ok = false, error = "unknown command: " .. name }
       else
         log:info("Running remote command %s", name)
-        local ok, result = pcall(runner)
+        local ok, result = pcall(runner, type(cmd.payload) == "table" and cmd.payload or {})
         if ok then
           acks[#acks + 1] = { id = id, ok = true, result = tostring(result) }
         else
@@ -1556,7 +1604,7 @@ end
 --- design is a wasted request, never a doubled count.
 local gTelemetrySkip = 0
 local gInflight = nil
-local function flushTelemetry()
+flushTelemetry = function()
   if not isPaired() then
     return
   end
@@ -2134,6 +2182,15 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
   if name ~= nil then
     log:debug("room %s %s = %s", tostring(deviceId), name, tostring(strValue))
     gRooms:apply(deviceId, gRoomNames[deviceId], name, strValue)
+    -- Tier 1 (2026-08-21): rooms ride the same debounced push lights already
+    -- use. Director told us the INSTANT this changed; making the platform wait
+    -- for the five-minute tick was our own batching, and it was the largest
+    -- staleness left in the pipeline. Ten seconds coalesces a burst — a track
+    -- change updates title, artist, album and art in quick succession — into
+    -- one upload of the settled state.
+    SetTimer(LIGHT_PUSH_TIMER, 10 * ONE_SECOND, function()
+      sendTelemetry()
+    end)
     return
   end
 
@@ -2157,6 +2214,12 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
   local keypad = gKeypadDevices[deviceId]
   if keypad ~= nil and keypad.watch[varId] ~= nil then
     log:debug("keypad %s %s = %s", tostring(deviceId), keypad.watch[varId], tostring(strValue))
+    -- Tier 1: the first press arms a short flush rather than waiting out the
+    -- 45-second cycle. Five seconds coalesces a double/triple tap into one
+    -- batch; the repeating timer stays as the backstop.
+    SetTimer(TELEMETRY_FAST_FLUSH_TIMER, 5 * ONE_SECOND, function()
+      flushTelemetry()
+    end)
     gTelemetry:add("KEYPAD", {
       subcategory = keypad.watch[varId],
       source_type = "device",

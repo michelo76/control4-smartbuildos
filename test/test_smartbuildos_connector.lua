@@ -2061,5 +2061,149 @@ EC.UNPAIR()
 check("unpair clears the backup too", (Properties["Pairing Backup"] or "") == "", Properties["Pairing Backup"])
 check("after unpair + wipe, restore does nothing", restorePairingFromBackup() == false)
 
+print("\n[46] Tier 1: changes reach the platform in seconds, not on the tick")
+pair()
+reset()
+-- Sections since [42] rebuilt the catalogue with their own stubs, so this one
+-- brings its own keypad and re-runs discovery through the command path.
+local savedGetDevices46, savedGetVars46 = C4.GetDevices, C4.GetDeviceVariables
+C4.GetDevices = function()
+  return { ["801"] = { deviceName = "Hall Keypad", roomName = "Hall", roomId = 16 } }
+end
+C4.GetDeviceVariables = function(_, id)
+  if id == 801 then
+    return { ["3001"] = { name = "BUTTON_ACTION_1", value = "0" } }
+  end
+  return {}
+end
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    monitor = { enabled = true },
+    commands = { { id = "0b2f6a1e-8888-4222-8333-444455556666", command = "REQUEST_CATALOGUE" } },
+  },
+}
+EC.SEND_HEARTBEAT()
+
+local armedFlush = false
+do
+  local savedSetTimer = SetTimer
+  SetTimer = function(tname, delay, cb, rep)
+    if tname == "SmartBuildOSTelemetryFastFlush" then
+      armedFlush = true
+      check("the fast flush is five seconds, not the cycle", delay == 5 * 1000, delay)
+    end
+    return savedSetTimer(tname, delay, cb, rep)
+  end
+  OnWatchedVariableChanged(801, 3001, "2")
+  SetTimer = savedSetTimer
+end
+check("a keypad press arms the five-second flush", armedFlush)
+C4.GetDevices, C4.GetDeviceVariables = savedGetDevices46, savedGetVars46
+
+print("\n[47] SEND_NOTIFICATION: fixed events for wiring, dynamic text for History")
+reset()
+local recorded = {}
+C4.RecordHistory = function(_, severity, eventType, category, subcategory, detail)
+  recorded[#recorded + 1] =
+    { severity = severity, title = eventType, category = category, sub = subcategory, detail = detail }
+  return "hist-uuid-1"
+end
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    commands = {
+      {
+        id = "0b2f6a1e-5555-4222-8333-444455556666",
+        command = "SEND_NOTIFICATION",
+        payload = { kind = "issue", title = "Patio camera offline", detail = "Down 2 hours; technician scheduled." },
+      },
+    },
+  },
+}
+EC.SEND_HEARTBEAT()
+local ack
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    ack = r
+  end
+end
+check(
+  "the notification acks ok with the history uuid",
+  ack ~= nil and ack.data.acks[1].ok == true and tostring(ack.data.acks[1].result):find("hist%-uuid%-1") ~= nil,
+  ack and tostring(ack.data.acks[1].result or ack.data.acks[1].error)
+)
+check(
+  "the ISSUE kind fires Issue Detected",
+  (function()
+    for _, e in ipairs(firedEvents) do
+      if e == "Issue Detected" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+check(
+  "the dynamic text reaches History verbatim",
+  #recorded == 1 and recorded[1].title == "Patio camera offline" and recorded[1].severity == "Warning",
+  #recorded > 0 and recorded[1].title or "nothing recorded"
+)
+
+reset()
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    commands = {
+      { id = "0b2f6a1e-6666-4222-8333-444455556666", command = "SEND_NOTIFICATION", payload = { kind = "update" } },
+    },
+  },
+}
+EC.SEND_HEARTBEAT()
+local ack2
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    ack2 = r
+  end
+end
+check(
+  "a notification without a title is REFUSED, not sent blank",
+  ack2 ~= nil and ack2.data.acks[1].ok == false,
+  ack2 and tostring(ack2.data.acks[1].error)
+)
+
+C4.RecordHistory = nil
+reset()
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = {
+    commands = {
+      {
+        id = "0b2f6a1e-7777-4222-8333-444455556666",
+        command = "SEND_NOTIFICATION",
+        payload = { kind = "update", title = "Filter reminder" },
+      },
+    },
+  },
+}
+EC.SEND_HEARTBEAT()
+local ack3
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    ack3 = r
+  end
+end
+check(
+  "no History agent still fires the event and says so honestly",
+  ack3 ~= nil
+    and ack3.data.acks[1].ok == true
+    and tostring(ack3.data.acks[1].result):find("history unavailable", 1, true) ~= nil,
+  ack3 and tostring(ack3.data.acks[1].result)
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
