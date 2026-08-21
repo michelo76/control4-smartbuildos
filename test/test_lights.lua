@@ -44,6 +44,23 @@ check("a thermostat is not a light", Lights.signature(vars({ { "TEMPERATURE_F", 
 check("an empty device is not a light", Lights.signature(vars({})) == nil)
 check("garbage yields nil rather than throwing", Lights.signature("nonsense") == nil)
 
+-- Verbatim from production 2026-08-21: a T4 In-Wall touchpanel, named
+-- "In-Wall", whose bare BRIGHTNESS (its screen, at 41%) put two lit "lights"
+-- in the Living Room on a customer-facing card.
+local TOUCHPANEL = vars({
+  { "BRIGHTNESS", "41" },
+  { "SCREENSAVER_ENABLED", "1" },
+  { "SCREENSAVER_TIMEOUT", "300" },
+  { "PROXIMITY_SENSOR_ENABLED", "1" },
+  { "DARK_MODE_SETTINGS", "<dark_mode><dm_enabled>false</dm_enabled></dark_mode>" },
+})
+check("a touchpanel is not a light, whatever its screen brightness", Lights.signature(TOUCHPANEL) == nil)
+check("bare BRIGHTNESS alone no longer qualifies a device", Lights.signature(vars({ { "BRIGHTNESS", "97" } })) == nil)
+check(
+  "the 14 real lights' vocabulary still qualifies",
+  Lights.signature(vars({ { "Brightness Percent", "0" }, { "LIGHT_STATE", "0" } })) ~= nil
+)
+
 local watch = Lights.signature(vars({ { "LIGHT_LEVEL", "75" }, { "CURRENT_POWER", "12" }, { "APP_NAME", "Hulu" } }))
 local watched = 0
 for _ in pairs(watch) do

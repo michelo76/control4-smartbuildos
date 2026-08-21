@@ -44,8 +44,23 @@ local function firstOf(values, names)
   return nil
 end
 
+-- Measured 2026-08-21 across 15 devices the first signature matched: real
+-- lights carry "Brightness Percent" (×14) and LIGHT_STATE (×14); the other two
+-- matches were T4 IN-WALL TOUCHPANELS — named "In-Wall", carrying bare
+-- BRIGHTNESS at 41 and 97, which is their SCREEN brightness. They rendered as
+-- two lit Living Room lights on a customer-facing card.
+--
+-- So bare BRIGHTNESS no longer QUALIFIES a device (it stays readable as a
+-- level on devices that qualify some other way), and anything carrying
+-- touchpanel vocabulary is refused outright. Fourth impostor this project has
+-- produced: weather-as-thermostat, weather-as-keypad, panel-as-light — the
+-- lesson is always that membership needs a positive signature AND a check for
+-- a stronger identity.
+local QUALIFYING_VARS = { "LIGHT_LEVEL", "LIGHT LEVEL", "Brightness Percent", "BRIGHTNESS_PERCENT" }
 local LEVEL_VARS = { "LIGHT_LEVEL", "LIGHT LEVEL", "Brightness Percent", "BRIGHTNESS_PERCENT", "BRIGHTNESS" }
 local STATE_VARS = { "LIGHT_STATE", "LIGHT STATE", "LIGHTSTATE" }
+--- Vocabulary that identifies a TOUCHPANEL, whatever else the device carries.
+local PANEL_VARS = { "SCREENSAVER_ENABLED", "DEVICE_SETTINGS", "DARK_MODE_SETTINGS", "PROXIMITY_SENSOR_ENABLED" }
 local WATT_VARS = {
   "CURRENT_POWER",
   "POWER_CONSUMPTION",
@@ -83,7 +98,11 @@ function Lights.signature(vars)
     return nil
   end
   local values = valueMap(vars)
-  if firstOf(values, LEVEL_VARS) == nil and firstOf(values, STATE_VARS) == nil then
+  -- A panel is a panel no matter what brightness it reports.
+  if firstOf(values, PANEL_VARS) ~= nil then
+    return nil
+  end
+  if firstOf(values, QUALIFYING_VARS) == nil and firstOf(values, STATE_VARS) == nil then
     return nil
   end
 
