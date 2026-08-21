@@ -176,12 +176,23 @@ function Lights.keypadWatch(vars)
     local id = tonumber(varId)
     local name = type(v) == "table" and type(v.name) == "string" and v.name:upper() or nil
     if id ~= nil and name ~= nil then
-      if
-        name:find("BUTTON", 1, true)
-        or name:find("CLICK", 1, true)
-        or name:find("PRESS", 1, true)
-        or name:find("ACTION", 1, true)
-      then
+      -- WORD-boundary matching (Lua frontier patterns), measured into shape on
+      -- 2026-08-21. The first net used substrings and its first real catch was
+      -- mostly bycatch:
+      --
+      --   PRESSURE          the WEATHER DRIVER, via "PRESS" — a barometric
+      --                     event on every change, filed as a keypad
+      --   LASTACTIONTIME    via "ACTION" mid-word
+      --   TRANSPORTS_BUTTONS a static capability list ("HOME,MENU"), plural
+      --
+      -- while the one genuine press was "Button 1" on a Halo Remote. Frontier
+      -- patterns keep BUTTON/CLICK/PRESS/ACTION as whole words: "BUTTON 1" and
+      -- "BUTTON_ACTION_3" match; PRESSURE, LASTACTIONTIME and BUTTONS do not.
+      local isButton = name:find("%f[%w]BUTTON%f[%W]") ~= nil
+        or name:find("%f[%w]CLICK%f[%W]") ~= nil
+        or name:find("%f[%w]PRESS%f[%W]") ~= nil
+        or name:find("%f[%w]ACTION%f[%W]") ~= nil
+      if isButton then
         watch[id] = v.name
         found = true
       end

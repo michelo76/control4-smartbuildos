@@ -99,6 +99,20 @@ check(
   "a keypad exposing NO button vars answers nil — that absence is the measurement",
   Lights.keypadWatch(vars({ { "BATTERY_LEVEL", "80" } })) == nil
 )
+
+-- The first real catch, verbatim from production 2026-08-21. The substring net
+-- filed the WEATHER DRIVER as a keypad via PRESSURE and shipped a barometric
+-- reading as a press; these pin the word-boundary net against that catch.
+check(
+  "'Button 1' — the real Halo Remote press — is watched",
+  Lights.keypadWatch(vars({ { "Button 1", "" } })) ~= nil
+)
+check("PRESSURE is weather, not a press", Lights.keypadWatch(vars({ { "PRESSURE", "30.03" } })) == nil)
+check("LastActionTime is not an action", Lights.keypadWatch(vars({ { "LastActionTime", "0" } })) == nil)
+check(
+  "TRANSPORTS_BUTTONS — a static capability list — is not a button",
+  Lights.keypadWatch(vars({ { "TRANSPORTS_BUTTONS", "HOME,MENU" } })) == nil
+)
 check("garbage yields nil rather than throwing", Lights.keypadWatch(42) == nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
