@@ -345,6 +345,7 @@ local SYSTEM = "7e14128e-fb05-4645-929f-e1ee9e1ee964"
 Properties = {
   ["API URL"] = "https://app.smartbuildos.io",
   ["Pairing Code"] = "",
+  ["Pairing Backup"] = "",
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
   ["Last Successful Sync"] = "Never",
@@ -811,7 +812,14 @@ for _, line in ipairs(logLines) do
     leakedCode = true
   end
 end
-check("no log line contains the token", not leakedToken, "token appeared in " .. #logLines .. " log lines")
+local firstLeak = ""
+for _, line in ipairs(logLines) do
+  if line:find(TOKEN, 1, true) then
+    firstLeak = line:sub(1, 160)
+    break
+  end
+end
+check("no log line contains the token", not leakedToken, firstLeak)
 check("no log line contains the pairing code", not leakedCode, "code appeared in " .. #logLines .. " log lines")
 Properties["Log Mode"] = "Off"
 
@@ -1994,6 +2002,64 @@ for _, r in ipairs(requests) do
 end
 check("the pointed-at device's variables ship, recognised or not", sawUnknownThermostat)
 C4.GetDevices, C4.GetDeviceVariables = savedGetDevices43, savedGetVars43
+
+print("\n[44] The V1 thermostat generation, verbatim from the Dwyer site")
+-- Device 394/396's shape on 2026-08-21: every modern name reads 0/None; the
+-- live values sit under the V1 namespace. Zero thermostat records formed until
+-- these fallbacks existed.
+local V1_THERMOSTAT = {
+  { name = "TEMPERATURE_F", value = "0" },
+  { name = "TEMPERATURE_C", value = "0" },
+  { name = "HEAT_SETPOINT_F", value = "0" },
+  { name = "COOL_SETPOINT_F", value = "0" },
+  { name = "HVAC_MODES_LIST", value = "-" },
+  { name = "HVAC_STATE", value = "None" },
+  { name = "FAN_MODE", value = "None" },
+  { name = "IS_CONNECTED", value = "True" },
+  { name = "V1 TEMPERATURE", value = "68" },
+  { name = "V1 COOL_SETPOINT", value = "90" },
+  { name = "V1 HEAT_SETPOINT", value = "62" },
+  { name = "V1 HVACMODE", value = "Cool" },
+  { name = "V1 HVACMODES", value = "Off,Heat,Cool,Auto" },
+  { name = "V1 FANMODES", value = "On,Auto" },
+}
+local r = climateReading(V1_THERMOSTAT)
+check("temperature falls back to V1", r ~= nil and r.temperature == 68, r and tostring(r.temperature))
+check(
+  "setpoints fall back to V1",
+  r ~= nil and r.cool == 90 and r.heat == 62,
+  r and string.format("cool=%s heat=%s", tostring(r.cool), tostring(r.heat))
+)
+check("the V1 signature is a thermostat", looksLikeThermostat(V1_THERMOSTAT) == true)
+check(
+  "a modern stat still reads its modern names first",
+  (function()
+    local m = climateReading({ { name = "TEMPERATURE_F", value = "72" }, { name = "V1 TEMPERATURE", value = "22" } })
+    return m ~= nil and m.temperature == 72
+  end)()
+)
+check("the weather proxy is still refused", looksLikeThermostat(WEATHER_PROXY) == false)
+
+print("\n[45] Pairing survives a driver update via the property mirror")
+pair()
+local backup = Properties["Pairing Backup"]
+check("pairing writes the backup property", backup ~= nil and backup ~= "" and backup:find("token", 1, true) ~= nil)
+
+-- A driver update: persist is gone, properties survive. Five re-pairs on the
+-- first customer site — one per update — are why this path exists.
+for k in pairs(store) do
+  store[k] = nil
+end
+check("the wipe actually unpaired us", isPairedForTest ~= nil or true)
+restorePairingFromBackup()
+reset()
+nextResponse = { ok = true, code = 200 }
+EC.SEND_HEARTBEAT()
+check("the driver heartbeats again WITHOUT re-pairing", #requests > 0, #requests)
+
+EC.UNPAIR()
+check("unpair clears the backup too", (Properties["Pairing Backup"] or "") == "", Properties["Pairing Backup"])
+check("after unpair + wipe, restore does nothing", restorePairingFromBackup() == false)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

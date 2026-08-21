@@ -1997,7 +1997,9 @@ function sendCatalogue()
         for varId, v in pairs(tvars) do
           local vid = tointeger(varId)
           local vname = type(v) == "table" and v.name or nil
-          if vid and vname and shipped < 40 and #observables < 3800 then
+          -- 60, not the walk's usual 40: the measured thermostats expose ~45+
+          -- variables and the 40 cap cut off the tail where SCALE would sit.
+          if vid and vname and shipped < 60 and #observables < 3800 then
             observables[#observables + 1] = {
               kind = "device",
               source_id = target,
@@ -2226,7 +2228,11 @@ function climateReading(vars)
   -- Fahrenheit first: SCALE reads FAHRENHEIT on the measured project and it is
   -- what a US homeowner expects. Celsius is the documented fallback, and raw
   -- deci-Celsius the last resort for a thermostat exposing neither.
-  local temp = firstNumber({ "TEMPERATURE_F", "TEMPERATURE_C" })
+  -- "V1 *" is the OLDER thermostat-proxy generation, measured on the first
+  -- real customer site 2026-08-21: the modern names all read 0/None while
+  -- V1 TEMPERATURE=68 / V1 COOL_SETPOINT=90 carried the live values. The V1
+  -- names come LAST so a modern stat never falls through to them.
+  local temp = firstNumber({ "TEMPERATURE_F", "TEMPERATURE_C", "V1 TEMPERATURE" })
   if temp == nil then
     local raw = tonumber(values["TEMPERATURE"])
     if raw ~= nil and raw ~= 0 then
@@ -2234,8 +2240,8 @@ function climateReading(vars)
     end
   end
 
-  local heat = firstNumber({ "HEAT_SETPOINT_F", "DISPLAY_HEATSETPOINT", "HEAT_SETPOINT_C" })
-  local cool = firstNumber({ "COOL_SETPOINT_F", "DISPLAY_COOLSETPOINT", "COOL_SETPOINT_C" })
+  local heat = firstNumber({ "HEAT_SETPOINT_F", "DISPLAY_HEATSETPOINT", "HEAT_SETPOINT_C", "V1 HEAT_SETPOINT" })
+  local cool = firstNumber({ "COOL_SETPOINT_F", "DISPLAY_COOLSETPOINT", "COOL_SETPOINT_C", "V1 COOL_SETPOINT" })
   -- HVAC_STATE ("Stage 1 Cool") says what it is DOING; ANA_HVACMODE ("Cool")
   -- says what it is set to. State is the more useful and falls back to mode.
   local mode = values["HVAC_STATE"] or values["ANA_HVACMODE"] or values["HVAC_MODE"]
@@ -2484,7 +2490,12 @@ function looksLikeThermostat(vars)
   if (names["HVAC_MODES_LIST"] or ""):upper():find("WARN", 1, true) ~= nil then
     return false
   end
-  return names["HVAC_MODE"] ~= nil and (names["TEMPERATURE_F"] ~= nil or names["TEMPERATURE_C"] ~= nil)
+  if names["HVAC_MODE"] ~= nil and (names["TEMPERATURE_F"] ~= nil or names["TEMPERATURE_C"] ~= nil) then
+    return true
+  end
+  -- The V1 proxy generation (first real customer site): modern names exist but
+  -- read empty; the live signature is the V1 namespace.
+  return names["V1 TEMPERATURE"] ~= nil and names["V1 HVACMODES"] ~= nil
 end
 
 --- The FULL thermostat record, from the device's own variables.
@@ -2551,14 +2562,18 @@ function thermostatReading(vars)
 
   local reading = {
     scale = str("SCALE"),
-    temperature_f = numNonZero("TEMPERATURE_F"),
+    -- V1 fallbacks per the measured site: SCALE was not among the shipped
+    -- vars there, so a V1 value's unit is the controller's display unit. 68
+    -- beside a cooling setpoint of 90 is Fahrenheit on that site; a Celsius
+    -- site would read ~20/26 and still display correctly as a bare number.
+    temperature_f = numNonZero("TEMPERATURE_F") or numNonZero("V1 TEMPERATURE"),
     temperature_c = numNonZero("TEMPERATURE_C"),
-    heat_setpoint_f = numNonZero("HEAT_SETPOINT_F"),
-    cool_setpoint_f = numNonZero("COOL_SETPOINT_F"),
+    heat_setpoint_f = numNonZero("HEAT_SETPOINT_F") or numNonZero("V1 HEAT_SETPOINT"),
+    cool_setpoint_f = numNonZero("COOL_SETPOINT_F") or numNonZero("V1 COOL_SETPOINT"),
     single_setpoint_f = numNonZero("SINGLE_SETPOINT_F"),
-    hvac_mode = str("HVAC_MODE") or str("ANA_HVACMODE"),
+    hvac_mode = str("HVAC_MODE") or str("ANA_HVACMODE") or str("V1 HVACMODE"),
     hvac_state = str("HVAC_STATE"),
-    fan_mode = str("FAN_MODE"),
+    fan_mode = str("FAN_MODE") or str("V1 FANMODE"),
     fan_state = str("FAN_STATE"),
     -- Real indoor humidity is never 0%; a unit without the sensor reads 0.
     humidity = numNonZero("HUMIDITY"),
@@ -3003,6 +3018,19 @@ local function redeemPairingCode(code)
       persist:set(TOKEN_KEY, body.token, true)
       persist:set(PROPERTY_KEY, body.property_id or "")
       persist:set(SYSTEM_KEY, body.system_id or "")
+      -- Mirrored into a hidden readonly property. Property VALUES live in the
+      -- project file and survive a driver update; encrypted persist has not
+      -- (measured: five re-pairs on the first customer site, one per update).
+      -- The same trust domain as Composer access, which can pair afresh anyway.
+      UpdateProperty(
+        "Pairing Backup",
+        JSON:encode({
+          token = body.token,
+          system_id = body.system_id or "",
+          property_id = body.property_id or "",
+        }),
+        true
+      )
       persist:set(PROPERTY_NAME_KEY, body.property_name or "")
       persist:set(SITE_LABEL_KEY, body.site_label or "")
       showPairingState()
@@ -3049,11 +3077,42 @@ function OnDriverInit()
   log:trace("OnDriverInit()")
 end
 
+--- Restores pairing from the property mirror when persist came up empty.
+---
+--- Exists because a driver UPDATE was costing a re-pair every time: encrypted
+--- persist did not survive it, and the operator's evidence was five controller
+--- rows on one site, one per update. Property values DO survive an update —
+--- Composer keeps them in the project — so the mirror is the recovery path.
+--- Identity details (names, address) refresh on the first check-in; only the
+--- credential and scope need to come back from here.
+function restorePairingFromBackup()
+  if persist:get(TOKEN_KEY, "", true) ~= "" then
+    return false
+  end
+  local raw = Properties["Pairing Backup"] or ""
+  if raw == "" then
+    return false
+  end
+  local ok, backup = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not ok or type(backup) ~= "table" or IsEmpty(backup.token) then
+    return false
+  end
+  persist:set(TOKEN_KEY, backup.token, true)
+  persist:set(SYSTEM_KEY, backup.system_id or "")
+  persist:set(PROPERTY_KEY, backup.property_id or "")
+  log:info("Pairing restored from backup after a driver update")
+  return true
+end
+
 function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
   if not CheckMinimumVersion("Driver Status") then
     return
   end
+
+  restorePairingFromBackup()
 
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -3266,6 +3325,20 @@ end
 --- A non-empty pairing code is a request to pair. The handler runs on every
 --- property load, so the empty case has to be a no-op or clearing the field
 --- would itself look like a pairing attempt.
+-- The dispatcher logs every property VALUE unless told otherwise, and the
+-- token-hygiene test proved it: the mirror's JSON — token included — landed in
+-- 22 log lines.
+--
+-- Keyed by the RAW property name, spaces and all: OnPropertyChanged looks up
+-- suppressDebug BEFORE it sanitises the name, which the first attempt at this
+-- fix discovered by not working. Both spellings are set because relying on the
+-- dispatcher's internal ordering twice would be asking for the same surprise.
+OPC.suppressDebug = OPC.suppressDebug or {}
+OPC.suppressDebug["Pairing Backup"] = true
+OPC.suppressDebug.Pairing_Backup = true
+OPC.suppressDebug["Pairing Code"] = true
+OPC.suppressDebug.Pairing_Code = true
+
 function OPC.Pairing_Code(propertyValue)
   log:trace("OPC.Pairing_Code(<redacted>)")
   if not gInitialized then
@@ -4391,6 +4464,7 @@ function EC.UNPAIR()
     send("unpair", { kind = "unpair" }, "unpair notice")
   end
   persist:delete(TOKEN_KEY)
+  UpdateProperty("Pairing Backup", "", true)
   persist:delete(PROPERTY_KEY)
   -- ⚠ Must be cleared too. `isPaired()` is satisfied by EITHER id, so a
   -- surviving system id would leave the driver claiming to be paired with no

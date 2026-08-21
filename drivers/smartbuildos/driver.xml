@@ -271,6 +271,14 @@
         <description>Paste the pairing code generated on the SmartBuildOS property. Clears itself once redeemed.</description>
       </property>
       <property>
+        <name>Pairing Backup</name>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+        <readonly>true</readonly>
+        <description>Written by the driver so pairing survives driver updates. Not user-editable; cleared by Unpair.</description>
+      </property>
+      <property>
         <name>Paired Property</name>
         <type>STRING</type>
         <default>Not paired</default>
