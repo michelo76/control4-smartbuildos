@@ -1501,6 +1501,53 @@ check(
   end)()
 )
 
+print("\n[37b] REQUEST_CATALOGUE re-ships the catalogue on command")
+pair()
+reset()
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = { commands = { { id = "0b2f6a1e-3333-4222-8333-444455556666", command = "REQUEST_CATALOGUE" } } },
+}
+EC.SEND_HEARTBEAT()
+local catAck
+for _, r in ipairs(requests) do
+  if tostring(r.url or ""):find("/commands", 1, true) then
+    catAck = r
+  end
+end
+check(
+  "the command acked ok",
+  catAck ~= nil and catAck.data.acks[1].ok == true,
+  catAck and tostring(catAck.data.acks[1].error)
+)
+check(
+  "a catalogue upload followed",
+  (function()
+    for _, r in ipairs(requests) do
+      if r.data and r.data.kind == "catalogue" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+check(
+  "the heartbeat declares catalogue_v1",
+  (function()
+    for _, r in ipairs(requests) do
+      if r.data and r.data.kind == "heartbeat" and type(r.data.capabilities) == "table" then
+        for _, c in ipairs(r.data.capabilities) do
+          if c == "catalogue_v1" then
+            return true
+          end
+        end
+      end
+    end
+    return false
+  end)()
+)
+
 print("\n[38a] The FULL thermostat record, from the screenshots' own variables")
 
 -- Verbatim shape from Composer 2026-08-18, device 599 ("Master Bedroom" — the

@@ -1374,7 +1374,7 @@ local function sendHeartbeat()
       -- What this driver can DO, so the platform never sends a command an
       -- older build cannot run. Strings, not booleans: a newer server reading
       -- an older driver sees absence, which is the correct claim.
-      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1" },
+      capabilities = { "device_monitoring", "telemetry_v1", "home_insights_v1", "catalogue_v1" },
       -- The queue confesses its own state. A queue that sheds data invisibly
       -- turns a gap in a report into "the house was quiet".
       queued_telemetry = gTelemetry:depth(),
@@ -1490,6 +1490,14 @@ local COMMAND_RUNNERS = {
   PROBE_CAPABILITIES = function()
     EC.PROBE_CAPABILITIES()
     return "capability probe started"
+  end,
+  -- Exists because on 2026-08-21 a catalogue resend had to be faked by nudging
+  -- the monitor config (climate_sample_minutes 15→16→15) — config changes are
+  -- the only other path to sendCatalogue(). A diagnostic that needs a
+  -- side-effectful hack to trigger is a diagnostic nobody runs.
+  REQUEST_CATALOGUE = function()
+    sendCatalogue()
+    return "catalogue sent"
   end,
 }
 
