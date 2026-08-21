@@ -3196,6 +3196,11 @@ function restorePairingFromBackup()
     return JSON:decode(raw)
   end)
   if not ok or type(backup) ~= "table" or IsEmpty(backup.token) then
+    -- A backup that exists but cannot restore is the one case that must not
+    -- be quiet: the installer believes updates keep pairing now, and a silent
+    -- failure here looks exactly like that promise being broken at random.
+    log:error("Pairing Backup present but unusable; a re-pair is needed")
+    UpdateProperty("Driver Status", "Pairing backup unusable - re-pair needed")
     return false
   end
   persist:set(TOKEN_KEY, backup.token, true)
@@ -3222,6 +3227,20 @@ function registerBridgeVariables()
   }) do
     pcall(function()
       C4:AddVariable(v[1], v[2], "STRING", true)
+    end)
+  end
+  -- Events share the variables' add-time trap, proven on the same instance:
+  -- FireEvent("Service Update") on an instance added before the event existed
+  -- fires into a void — the Notification Agent never sees it, so the phone
+  -- never buzzes, silently. AddEvent reaches every instance.
+  for _, e in ipairs({
+    { 8, "Service Update", "SmartBuildOS sent a notice for this home" },
+    { 9, "Issue Detected", "SmartBuildOS detected a problem at this home" },
+    { 11, "Issue Updated", "SmartBuildOS updated a previously reported problem" },
+    { 10, "Issue Resolved", "SmartBuildOS resolved a reported problem" },
+  }) do
+    pcall(function()
+      C4:AddEvent(e[1], e[2], e[3])
     end)
   end
 end
@@ -3297,8 +3316,22 @@ function OnDriverLateInit()
     end
   end
 
-  registerSystemEvents()
-  applyDiscovery()
+  -- Guarded INDIVIDUALLY, because this corridor has now killed the timers
+  -- twice: once at 17:30 on 2026-08-18 (the announceStart incident, recorded
+  -- below) and again on 2026-08-21 15:55–17:12, when something in here threw
+  -- after a driver update and the connector ran actions perfectly for an hour
+  -- while sending nothing — EC calls work without timers, which makes this
+  -- failure look like a healthy driver to everyone except the platform.
+  -- Timers arm NO MATTER WHAT above them survives, and a failure NAMES itself.
+  for _, step in ipairs({
+    { "registerSystemEvents", registerSystemEvents },
+    { "applyDiscovery", applyDiscovery },
+  }) do
+    local okStep, errStep = pcall(step[2])
+    if not okStep then
+      log:error("Init step %s failed (continuing to timers): %s", step[1], tostring(errStep))
+    end
+  end
   scheduleTimers()
 
   -- ⚠ ANNOUNCED ONLY AFTER THE TIMERS ARE ARMED, AND NEVER FATALLY.
