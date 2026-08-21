@@ -52,6 +52,38 @@
       <readonly>true</readonly>
       <hidden>false</hidden>
     </variable>
+    <variable>
+      <id>2002</id>
+      <name>NOTICE_TYPE</name>
+      <type>STRING</type>
+      <default></default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2003</id>
+      <name>ISSUE_SEVERITY</name>
+      <type>STRING</type>
+      <default>None</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2004</id>
+      <name>ISSUE_TEXT</name>
+      <type>STRING</type>
+      <default></default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2005</id>
+      <name>NOTICE_TEXT</name>
+      <type>STRING</type>
+      <default></default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
   </variables>
   <events>
     <event>
@@ -93,6 +125,11 @@
       <id>9</id>
       <name>Issue Detected</name>
       <description>When SmartBuildOS reports a problem needing attention at this home (wire to a push notification)</description>
+    </event>
+    <event>
+      <id>11</id>
+      <name>Issue Updated</name>
+      <description>When SmartBuildOS updates a previously reported problem at this home (wire to a push notification)</description>
     </event>
     <event>
       <id>10</id>

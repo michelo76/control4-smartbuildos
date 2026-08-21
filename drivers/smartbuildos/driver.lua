@@ -1531,15 +1531,51 @@ local COMMAND_RUNNERS = {
     local EVENT_FOR = {
       update = "Service Update",
       issue = "Issue Detected",
+      issue_update = "Issue Updated",
       resolved = "Issue Resolved",
     }
     local eventName = EVENT_FOR[kind] or EVENT_FOR.update
     C4:FireEvent(eventName)
 
-    local uuid = nil
-    local severity = kind == "issue" and "Warning" or "Info"
+    -- Severity: the platform may state it; otherwise it follows the kind. The
+    -- vocabulary is closed so Composer comparisons ("is Critical") never meet
+    -- a spelling they were not written against.
+    local SEVERITIES = { info = "Info", warning = "Warning", critical = "Critical" }
+    local severity = SEVERITIES[tostring(payload.severity or ""):lower()]
+      or ((kind == "issue" or kind == "issue_update") and "Warning" or "Info")
+
+    -- ── The programming bridge ───────────────────────────────────────────────
+    --
+    -- Variables, because events alone made dealer programming convoluted: an
+    -- event says THAT something happened, never WHAT — so every distinct
+    -- reaction needed its own Notification Agent wiring and none could branch.
+    -- These four let one wiring carry everything:
+    --
+    --   NOTICE_TYPE     what kind of notice, always
+    --   ISSUE_SEVERITY  Info/Warning/Critical while an issue is active, else None
+    --   ISSUE_TEXT      the active issue, empty when clear
+    --   NOTICE_TEXT     the last plain notice / appointment message
+    --
+    -- Issue text and severity are STATE, not a log: resolved clears them, so
+    -- "if ISSUE_SEVERITY is Critical" is always about the house as it stands.
+    local text = detail ~= "" and (title .. " — " .. detail) or title
     pcall(function()
-      uuid = C4:RecordHistory(severity, title, "SmartBuildOS", eventName, detail)
+      C4:SetVariable("NOTICE_TYPE", eventName)
+      if kind == "issue" or kind == "issue_update" then
+        C4:SetVariable("ISSUE_SEVERITY", severity)
+        C4:SetVariable("ISSUE_TEXT", text)
+      elseif kind == "resolved" then
+        C4:SetVariable("ISSUE_SEVERITY", "None")
+        C4:SetVariable("ISSUE_TEXT", "")
+      else
+        C4:SetVariable("NOTICE_TEXT", text)
+      end
+    end)
+
+    local uuid = nil
+    local historySeverity = severity == "Info" and "Info" or (severity == "Critical" and "Critical" or "Warning")
+    pcall(function()
+      uuid = C4:RecordHistory(historySeverity, title, "SmartBuildOS", eventName, detail)
     end)
 
     if uuid ~= nil then

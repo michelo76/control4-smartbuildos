@@ -2205,5 +2205,80 @@ check(
   ack3 and tostring(ack3.data.acks[1].result)
 )
 
+print("\n[48] The programming bridge: variables Composer can branch on")
+pair()
+reset()
+local varsSet = {}
+local savedSetVariable = C4.SetVariable
+C4.SetVariable = function(_, name, value)
+  varsSet[name] = value
+end
+C4.RecordHistory = function()
+  return "hist-uuid-2"
+end
+
+local function notify(payload, id)
+  reset()
+  nextResponse =
+    { ok = true, code = 200, body = { commands = { { id = id, command = "SEND_NOTIFICATION", payload = payload } } } }
+  EC.SEND_HEARTBEAT()
+end
+
+notify(
+  { kind = "issue", severity = "critical", title = "Rack overheating", detail = "92F at the sensor" },
+  "0b2f6a1e-9999-4222-8333-444455556666"
+)
+check(
+  "an issue sets type, severity and text",
+  varsSet.NOTICE_TYPE == "Issue Detected"
+    and varsSet.ISSUE_SEVERITY == "Critical"
+    and varsSet.ISSUE_TEXT == "Rack overheating — 92F at the sensor",
+  string.format(
+    "%s / %s / %s",
+    tostring(varsSet.NOTICE_TYPE),
+    tostring(varsSet.ISSUE_SEVERITY),
+    tostring(varsSet.ISSUE_TEXT)
+  )
+)
+check("stated severity beats the kind default", varsSet.ISSUE_SEVERITY == "Critical")
+
+notify(
+  { kind = "issue_update", title = "Rack overheating", detail = "Technician en route" },
+  "0b2f6a1e-aaaa-4222-8333-444455556666"
+)
+check(
+  "an update keeps the issue active under Issue Updated",
+  varsSet.NOTICE_TYPE == "Issue Updated" and varsSet.ISSUE_SEVERITY == "Warning",
+  tostring(varsSet.NOTICE_TYPE)
+)
+check(
+  "Issue Updated fires as its own event",
+  (function()
+    for _, e in ipairs(firedEvents) do
+      if e == "Issue Updated" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+
+notify({ kind = "resolved", title = "Rack overheating" }, "0b2f6a1e-bbbb-4222-8333-444455556666")
+check(
+  "resolved CLEARS the issue state — the variables are state, not a log",
+  varsSet.ISSUE_SEVERITY == "None" and varsSet.ISSUE_TEXT == "",
+  string.format("%s / %s", tostring(varsSet.ISSUE_SEVERITY), tostring(varsSet.ISSUE_TEXT))
+)
+
+notify({ kind = "update", title = "Service visit", detail = "Tuesday 9am" }, "0b2f6a1e-cccc-4222-8333-444455556666")
+check(
+  "a plain notice fills NOTICE_TEXT and leaves the issue state alone",
+  varsSet.NOTICE_TEXT == "Service visit — Tuesday 9am" and varsSet.ISSUE_SEVERITY == "None",
+  tostring(varsSet.NOTICE_TEXT)
+)
+
+C4.SetVariable = savedSetVariable
+C4.RecordHistory = nil
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
