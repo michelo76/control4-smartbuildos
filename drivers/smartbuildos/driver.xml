@@ -331,6 +331,16 @@
         <description>Written by the driver so pairing survives driver updates. Not user-editable; cleared by Unpair.</description>
       </property>
       <property>
+        <name>Remote Control</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Identify only</item>
+        </items>
+        <default>Identify only</default>
+        <description>What SmartBuildOS may COMMAND in this home (D-8). Off: the driver refuses every write verb regardless of what the platform sends — this gate lives here, on the controller, so no platform compromise can reach a home that has not opted in. Identify only: flashing keypad LEDs to physically locate a device; nothing that changes how the home behaves.</description>
+      </property>
+      <property>
         <name>Paired Property</name>
         <type>STRING</type>
         <default>Not paired</default>

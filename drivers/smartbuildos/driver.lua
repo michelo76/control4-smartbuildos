@@ -1379,6 +1379,38 @@ local function pollDeviceState()
   end)
 end
 
+--- The Composer-set write gate (D-8). The DRIVER is the authority: a platform
+--- compromise cannot command a home whose dealer left this Off, because the
+--- refusal happens here, behind the firewall, not in the cloud.
+--- @return string setting "Off" | "Identify only"
+local function remoteControlSetting()
+  local value = tostring(Properties and Properties["Remote Control"] or "")
+  if value == "" then
+    return "Identify only"
+  end
+  return value
+end
+
+--- What this build can do, as capability strings. Write capabilities are
+--- DERIVED from the Composer property, so flipping Remote Control off makes
+--- the platform's buttons honestly disable at the next heartbeat — and the
+--- runner refuses immediately in the meantime.
+--- @return string[] capabilities
+function driverCapabilities()
+  local caps = {
+    "device_monitoring",
+    "telemetry_v1",
+    "home_insights_v1",
+    "catalogue_v1",
+    "notify_v1",
+    "realtime_v1",
+  }
+  if remoteControlSetting() ~= "Off" then
+    caps[#caps + 1] = "identify_v1"
+  end
+  return caps
+end
+
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
   send(
@@ -1391,14 +1423,7 @@ local function sendHeartbeat()
       -- What this driver can DO, so the platform never sends a command an
       -- older build cannot run. Strings, not booleans: a newer server reading
       -- an older driver sees absence, which is the correct claim.
-      capabilities = {
-        "device_monitoring",
-        "telemetry_v1",
-        "home_insights_v1",
-        "catalogue_v1",
-        "notify_v1",
-        "realtime_v1",
-      },
+      capabilities = driverCapabilities(),
       -- The queue confesses its own state. A queue that sheds data invisibly
       -- turns a gap in a report into "the house was quiet".
       queued_telemetry = gTelemetry:depth(),
@@ -1606,6 +1631,74 @@ local COMMAND_RUNNERS = {
       return string.format("event %s fired; history %s", eventName, tostring(uuid))
     end
     return string.format("event %s fired; history unavailable on this controller", eventName)
+  end,
+  -- W1's first write (D-8): flash a keypad's LEDs so a tech can physically
+  -- find it — the affordance the device-linking review screen needs on a
+  -- house full of "Keypad 2"s. Deliberately the SMALLEST possible write:
+  -- visible, self-reverting, and touching nothing that changes how the home
+  -- behaves.
+  --
+  -- Gate first, always: the Composer "Remote Control" property is the
+  -- homeowner-side authority, and the refusal happens HERE even if the
+  -- platform's capability picture is stale.
+  --
+  -- Command vocabulary VERIFIED_BY_DOCS (proxyprotocol-keypad):
+  -- KEYPAD_ALL_BUTTON_COLOR sets CURRENT_COLOR immediately;
+  -- KEYPAD_ALL_BUTTON_COLOR_CLEAR restores the programmed colors. Hardware
+  -- confirmation pending, per the matrix rule that docs rank below hardware.
+  IDENTIFY_DEVICE = function(payload)
+    if remoteControlSetting() == "Off" then
+      error("remote control is disabled on this system (Composer property)")
+    end
+    local key = tostring(payload.key or "")
+    local id = tointeger(key:match("^c4:(%d+)$"))
+    if id == nil then
+      error("payload.key must be a c4:<device id> key")
+    end
+    local device = readDeviceState()[key]
+    if device == nil then
+      error("no such device in this project: " .. key)
+    end
+    -- Keypads only, by POSITIVE signature (the fourth-impostor rule): the
+    -- binding's ssdptype on real hardware, the driver file name as a second
+    -- witness. Anything else refuses by name rather than flashing a guess.
+    local dtype = tostring(device.device_type or ""):lower()
+    local dfile = tostring(device.driver_file or ""):lower()
+    local isKeypad = dtype:find("control4_kp", 1, true) ~= nil
+      or dtype:find("keypad", 1, true) ~= nil
+      or dfile:find("keypad", 1, true) ~= nil
+      or dfile:find("_kp", 1, true) ~= nil
+    if not isKeypad then
+      error(
+        string.format(
+          "identify supports keypads only for now; %s is %s",
+          key,
+          dtype ~= "" and dtype or (dfile ~= "" and dfile or "untyped")
+        )
+      )
+    end
+    local seconds = tointeger(payload.seconds) or 5
+    if seconds < 1 then
+      seconds = 1
+    elseif seconds > 30 then
+      seconds = 30
+    end
+    C4:SendToDevice(
+      id,
+      "KEYPAD_ALL_BUTTON_COLOR",
+      { CURRENT_COLOR = "ff0000", ON_COLOR = "ff0000", OFF_COLOR = "ff0000" }
+    )
+    -- Self-reverting: the clear is scheduled BEFORE we report success, and is
+    -- pcall'd so a restore failure logs rather than wedging the timer pump.
+    SetTimer("SmartBuildOSIdentify" .. id, seconds * ONE_SECOND, function()
+      local ok = pcall(function()
+        C4:SendToDevice(id, "KEYPAD_ALL_BUTTON_COLOR_CLEAR", {})
+      end)
+      if not ok then
+        log:error("Identify: could not restore LED colors on device %d", id)
+      end
+    end)
+    return string.format("identify: flashing %s (%s) for %ds", tostring(device.name or key), key, seconds)
   end,
 }
 

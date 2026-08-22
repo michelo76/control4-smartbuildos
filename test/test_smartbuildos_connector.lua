@@ -362,6 +362,7 @@ Properties = {
   ["Full Sync Interval"] = "24h",
   ["Automatic Updates"] = "On",
   ["Update Channel"] = "Production",
+  ["Remote Control"] = "Identify only",
   ["Driver Status"] = "",
   ["Driver Version"] = "",
   ["Log Level"] = "3 - Info",
@@ -2396,6 +2397,119 @@ EC.SEND_HEARTBEAT()
 check("a withdrawn offer closes the doorbell", fakeSockets[1].deleted == true)
 
 package.loaded["drivers-common-public.module.websocket"].new = realNew
+
+print("\n[51] Identify (W1): the smallest write, gated at the controller")
+pair()
+
+local sentCommands = {}
+C4.SendToDevice = function(_, id, cmd, params)
+  sentCommands[#sentCommands + 1] = { id = id, cmd = cmd, params = params }
+end
+local identifyTimers = {}
+local savedSetTimer51 = SetTimer
+SetTimer = function(name, delay, callback, repeating)
+  if tostring(name):find("SmartBuildOSIdentify", 1, true) then
+    identifyTimers[#identifyTimers + 1] = { name = name, delay = delay, callback = callback }
+    return
+  end
+  return savedSetTimer51(name, delay, callback, repeating)
+end
+
+local function identify(payload, id)
+  reset()
+  sentCommands = {}
+  identifyTimers = {}
+  nextResponse =
+    { ok = true, code = 200, body = { commands = { { id = id, command = "IDENTIFY_DEVICE", payload = payload } } } }
+  EC.SEND_HEARTBEAT()
+  return requests[#requests]
+end
+
+-- Device 75 is the shim project's keypad (keypad.c4z, zigbee, online).
+local ack = identify({ key = "c4:75" }, "51a00000-1111-4222-8333-444455556666")
+check(
+  "a keypad identify sends the color command to that device",
+  #sentCommands == 1 and sentCommands[1].id == 75 and sentCommands[1].cmd == "KEYPAD_ALL_BUTTON_COLOR",
+  string.format("%d sent, first=%s", #sentCommands, tostring(sentCommands[1] and sentCommands[1].cmd))
+)
+check(
+  "the flash is immediate: CURRENT_COLOR is set, not just the on/off pair",
+  sentCommands[1] ~= nil and sentCommands[1].params.CURRENT_COLOR ~= nil
+)
+check("the restore is scheduled before success is reported", #identifyTimers == 1, #identifyTimers)
+check(
+  "the ack names the device, not just the key",
+  ack ~= nil
+    and ack.data.acks[1].ok == true
+    and tostring(ack.data.acks[1].result):find("Configurable Keypad", 1, true) ~= nil,
+  ack and tostring(ack.data.acks[1].result) or "no ack"
+)
+identifyTimers[1].callback()
+check(
+  "the restore actually restores: CLEAR follows the flash",
+  #sentCommands == 2 and sentCommands[2].cmd == "KEYPAD_ALL_BUTTON_COLOR_CLEAR",
+  string.format(
+    "%d sent, last=%s",
+    #sentCommands,
+    tostring(sentCommands[#sentCommands] and sentCommands[#sentCommands].cmd)
+  )
+)
+
+-- A dimmer is not a keypad, and identify must refuse by name rather than
+-- flash a guess (the fourth-impostor rule, write edition).
+ack = identify({ key = "c4:25" }, "51b00000-1111-4222-8333-444455556666")
+check(
+  "a non-keypad refuses by name",
+  ack ~= nil and ack.data.acks[1].ok == false and tostring(ack.data.acks[1].error):find("keypads only", 1, true) ~= nil,
+  ack and tostring(ack.data.acks[1].error) or "no ack"
+)
+check("a refusal sends nothing to the device", #sentCommands == 0, #sentCommands)
+
+-- The Composer property is the AUTHORITY: Off refuses even though the
+-- platform sent the command — the gate lives on the controller.
+Properties["Remote Control"] = "Off"
+ack = identify({ key = "c4:75" }, "51c00000-1111-4222-8333-444455556666")
+check(
+  "Remote Control Off refuses at the controller, whatever the platform sent",
+  ack ~= nil and ack.data.acks[1].ok == false and tostring(ack.data.acks[1].error):find("disabled", 1, true) ~= nil,
+  ack and tostring(ack.data.acks[1].error) or "no ack"
+)
+check(
+  "Off also withdraws the capability from the heartbeat",
+  (function()
+    local caps = {}
+    for _, req in ipairs(requests) do
+      if req.data and req.data.capabilities then
+        caps = req.data.capabilities
+      end
+    end
+    for _, cap in ipairs(caps) do
+      if cap == "identify_v1" then
+        return false
+      end
+    end
+    return true
+  end)()
+)
+Properties["Remote Control"] = "Identify only"
+
+check(
+  "On declares identify_v1 in the heartbeat",
+  (function()
+    reset()
+    nextResponse = { ok = true, code = 200, body = {} }
+    EC.SEND_HEARTBEAT()
+    local caps = requests[1] and requests[1].data and requests[1].data.capabilities or {}
+    for _, cap in ipairs(caps) do
+      if cap == "identify_v1" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+
+SetTimer = savedSetTimer51
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
