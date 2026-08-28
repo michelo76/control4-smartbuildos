@@ -2252,8 +2252,13 @@ local function processProvisionQueue()
   end
   local item = gProvisionInFlight
   log:print("Auto provision: adding %s for '%s'", item.file, item.name)
+  -- The SIMPLEST documented form: (file, callback). The three-argument form
+  -- with a name requires a ROOM ID between them - a name in that slot is an
+  -- undocumented shape, and the field measured it returning 0 for every
+  -- device. The instance lands in this driver's room and is renamed in the
+  -- callback instead.
   local ok, err = pcall(function()
-    C4:AddDevice(item.file, item.name, OnProtectDeviceAdded)
+    C4:AddDevice(item.file, OnProtectDeviceAdded)
   end)
   if not ok then
     log:warn("AddDevice failed for %s: %s", item.name, tostring(err))
@@ -2289,6 +2294,9 @@ function OnProtectDeviceAdded(deviceId, tDeviceInfo)
       end
     end
     log:print("Auto provision: '%s' added as device %s (%s)", item.name, deviceId, table.concat(detail, ", "))
+    pcall(function()
+      C4:RenameDevice(deviceId, item.name)
+    end)
     -- The child's consumer connection is always binding 1.
     local ok, err = pcall(function()
       C4:Bind(C4:GetDeviceID(), item.bindingId, deviceId, 1, item.class)
