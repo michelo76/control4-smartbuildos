@@ -1,11 +1,11 @@
 # One-pass upgrade — working state (delete when pass complete)
 
 Batches (commit after each; keep `make test` green):
-- [ ] B1 lib.http PATCH + client expansion (all v7 endpoints)
-- [ ] B2 parent: inventory kinds + bindings + PROTECT_GET_DEVICE + PROTECT_CONTROL executor + event routing (sensor/light/hub/identity) + alarm subsystem + sirens/relays/hubs + inbound webhooks + trigger webhook + health + SBOS push + XML (events/vars/props/actions/commands) + init registration
-- [ ] B3 camera child: capabilities/gating + cooldowns + doorbell/settings/PTZ commands + known-person events + enriched vars + snapshot-notification command + XML
-- [ ] B4 sensor + light + viewport child drivers (+c4zproj+docs stubs)
-- [ ] B5 tests: parent/camera extensions + 3 child suites
+- [x] B1 lib.http PATCH + client expansion (all v7 endpoints)
+- [x] B2 parent: inventory kinds + bindings + PROTECT_GET_DEVICE + PROTECT_CONTROL executor + event routing (sensor/light/hub/identity) + alarm subsystem + sirens/relays/hubs + inbound webhooks + trigger webhook + health + SBOS push + XML (events/vars/props/actions/commands) + init registration
+- [x] B3 camera child: capabilities/gating + cooldowns + doorbell/settings/PTZ commands + known-person events + enriched vars + snapshot-notification command + XML
+- [x] B4 sensor + light + viewport child drivers (+c4zproj+docs stubs)
+- [x] B5 tests: parent/camera extensions + 3 child suites
 - [ ] B6 docs (API_MATRIX, EVENT_MATRIX, CURRENT_DRIVER_BEHAVIOR, TEST_PLAN, KNOWN_LIMITATIONS) + build + scorecard in asks doc + memory
 
 Key contracts decided:
