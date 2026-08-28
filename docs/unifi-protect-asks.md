@@ -119,3 +119,40 @@ Control4 fit, each /10.
 3. **The matrix docs** are the contract for future API drift (C2, C4).
 4. **Scorecard review** — after the pass, each C-ask gets ✅/❌ against its
    Measure column, in this file, dated.
+
+---
+
+## Scorecard — pass completed 2026-08-28
+
+Build `20260828.17xxxx`; suite: 13 files, all green. Bench-verified (✅);
+🏠 = awaiting the field checklist in TEST_PLAN.md on the real project.
+
+| Ask | Result |
+| --- | --- |
+| A1 one update, zero re-adds | ✅ every event/variable registers at init 🏠 |
+| A2 zero regressions | ✅ full suite green; floor documented |
+| A3 official API only | ✅ UBIQUITI_API_MATRIX covers every call |
+| A4 no credentials beyond key | ✅ no password property exists |
+| A5 exactly 3 new child drivers | ✅ sensor, light, viewport |
+| A6 memory/timer discipline | ✅ every timer cancelled on destroy; caches bounded |
+| C1 capability model | ✅ featureFlags → caps; local refusal tested |
+| C2 API matrix + graceful degradation | ✅ optional sync steps degrade, tested |
+| C3 event storm controls | ✅ per-kind + per-type cooldowns; variables never gated |
+| C4 normalized event model | ✅ EVENT_MATRIX covers the v7 vocabulary |
+| C5 doorbell pack | ✅ LCD message/DND/leave-package/reset 🏠 |
+| C6 camera settings | ✅ LED/mic/HDR/video mode 🏠 |
+| C7 PTZ presets/patrols | ✅ commands; ⚠ native-UI preset list not surfaced (no official slot-list endpoint) |
+| C8 sensor driver | ✅ contacts, thresholds-on-crossings, readings 🏠 |
+| C9 light driver | ✅ force on/off + mode + motion 🏠 (Navigator tile = documented follow-up) |
+| C10 viewport driver | ✅ set/step/temporary-with-restore; overlap-safe 🏠 |
+| C11 C4→Protect webhooks | ✅ Trigger Protect Webhook 🏠 |
+| C12 Protect→C4 webhooks | ✅ token-or-404, cooldown, size cap |
+| C13 snapshot notification action | ✅ one command: history + event + attachment |
+| C14 alarm subsystem | ✅ arm/disarm/select, transition events, breach; empty-is-unknown 🏠 |
+| C15 sirens/relays/hub outputs | ✅ single-shot, never retried (tested on timeout) |
+| C16 known-person via fingerprint/NFC | ✅ ulp-users resolution, known/unknown events |
+| C17 alarm-hub events | ✅ full family as gateway events |
+| C18 enriched variables | ✅ LAST_EVENT trio + per-type times + LAST_PERSON |
+| C19 NVR/system health | ✅ offline roster, device+NVR transition events, last event; ⚠ avg-latency/reconnect-count counters not kept (thin value, deliberate) |
+| C20 SBOS handoff | ✅ gateway side, property-gated, change-driven (platform ingestion = separate work item) |
+| C21 docs | ✅ API_MATRIX, EVENT_MATRIX, CURRENT_DRIVER_BEHAVIOR, TEST_PLAN, KNOWN_LIMITATIONS |

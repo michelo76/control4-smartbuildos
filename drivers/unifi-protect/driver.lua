@@ -168,13 +168,25 @@ end
 --- Sets the connected flag and says so — on TRANSITION only.
 --- @param connected boolean
 --- @param reason string What to show in Connection Status.
+--- Whether a successful connection has EVER been seen this run. The first
+--- Online after a Director restart is learning, not news; only losses and
+--- recoveries after that first success fire the NVR events.
+local gConnectionSeen = false
+
 local function setConnected(connected, reason)
   if connected ~= gConnected then
     gConnected = connected
     if connected then
       log:info("Connected to UniFi Protect: %s", reason)
+      if gConnectionSeen and fireGatewayEvent ~= nil then
+        fireGatewayEvent("NVR Online")
+      end
+      gConnectionSeen = true
     else
       log:warn("Not connected to UniFi Protect: %s", reason)
+      if gConnectionSeen and fireGatewayEvent ~= nil then
+        fireGatewayEvent("NVR Offline")
+      end
     end
   end
   UpdateProperty("Connection Status", reason)
