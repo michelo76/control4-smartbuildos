@@ -46,6 +46,10 @@
         <command>PRINT_INVENTORY</command>
       </action>
       <action>
+        <name>Print Camera Bindings To Log</name>
+        <command>PRINT_CAMERA_BINDINGS</command>
+      </action>
+      <action>
         <name>Prune Missing Camera Bindings</name>
         <command>PRUNE_STALE_CAMERAS</command>
       </action>

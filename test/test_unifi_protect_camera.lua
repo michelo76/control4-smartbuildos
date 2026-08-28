@@ -97,6 +97,7 @@ Properties = {
   ["Camera State"] = "UNKNOWN",
   ["MAC Address"] = "-",
   ["Streams"] = "-",
+  ["Gateway Link"] = "Not bound - bind the Protect Camera connection to the Gateway",
   ["Stream Protocol"] = "RTSPS (secure, port 7441)",
   ["Driver Status"] = "Starting",
   ["Log Level"] = "3 - Info",
@@ -413,6 +414,41 @@ renames = {}
 ReceivedFromProxy(GATEWAY, "PROTECT_STATE", { id = "cam-front", name = "Front Porch", state = "CONNECTED" })
 check("a dealer rename is never clobbered", #renames == 0, #renames)
 check("name stays the dealer's", deviceNames[500] == "Backyard Custom Name", deviceNames[500])
+
+-- Rename From Camera is the dealer overriding their own rename: guard off.
+EC.RENAME_NOW()
+check("Rename From Camera overrides the guard", deviceNames[500] == "Front Porch", deviceNames[500])
+
+-- ─── [13] Identity self-heals off a state push ───────────────────────────────
+
+print("\n[13] A state push while identity is unknown re-asks the Gateway")
+
+EC.FORGET_CAMERA()
+sent = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_STATE", { id = "cam-front", name = "Front Porch", state = "CONNECTED" })
+check(
+  "PROTECT_STATE with no identity triggers PROTECT_GET_CAMERA",
+  #sentTo(GATEWAY, "PROTECT_GET_CAMERA") == 1,
+  #sentTo(GATEWAY, "PROTECT_GET_CAMERA")
+)
+check(
+  "Gateway Link shows the ask",
+  tostring(props["Gateway Link"]):find("waiting for a reply", 1, true) ~= nil,
+  props["Gateway Link"]
+)
+
+ReceivedFromProxy(GATEWAY, "PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Front Porch",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+})
+check(
+  "Gateway Link resolves on the reply",
+  tostring(props["Gateway Link"]):find("identified as 'Front Porch'", 1, true) ~= nil,
+  props["Gateway Link"]
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

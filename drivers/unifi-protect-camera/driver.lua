@@ -199,9 +199,27 @@ local function updateStatusProperties()
 end
 
 --- Asks the Gateway who this driver is bound to. Cheap; asked on bind, on
---- init, and on demand from the action.
+--- init, on any sign of life from a Gateway while identity is unknown, and
+--- every minute until answered — because the FIRST ask can land before the
+--- Gateway is updated, bound, or even installed, and an ask that fires once
+--- into the void was exactly how a field install ended up bound, streaming
+--- state pushes, and still calling itself "Not bound".
 local function requestIdentity()
+  UpdateProperty("Gateway Link", "Asked gateway at " .. os.date("%H:%M:%S") .. " - waiting for a reply")
   SendToProxy(GATEWAY_BINDING, "PROTECT_GET_CAMERA", {})
+end
+
+--- Timer that re-asks until an answer arrives. A no-op tick once identity is
+--- known; cheap enough to leave armed for the driver's whole life.
+local IDENTITY_RETRY_TIMER = "ProtectIdentityRetry"
+local function armIdentityRetry()
+  CancelTimer(IDENTITY_RETRY_TIMER)
+  SetTimer(IDENTITY_RETRY_TIMER, 60 * ONE_SECOND, function()
+    if gIdentity == nil then
+      log:info("Still no camera identity from the Gateway; asking again")
+      requestIdentity()
+    end
+  end, true)
 end
 
 --- Fires a Composer event by name. pcall'd: an event that failed to register
@@ -228,7 +246,8 @@ end
 --- only while its name is still the install default or the name this driver
 --- set last time, so a dealer who typed "Backyard Cam" keeps it forever.
 --- @param cameraName string The Protect camera's name.
-local function autoNameDevices(cameraName)
+--- @param force boolean|nil True skips the clobber guard — the dealer asked.
+local function autoNameDevices(cameraName, force)
   cameraName = tostring(cameraName or "")
   if cameraName == "" then
     return
@@ -242,18 +261,32 @@ local function autoNameDevices(cameraName)
   end)
   if ok and type(proxyId) == "number" then
     table.insert(ids, proxyId)
+  else
+    -- An instance added before the proxy fix has no proxy device at all —
+    -- said out loud because renaming only the protocol device of such an
+    -- instance is the visible half of that bigger problem.
+    log:warn("No proxy device found to rename - was this instance added with a pre-fix driver? Re-add it.")
   end
 
   for _, id in ipairs(ids) do
     local current = tostring(C4:GetDeviceData(id, "name") or "")
     local isDefault = current:sub(1, #DEFAULT_NAME_PREFIX) == DEFAULT_NAME_PREFIX
     local isOurs = lastAuto ~= "" and current == lastAuto
-    if current ~= cameraName and (isDefault or isOurs) then
+    if current == cameraName then
+      log:debug("Device %s already named '%s'", id, cameraName)
+    elseif force or isDefault or isOurs then
       log:info("Renaming device %s: '%s' -> '%s'", id, current, cameraName)
       pcall(function()
         C4:RenameDevice(id, cameraName)
       end)
       renamedAny = true
+    else
+      log:info(
+        "NOT renaming device %s: '%s' is neither the install default nor this driver's last write ('%s') — use Rename From Camera to override",
+        id,
+        current,
+        lastAuto
+      )
     end
   end
 
@@ -325,6 +358,11 @@ function OnDriverLateInit()
   UpdateProperty("Driver Status", "Online")
   updateStatusProperties()
   requestIdentity()
+  armIdentityRetry()
+end
+
+function OnDriverDestroyed()
+  CancelTimer(IDENTITY_RETRY_TIMER)
 end
 
 -- ─── Gateway binding ──────────────────────────────────────────────────────────
@@ -354,6 +392,7 @@ function RFP.PROTECT_CAMERA(_, _, tParams)
   gCameraState = tostring(tParams.state or "UNKNOWN")
   persist:set(IDENTITY_PERSIST, gIdentity)
   updateStatusProperties()
+  UpdateProperty("Gateway Link", string.format("OK - identified as '%s' at %s", gIdentity.name, os.date("%H:%M:%S")))
   autoNameDevices(gIdentity.name)
   log:info("Bound to Protect camera '%s' (%s)", gIdentity.name, gIdentity.id)
 end
@@ -361,6 +400,14 @@ end
 function RFP.PROTECT_STATE(_, _, tParams)
   tParams = tParams or {}
   local newState = tostring(tParams.state or "UNKNOWN")
+  -- A state push while identity is unknown is PROOF a Gateway is bound,
+  -- alive, and knows this camera — the ask must have been lost (a driver
+  -- updated in the wrong order, a Director restart mid-handshake). Re-ask
+  -- now instead of waiting for someone to notice "Not bound".
+  if gIdentity == nil then
+    log:info("State push arrived before identity; asking the Gateway who this is")
+    requestIdentity()
+  end
   if gIdentity ~= nil and tostring(tParams.name or "") ~= "" then
     if gIdentity.name ~= tostring(tParams.name) then
       -- The camera was renamed in Protect; follow it (same clobber guard).
@@ -627,6 +674,16 @@ function EC.PRINT_STREAMS()
       log:print("  %s: %s (delivered as: %s)", quality, gStreams[quality], applyProtocol(gStreams[quality]))
     end
   end
+end
+
+--- The explicit rename — dealer intent, so the clobber guard steps aside.
+function EC.RENAME_NOW()
+  log:trace("EC.RENAME_NOW()")
+  if gIdentity == nil or gIdentity.name == "" then
+    log:print("No camera identity yet - bind to the Gateway first (see Gateway Link)")
+    return
+  end
+  autoNameDevices(gIdentity.name, true)
 end
 
 --- The deliberate forget, for re-purposing an instance onto another camera.

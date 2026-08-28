@@ -651,12 +651,14 @@ function pushCameraStates(cameras)
 end
 
 function RFP.PROTECT_GET_CAMERA(idBinding)
-  log:trace("RFP.PROTECT_GET_CAMERA(%s)", idBinding)
   local cam = cameraForBinding(idBinding)
   if cam == nil then
     log:warn("PROTECT_GET_CAMERA on binding %s, which maps to no camera", tostring(idBinding))
     return
   end
+  -- INFO, not trace: this is the handshake a dealer is watching for when a
+  -- camera instance says "waiting for a reply".
+  log:info("Camera identity requested on binding %s; answering '%s' (%s)", idBinding, cam.name, cam.id)
   SendToProxy(idBinding, "PROTECT_CAMERA", {
     id = cam.id,
     name = cam.name,
@@ -664,6 +666,44 @@ function RFP.PROTECT_GET_CAMERA(idBinding)
     state = cam.state,
     console_host = consoleHost(),
   })
+end
+
+--- The Connections picture from this driver's side of the fence: every
+--- camera binding, its camera, and which device (if any) Composer has bound
+--- to it. The answer to "is the handshake even possible right now?".
+function EC.PRINT_CAMERA_BINDINGS()
+  log:trace("EC.PRINT_CAMERA_BINDINGS()")
+  local byId = {}
+  for _, cam in ipairs((gInventory or {}).cameras or {}) do
+    byId[cam.id] = cam
+  end
+  local count = 0
+  for key, binding in pairs(bindings:getDynamicBindings(CAMERA_BINDING_NS)) do
+    count = count + 1
+    local cam = byId[key]
+    local boundTo = "nothing bound"
+    local ok, consumers = pcall(function()
+      return C4:GetBoundConsumerDevices(C4:GetDeviceID(), binding.bindingId)
+    end)
+    if ok and type(consumers) == "table" then
+      local ids = {}
+      for deviceId in pairs(consumers) do
+        table.insert(ids, tostring(deviceId))
+      end
+      if #ids > 0 then
+        boundTo = "bound to device " .. table.concat(ids, ", ")
+      end
+    end
+    log:print(
+      "  binding %s: '%s' (%s) [%s] - %s",
+      binding.bindingId,
+      binding.displayName,
+      key,
+      cam ~= nil and cam.state or "not in inventory",
+      boundTo
+    )
+  end
+  log:print("%d camera binding(s) total", count)
 end
 
 --- Stream URLs for the bound camera: read what exists, enable what is

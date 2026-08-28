@@ -117,6 +117,10 @@
         <command>REFRESH_CAMERA_INFO</command>
       </action>
       <action>
+        <name>Rename From Camera</name>
+        <command>RENAME_NOW</command>
+      </action>
+      <action>
         <name>Refresh Stream URLs</name>
         <command>REFRESH_STREAMS</command>
       </action>
@@ -142,6 +146,13 @@
         <type>STRING</type>
         <readonly>true</readonly>
         <default>UNKNOWN</default>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Protect Camera connection to the Gateway</default>
+        <description>Live view of the conversation with the UniFi Protect Gateway. "Asked... waiting" that never resolves means the Gateway is missing, unbound, or running an old driver version.</description>
       </property>
       <property>
         <name>MAC Address</name>
@@ -210,8 +221,14 @@
     </properties>
     <commands/>
   </config>
-  <proxies qty="1">
-    <proxy proxybindingid="5001" name="UniFi Protect Camera" primary="True">camera</proxy>
+  <!-- Composer's stock camera icons, so the device reads as a camera in the
+       tree. Backslash paths and .gif names are Composer's own convention. -->
+  <small>devices_sm\camera_sm.gif</small>
+  <large>devices_lg\camera_lg.gif</large>
+  <!-- The exact shape a field-tested camera driver uses: no qty, no primary
+       attribute. -->
+  <proxies>
+    <proxy proxybindingid="5001" name="UniFi Protect Camera">camera</proxy>
   </proxies>
   <!-- Plain capability elements, no proxybindingid attributes — the shape a
        field-tested single-proxy camera driver uses. -->
