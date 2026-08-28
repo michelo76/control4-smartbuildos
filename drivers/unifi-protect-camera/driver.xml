@@ -182,6 +182,17 @@
         <description>How stream URLs are handed to Navigators. RTSP is the default because it is what Control4 clients actually play (measured 2026-08-28 on OS 4.2.1 against Protect 7.2.105: RTSPS rendered black, RTSP played). RTSPS is Protect's native encrypted stream - try it after OS or Protect updates; if it plays, prefer it. The RTSP port is undocumented by Ubiquiti and may disappear in a future Protect version, at which point RTSPS is the only option.</description>
       </property>
       <property>
+        <name>History</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Smart detections only</item>
+          <item>All events</item>
+        </items>
+        <default>Smart detections only</default>
+        <description>Writes this camera's detections into Control4's History view (requires the History Agent). Smart detections only records person/vehicle/package/animal/plate/face, doorbell rings, audio alarms and online/offline - everything except plain motion, which fires constantly on a busy camera. All events includes motion.</description>
+      </property>
+      <property>
         <name>Streams Offered</name>
         <type>LIST</type>
         <items>

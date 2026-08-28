@@ -305,6 +305,59 @@ local function setVariable(name, value)
   end)
 end
 
+--- Records an event in Control4's History Agent, so detections show up in
+--- the History view on touchscreens and the app with a deep link to this
+--- camera.
+---
+--- Call pattern proven by a shipping third-party camera driver: the plain
+--- four-argument form FIRST — the documented metadata-table form was
+--- observed to silently stop records being stored on some OS builds — and
+--- the metadata form only as a fallback where the plain form returns no
+--- UUID. A nil UUID is the reliable failure signal; the History Agent not
+--- being installed is the usual cause, and it costs a log line, never the
+--- event pipeline.
+--- @param severity string "Info" | "Warning" | "Critical"
+--- @param eventType string What History displays, e.g. "Person Detected".
+--- @param message string Human detail for the metadata form.
+local function recordHistory(severity, eventType, message)
+  local function record(...)
+    local ok, uuid = pcall(C4.RecordHistory, C4, ...)
+    if ok and uuid ~= nil and uuid ~= "" then
+      return true
+    end
+    return false
+  end
+  if record(severity, eventType, "Cameras", "UniFi Protect") then
+    return
+  end
+  if
+    record(severity, eventType, "Cameras", "UniFi Protect", {
+      Description = tostring(message or eventType),
+      Camera = gIdentity ~= nil and gIdentity.name or "",
+    })
+  then
+    return
+  end
+  log:debug("History not recorded for '%s' - is the History Agent installed?", eventType)
+end
+
+--- Whether the History property wants this kind of event recorded. Motion
+--- fires constantly on a busy camera; smart detections are the ones worth a
+--- timeline by default.
+--- @param kind string The normalized event kind.
+--- @return boolean record
+local function historyWants(kind)
+  local mode = Properties["History"] or "Smart detections only"
+  if mode == "Off" then
+    return false
+  end
+  if mode == "All events" then
+    return true
+  end
+  -- Smart detections only: everything except plain motion.
+  return kind ~= "motion"
+end
+
 --- Renames this driver's devices after the bound camera.
 ---
 --- Renames BOTH ids: Composer's device tree shows the PROXY device, so
@@ -497,10 +550,17 @@ function RFP.PROTECT_STATE(_, _, tParams)
     -- driver (re)start learning the state, not the camera changing it — an
     -- event there would page someone on every Director reboot.
     if previous ~= "UNKNOWN" then
+      local cameraName = gIdentity ~= nil and gIdentity.name or "Camera"
       if newState == "CONNECTED" then
         fireEvent("Camera Online")
+        if historyWants("state") then
+          recordHistory("Info", "Camera Online", cameraName .. " reconnected")
+        end
       elseif newState == "DISCONNECTED" then
         fireEvent("Camera Offline")
+        if historyWants("state") then
+          recordHistory("Warning", "Camera Offline", cameraName .. " disconnected from the console")
+        end
       end
     end
   end
@@ -517,11 +577,16 @@ function RFP.PROTECT_EVENT(_, _, tParams)
   local types = tostring(tParams.types or "")
   local now = os.date("%Y-%m-%d %H:%M:%S")
 
+  local cameraName = gIdentity ~= nil and gIdentity.name or "Camera"
+
   if kind == "motion" then
     if phase == "start" then
       setVariable("MOTION_DETECTED", "true")
       setVariable("LAST_MOTION", now)
       fireEvent("Motion Detected")
+      if historyWants(kind) then
+        recordHistory("Info", "Motion Detected", "Motion on " .. cameraName)
+      end
     else
       setVariable("MOTION_DETECTED", "false")
       fireEvent("Motion Ended")
@@ -543,6 +608,13 @@ function RFP.PROTECT_EVENT(_, _, tParams)
           setVariable("LAST_LICENSE_PLATE", tostring(tParams.value))
         end
         fireEvent(eventName)
+        if historyWants(kind) then
+          local detail = eventName .. " on " .. cameraName
+          if detected == "licensePlate" and tostring(tParams.value or "") ~= "" then
+            detail = detail .. " (" .. tostring(tParams.value) .. ")"
+          end
+          recordHistory("Info", eventName, detail)
+        end
       else
         log:debug("Unknown smart detection type '%s' — Protect grew a vocabulary word", detected)
       end
@@ -550,15 +622,28 @@ function RFP.PROTECT_EVENT(_, _, tParams)
   elseif kind == "audio" and phase == "start" then
     setVariable("LAST_AUDIO_TYPE", types)
     fireEvent("Audio Alarm Detected")
+    if historyWants(kind) then
+      -- An audio ALARM (smoke, CO, siren, glass break) outranks a sighting.
+      recordHistory("Warning", "Audio Alarm Detected", "Audio alarm (" .. types .. ") on " .. cameraName)
+    end
   elseif kind == "ring" then
     setVariable("LAST_RING", now)
     fireEvent("Doorbell Ring")
+    if historyWants(kind) then
+      recordHistory("Info", "Doorbell Ring", "Doorbell pressed at " .. cameraName)
+    end
   elseif kind == "line" and phase == "start" then
     setVariable("LAST_DETECTION", types ~= "" and types or "line")
     fireEvent("Line Crossed")
+    if historyWants(kind) then
+      recordHistory("Info", "Line Crossed", "Line crossed on " .. cameraName)
+    end
   elseif kind == "loiter" and phase == "start" then
     setVariable("LAST_DETECTION", types ~= "" and types or "loiter")
     fireEvent("Loitering Detected")
+    if historyWants(kind) then
+      recordHistory("Info", "Loitering Detected", "Loitering on " .. cameraName)
+    end
   end
 end
 

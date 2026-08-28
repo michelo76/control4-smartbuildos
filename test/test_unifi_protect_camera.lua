@@ -100,6 +100,7 @@ Properties = {
   ["Gateway Link"] = "Not bound - bind the Protect Camera connection to the Gateway",
   ["Stream Protocol"] = "RTSPS (secure, port 7441)",
   ["Streams Offered"] = "All (client picks)",
+  ["History"] = "Smart detections only",
   ["Driver Status"] = "Starting",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
@@ -543,6 +544,57 @@ check(
   everything:find("HIGHTOKEN", 1, true) ~= nil and everything:find("MEDTOKEN", 1, true) ~= nil,
   everything
 )
+
+-- ─── [17] History Agent recording ────────────────────────────────────────────
+
+print("\n[17] Detections land in the History Agent per the History property")
+
+local historyRecords = {}
+function C4:RecordHistory(severity, eventType, category, subcategory, metadata)
+  table.insert(
+    historyRecords,
+    { severity = severity, eventType = eventType, category = category, subcategory = subcategory, metadata = metadata }
+  )
+  return "uuid-" .. #historyRecords
+end
+
+historyRecords = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "smart", phase = "start", types = "person" })
+check("a person detection is recorded", #historyRecords == 1, #historyRecords)
+check("as Person Detected", (historyRecords[1] or {}).eventType == "Person Detected")
+check("in the Cameras category", (historyRecords[1] or {}).category == "Cameras")
+check("plain form first (no metadata)", (historyRecords[1] or {}).metadata == nil)
+
+historyRecords = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "motion", phase = "start" })
+check("plain motion is NOT recorded in Smart detections only", #historyRecords == 0, #historyRecords)
+
+historyRecords = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "audio", phase = "start", types = "alrmSmoke" })
+check("an audio alarm is recorded", #historyRecords == 1, #historyRecords)
+check("at Warning severity", (historyRecords[1] or {}).severity == "Warning", (historyRecords[1] or {}).severity)
+
+Properties["History"] = "All events"
+historyRecords = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "motion", phase = "start" })
+check("All events records motion too", #historyRecords == 1, #historyRecords)
+
+Properties["History"] = "Off"
+historyRecords = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "smart", phase = "start", types = "person" })
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "ring" })
+check("Off records nothing", #historyRecords == 0, #historyRecords)
+Properties["History"] = "Smart detections only"
+
+-- A History Agent that stores nothing (nil UUID) must not break events.
+function C4:RecordHistory()
+  return nil
+end
+fired = {}
+local okNoAgent = pcall(function()
+  ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "ring" })
+end)
+check("a dead History Agent costs nothing", okNoAgent and fired[#fired] == "Doorbell Ring", fired[#fired])
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
