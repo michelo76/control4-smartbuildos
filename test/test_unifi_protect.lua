@@ -1067,10 +1067,16 @@ routes = {
 EC.SYNC_DEVICES()
 
 local added, bound = {}, {}
-function C4:AddDevice(file, name, callback)
-  table.insert(added, { file = file, name = name })
+local provRenames = {}
+-- The documented two-argument form: (file, callback).
+function C4:AddDevice(file, callback)
+  table.insert(added, { file = file })
   -- Director answers with the fresh device id.
   callback(4000 + #added, { protocol = 4000 + #added })
+end
+function C4:RenameDevice(id, name)
+  provRenames[id] = name
+  added[#added].name = name
 end
 function C4:Bind(providerDevice, providerBinding, consumerDevice, consumerBinding, class)
   table.insert(bound, {
@@ -1108,6 +1114,7 @@ check(
   #bound
 )
 check("with a fresh device id", (bound[1] or {}).consumerDevice == 4001, (bound[1] or {}).consumerDevice)
+check("and renamed after the device it represents", provRenames[4001] ~= nil, provRenames[4001])
 
 added = {}
 -- Everything now "bound"? Simulate by answering every binding as consumed.
