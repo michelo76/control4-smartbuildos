@@ -167,6 +167,15 @@ function Protect:post(path, body)
   return http:post(self.baseUrl .. API_PREFIX .. path, body, self:_headers(), self:_options())
 end
 
+--- PATCH against the Integration API.
+--- @param path string Path under the API prefix.
+--- @param body table JSON body.
+--- @return Deferred response
+function Protect:patch(path, body)
+  log:trace("Protect:patch(%s)", path)
+  return http:patch(self.baseUrl .. API_PREFIX .. path, body, self:_headers(), self:_options())
+end
+
 --- DELETE against the Integration API.
 --- @param path string Path under the API prefix.
 --- @return Deferred response
@@ -274,6 +283,191 @@ end
 --- @param cameraId string The camera's id.
 function Protect:stopPtzPatrol(cameraId)
   return self:post("/v1/cameras/" .. cameraId .. "/ptz/patrol/stop")
+end
+
+-- ─── Device settings (PATCH) ──────────────────────────────────────────────────
+--
+-- Every control this suite offers goes through PATCH bodies documented in
+-- docs/v7-shapes-reference.txt. One method per intent, so call sites read as
+-- intents and the JSON shapes live in exactly one place.
+
+--- Doorbell LCD message. messageType: CUSTOM_MESSAGE | DO_NOT_DISTURB |
+--- LEAVE_PACKAGE_AT_DOOR. resetAtMs nil = no scheduled reset; a unix-ms
+--- timestamp restores the default afterwards.
+function Protect:setLcdMessage(cameraId, messageType, text, resetAtMs)
+  local body = { lcdMessage = { type = messageType } }
+  if text ~= nil then
+    body.lcdMessage.text = text
+  end
+  if resetAtMs ~= nil then
+    body.lcdMessage.resetAt = resetAtMs
+  end
+  return self:patch("/v1/cameras/" .. cameraId, body)
+end
+
+--- Resets the doorbell display to its default.
+function Protect:resetLcdMessage(cameraId)
+  return self:patch("/v1/cameras/" .. cameraId, { lcdMessage = { resetAt = 0, type = "CUSTOM_MESSAGE", text = "" } })
+end
+
+function Protect:setCameraLed(cameraId, enabled)
+  return self:patch("/v1/cameras/" .. cameraId, { ledSettings = { isEnabled = enabled and true or false } })
+end
+
+function Protect:setMicVolume(cameraId, volume)
+  return self:patch("/v1/cameras/" .. cameraId, { micVolume = volume })
+end
+
+function Protect:setHdrType(cameraId, hdrType)
+  return self:patch("/v1/cameras/" .. cameraId, { hdrType = hdrType })
+end
+
+function Protect:setVideoMode(cameraId, videoMode)
+  return self:patch("/v1/cameras/" .. cameraId, { videoMode = videoMode })
+end
+
+-- ─── Lights ───────────────────────────────────────────────────────────────────
+
+--- Forces the floodlight's main LED on or off.
+function Protect:setLightForce(lightId, on)
+  return self:patch("/v1/lights/" .. lightId, { isLightForceEnabled = on and true or false })
+end
+
+--- Sets the floodlight's activation mode: always | motion | off, optionally
+--- with enableAt fulltime | dark.
+function Protect:setLightMode(lightId, mode, enableAt)
+  local settings = { mode = mode }
+  if enableAt ~= nil then
+    settings.enableAt = enableAt
+  end
+  return self:patch("/v1/lights/" .. lightId, { lightModeSettings = settings })
+end
+
+-- ─── Viewers / live views ─────────────────────────────────────────────────────
+
+function Protect:getViewers()
+  return self:get("/v1/viewers")
+end
+
+function Protect:getLiveviews()
+  return self:get("/v1/liveviews")
+end
+
+--- Points a viewer (Viewport) at a live view.
+function Protect:setViewerLiveview(viewerId, liveviewId)
+  return self:patch("/v1/viewers/" .. viewerId, { liveview = liveviewId })
+end
+
+-- ─── Alarm (arm profiles) ─────────────────────────────────────────────────────
+--
+-- The Protect alarm STATE is read from /v1/nvrs: armMode, armProfileId,
+-- armedAt, breachDetectedAt, breachEventCount, willBeArmedAt.
+
+function Protect:getArmProfiles()
+  return self:get("/v1/arm-profiles")
+end
+
+--- Selects the current arm profile (does not arm by itself).
+function Protect:setArmProfile(armProfileId)
+  return self:patch("/v1/arm-profiles/settings", { armProfileId = armProfileId })
+end
+
+--- Arms using the currently selected profile.
+function Protect:enableArm()
+  return self:post("/v1/arm-profiles/enable")
+end
+
+function Protect:disableArm()
+  return self:post("/v1/arm-profiles/disable")
+end
+
+-- ─── Sirens / relays / alarm hubs ─────────────────────────────────────────────
+--
+-- SECURITY ACTIONS: callers must never retry these on timeout — a lost
+-- response is not a lost command, and a siren fired twice is an incident.
+
+function Protect:getSirens()
+  return self:get("/v1/sirens")
+end
+
+--- Sounds a siren. Duration must be one of the console's accepted steps
+--- (5/10/20/30 s); snapping an arbitrary value to a step is the caller's job.
+function Protect:playSiren(sirenId, durationSeconds)
+  local body = nil
+  if durationSeconds ~= nil then
+    body = { duration = durationSeconds }
+  end
+  return self:post("/v1/sirens/" .. sirenId .. "/play", body)
+end
+
+function Protect:stopSiren(sirenId)
+  return self:post("/v1/sirens/" .. sirenId .. "/stop")
+end
+
+function Protect:testSiren(sirenId, volume)
+  local body = nil
+  if volume ~= nil then
+    body = { volume = volume }
+  end
+  return self:post("/v1/sirens/" .. sirenId .. "/test-sound", body)
+end
+
+function Protect:getRelays()
+  return self:get("/v1/relays")
+end
+
+--- Activates a relay output. state "on"|"off"; nil toggles. pulseMs > 0
+--- auto-offs after that many milliseconds (only meaningful with "on").
+function Protect:activateRelayOutput(relayId, outputId, state, pulseMs)
+  local body = {}
+  if state ~= nil then
+    body.state = state
+  end
+  if pulseMs ~= nil then
+    body.pulseDuration = pulseMs
+  end
+  if next(body) == nil then
+    body = nil
+  end
+  return self:post("/v1/relays/" .. relayId .. "/outputs/" .. outputId .. "/activate", body)
+end
+
+function Protect:getAlarmHubs()
+  return self:get("/v1/alarm-hubs")
+end
+
+--- Triggers an alarm-hub output. enable true/false; nil toggles.
+function Protect:triggerAlarmHubOutput(hubId, outputId, enable, delayMs, durationMs)
+  local body = {}
+  if enable ~= nil then
+    body.enable = enable and true or false
+  end
+  if delayMs ~= nil then
+    body.delay = delayMs
+  end
+  if durationMs ~= nil then
+    body.duration = durationMs
+  end
+  if next(body) == nil then
+    body = nil
+  end
+  return self:post("/v1/alarm-hubs/" .. hubId .. "/outputs/" .. outputId .. "/trigger", body)
+end
+
+-- ─── Identity (ULP users) ─────────────────────────────────────────────────────
+
+--- The identity store behind fingerprint/NFC events: id → first/last/full
+--- name + ACTIVE/DEACTIVATED status.
+function Protect:getUlpUsers()
+  return self:get("/v1/ulp-users")
+end
+
+-- ─── Alarm Manager ────────────────────────────────────────────────────────────
+
+--- Fires a Protect Alarm Manager webhook trigger — Control4 programming
+--- driving Protect-side automations.
+function Protect:triggerAlarmWebhook(triggerId)
+  return self:post("/v1/alarm-manager/webhook/" .. triggerId)
 end
 
 return Protect

@@ -325,6 +325,16 @@ function Http:put(url, data, headers, options)
   return self:request("PUT", url, data, headers, options)
 end
 
+--- Makes an HTTP PATCH request.
+--- @param url string The URL to send the request to.
+--- @param data? string|table The data to send with the request (optional).
+--- @param headers? table<string, string> The headers to include in the request (optional).
+--- @param options? table<string, any> Options for the request (e.g., timeout) (optional).
+--- @return Deferred<HTTPResponse, HTTPErrorResponse> response A Deferred that resolves or rejects with the response.
+function Http:patch(url, data, headers, options)
+  return self:request("PATCH", url, data, headers, options)
+end
+
 --- Makes an HTTP DELETE request.
 --- @param url string The URL to send the request to.
 --- @param headers? table<string, string> The headers to include in the request (optional).
