@@ -219,6 +219,8 @@ local function updateStatusProperties()
   UpdateProperty("Camera", gIdentity ~= nil and gIdentity.name or "Not bound")
   UpdateProperty("MAC Address", gIdentity ~= nil and gIdentity.mac or "-")
   UpdateProperty("Camera State", gCameraState)
+  local snapshotUrl = gIdentity ~= nil and tostring(gIdentity.snapshot_url or "") or ""
+  UpdateProperty("Snapshots", snapshotUrl ~= "" and "Available via gateway relay" or "-")
 end
 
 --- The Gateway's DEVICE id, found by its driver FILE — exact match, because
@@ -514,6 +516,7 @@ function RFP.PROTECT_CAMERA(_, _, tParams)
     name = tostring(tParams.name or "Camera"),
     mac = tostring(tParams.mac or ""),
     console_host = tostring(tParams.console_host or ""),
+    snapshot_url = tostring(tParams.snapshot_url or ""),
   }
   gCameraState = tostring(tParams.state or "UNKNOWN")
   persist:set(IDENTITY_PERSIST, gIdentity)
@@ -526,6 +529,10 @@ end
 function RFP.PROTECT_STATE(_, _, tParams)
   tParams = tParams or {}
   local newState = tostring(tParams.state or "UNKNOWN")
+  if gIdentity ~= nil and tParams.snapshot_url ~= nil and tostring(tParams.snapshot_url) ~= gIdentity.snapshot_url then
+    gIdentity.snapshot_url = tostring(tParams.snapshot_url)
+    persist:set(IDENTITY_PERSIST, gIdentity)
+  end
   -- A state push while identity is unknown is PROOF a Gateway is bound,
   -- alive, and knows this camera — the ask must have been lost (a driver
   -- updated in the wrong order, a Director restart mid-handshake). Re-ask
@@ -791,6 +798,41 @@ function RFP.GET_PROPERTIES(idBinding)
     return
   end
   return handleGetProperties()
+end
+
+--- Snapshot URLs, from the Gateway's relay. The relay URL is header-free by
+--- design — that is its whole reason to exist — so it can be handed straight
+--- to any client.
+--- @return string xml
+local function handleGetSnapshotUrls()
+  local url = gIdentity ~= nil and tostring(gIdentity.snapshot_url or "") or ""
+  if url == "" then
+    return "<snapshots/>"
+  end
+  return string.format('<snapshots><snapshot url="%s"/></snapshots>', xmlEscape(url))
+end
+
+function UIR.GET_SNAPSHOT_URLS()
+  return handleGetSnapshotUrls()
+end
+
+function RFP.GET_SNAPSHOT_URLS(idBinding)
+  if idBinding ~= CAMERA_PROXY_BINDING then
+    return
+  end
+  return handleGetSnapshotUrls()
+end
+
+--- Called by the Notification Agent when a push notification with an image
+--- attachment fires. High quality: a push notification is one image on a
+--- phone screen, and 640x360 looks like 2012 there.
+--- @return string url The snapshot URL, or "" when none is available.
+function GetNotificationAttachmentURL()
+  local url = gIdentity ~= nil and tostring(gIdentity.snapshot_url or "") or ""
+  if url == "" then
+    return ""
+  end
+  return url .. (url:find("?", 1, true) and "&" or "?") .. "hq=1"
 end
 
 -- ─── Conditionals ─────────────────────────────────────────────────────────────

@@ -101,6 +101,7 @@ Properties = {
   ["Stream Protocol"] = "RTSPS (secure, port 7441)",
   ["Streams Offered"] = "All (client picks)",
   ["History"] = "Smart detections only",
+  ["Snapshots"] = "-",
   ["Driver Status"] = "Starting",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
@@ -595,6 +596,56 @@ local okNoAgent = pcall(function()
   ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "ring" })
 end)
 check("a dead History Agent costs nothing", okNoAgent and fired[#fired] == "Doorbell Ring", fired[#fired])
+
+-- ─── [18] Snapshots from the gateway relay ───────────────────────────────────
+
+print("\n[18] A snapshot_url from the Gateway feeds thumbnails and notifications")
+
+ReceivedFromProxy(GATEWAY, "PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Front Door",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+  snapshot_url = "http://192.168.4.2:47800/snapshot/cam-front",
+})
+
+check("Snapshots property says available", props["Snapshots"] == "Available via gateway relay", props["Snapshots"])
+
+local snaps = tostring(UIRequest("GET_SNAPSHOT_URLS", {}))
+check(
+  "GET_SNAPSHOT_URLS answers with the relay URL",
+  snaps:find("http://192.168.4.2:47800/snapshot/cam-front", 1, true) ~= nil,
+  snaps
+)
+
+local attachment = GetNotificationAttachmentURL()
+check(
+  "notification attachment is the high-quality variant",
+  attachment == "http://192.168.4.2:47800/snapshot/cam-front?hq=1",
+  attachment
+)
+
+-- A state push can update the URL (relay address corrected on the Gateway).
+ReceivedFromProxy(GATEWAY, "PROTECT_STATE", {
+  id = "cam-front",
+  name = "Front Door",
+  state = "CONNECTED",
+  snapshot_url = "http://10.9.9.9:47800/snapshot/cam-front",
+})
+check("a state push updates the URL", tostring(UIRequest("GET_SNAPSHOT_URLS", {})):find("10.9.9.9", 1, true) ~= nil)
+
+-- No relay: honest empties, not broken URLs.
+ReceivedFromProxy(GATEWAY, "PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Front Door",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+})
+check("without a relay, snapshots XML is empty", tostring(UIRequest("GET_SNAPSHOT_URLS", {})) == "<snapshots/>")
+check("and the attachment URL is empty", GetNotificationAttachmentURL() == "")
+check("Snapshots property back to dash", props["Snapshots"] == "-", props["Snapshots"])
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

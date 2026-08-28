@@ -165,6 +165,13 @@
         <default>-</default>
       </property>
       <property>
+        <name>Snapshots</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Whether snapshot images are available for this camera through the Gateway's snapshot relay.</description>
+      </property>
+      <property>
         <name>Streams</name>
         <type>STRING</type>
         <readonly>true</readonly>
@@ -261,6 +268,18 @@
   <large>devices_lg\camera_lg.gif</large>
   <!-- The exact shape a field-tested camera driver uses: no qty, no primary
        attribute. -->
+  <!-- Snapshot in push notifications: the Notification Agent asks
+       GetNotificationAttachmentURL for this attachment's URL, which the
+       Gateway's snapshot relay serves header-free on the LAN. -->
+  <notification_attachment_provider>True</notification_attachment_provider>
+  <notification_attachments>
+    <attachment>
+      <id>1001</id>
+      <type>IMAGE_JPEG</type>
+      <description>Camera Snapshot</description>
+      <source>URL</source>
+    </attachment>
+  </notification_attachments>
   <proxies>
     <proxy proxybindingid="5001" name="UniFi Protect Camera">camera</proxy>
   </proxies>
@@ -271,6 +290,7 @@
          case for dynamic streams. MULTIPLE because a token stays valid until
          revoked; DYNAMIC_URLS_CHANGED is sent whenever the set changes. -->
     <requires_dynamic_stream_urls>True</requires_dynamic_stream_urls>
+    <requires_dynamic_snapshot_urls>True</requires_dynamic_snapshot_urls>
     <dynamic_urls_use_type>MULTIPLE</dynamic_urls_use_type>
     <modes>H264</modes>
     <aspect_ratio>16x9</aspect_ratio>

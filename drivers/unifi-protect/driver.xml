@@ -102,6 +102,34 @@
         <description>How often the device inventory and online/offline state are refreshed from the console. Off disables polling; Test Connection and Sync Devices Now still work.</description>
       </property>
       <property>
+        <name>Snapshot Relay</name>
+        <type>LIST</type>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <default>On</default>
+        <description>Serves camera snapshots on the LAN so thumbnails and notification images work. The console's snapshot endpoint requires the API key, which Navigators cannot send; this relay fetches with the key and serves the image plainly at http://controller:port/snapshot/camera-id. Exposes on the LAN exactly what Protect's own Anonymous Snapshot option would.</description>
+      </property>
+      <property>
+        <name>Relay Port</name>
+        <type>STRING</type>
+        <default>47800</default>
+        <description>Controller port the snapshot relay listens on.</description>
+      </property>
+      <property>
+        <name>Relay Address</name>
+        <type>STRING</type>
+        <default>auto</default>
+        <description>The address written into published snapshot URLs. auto detects the controller's LAN IP from the project; set it explicitly if Relay Status says it could not.</description>
+      </property>
+      <property>
+        <name>Relay Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Off</default>
+      </property>
+      <property>
         <name>Status</name>
         <type>LABEL</type>
         <default>Status</default>

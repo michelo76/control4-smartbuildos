@@ -240,6 +240,17 @@ function Protect:deleteRtspsStreams(cameraId)
   return self:delete("/v1/cameras/" .. cameraId .. "/rtsps-stream")
 end
 
+--- A snapshot JPEG from a camera. Resolves with the raw image bytes in
+--- `body` (url.lua leaves non-JSON bodies as strings). This request carries
+--- the X-API-KEY header, which is exactly why a Navigator can never make it
+--- itself — the Gateway's snapshot relay exists to stand in the middle.
+--- @param cameraId string The camera's id.
+--- @param highQuality boolean|nil True forces 1080p or better.
+function Protect:getSnapshot(cameraId, highQuality)
+  local query = highQuality and "?highQuality=true" or ""
+  return self:get("/v1/cameras/" .. cameraId .. "/snapshot" .. query)
+end
+
 -- ─── PTZ ──────────────────────────────────────────────────────────────────────
 --
 -- The official API does presets and patrols ONLY — there is no continuous

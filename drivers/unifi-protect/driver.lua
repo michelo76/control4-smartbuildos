@@ -124,6 +124,10 @@ gEventsSocket = nil
 --- called from lifecycle and property handlers above it.
 local startEventsSocket, stopEventsSocket
 
+--- Forward declarations; defined in the Snapshot Relay section at the
+--- bottom, called from lifecycle and property handlers above it.
+local startSnapshotRelay, stopSnapshotRelay, relaySnapshotUrl
+
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
 local function apiKey()
@@ -443,6 +447,7 @@ function OnDriverLateInit()
     testConnection()
     schedulePoll()
     startEventsSocket()
+    startSnapshotRelay()
   else
     setConnected(false, "Not configured - set the Console Address and API Key")
   end
@@ -451,6 +456,7 @@ end
 function OnDriverDestroyed()
   CancelTimer(POLL_TIMER)
   stopEventsSocket()
+  stopSnapshotRelay()
 end
 
 -- ─── Conditionals ─────────────────────────────────────────────────────────────
@@ -504,6 +510,29 @@ function OPC.Verify_TLS_Certificate(propertyValue)
   configureClient()
   if gInitialized and isConfigured() then
     testConnection()
+  end
+end
+
+function OPC.Snapshot_Relay(propertyValue)
+  log:trace("OPC.Snapshot_Relay('%s')", propertyValue)
+  if gInitialized then
+    startSnapshotRelay()
+  end
+end
+
+function OPC.Relay_Port(propertyValue)
+  log:trace("OPC.Relay_Port('%s')", propertyValue)
+  if gInitialized then
+    startSnapshotRelay()
+  end
+end
+
+function OPC.Relay_Address(propertyValue)
+  log:trace("OPC.Relay_Address('%s')", propertyValue)
+  if gInitialized then
+    -- Re-render the status line and let the next state push re-publish
+    -- corrected snapshot URLs to every bound camera.
+    startSnapshotRelay()
   end
 end
 
@@ -591,6 +620,7 @@ function EC.FORGET_API_KEY()
   configureClient()
   CancelTimer(POLL_TIMER)
   stopEventsSocket()
+  stopSnapshotRelay()
   setConnected(false, "Not configured - set the Console Address and API Key")
   log:print("API key forgotten")
 end
@@ -703,7 +733,12 @@ function pushCameraStates(cameras)
   for key, binding in pairs(bindings:getDynamicBindings(CAMERA_BINDING_NS)) do
     local cam = byId[key]
     if cam ~= nil then
-      sendToCamera(binding, "PROTECT_STATE", { id = cam.id, name = cam.name, state = cam.state })
+      sendToCamera(binding, "PROTECT_STATE", {
+        id = cam.id,
+        name = cam.name,
+        state = cam.state,
+        snapshot_url = relaySnapshotUrl(cam.id),
+      })
     end
   end
 end
@@ -716,6 +751,7 @@ local function cameraReplyParams(cam)
     mac = cam.mac,
     state = cam.state,
     console_host = consoleHost(),
+    snapshot_url = relaySnapshotUrl(cam.id),
   }
 end
 
@@ -1008,4 +1044,205 @@ stopEventsSocket = function()
     end)
   end
   UpdateProperty("Event Stream", "Off")
+end
+
+-- ─── Snapshot relay ───────────────────────────────────────────────────────────
+--
+-- The one bridge that makes snapshots possible on the OFFICIAL API alone:
+-- the console's snapshot endpoint demands the X-API-KEY header, and nothing
+-- on the Navigator side can send a header. So this driver listens on a
+-- controller port, fetches the JPEG from the console WITH the key, and
+-- serves it plain on the LAN:
+--
+--     GET http://<controller>:<Relay Port>/snapshot/<cameraId>[?hq=1]
+--
+-- Camera thumbnails, push-notification stills and platform uploads all feed
+-- off this one URL shape. Only ids with a camera binding behind them are
+-- served — everything else is a 404 — and the relay exposes exactly what
+-- Protect's own "anonymous snapshot" option would, scoped to the LAN.
+
+--- Identifier passed to CreateServer so callbacks can tell this server from
+--- any future listener this driver grows.
+local SNAPSHOT_RELAY_ID = "protect-snapshot-relay"
+
+--- The port the relay is actually listening on, or nil when stopped.
+gRelayPort = nil
+
+--- The relay host as published in snapshot URLs, or "" when unknown.
+--- @return string host
+local function relayHost()
+  local configured = tostring(Properties["Relay Address"] or ""):gsub("%s+", "")
+  if configured ~= "" and configured:lower() ~= "auto" then
+    return configured
+  end
+  -- Auto: the controller's own LAN address, as Director reports it on a
+  -- controller device's network binding. Best-effort — a project can be
+  -- arranged in ways this cannot see, which is what the property override
+  -- is for.
+  local ok, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not ok or type(devices) ~= "table" then
+    return ""
+  end
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring((type(device) == "table" and device.driverFileName) or "")
+    if id ~= nil and file:find("^control4_") ~= nil then
+      local okB, raw = pcall(function()
+        return C4:GetNetworkBindingsByDevice(id)
+      end)
+      if okB and type(raw) == "table" then
+        for _, binding in ipairs(raw.networkbindings or {}) do
+          local addr = tostring(binding.addr or "")
+          if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
+            return addr
+          end
+        end
+      end
+    end
+  end
+  return ""
+end
+
+--- One snapshot URL, or nil when the relay cannot publish. (Assigns the
+--- forward declaration.)
+--- @param cameraId string
+--- @param highQuality boolean|nil
+--- @return string|nil url
+relaySnapshotUrl = function(cameraId, highQuality)
+  if gRelayPort == nil then
+    return nil
+  end
+  local host = relayHost()
+  if host == "" then
+    return nil
+  end
+  return string.format("http://%s:%d/snapshot/%s%s", host, gRelayPort, cameraId, highQuality and "?hq=1" or "")
+end
+
+--- Answers one HTTP client and closes it. Always closes: the relay speaks
+--- exactly one request per connection, which keeps the handle bookkeeping at
+--- zero.
+--- @param handle number The connection handle.
+--- @param status string e.g. "200 OK".
+--- @param contentType string
+--- @param body string
+local function relayRespond(handle, status, contentType, body)
+  body = body or ""
+  local response = table.concat({
+    "HTTP/1.1 " .. status,
+    "Content-Type: " .. contentType,
+    "Content-Length: " .. #body,
+    "Cache-Control: no-store",
+    "Connection: close",
+    "",
+    body,
+  }, "\r\n")
+  pcall(function()
+    C4:ServerSend(handle, response)
+  end)
+  pcall(function()
+    C4:ServerCloseClient(handle)
+  end)
+end
+
+--- One HTTP request off the wire. Deliberately minimal: GET, one known path
+--- shape, everything else refused. A browser poking the port gets honest
+--- 404s, not surprises.
+--- @param handle number The connection handle.
+--- @param data string The raw request bytes.
+local function handleRelayRequest(handle, data)
+  local method, path = tostring(data or ""):match("^(%u+)%s+(%S+)")
+  if method == nil then
+    relayRespond(handle, "400 Bad Request", "text/plain", "bad request")
+    return
+  end
+  if method ~= "GET" then
+    relayRespond(handle, "405 Method Not Allowed", "text/plain", "GET only")
+    return
+  end
+  local cameraId, query = path:match("^/snapshot/([%w%-]+)%??(.*)$")
+  if cameraId == nil then
+    relayRespond(handle, "404 Not Found", "text/plain", "not found")
+    return
+  end
+  -- Serve only ids this driver has a camera binding for. The binding table
+  -- is persisted, so the relay answers correctly even before the first poll
+  -- after a restart.
+  if bindings:getDynamicBinding(CAMERA_BINDING_NS, cameraId) == nil then
+    relayRespond(handle, "404 Not Found", "text/plain", "unknown camera")
+    return
+  end
+  if not isConfigured() then
+    relayRespond(handle, "503 Service Unavailable", "text/plain", "gateway not configured")
+    return
+  end
+  configureClient()
+  local highQuality = query:find("hq=1", 1, true) ~= nil or query:find("hq=true", 1, true) ~= nil
+  protect:getSnapshot(cameraId, highQuality):next(function(res)
+    if type(res.body) ~= "string" or res.body == "" then
+      relayRespond(handle, "502 Bad Gateway", "text/plain", "console returned no image")
+      return
+    end
+    relayRespond(handle, "200 OK", "image/jpeg", res.body)
+  end, function(err)
+    relayRespond(handle, "502 Bad Gateway", "text/plain", describeFailure(err))
+  end)
+end
+
+function OnServerDataIn(handle, data, _, _, identifier)
+  if identifier ~= nil and identifier ~= SNAPSHOT_RELAY_ID then
+    return
+  end
+  local ok, err = pcall(handleRelayRequest, handle, data)
+  if not ok then
+    log:warn("Snapshot relay request failed: %s", tostring(err))
+    pcall(function()
+      C4:ServerCloseClient(handle)
+    end)
+  end
+end
+
+--- Starts (or restarts) the relay per the properties. (Assigns the forward
+--- declaration.)
+startSnapshotRelay = function()
+  stopSnapshotRelay()
+  if Properties["Snapshot Relay"] ~= "On" then
+    UpdateProperty("Relay Status", "Off")
+    return
+  end
+  local port = tonumber(Properties["Relay Port"]) or 47800
+  local ok = pcall(function()
+    C4:CreateServer(port, "", false, SNAPSHOT_RELAY_ID)
+  end)
+  if not ok then
+    UpdateProperty("Relay Status", "Failed to listen on port " .. port)
+    log:error("Snapshot relay could not listen on port %s", port)
+    return
+  end
+  gRelayPort = port
+  local host = relayHost()
+  if host ~= "" then
+    UpdateProperty("Relay Status", string.format("Serving http://%s:%d/snapshot/<camera>", host, port))
+  else
+    -- Listening, but URLs cannot be published without a host the LAN can
+    -- reach. Said plainly, with the fix in the sentence.
+    UpdateProperty(
+      "Relay Status",
+      string.format("Listening on port %d - set Relay Address to the controller's IP", port)
+    )
+  end
+end
+
+--- Stops the relay. (Assigns the forward declaration.)
+stopSnapshotRelay = function()
+  if gRelayPort ~= nil then
+    local port = gRelayPort
+    gRelayPort = nil
+    pcall(function()
+      C4:DestroyServer(port)
+    end)
+  end
+  UpdateProperty("Relay Status", "Off")
 end

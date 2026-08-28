@@ -228,6 +228,10 @@ Properties = {
   ["Chimes"] = "-",
   ["Last Sync"] = "Never",
   ["Event Stream"] = "Off",
+  ["Snapshot Relay"] = "On",
+  ["Relay Port"] = "47800",
+  ["Relay Address"] = "10.0.0.5",
+  ["Relay Status"] = "Off",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
 }
@@ -691,6 +695,91 @@ check(
   #deviceSentTo(777, "PROTECT_EVENT")
 )
 check("without a binding duplicate", #proxySentTo(frontBinding, "PROTECT_EVENT") == 0)
+
+-- ─── [19] The snapshot relay ─────────────────────────────────────────────────
+
+print("\n[19] The relay serves known cameras with the key, and only those")
+
+local servers, serverSends, serverCloses = {}, {}, {}
+function C4:CreateServer(port, delimiter, useUDP, identifier)
+  table.insert(servers, { port = port, delimiter = delimiter, useUDP = useUDP, identifier = identifier })
+  return true
+end
+function C4:ServerSend(handle, data)
+  table.insert(serverSends, { handle = handle, data = data })
+end
+function C4:ServerCloseClient(handle)
+  table.insert(serverCloses, handle)
+end
+function C4:DestroyServer() end
+
+-- Re-run startup wiring now that the stubs exist (the earlier LateInit ran
+-- without CreateServer, whose absence the driver absorbs via pcall).
+OnPropertyChanged("Snapshot Relay")
+check("a server was created", #servers >= 1, #servers)
+local server = servers[#servers]
+check("on the Relay Port", (server or {}).port == 47800, (server or {}).port)
+check("TCP", (server or {}).useUDP ~= true)
+
+routes = {
+  {
+    match = "/v1/cameras/cam-front/snapshot",
+    method = "GET",
+    ok = true,
+    code = 200,
+    body = "JPEGBYTES",
+  },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+}
+
+requests = {}
+serverSends = {}
+serverCloses = {}
+OnServerDataIn(
+  7,
+  "GET /snapshot/cam-front?hq=1 HTTP/1.1\r\nHost: x\r\n\r\n",
+  "10.0.0.9",
+  55555,
+  "protect-snapshot-relay"
+)
+check("the console was asked for the snapshot", #requests == 1, #requests)
+check(
+  "with highQuality forwarded",
+  tostring((requests[1] or {}).url):find("highQuality=true", 1, true) ~= nil,
+  (requests[1] or {}).url
+)
+check("with the API key", ((requests[1] or {}).headers or {})["X-API-KEY"] == "secret-key-123")
+check("a 200 with the JPEG went back", #serverSends == 1 and serverSends[1].data:find("200 OK", 1, true) ~= nil)
+check("as image/jpeg", serverSends[1].data:find("image/jpeg", 1, true) ~= nil)
+check("carrying the bytes", serverSends[1].data:find("JPEGBYTES", 1, true) ~= nil)
+check("and the connection closed", #serverCloses == 1, #serverCloses)
+
+serverSends = {}
+serverCloses = {}
+requests = {}
+OnServerDataIn(8, "GET /snapshot/cam-nonsense HTTP/1.1\r\n\r\n", "10.0.0.9", 55556, "protect-snapshot-relay")
+check("an unknown camera is a 404", #serverSends == 1 and serverSends[1].data:find("404", 1, true) ~= nil)
+check("and never reaches the console", #requests == 0, #requests)
+
+serverSends = {}
+OnServerDataIn(9, "GET / HTTP/1.1\r\n\r\n", "10.0.0.9", 55557, "protect-snapshot-relay")
+check("a browser poking the root gets a 404", serverSends[1].data:find("404", 1, true) ~= nil)
+
+serverSends = {}
+OnServerDataIn(10, "POST /snapshot/cam-front HTTP/1.1\r\n\r\n", "10.0.0.9", 55558, "protect-snapshot-relay")
+check("non-GET refused", serverSends[1].data:find("405", 1, true) ~= nil)
+
+print("\n[20] Identity replies publish the relay URL")
+
+routeHappyConsole()
+deviceSent = {}
+EC.PROTECT_GET_CAMERA({ requester = "777" })
+local snapCam = deviceSentTo(777, "PROTECT_CAMERA")
+check(
+  "snapshot_url published with host, port and camera id",
+  ((snapCam[1] or {}).params or {}).snapshot_url == "http://10.0.0.5:47800/snapshot/cam-front",
+  ((snapCam[1] or {}).params or {}).snapshot_url
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
