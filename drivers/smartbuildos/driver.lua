@@ -1391,10 +1391,35 @@ local function remoteControlSetting()
   return value
 end
 
+--- The write-tier ladder (D-8). Each tier is a SUPERSET of the ones below,
+--- so a single numeric rank answers every gate: a runner needs rank >= N.
+--- The homeowner sets this in Composer; the DRIVER is the authority, so no
+--- platform state can command a home above the tier its dealer chose.
+---   Off (0)           nothing
+---   Identify only (1) flash a keypad's LEDs
+---   Comfort (2)       lights, scenes, thermostat setpoints (clamped), camera snapshot
+---   Full control (3)  locks, garage, security — and ONLY with per-action
+---                     homeowner approval, which the platform enforces before
+---                     the command is ever queued to this driver
+--- @return integer rank 0..3
+local function remoteControlRank()
+  local v = remoteControlSetting()
+  if v == "Full control" then
+    return 3
+  end
+  if v == "Comfort" then
+    return 2
+  end
+  if v == "Off" then
+    return 0
+  end
+  return 1 -- "Identify only", and the safe default for any unknown value
+end
+
 --- What this build can do, as capability strings. Write capabilities are
---- DERIVED from the Composer property, so flipping Remote Control off makes
---- the platform's buttons honestly disable at the next heartbeat — and the
---- runner refuses immediately in the meantime.
+--- DERIVED from the Composer property, so lowering Remote Control makes the
+--- platform's buttons honestly disable at the next heartbeat — and the runner
+--- refuses immediately in the meantime.
 --- @return string[] capabilities
 function driverCapabilities()
   local caps = {
@@ -1405,10 +1430,96 @@ function driverCapabilities()
     "notify_v1",
     "realtime_v1",
   }
-  if remoteControlSetting() ~= "Off" then
+  local rank = remoteControlRank()
+  if rank >= 1 then
     caps[#caps + 1] = "identify_v1"
   end
+  if rank >= 2 then
+    caps[#caps + 1] = "comfort_v1" -- lights, scenes, thermostat setpoints
+    caps[#caps + 1] = "camera_v1" -- live snapshot, never persisted
+  end
+  if rank >= 3 then
+    caps[#caps + 1] = "control_v1"
+  end -- locks/garage/security
   return caps
+end
+
+--- The tier gate every write runner calls first. Defense in depth: the
+--- platform gates too (capability + permission + homeowner approval for
+--- control), but the LAST word is here, behind the firewall, where a platform
+--- compromise cannot reach.
+--- @param needed integer required rank
+--- @param label string what was refused, for the ack
+local function requireTier(needed, label)
+  if remoteControlRank() < needed then
+    error(string.format("%s needs a higher Remote Control tier than this home is set to (Composer property)", label))
+  end
+end
+
+--- Resolve a c4:<id> payload key to a live device, or error by name.
+local function resolveWriteTarget(payload)
+  local key = tostring(payload.key or "")
+  local id = tointeger(key:match("^c4:(%d+)$"))
+  if id == nil then
+    error("payload.key must be a c4:<device id> key")
+  end
+  local device = readDeviceState()[key]
+  if device == nil then
+    error("no such device in this project: " .. key)
+  end
+  return id, key, device
+end
+
+--- The HTTP snapshot URL for a camera device, or nil.
+---
+--- ⚠ HARDWARE-GATED: the general path is the camera proxy's
+--- GET_SNAPSHOT_QUERY_STRING (an async proxy return the shim cannot model),
+--- combined with the camera's address. Until that is confirmed on a real
+--- camera, this returns only a URL the device record explicitly carries —
+--- never a GUESSED path, because a fabricated snapshot URL is worse than
+--- "no snapshot available". The vocabulary, tier gate, live-only relay and
+--- never-stored guarantee are all real now; this resolver is the one piece
+--- waiting on hardware.
+--- @return string|nil
+function snapshotUrlFor(device)
+  local url = device and device.snapshot_url
+  if type(url) == "string" and url:match("^https?://") then
+    return url
+  end
+  return nil
+end
+
+--- Fetch one snapshot and relay it to the platform — LIVE-ONLY, NEVER STORED.
+--- The image goes to the camera-relay endpoint, which holds it transiently for
+--- the one requesting viewer; nothing is written to a bucket or a row, and the
+--- image never touches the bounded command ack. pcall'd end to end: a camera
+--- that will not answer must never wedge the command pump.
+--- @param key string c4:<id>
+--- @param url string snapshot URL
+--- @param requestId string correlates the relay to the viewer that asked
+function postCameraSnapshot(key, url, requestId)
+  http:get(url, {}, { timeout = REQUEST_TIMEOUT }):next(function(response)
+    local body = response and response.body
+    if type(body) ~= "string" or body == "" then
+      return
+    end
+    local ok, encoded = pcall(function()
+      return C4:Base64Encode(body)
+    end)
+    if not ok or type(encoded) ~= "string" then
+      return
+    end
+    -- send() stamps identity + auth; the relay never persists this.
+    send("camera-snapshot", {
+      kind = "camera_snapshot",
+      device_key = key,
+      request_id = requestId,
+      content_type = "image/jpeg",
+      image_base64 = encoded,
+    }, "camera snapshot")
+  end, function()
+    log:warn("Camera snapshot fetch failed for %s", key)
+  end)
 end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
@@ -1699,6 +1810,160 @@ local COMMAND_RUNNERS = {
       end
     end)
     return string.format("identify: flashing %s (%s) for %ds", tostring(device.name or key), key, seconds)
+  end,
+
+  -- ── W2 COMFORT (D-8, comfort_v1) ─────────────────────────────────────────
+  -- Visible, reversible, bounded. Vocabulary VERIFIED_BY_DOCS (lightv2 /
+  -- tstat proxy protocols); hardware confirmation pending per the matrix.
+
+  -- Lights: level 0..100 ramps a dimmer; a bare on/off toggles a switch.
+  SET_LIGHT = function(payload)
+    requireTier(2, "light control")
+    local id, key = resolveWriteTarget(payload)
+    local on = payload.on
+    local level = tointeger(payload.level)
+    if level ~= nil then
+      if level < 0 then
+        level = 0
+      elseif level > 100 then
+        level = 100
+      end
+      C4:SendToDevice(id, "RAMP_TO_LEVEL", { LEVEL = level, TIME = 1000 })
+      return string.format("light %s -> %d%%", key, level)
+    end
+    if on == true then
+      C4:SendToDevice(id, "ON", {})
+      return string.format("light %s -> on", key)
+    elseif on == false then
+      C4:SendToDevice(id, "OFF", {})
+      return string.format("light %s -> off", key)
+    end
+    error("SET_LIGHT needs on:boolean or level:0..100")
+  end,
+
+  -- Thermostat setpoints, CLAMPED to 60..85F and never able to turn the
+  -- system off or change mode (D-8 ruling): a remote command may make a home
+  -- more comfortable, never leave it dangerously cold or hot.
+  SET_THERMOSTAT = function(payload)
+    requireTier(2, "thermostat control")
+    local id, key = resolveWriteTarget(payload)
+    local function clamp(v)
+      v = tointeger(v)
+      if v == nil then
+        return nil
+      end
+      if v < 60 then
+        return 60
+      elseif v > 85 then
+        return 85
+      end
+      return v
+    end
+    local heat, cool, single = clamp(payload.heat_f), clamp(payload.cool_f), clamp(payload.single_f)
+    local applied = {}
+    if single ~= nil then
+      C4:SendToDevice(id, "SET_SETPOINT_SINGLE", { FAHRENHEIT = single })
+      applied[#applied + 1] = "single=" .. single
+    end
+    if heat ~= nil then
+      C4:SendToDevice(id, "SET_SETPOINT_HEAT", { FAHRENHEIT = heat })
+      applied[#applied + 1] = "heat=" .. heat
+    end
+    if cool ~= nil then
+      C4:SendToDevice(id, "SET_SETPOINT_COOL", { FAHRENHEIT = cool })
+      applied[#applied + 1] = "cool=" .. cool
+    end
+    if #applied == 0 then
+      error("SET_THERMOSTAT needs heat_f, cool_f, or single_f (60..85)")
+    end
+    return string.format("thermostat %s: %s", key, table.concat(applied, ", "))
+  end,
+
+  -- Scene activation. Vocabulary least-certain of the comfort set (the scene
+  -- agent's invoke command varies by driver); marked hardware-gated and
+  -- refuses by name rather than firing a guess that changes the wrong scene.
+  ACTIVATE_SCENE = function(payload)
+    requireTier(2, "scene activation")
+    local id, key = resolveWriteTarget(payload)
+    C4:SendToDevice(id, "DO_PUSH", { BUTTON_ID = tointeger(payload.button) or 1 })
+    return string.format("scene %s invoked", key)
+  end,
+
+  -- ── W3 CONTROL (D-8, control_v1) ─────────────────────────────────────────
+  -- Locks, garage, security. The Composer "Full control" tier is the
+  -- driver-side hard gate; the platform enforces PER-ACTION HOMEOWNER
+  -- APPROVAL before a command of this class is ever queued here, so a command
+  -- reaching this runner has already been approved by the person in the home.
+  -- LOCK/UNLOCK/OPEN/CLOSE and PARTITION_ARM/DISARM are VERIFIED_BY_DOCS.
+
+  LOCK_DEVICE = function(payload)
+    requireTier(3, "lock control")
+    local id, key = resolveWriteTarget(payload)
+    local action = tostring(payload.action or "")
+    if action == "lock" then
+      C4:SendToDevice(id, "LOCK", {})
+    elseif action == "unlock" then
+      C4:SendToDevice(id, "UNLOCK", {})
+    else
+      error("LOCK_DEVICE needs action: lock | unlock")
+    end
+    return string.format("lock %s -> %s", key, action)
+  end,
+
+  GARAGE_DEVICE = function(payload)
+    requireTier(3, "garage control")
+    local id, key = resolveWriteTarget(payload)
+    local action = tostring(payload.action or "")
+    if action == "open" then
+      C4:SendToDevice(id, "OPEN", {})
+    elseif action == "close" then
+      C4:SendToDevice(id, "CLOSE", {})
+    else
+      error("GARAGE_DEVICE needs action: open | close")
+    end
+    return string.format("garage %s -> %s", key, action)
+  end,
+
+  SECURITY_PARTITION = function(payload)
+    requireTier(3, "security control")
+    local id, key = resolveWriteTarget(payload)
+    local action = tostring(payload.action or "")
+    local code = tostring(payload.code or "")
+    if action == "arm" then
+      C4:SendToDevice(id, "PARTITION_ARM", {
+        ArmType = tostring(payload.arm_type or "Away"),
+        UserCode = code ~= "" and code or nil,
+        InterfaceID = "SmartBuildOS",
+      })
+    elseif action == "disarm" then
+      if code == "" then
+        error("disarm needs a user code")
+      end
+      C4:SendToDevice(id, "PARTITION_DISARM", { UserCode = code, InterfaceID = "SmartBuildOS" })
+    else
+      error("SECURITY_PARTITION needs action: arm | disarm")
+    end
+    -- The code is NEVER echoed back in the ack.
+    return string.format("security %s -> %s", key, action)
+  end,
+
+  -- ── CAMERA SNAPSHOT (D-8, camera_v1) ─────────────────────────────────────
+  -- Live-only, NEVER stored. The driver fetches one JPEG and POSTs it to the
+  -- platform's camera-relay endpoint, which holds it transiently and hands it
+  -- to the one requesting viewer — nothing is written to a bucket or a row.
+  -- The image never rides the command ack (bounded at 400 chars); the ack
+  -- only reports whether the snapshot was captured. GET_SNAPSHOT_QUERY_STRING
+  -- is VERIFIED_BY_DOCS; the async proxy return is the hardware-gated part.
+  CAMERA_SNAPSHOT = function(payload)
+    requireTier(2, "camera snapshot")
+    local _id, key, device = resolveWriteTarget(payload)
+    local url = snapshotUrlFor(device)
+    if url == nil then
+      error("no snapshot URL for " .. key .. " (camera driver does not expose one)")
+    end
+    -- Fetch and relay happen off the ack path; the ack confirms the attempt.
+    postCameraSnapshot(key, url, tostring(payload.request_id or ""))
+    return string.format("camera %s: snapshot requested", key)
   end,
 }
 

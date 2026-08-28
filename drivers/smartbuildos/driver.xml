@@ -336,9 +336,11 @@
         <items>
           <item>Off</item>
           <item>Identify only</item>
+          <item>Comfort</item>
+          <item>Full control</item>
         </items>
         <default>Identify only</default>
-        <description>What SmartBuildOS may COMMAND in this home (D-8). Off: the driver refuses every write verb regardless of what the platform sends — this gate lives here, on the controller, so no platform compromise can reach a home that has not opted in. Identify only: flashing keypad LEDs to physically locate a device; nothing that changes how the home behaves.</description>
+        <description>What SmartBuildOS may COMMAND in this home (D-8), each tier a superset of the ones above it. This gate lives HERE, on the controller, so no platform compromise can command a home above the tier its dealer chose. Off: refuses every write. Identify only: flash a keypad's LEDs to locate a device — nothing that changes how the home behaves. Comfort: lights, scenes, thermostat setpoints (clamped 60–85°F, never off), and live camera snapshots. Full control: locks, garage, and security — and even then SmartBuildOS requires the HOMEOWNER to approve each one on their phone before it runs.</description>
       </property>
       <property>
         <name>Paired Property</name>

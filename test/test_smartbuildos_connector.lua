@@ -2511,5 +2511,126 @@ check(
 
 SetTimer = savedSetTimer51
 
+print("\n[52] W2/W3/camera: the tier ladder and the write gates (D-8)")
+pair()
+
+local sent52 = {}
+C4.SendToDevice = function(_, id, cmd, params)
+  sent52[#sent52 + 1] = { id = id, cmd = cmd, params = params }
+end
+
+local function caps()
+  reset()
+  nextResponse = { ok = true, code = 200, body = {} }
+  EC.SEND_HEARTBEAT()
+  return requests[1] and requests[1].data and requests[1].data.capabilities or {}
+end
+local function hasCap(list, name)
+  for _, c in ipairs(list) do
+    if c == name then
+      return true
+    end
+  end
+  return false
+end
+local function runCmd(command, payload)
+  reset()
+  sent52 = {}
+  nextResponse = {
+    ok = true,
+    code = 200,
+    body = { commands = { { id = "52a00000-1111-4222-8333-444455556666", command = command, payload = payload } } },
+  }
+  EC.SEND_HEARTBEAT()
+  local hb = requests[#requests]
+  return hb and hb.data and hb.data.acks and hb.data.acks[1] or nil
+end
+
+Properties["Remote Control"] = "Identify only"
+local c1 = caps()
+check(
+  "Identify only declares identify_v1 but not comfort/control",
+  hasCap(c1, "identify_v1") and not hasCap(c1, "comfort_v1") and not hasCap(c1, "control_v1")
+)
+
+Properties["Remote Control"] = "Comfort"
+local c2 = caps()
+check(
+  "Comfort adds comfort_v1 + camera_v1, still no control_v1",
+  hasCap(c2, "comfort_v1") and hasCap(c2, "camera_v1") and not hasCap(c2, "control_v1")
+)
+
+Properties["Remote Control"] = "Full control"
+local c3 = caps()
+check("Full control adds control_v1", hasCap(c3, "control_v1"))
+
+-- W2 lights (device 25 = dimmer)
+Properties["Remote Control"] = "Comfort"
+local ack = runCmd("SET_LIGHT", { key = "c4:25", level = 40 })
+check(
+  "SET_LIGHT ramps a dimmer at Comfort",
+  #sent52 == 1 and sent52[1].cmd == "RAMP_TO_LEVEL" and sent52[1].params.LEVEL == 40,
+  ack and tostring(ack.result)
+)
+runCmd("SET_LIGHT", { key = "c4:25", level = 250 })
+check("light level clamps to 100", sent52[1].params.LEVEL == 100)
+
+-- W2 thermostat clamp
+runCmd("SET_THERMOSTAT", { key = "c4:25", heat_f = 50, cool_f = 200 })
+local heatV, coolV
+for _, s in ipairs(sent52) do
+  if s.cmd == "SET_SETPOINT_HEAT" then
+    heatV = s.params.FAHRENHEIT
+  end
+  if s.cmd == "SET_SETPOINT_COOL" then
+    coolV = s.params.FAHRENHEIT
+  end
+end
+check(
+  "thermostat setpoints clamp to 60..85",
+  heatV == 60 and coolV == 85,
+  string.format("heat=%s cool=%s", tostring(heatV), tostring(coolV))
+)
+
+-- W3 refused at Comfort
+ack = runCmd("LOCK_DEVICE", { key = "c4:43", action = "unlock" })
+check(
+  "a lock command is REFUSED at the Comfort tier",
+  ack ~= nil and ack.ok == false and tostring(ack.error):find("higher Remote Control tier", 1, true) ~= nil,
+  ack and tostring(ack.error)
+)
+check("a refused lock sends nothing to the device", #sent52 == 0)
+
+-- W3 works at Full control
+Properties["Remote Control"] = "Full control"
+ack = runCmd("LOCK_DEVICE", { key = "c4:43", action = "unlock" })
+check("unlock dispatches UNLOCK at Full control", #sent52 == 1 and sent52[1].cmd == "UNLOCK" and ack.ok == true)
+
+-- Security: disarm needs a code, and the code never appears in the ack
+ack = runCmd("SECURITY_PARTITION", { key = "c4:43", action = "disarm" })
+check("disarm without a code is refused", ack.ok == false and tostring(ack.error):find("user code", 1, true) ~= nil)
+ack = runCmd("SECURITY_PARTITION", { key = "c4:43", action = "disarm", code = "1234" })
+check(
+  "disarm with a code dispatches PARTITION_DISARM",
+  #sent52 == 1 and sent52[1].cmd == "PARTITION_DISARM" and sent52[1].params.UserCode == "1234"
+)
+check("the user code is NEVER echoed in the ack", tostring(ack.result):find("1234", 1, true) == nil)
+
+-- Camera: no snapshot URL yet → honest refusal, never a fabricated success
+ack = runCmd("CAMERA_SNAPSHOT", { key = "c4:25", request_id = "r1" })
+check(
+  "camera snapshot refuses honestly when no URL is available",
+  ack.ok == false and tostring(ack.error):find("no snapshot URL", 1, true) ~= nil
+)
+
+-- Off refuses everything, whatever the platform sends
+Properties["Remote Control"] = "Off"
+ack = runCmd("SET_LIGHT", { key = "c4:25", on = true })
+check(
+  "Off refuses even a light command",
+  ack.ok == false and tostring(ack.error):find("higher Remote Control tier", 1, true) ~= nil
+)
+Properties["Remote Control"] = "Identify only"
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
