@@ -229,6 +229,13 @@ Properties = {
   ["Last Sync"] = "Never",
   ["Event Stream"] = "Off",
   ["Snapshot Relay"] = "On",
+  ["Viewers"] = "-",
+  ["Arm Mode"] = "-",
+  ["Arm Profile"] = "-",
+  ["Offline Devices"] = "-",
+  ["Last Event"] = "-",
+  ["Webhook Token"] = "testtoken",
+  ["SmartBuildOS Reporting"] = "Off",
   ["Relay Port"] = "47800",
   ["Relay Address"] = "10.0.0.5",
   ["Relay Status"] = "Off",
@@ -314,35 +321,47 @@ check("inventory persisted", type(store["protect_inventory"]) == "table")
 
 print("\n[4] One provider CONTROL binding per camera, idempotent")
 
+-- Camera-class bindings only: the sync now also creates sensor/light/viewer
+-- bindings, which have their own assertions.
 local function countBindings()
   local n = 0
-  for _ in pairs(addedBindings) do
-    n = n + 1
+  for _, b in pairs(addedBindings) do
+    if b.class == "UNIFI_PROTECT_CAMERA" then
+      n = n + 1
+    end
   end
   return n
 end
 
 check("two bindings created", countBindings() == 2, countBindings())
-local sawFront, sawClass, sawProvider = false, true, true
+-- The sync also creates sensor bindings now; camera assertions look only at
+-- camera-class rows, and the sensor gets its own.
+local sawFront, sawClass, sawProvider, sawSensor = false, true, true, false
 for _, b in pairs(addedBindings) do
-  if b.name == "Front Door" then
-    sawFront = true
-  end
-  if b.class ~= "UNIFI_PROTECT_CAMERA" then
+  if b.class == "UNIFI_PROTECT_CAMERA" then
+    if b.name == "Front Door" then
+      sawFront = true
+    end
+    if b.type ~= "CONTROL" or b.provider ~= true then
+      sawProvider = false
+    end
+  elseif b.class == "UNIFI_PROTECT_SENSOR" then
+    sawSensor = true
+  else
     sawClass = false
-  end
-  if b.type ~= "CONTROL" or b.provider ~= true then
-    sawProvider = false
   end
 end
 check("binding carries the camera name", sawFront)
-check("class is UNIFI_PROTECT_CAMERA", sawClass)
+check("only known Protect binding classes", sawClass)
 check("provider CONTROL bindings", sawProvider)
+check("the fixture sensor got its own binding", sawSensor)
 
 requests = {}
 EC.SYNC_DEVICES()
 check("re-sync creates no duplicate bindings", countBindings() == 2, countBindings())
-check("re-sync polled the console", #requests == 4, #requests)
+-- 10 inventory GETs (cameras, lights, sensors, chimes + six optional v7
+-- resources) plus the NVR alarm-state read.
+check("re-sync polled the console", #requests == 11, #requests)
 
 -- ─── [5] A vanished camera does not lose its binding ─────────────────────────
 

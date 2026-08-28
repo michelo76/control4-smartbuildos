@@ -120,6 +120,23 @@ local pushCameraStates
 --- The live events websocket, or nil when not running.
 gEventsSocket = nil
 
+--- When the last websocket event arrived (display string), or nil.
+gLastEventAt = nil
+
+--- Last known alarm state off the NVR object: { armMode, armProfileId, breachDetectedAt }.
+gAlarm = {}
+
+--- ulp-users id -> { name, active } cache, refreshed lazily.
+gUlpUsers = nil
+gUlpUsersFetchedAt = 0
+
+--- Per-webhook-name last-accepted time (os.time), for the flood guard.
+gWebhookLast = {}
+
+--- Serialized roster last handed to SmartBuildOS, to skip no-change pushes.
+gSbosLastRoster = nil
+gSbosConnectorId = nil
+
 --- Forward declarations; defined in the Live Events section at the bottom,
 --- called from lifecycle and property handlers above it.
 local startEventsSocket, stopEventsSocket
@@ -127,6 +144,10 @@ local startEventsSocket, stopEventsSocket
 --- Forward declarations; defined in the Snapshot Relay section at the
 --- bottom, called from lifecycle and property handlers above it.
 local startSnapshotRelay, stopSnapshotRelay, relaySnapshotUrl
+
+--- Forward declarations for the security/alarm/health section at the bottom.
+local applyNvrState, ensureKindBindings, pushDeviceStates, announceDeviceTransitions
+local pushSbosRoster, fireGatewayEvent, registerGatewayEvents, handleWebhookRequest, forwardIdentityEvent
 
 -- ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -180,11 +201,37 @@ end
 --- settings this driver has no use for; keeping the cache small keeps the
 --- persist write small.
 local function summarizeCamera(item)
+  -- Capability flags, straight from the API's own metadata (never model-name
+  -- matching): flat comma-joined strings because they ride binding params.
+  local flags = type(item.featureFlags) == "table" and item.featureFlags or {}
+  local caps = {}
+  if flags.hasMic then
+    table.insert(caps, "mic")
+  end
+  if flags.hasSpeaker then
+    table.insert(caps, "speaker")
+  end
+  if flags.hasLedStatus then
+    table.insert(caps, "led")
+  end
+  if flags.hasHdr then
+    table.insert(caps, "hdr")
+  end
+  if item.lcdMessage ~= nil then
+    table.insert(caps, "lcd")
+  end
+  local function joined(list)
+    return type(list) == "table" and table.concat(list, ",") or ""
+  end
   return {
     id = tostring(item.id or ""),
     name = tostring(item.name or "Camera"),
     mac = tostring(item.mac or ""),
     state = tostring(item.state or "UNKNOWN"),
+    caps = table.concat(caps, ","),
+    detects = joined(flags.smartDetectTypes),
+    audio_detects = joined(flags.smartDetectAudioTypes),
+    video_modes = joined(flags.videoModes),
   }
 end
 
@@ -192,7 +239,65 @@ local function summarizeDevice(item)
   return {
     id = tostring(item.id or ""),
     name = tostring(item.name or ""),
+    mac = tostring(item.mac or ""),
     state = tostring(item.state or "UNKNOWN"),
+  }
+end
+
+--- Sensor extras: readings ride as strings; absent hardware reads as absent
+--- keys, never as zeroes.
+local function summarizeSensor(item)
+  local s = summarizeDevice(item)
+  s.mount = tostring(item.mountType or "none")
+  local battery = Select(item, "batteryStatus", "percentage")
+  if battery ~= nil then
+    s.battery = tostring(battery)
+  end
+  local temperature = Select(item, "stats", "temperature", "value")
+  if temperature ~= nil then
+    s.temperature = tostring(temperature)
+  end
+  local humidity = Select(item, "stats", "humidity", "value")
+  if humidity ~= nil then
+    s.humidity = tostring(humidity)
+  end
+  local light = Select(item, "stats", "light", "value")
+  if light ~= nil then
+    s.light = tostring(light)
+  end
+  if item.isOpened ~= nil then
+    s.opened = item.isOpened and "true" or "false"
+  end
+  if item.isMotionDetected ~= nil then
+    s.motion = item.isMotionDetected and "true" or "false"
+  end
+  return s
+end
+
+local function summarizeLight(item)
+  local s = summarizeDevice(item)
+  s.on = (item.isLightForceEnabled == true) and "true" or "false"
+  s.mode = tostring(Select(item, "lightModeSettings", "mode") or "")
+  return s
+end
+
+local function summarizeViewer(item)
+  local s = summarizeDevice(item)
+  s.liveview = tostring(item.liveview or "")
+  return s
+end
+
+local function summarizeLiveview(item)
+  return {
+    id = tostring(item.id or ""),
+    name = tostring(item.name or ""),
+  }
+end
+
+local function summarizeArmProfile(item)
+  return {
+    id = tostring(item.id or ""),
+    name = tostring(item.name or ""),
   }
 end
 
@@ -251,16 +356,22 @@ end
 --- @return number staleCount Camera bindings with no camera behind them.
 local function applyInventory(inventory)
   inventory.updated_at = os.date("%Y-%m-%d %H:%M:%S")
+  local previous = gInventory
   gInventory = inventory
 
   UpdateProperty("Cameras", countLabel(inventory.cameras))
   UpdateProperty("Lights", countLabel(inventory.lights))
   UpdateProperty("Sensors", countLabel(inventory.sensors))
   UpdateProperty("Chimes", countLabel(inventory.chimes))
+  UpdateProperty("Viewers", countLabel(inventory.viewers))
   UpdateProperty("Last Sync", inventory.updated_at)
 
   ensureCameraBindings(inventory.cameras)
+  ensureKindBindings(inventory)
   pushCameraStates(inventory.cameras)
+  pushDeviceStates(inventory)
+  announceDeviceTransitions(previous, inventory)
+  pushSbosRoster(inventory)
 
   local staleCount = 0
   for _, binding in pairs(staleCameraBindings()) do
@@ -294,11 +405,20 @@ function syncDevices(onDone)
   configureClient()
 
   local inventory = {}
+  -- `optional` steps are v7-era resources: on an older Protect they 404, and
+  -- a missing siren list must not take down the camera sync. They land as
+  -- empty lists and the feature reports itself unsupported instead.
   local steps = {
     { key = "cameras", fetch = "getCameras", summarize = summarizeCamera },
-    { key = "lights", fetch = "getLights", summarize = summarizeDevice },
-    { key = "sensors", fetch = "getSensors", summarize = summarizeDevice },
+    { key = "lights", fetch = "getLights", summarize = summarizeLight },
+    { key = "sensors", fetch = "getSensors", summarize = summarizeSensor },
     { key = "chimes", fetch = "getChimes", summarize = summarizeDevice },
+    { key = "viewers", fetch = "getViewers", summarize = summarizeViewer, optional = true },
+    { key = "liveviews", fetch = "getLiveviews", summarize = summarizeLiveview, optional = true },
+    { key = "sirens", fetch = "getSirens", summarize = summarizeDevice, optional = true },
+    { key = "relays", fetch = "getRelays", summarize = summarizeDevice, optional = true },
+    { key = "hubs", fetch = "getAlarmHubs", summarize = summarizeDevice, optional = true },
+    { key = "arm_profiles", fetch = "getArmProfiles", summarize = summarizeArmProfile, optional = true },
   }
 
   local function fail(err)
@@ -325,6 +445,11 @@ function syncDevices(onDone)
     protect[s.fetch](protect):next(function(res)
       local list = Protect.decodeBody(res.body)
       if type(list) ~= "table" then
+        if s.optional then
+          inventory[s.key] = {}
+          step(i + 1)
+          return
+        end
         fail({ code = res.code })
         return
       end
@@ -334,10 +459,30 @@ function syncDevices(onDone)
       end
       inventory[s.key] = summarized
       step(i + 1)
-    end, fail)
+    end, function(err)
+      if s.optional then
+        -- Unsupported by this Protect version: an empty list plus a debug
+        -- line, never a failed sync (C2 graceful degradation).
+        log:debug("Optional resource '%s' unavailable: %s", s.key, describeFailure(err))
+        inventory[s.key] = {}
+        step(i + 1)
+        return
+      end
+      fail(err)
+    end)
   end
 
   step(1)
+
+  -- The alarm/breach state rides on the NVR object; refreshed on every sync
+  -- so ARMED/DISARMED/BREACH events track the poll cadence even when the
+  -- websocket is down. Fire-and-forget: alarm state must not gate the sync.
+  protect:getNvr():next(function(res)
+    local nvr = Protect.decodeBody(res.body)
+    if type(nvr) == "table" then
+      applyNvrState(nvr)
+    end
+  end, function() end)
 end
 
 --- Proves the address + key work and reads what they unlock: the Protect
@@ -422,6 +567,19 @@ function OnDriverLateInit()
     if not status and err then
       log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
     end
+  end
+
+  registerGatewayEvents()
+
+  -- Inbound webhooks need a shared secret; mint one on first start so the
+  -- feature works out of the box without the dealer inventing entropy.
+  if tostring(Properties["Webhook Token"] or "") == "" then
+    math.randomseed(os.time() + (tonumber(C4:GetDeviceID()) or 0))
+    local token = {}
+    for _ = 1, 24 do
+      table.insert(token, string.format("%x", math.random(0, 15)))
+    end
+    UpdateProperty("Webhook Token", table.concat(token))
   end
 
   gInitialized = true
@@ -923,18 +1081,54 @@ end
 -- binding; events for devices with no bound child are dropped here — the
 -- child asks for nothing on connect, so there is no queue to overflow.
 
---- Protect event `type` values mapped to the binding protocol's `kind`.
---- Anything not listed (sensor, light, nvr events) has no camera child to
---- route to yet and is deliberately dropped.
---- @type table<string, string>
-local EVENT_KINDS = {
-  motion = "motion",
-  ring = "ring",
-  smartDetectZone = "smart",
-  smartDetectLine = "line",
-  smartDetectLoiterZone = "loiter",
-  smartAudioDetect = "audio",
+--- Where every Protect event type goes. Three targets:
+---   a binding NAMESPACE (cameras/sensors/lights) — normalized and forwarded
+---   to the bound child as PROTECT_EVENT;
+---   "gateway" — fired as this driver's own Composer event (alarm-hub
+---   family: no child driver carries a hub);
+---   "identity" — fingerprint/NFC events resolved against the ulp-users
+---   store, then forwarded to the camera child as a known/unknown person.
+--- Unlisted types are logged at debug and dropped — the EVENT_MATRIX doc is
+--- the authority on what falls where.
+--- @type table<string, table>
+local EVENT_ROUTES = {
+  motion = { ns = "cameras", kind = "motion" },
+  ring = { ns = "cameras", kind = "ring" },
+  smartDetectZone = { ns = "cameras", kind = "smart" },
+  smartDetectLine = { ns = "cameras", kind = "line" },
+  smartDetectLoiterZone = { ns = "cameras", kind = "loiter" },
+  smartAudioDetect = { ns = "cameras", kind = "audio" },
+  fingerprintIdentified = { identity = "fingerprint" },
+  nfcCardScanned = { identity = "nfc" },
+  sensorMotion = { ns = "sensors", kind = "motion" },
+  sensorOpened = { ns = "sensors", kind = "opened" },
+  sensorClosed = { ns = "sensors", kind = "closed" },
+  sensorAlarm = { ns = "sensors", kind = "alarm" },
+  sensorExtremeValues = { ns = "sensors", kind = "extreme" },
+  sensorBatteryLow = { ns = "sensors", kind = "battery" },
+  sensorSmokeBatteryLow = { ns = "sensors", kind = "battery" },
+  sensorWaterLeak = { ns = "sensors", kind = "leak" },
+  sensorTamper = { ns = "sensors", kind = "tamper" },
+  sensorButtonPressed = { ns = "sensors", kind = "button" },
+  sensorCoFault = { ns = "sensors", kind = "cofault" },
+  sensorSmokeTest = { ns = "sensors", kind = "smoketest" },
+  lightMotion = { ns = "lights", kind = "motion" },
+  alarmHubEntryOpened = { gateway = "Entry Opened" },
+  alarmHubEntryClosed = { gateway = "Entry Closed" },
+  alarmHubGlassBreak = { gateway = "Glass Break Detected" },
+  alarmHubSmoke = { gateway = "Smoke Alarm Detected" },
+  alarmHubMotion = { gateway = "Hub Motion Detected" },
+  alarmHubTamper = { gateway = "Hub Tamper Detected" },
+  alarmHubDeviceTamper = { gateway = "Hub Tamper Detected" },
+  alarmHubButtonPress = { gateway = "Hub Button Pressed" },
+  alarmHubBatteryLow = { gateway = "Hub Battery Low" },
+  alarmHubRelaySwitched = { gateway = "Hub Relay Switched" },
 }
+
+--- Finds the binding for a device id in one namespace, or nil.
+local function bindingFor(ns, deviceId)
+  return bindings:getDynamicBinding(ns, deviceId)
+end
 
 --- One frame off the events socket. pcall'd by the caller: a malformed frame
 --- must cost one event, never the socket.
@@ -948,11 +1142,29 @@ local function handleProtectEvent(data)
   if item.modelKey ~= "event" then
     return
   end
-  local kind = EVENT_KINDS[tostring(item.type or "")]
-  if kind == nil then
+  gLastEventAt = os.date("%Y-%m-%d %H:%M:%S")
+  UpdateProperty("Last Event", string.format("%s at %s", tostring(item.type), gLastEventAt))
+
+  local route = EVENT_ROUTES[tostring(item.type or "")]
+  if route == nil then
+    log:debug("Unrouted event type '%s' (see EVENT_MATRIX)", tostring(item.type))
     return
   end
-  local binding = bindings:getDynamicBinding(CAMERA_BINDING_NS, tostring(item.device or ""))
+
+  -- The alarm-hub family fires as this driver's own Composer events.
+  if route.gateway ~= nil then
+    log:info("Alarm hub event: %s", route.gateway)
+    fireGatewayEvent(route.gateway)
+    return
+  end
+
+  -- Identity events resolve a name first, then land on the camera child.
+  if route.identity ~= nil then
+    forwardIdentityEvent(item, route.identity)
+    return
+  end
+
+  local binding = bindingFor(route.ns, tostring(item.device or ""))
   if binding == nil then
     return
   end
@@ -962,22 +1174,30 @@ local function handleProtectEvent(data)
   -- the entire start/end distinction.
   local phase = item["end"] ~= nil and "end" or "start"
 
-  local params = { kind = kind, phase = phase }
+  local params = { kind = route.kind, phase = phase }
   if type(item.smartDetectTypes) == "table" and #item.smartDetectTypes > 0 then
     params.types = table.concat(item.smartDetectTypes, ",")
   end
   if item.start ~= nil then
     params.at = tostring(item.start)
   end
-  -- Plate text, if this Protect version includes it. The published schema
-  -- carries none, so this is a defensive read that upgrades the experience
-  -- when the console provides more than it promises.
+  -- Per-type detail rides in metadata where the console provides it: plate
+  -- text (defensive — not yet in the published schema), sensor extreme
+  -- values (sensorType/sensorValue), alarm classes.
   local plate = Select(item, "metadata", "licensePlate", "text")
   if type(plate) == "string" and plate ~= "" then
     params.value = plate
   end
+  local sensorType = Select(item, "metadata", "sensorType", "text")
+  if sensorType ~= nil then
+    params.sensor_type = tostring(sensorType)
+  end
+  local sensorValue = Select(item, "metadata", "sensorValue", "text")
+  if sensorValue ~= nil then
+    params.sensor_value = tostring(sensorValue)
+  end
 
-  log:debug("Event %s/%s for camera %s -> binding %s", kind, phase, tostring(item.device), binding.bindingId)
+  log:debug("Event %s/%s for %s -> binding %s", route.kind, phase, tostring(item.device), binding.bindingId)
   sendToCamera(binding, "PROTECT_EVENT", params)
 end
 
@@ -1158,6 +1378,12 @@ local function handleRelayRequest(handle, data)
     relayRespond(handle, "400 Bad Request", "text/plain", "bad request")
     return
   end
+  -- Webhooks accept GET and POST — Protect's Alarm Manager sends POST.
+  local webhookName, webhookQuery = path:match("^/webhook/([%w%-%_]+)%??(.*)$")
+  if webhookName ~= nil then
+    handleWebhookRequest(handle, webhookName, webhookQuery, data)
+    return
+  end
   if method ~= "GET" then
     relayRespond(handle, "405 Method Not Allowed", "text/plain", "GET only")
     return
@@ -1246,3 +1472,723 @@ stopSnapshotRelay = function()
   end
   UpdateProperty("Relay Status", "Off")
 end
+
+-- ─── Kinds, bindings and state fan-out beyond cameras ─────────────────────────
+
+--- Binding namespace + class per child-driver kind. Cameras predate this
+--- table and keep their own constants; these three are the new children.
+local KIND_BINDINGS = {
+  sensors = { ns = "sensors", class = "UNIFI_PROTECT_SENSOR" },
+  lights = { ns = "lights", class = "UNIFI_PROTECT_LIGHT" },
+  viewers = { ns = "viewers", class = "UNIFI_PROTECT_VIEWER" },
+}
+
+--- Ensures provider bindings for sensors, lights and viewers — same
+--- create-only policy as cameras: never auto-deleted. (Assigns fwd decl.)
+ensureKindBindings = function(inventory)
+  for key, spec in pairs(KIND_BINDINGS) do
+    for _, device in ipairs(inventory[key] or {}) do
+      if device.id ~= "" then
+        bindings:getOrAddDynamicBinding(spec.ns, device.id, "CONTROL", true, device.name, spec.class)
+      end
+    end
+  end
+end
+
+--- Extra state params per kind, beyond id/name/state.
+local function deviceStateParams(key, device)
+  local params = { id = device.id, name = device.name, state = device.state }
+  if key == "sensors" then
+    params.mount = device.mount
+    params.battery = device.battery
+    params.temperature = device.temperature
+    params.humidity = device.humidity
+    params.light = device.light
+    params.opened = device.opened
+    params.motion = device.motion
+  elseif key == "lights" then
+    params.on = device.on
+    params.mode = device.mode
+  elseif key == "viewers" then
+    params.liveview = device.liveview
+    local names = {}
+    for _, lv in ipairs((gInventory or {}).liveviews or {}) do
+      table.insert(names, lv.id .. "=" .. lv.name)
+    end
+    params.liveviews = table.concat(names, ";")
+  end
+  return params
+end
+
+--- Pushes state to sensor/light/viewer children on every sync. (Assigns
+--- fwd decl.) Cameras keep their own richer push.
+pushDeviceStates = function(inventory)
+  for key, spec in pairs(KIND_BINDINGS) do
+    local byId = {}
+    for _, device in ipairs(inventory[key] or {}) do
+      byId[device.id] = device
+    end
+    for id, binding in pairs(bindings:getDynamicBindings(spec.ns)) do
+      local device = byId[id]
+      if device ~= nil then
+        sendToCamera(binding, "PROTECT_STATE", deviceStateParams(key, device))
+      end
+    end
+  end
+end
+
+--- Fires DEVICE OFFLINE/ONLINE on real transitions across every kind, and
+--- keeps the Offline Devices property/variable honest. (Assigns fwd decl.)
+announceDeviceTransitions = function(previous, inventory)
+  local offline = {}
+  local prevStates = {}
+  for _, key in ipairs({ "cameras", "lights", "sensors", "chimes", "viewers", "sirens", "relays", "hubs" }) do
+    for _, device in ipairs((previous or {})[key] or {}) do
+      prevStates[device.id] = device.state
+    end
+  end
+  for _, key in ipairs({ "cameras", "lights", "sensors", "chimes", "viewers", "sirens", "relays", "hubs" }) do
+    for _, device in ipairs(inventory[key] or {}) do
+      if device.state ~= "CONNECTED" then
+        table.insert(offline, device.name)
+      end
+      local before = prevStates[device.id]
+      -- Transitions only, and only from a KNOWN before-state: the first sync
+      -- after a restart is learning, not news.
+      if before ~= nil and before ~= device.state then
+        if device.state == "DISCONNECTED" then
+          log:warn("Device offline: %s", device.name)
+          fireGatewayEvent("Device Offline")
+        elseif device.state == "CONNECTED" and before == "DISCONNECTED" then
+          log:info("Device back online: %s", device.name)
+          fireGatewayEvent("Device Online")
+        end
+      end
+    end
+  end
+  local label = #offline == 0 and "None" or table.concat(offline, ", ")
+  UpdateProperty("Offline Devices", label)
+  pcall(function()
+    C4:SetVariable("OFFLINE_DEVICES", tostring(#offline))
+  end)
+end
+
+-- ─── Gateway Composer events + variables ──────────────────────────────────────
+
+--- Event ids match driver.xml <events>; re-registered at init because an
+--- update-in-place never registers XML events on existing instances.
+local GATEWAY_EVENTS = {
+  { 1, "Armed", "Protect armed (any profile)." },
+  { 2, "Disarmed", "Protect disarmed." },
+  { 3, "Arm Profile Changed", "The active Protect arm profile changed." },
+  { 4, "Breach Detected", "Protect detected an alarm breach." },
+  { 5, "Siren Started", "A Protect siren started sounding." },
+  { 6, "Siren Stopped", "A Protect siren stopped." },
+  { 7, "NVR Offline", "The Protect console stopped answering." },
+  { 8, "NVR Online", "The Protect console is answering again." },
+  { 9, "Device Offline", "A Protect device went offline." },
+  { 10, "Device Online", "A Protect device came back online." },
+  { 11, "Custom Webhook Received", "A webhook arrived from Protect's Alarm Manager." },
+  { 12, "Entry Opened", "An alarm hub entry opened." },
+  { 13, "Entry Closed", "An alarm hub entry closed." },
+  { 14, "Glass Break Detected", "An alarm hub detected glass breaking." },
+  { 15, "Smoke Alarm Detected", "An alarm hub detected a smoke alarm." },
+  { 16, "Hub Motion Detected", "An alarm hub detected motion." },
+  { 17, "Hub Tamper Detected", "An alarm hub or its device was tampered with." },
+  { 18, "Hub Button Pressed", "An alarm hub button was pressed." },
+  { 19, "Hub Battery Low", "An alarm hub battery is low." },
+  { 20, "Hub Relay Switched", "An alarm hub relay switched." },
+}
+
+local GATEWAY_VARIABLES = {
+  { "ARM_MODE", "", "STRING" },
+  { "ARM_PROFILE", "", "STRING" },
+  { "OFFLINE_DEVICES", "0", "NUMBER" },
+  { "LAST_WEBHOOK_NAME", "", "STRING" },
+  { "LAST_WEBHOOK_TIME", "", "STRING" },
+}
+
+--- (Assigns fwd decl.)
+registerGatewayEvents = function()
+  for _, e in ipairs(GATEWAY_EVENTS) do
+    pcall(function()
+      C4:AddEvent(e[1], e[2], e[3])
+    end)
+  end
+  for _, v in ipairs(GATEWAY_VARIABLES) do
+    pcall(function()
+      C4:AddVariable(v[1], v[2], v[3], true)
+    end)
+  end
+end
+
+--- (Assigns fwd decl.)
+fireGatewayEvent = function(name)
+  pcall(function()
+    C4:FireEvent(name)
+  end)
+end
+
+-- ─── Alarm state (armMode / breach off the NVR object) ────────────────────────
+
+--- The active profile's display name, from the synced profile list.
+local function armProfileName(profileId)
+  for _, profile in ipairs((gInventory or {}).arm_profiles or {}) do
+    if profile.id == profileId then
+      return profile.name
+    end
+  end
+  return tostring(profileId or "")
+end
+
+--- Resolves a dealer-typed profile (name, case-insensitive, or raw id).
+local function armProfileByNameOrId(value)
+  value = tostring(value or "")
+  if value == "" then
+    return nil
+  end
+  local lowered = value:lower()
+  for _, profile in ipairs((gInventory or {}).arm_profiles or {}) do
+    if profile.id == value or profile.name:lower() == lowered then
+      return profile
+    end
+  end
+  return nil
+end
+
+--- Applies the NVR's alarm fields, firing events on TRANSITIONS only.
+--- (Assigns fwd decl.)
+applyNvrState = function(nvr)
+  local mode = tostring(nvr.armMode or "")
+  local profileId = tostring(nvr.armProfileId or "")
+  local breachAt = nvr.breachDetectedAt
+
+  if mode ~= "" then
+    UpdateProperty("Arm Mode", mode)
+    pcall(function()
+      C4:SetVariable("ARM_MODE", mode)
+    end)
+  end
+  local profileLabel = profileId ~= "" and armProfileName(profileId) or "-"
+  UpdateProperty("Arm Profile", profileLabel)
+  pcall(function()
+    C4:SetVariable("ARM_PROFILE", profileLabel)
+  end)
+
+  local before = gAlarm
+  gAlarm = { armMode = mode, armProfileId = profileId, breachDetectedAt = breachAt }
+
+  if before.armMode ~= nil and before.armMode ~= mode and mode ~= "" then
+    -- armMode vocabulary is the console's; "disarmed"-shaped values read as
+    -- disarmed, anything else as armed. Both events carry the raw mode in
+    -- the ARM_MODE variable for programming that needs the exact word.
+    local disarmedNow = mode:lower():find("disarm") ~= nil or mode:lower() == "off"
+    if disarmedNow then
+      log:info("Protect disarmed (mode %s)", mode)
+      fireGatewayEvent("Disarmed")
+    else
+      log:info("Protect armed (mode %s)", mode)
+      fireGatewayEvent("Armed")
+    end
+  end
+  if before.armProfileId ~= nil and before.armProfileId ~= profileId and profileId ~= "" then
+    log:info("Arm profile changed to %s", profileLabel)
+    fireGatewayEvent("Arm Profile Changed")
+  end
+  if breachAt ~= nil and breachAt ~= before.breachDetectedAt then
+    log:warn("BREACH detected by Protect (at %s)", tostring(breachAt))
+    fireGatewayEvent("Breach Detected")
+  end
+end
+
+--- One-shot security command runner: executes EXACTLY once and reports.
+--- A timeout is reported as unknown-outcome, never retried — a lost
+--- response is not a lost command (see the client's security note).
+local function runSecurityCommand(label, deferred)
+  deferred:next(function()
+    log:print("%s: done", label)
+  end, function(err)
+    log:warn("%s: %s (NOT retried - verify in Protect before repeating)", label, describeFailure(err))
+  end)
+end
+
+function EC.ARM_WITH_PROFILE(tParams)
+  local wanted = tostring((tParams or {}).Profile or (tParams or {}).profile or "")
+  if not isConfigured() then
+    return
+  end
+  configureClient()
+  if wanted ~= "" then
+    local profile = armProfileByNameOrId(wanted)
+    if profile == nil then
+      log:warn("Arm With Profile: no profile named '%s' - run Print Arm Profiles", wanted)
+      return
+    end
+    protect:setArmProfile(profile.id):next(function()
+      runSecurityCommand("Arm (" .. profile.name .. ")", protect:enableArm())
+    end, function(err)
+      log:warn("Selecting profile failed: %s", describeFailure(err))
+    end)
+    return
+  end
+  runSecurityCommand("Arm (current profile)", protect:enableArm())
+end
+
+function EC.DISARM(tParams)
+  if not isConfigured() then
+    return
+  end
+  configureClient()
+  runSecurityCommand("Disarm", protect:disableArm())
+end
+
+function EC.SELECT_ARM_PROFILE(tParams)
+  local profile = armProfileByNameOrId((tParams or {}).Profile or (tParams or {}).profile)
+  if profile == nil then
+    log:warn("Select Arm Profile: unknown profile - run Print Arm Profiles")
+    return
+  end
+  configureClient()
+  runSecurityCommand("Select profile " .. profile.name, protect:setArmProfile(profile.id))
+end
+
+function EC.PRINT_ARM_PROFILES()
+  local profiles = (gInventory or {}).arm_profiles or {}
+  if #profiles == 0 then
+    log:print("No arm profiles known - is this Protect version 7+, and has a sync run?")
+    return
+  end
+  for _, profile in ipairs(profiles) do
+    log:print("  %s (%s)%s", profile.name, profile.id, profile.id == gAlarm.armProfileId and "  <- current" or "")
+  end
+end
+
+-- ─── Sirens / relays / alarm-hub outputs ──────────────────────────────────────
+
+local function securityDeviceByNameOrId(key, value)
+  value = tostring(value or "")
+  local lowered = value:lower()
+  for _, device in ipairs((gInventory or {})[key] or {}) do
+    if device.id == value or tostring(device.name):lower() == lowered then
+      return device
+    end
+  end
+  return nil
+end
+
+--- Snaps a requested siren duration onto the console's accepted steps.
+local function snapSirenDuration(seconds)
+  seconds = tonumber(seconds)
+  if seconds == nil then
+    return nil
+  end
+  local snapped = 5
+  for _, step in ipairs({ 5, 10, 20, 30 }) do
+    if seconds >= step then
+      snapped = step
+    end
+  end
+  return snapped
+end
+
+function EC.PLAY_SIREN(tParams)
+  tParams = tParams or {}
+  local siren = securityDeviceByNameOrId("sirens", tParams.Siren or tParams.siren)
+  if siren == nil then
+    log:warn("Play Siren: unknown siren - run Print Security Devices")
+    return
+  end
+  configureClient()
+  fireGatewayEvent("Siren Started")
+  runSecurityCommand("Play siren " .. siren.name, protect:playSiren(siren.id, snapSirenDuration(tParams.Duration)))
+end
+
+function EC.STOP_SIREN(tParams)
+  local siren = securityDeviceByNameOrId("sirens", (tParams or {}).Siren or (tParams or {}).siren)
+  if siren == nil then
+    log:warn("Stop Siren: unknown siren")
+    return
+  end
+  configureClient()
+  fireGatewayEvent("Siren Stopped")
+  runSecurityCommand("Stop siren " .. siren.name, protect:stopSiren(siren.id))
+end
+
+function EC.TEST_SIREN(tParams)
+  local siren = securityDeviceByNameOrId("sirens", (tParams or {}).Siren or (tParams or {}).siren)
+  if siren == nil then
+    log:warn("Test Siren: unknown siren")
+    return
+  end
+  configureClient()
+  runSecurityCommand("Test siren " .. siren.name, protect:testSiren(siren.id, tonumber((tParams or {}).Volume)))
+end
+
+function EC.ACTIVATE_RELAY(tParams)
+  tParams = tParams or {}
+  local relay = securityDeviceByNameOrId("relays", tParams.Relay or tParams.relay)
+  if relay == nil then
+    log:warn("Activate Relay: unknown relay - run Print Security Devices")
+    return
+  end
+  local output = tostring(tParams.Output or tParams.output or "1")
+  local state = tParams.State
+  if state ~= "on" and state ~= "off" then
+    state = nil -- console toggles
+  end
+  configureClient()
+  runSecurityCommand(
+    "Relay " .. relay.name .. " output " .. output,
+    protect:activateRelayOutput(relay.id, output, state, tonumber(tParams.PulseMs))
+  )
+end
+
+function EC.TRIGGER_HUB_OUTPUT(tParams)
+  tParams = tParams or {}
+  local hub = securityDeviceByNameOrId("hubs", tParams.Hub or tParams.hub)
+  if hub == nil then
+    log:warn("Trigger Hub Output: unknown alarm hub - run Print Security Devices")
+    return
+  end
+  local output = tostring(tParams.Output or tParams.output or "1")
+  local enable = nil
+  if tParams.Enable == "true" or tParams.Enable == "on" then
+    enable = true
+  elseif tParams.Enable == "false" or tParams.Enable == "off" then
+    enable = false
+  end
+  configureClient()
+  runSecurityCommand(
+    "Hub " .. hub.name .. " output " .. output,
+    protect:triggerAlarmHubOutput(hub.id, output, enable, nil, tonumber(tParams.DurationMs))
+  )
+end
+
+function EC.PRINT_SECURITY_DEVICES()
+  for _, key in ipairs({ "sirens", "relays", "hubs" }) do
+    local list = (gInventory or {})[key] or {}
+    log:print("%s (%d):", key, #list)
+    for _, device in ipairs(list) do
+      log:print("  %s [%s] %s", device.name, device.state, device.id)
+    end
+  end
+end
+
+function EC.TRIGGER_PROTECT_WEBHOOK(tParams)
+  local triggerId = tostring((tParams or {}).TriggerId or (tParams or {}).trigger_id or "")
+  if triggerId == "" then
+    log:warn("Trigger Protect Webhook: TriggerId required (from Protect's Alarm Manager)")
+    return
+  end
+  configureClient()
+  runSecurityCommand("Protect webhook " .. triggerId, protect:triggerAlarmWebhook(triggerId))
+end
+
+-- ─── Identity (fingerprint / NFC → known person) ──────────────────────────────
+
+--- Resolves a ulp user id to a display name via a lazily-refreshed cache.
+--- (Assigns fwd decl... no — local helper.)
+local function ulpUserById(ulpId, onDone)
+  if gUlpUsers ~= nil and os.time() - gUlpUsersFetchedAt < 600 then
+    onDone(gUlpUsers[ulpId])
+    return
+  end
+  protect:getUlpUsers():next(function(res)
+    local list = Protect.decodeBody(res.body) or {}
+    gUlpUsers = {}
+    for _, user in ipairs(list) do
+      gUlpUsers[tostring(user.id or "")] = {
+        name = tostring(user.fullName or user.firstName or ""),
+        active = tostring(user.status or "") == "ACTIVE",
+      }
+    end
+    gUlpUsersFetchedAt = os.time()
+    onDone(gUlpUsers[ulpId])
+  end, function()
+    onDone(nil)
+  end)
+end
+
+--- A fingerprint/NFC event: resolve who, then tell the doorbell's camera
+--- child. (Assigns fwd decl.)
+forwardIdentityEvent = function(item, method)
+  local binding = bindings:getDynamicBinding(CAMERA_BINDING_NS, tostring(item.device or ""))
+  if binding == nil then
+    return
+  end
+  local ulpId = tostring(Select(item, "metadata", "ulpUserId") or Select(item, "metadata", "userId") or "")
+  ulpUserById(ulpId, function(user)
+    local known = user ~= nil and user.active and user.name ~= ""
+    sendToCamera(binding, "PROTECT_EVENT", {
+      kind = "identity",
+      method = method,
+      known = known and "true" or "false",
+      value = known and user.name or "",
+      at = tostring(item.start or ""),
+    })
+  end)
+end
+
+-- ─── Inbound webhooks (Protect Alarm Manager → Control4) ──────────────────────
+
+--- (Assigns fwd decl.) Token required, wrong/missing token indistinguishable
+--- from a missing route; per-name flood guard; oversized payloads refused.
+handleWebhookRequest = function(handle, name, query, rawRequest)
+  local token = tostring(Properties["Webhook Token"] or "")
+  if token == "" or query:find("token=" .. token, 1, true) == nil then
+    relayRespond(handle, "404 Not Found", "text/plain", "not found")
+    return
+  end
+  if #tostring(rawRequest or "") > 8192 then
+    relayRespond(handle, "413 Payload Too Large", "text/plain", "too large")
+    return
+  end
+  local now = os.time()
+  if gWebhookLast[name] ~= nil and now - gWebhookLast[name] < 2 then
+    relayRespond(handle, "200 OK", "text/plain", "cooldown")
+    return
+  end
+  gWebhookLast[name] = now
+  log:info("Custom webhook received: %s", name)
+  pcall(function()
+    C4:SetVariable("LAST_WEBHOOK_NAME", name)
+    C4:SetVariable("LAST_WEBHOOK_TIME", os.date("%Y-%m-%d %H:%M:%S"))
+  end)
+  fireGatewayEvent("Custom Webhook Received")
+  relayRespond(handle, "200 OK", "text/plain", "ok")
+end
+
+-- ─── PROTECT_GET_DEVICE / PROTECT_CONTROL (children beyond cameras) ───────────
+
+--- The device (and its kind) behind a binding id, across every namespace.
+local function findBindingDevice(idBinding)
+  for key, spec in pairs(KIND_BINDINGS) do
+    for id, binding in pairs(bindings:getDynamicBindings(spec.ns)) do
+      if binding.bindingId == idBinding then
+        for _, device in ipairs((gInventory or {})[key] or {}) do
+          if device.id == id then
+            return key, device
+          end
+        end
+        return key, { id = id, name = binding.displayName, state = "UNKNOWN" }
+      end
+    end
+  end
+  local cam = cameraForBinding(idBinding)
+  if cam ~= nil then
+    return "cameras", cam
+  end
+  return nil, nil
+end
+
+--- The device behind a bound CHILD DEVICE id, across every namespace.
+local function findChildDevice(childDeviceId)
+  for key, spec in pairs(KIND_BINDINGS) do
+    for id, binding in pairs(bindings:getDynamicBindings(spec.ns)) do
+      if boundConsumerForBinding(binding.bindingId) == childDeviceId then
+        for _, device in ipairs((gInventory or {})[key] or {}) do
+          if device.id == id then
+            return key, device
+          end
+        end
+        return key, { id = id, name = binding.displayName, state = "UNKNOWN" }
+      end
+    end
+  end
+  local cam = cameraForChildDevice(childDeviceId)
+  if cam ~= nil then
+    return "cameras", cam
+  end
+  return nil, nil
+end
+
+local function deviceReplyParams(key, device)
+  local params
+  if key == "cameras" then
+    params = cameraReplyParams(device)
+  else
+    params = deviceStateParams(key, device)
+  end
+  params.kind = key
+  return params
+end
+
+function RFP.PROTECT_GET_DEVICE(idBinding)
+  local key, device = findBindingDevice(idBinding)
+  if key == nil then
+    log:warn("PROTECT_GET_DEVICE on binding %s, which maps to no device", tostring(idBinding))
+    return
+  end
+  log:info("Device identity requested on binding %s; answering '%s' (%s)", idBinding, device.name, key)
+  SendToProxy(idBinding, "PROTECT_DEVICE", deviceReplyParams(key, device))
+end
+
+function EC.PROTECT_GET_DEVICE(tParams)
+  local requester = tonumber((tParams or {}).requester)
+  if requester == nil then
+    return
+  end
+  local key, device = findChildDevice(requester)
+  if key == nil then
+    log:warn("Device %s asked for identity but is not bound to any Protect connection", requester)
+    return
+  end
+  SendToDevice(requester, "PROTECT_DEVICE", deviceReplyParams(key, device))
+end
+
+--- Every control a child can ask for, by op name. One client call each; the
+--- security rule (no retry) is structural — nothing here loops.
+local CONTROL_OPS = {
+  lcd_message = function(id, p)
+    local seconds = tonumber(p.duration_s)
+    local resetAt = nil
+    if seconds ~= nil and seconds > 0 then
+      resetAt = (os.time() + seconds) * 1000
+    end
+    return protect:setLcdMessage(id, "CUSTOM_MESSAGE", tostring(p.text or ""), resetAt)
+  end,
+  lcd_dnd = function(id)
+    return protect:setLcdMessage(id, "DO_NOT_DISTURB")
+  end,
+  lcd_leave_package = function(id)
+    return protect:setLcdMessage(id, "LEAVE_PACKAGE_AT_DOOR")
+  end,
+  lcd_reset = function(id)
+    return protect:resetLcdMessage(id)
+  end,
+  led = function(id, p)
+    return protect:setCameraLed(id, p.on == "true")
+  end,
+  mic_volume = function(id, p)
+    return protect:setMicVolume(id, tonumber(p.volume) or 50)
+  end,
+  hdr = function(id, p)
+    return protect:setHdrType(id, tostring(p.mode or "auto"))
+  end,
+  video_mode = function(id, p)
+    return protect:setVideoMode(id, tostring(p.mode or "default"))
+  end,
+  ptz_goto = function(id, p)
+    return protect:gotoPtzPreset(id, tonumber(p.slot) or 0)
+  end,
+  ptz_patrol_start = function(id, p)
+    return protect:startPtzPatrol(id, tonumber(p.slot) or 0)
+  end,
+  ptz_patrol_stop = function(id)
+    return protect:stopPtzPatrol(id)
+  end,
+  light_force = function(id, p)
+    return protect:setLightForce(id, p.on == "true")
+  end,
+  light_mode = function(id, p)
+    return protect:setLightMode(id, tostring(p.mode or "motion"), p.enable_at)
+  end,
+  viewer_liveview = function(id, p)
+    local wanted = tostring(p.liveview or "")
+    for _, lv in ipairs((gInventory or {}).liveviews or {}) do
+      if lv.id == wanted or lv.name:lower() == wanted:lower() then
+        wanted = lv.id
+        break
+      end
+    end
+    return protect:setViewerLiveview(id, wanted)
+  end,
+}
+
+local function executeControl(deviceId, tParams, reply)
+  local opName = tostring((tParams or {}).op or "")
+  local op = CONTROL_OPS[opName]
+  if op == nil then
+    reply({ op = opName, ok = "false", reason = "unknown op" })
+    return
+  end
+  if not isConfigured() then
+    reply({ op = opName, ok = "false", reason = "gateway not configured" })
+    return
+  end
+  configureClient()
+  op(deviceId, tParams or {}):next(function()
+    reply({ op = opName, ok = "true" })
+  end, function(err)
+    reply({ op = opName, ok = "false", reason = describeFailure(err) })
+  end)
+end
+
+function RFP.PROTECT_CONTROL(idBinding, _, tParams)
+  local key, device = findBindingDevice(idBinding)
+  if key == nil then
+    return
+  end
+  executeControl(device.id, tParams, function(result)
+    SendToProxy(idBinding, "PROTECT_CONTROL_RESULT", result)
+  end)
+end
+
+function EC.PROTECT_CONTROL(tParams)
+  local requester = tonumber((tParams or {}).requester)
+  if requester == nil then
+    return
+  end
+  local key, device = findChildDevice(requester)
+  if key == nil then
+    return
+  end
+  executeControl(device.id, tParams, function(result)
+    SendToDevice(requester, "PROTECT_CONTROL_RESULT", result)
+  end)
+end
+
+-- ─── SmartBuildOS roster handoff ──────────────────────────────────────────────
+
+--- Hands the device roster to the SmartBuildOS Connector in this project —
+--- the platform matches by MAC into the property's equipment registry.
+--- Gated by a property (default Off) and change-driven: an unchanged roster
+--- costs nothing. (Assigns fwd decl.)
+pushSbosRoster = function(inventory)
+  if Properties["SmartBuildOS Reporting"] ~= "On" then
+    return
+  end
+  if gSbosConnectorId == nil then
+    local ok, devices = pcall(function()
+      return C4:GetDevices({})
+    end)
+    if ok and type(devices) == "table" then
+      for rawId, device in pairs(devices) do
+        local file = tostring((type(device) == "table" and device.driverFileName) or "")
+        if file == "smartbuildos.c4z" then
+          gSbosConnectorId = tonumber(rawId)
+          break
+        end
+      end
+    end
+    if gSbosConnectorId == nil then
+      return
+    end
+  end
+  local roster = {}
+  for _, key in ipairs({ "cameras", "sensors", "lights", "viewers", "sirens", "relays", "hubs" }) do
+    for _, device in ipairs(inventory[key] or {}) do
+      table.insert(roster, { kind = key, id = device.id, name = device.name, mac = device.mac, state = device.state })
+    end
+  end
+  local serialized = JSON:encode(roster)
+  if serialized == gSbosLastRoster then
+    return
+  end
+  gSbosLastRoster = serialized
+  log:debug("Handing %d Protect devices to the SmartBuildOS Connector", #roster)
+  SendToDevice(gSbosConnectorId, "SBOS_PROTECT_ROSTER", { source = "unifi-protect", payload = serialized })
+end
+
+-- Composer sends command NAMES with spaces underscored by the dispatcher;
+-- these aliases keep the canonical UPPER_CASE handlers as the one
+-- implementation.
+EC.Arm_With_Profile = EC.ARM_WITH_PROFILE
+EC.Disarm = EC.DISARM
+EC.Select_Arm_Profile = EC.SELECT_ARM_PROFILE
+EC.Play_Siren = EC.PLAY_SIREN
+EC.Stop_Siren = EC.STOP_SIREN
+EC.Test_Siren = EC.TEST_SIREN
+EC.Activate_Relay = EC.ACTIVATE_RELAY
+EC.Trigger_Hub_Output = EC.TRIGGER_HUB_OUTPUT
+EC.Trigger_Protect_Webhook = EC.TRIGGER_PROTECT_WEBHOOK

@@ -29,6 +29,30 @@
       <false_text>Disconnected</false_text>
     </conditional>
   </conditionals>
+  <!-- Registered again at init (registerGatewayEvents) because XML events
+       only register when an instance is first added. Ids are frozen. -->
+  <events>
+    <event><id>1</id><name>Armed</name><description>Protect armed (any profile).</description></event>
+    <event><id>2</id><name>Disarmed</name><description>Protect disarmed.</description></event>
+    <event><id>3</id><name>Arm Profile Changed</name><description>The active Protect arm profile changed.</description></event>
+    <event><id>4</id><name>Breach Detected</name><description>Protect detected an alarm breach.</description></event>
+    <event><id>5</id><name>Siren Started</name><description>A Protect siren started sounding.</description></event>
+    <event><id>6</id><name>Siren Stopped</name><description>A Protect siren stopped.</description></event>
+    <event><id>7</id><name>NVR Offline</name><description>The Protect console stopped answering.</description></event>
+    <event><id>8</id><name>NVR Online</name><description>The Protect console is answering again.</description></event>
+    <event><id>9</id><name>Device Offline</name><description>A Protect device went offline.</description></event>
+    <event><id>10</id><name>Device Online</name><description>A Protect device came back online.</description></event>
+    <event><id>11</id><name>Custom Webhook Received</name><description>A webhook arrived from Protect's Alarm Manager. LAST_WEBHOOK_NAME identifies it.</description></event>
+    <event><id>12</id><name>Entry Opened</name><description>An alarm hub entry opened.</description></event>
+    <event><id>13</id><name>Entry Closed</name><description>An alarm hub entry closed.</description></event>
+    <event><id>14</id><name>Glass Break Detected</name><description>An alarm hub detected glass breaking.</description></event>
+    <event><id>15</id><name>Smoke Alarm Detected</name><description>An alarm hub detected a smoke alarm.</description></event>
+    <event><id>16</id><name>Hub Motion Detected</name><description>An alarm hub detected motion.</description></event>
+    <event><id>17</id><name>Hub Tamper Detected</name><description>An alarm hub or its device was tampered with.</description></event>
+    <event><id>18</id><name>Hub Button Pressed</name><description>An alarm hub button was pressed.</description></event>
+    <event><id>19</id><name>Hub Battery Low</name><description>An alarm hub battery is low.</description></event>
+    <event><id>20</id><name>Hub Relay Switched</name><description>An alarm hub relay switched.</description></event>
+  </events>
   <config>
     <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html"/>
@@ -52,6 +76,14 @@
       <action>
         <name>Prune Missing Camera Bindings</name>
         <command>PRUNE_STALE_CAMERAS</command>
+      </action>
+      <action>
+        <name>Print Arm Profiles To Log</name>
+        <command>PRINT_ARM_PROFILES</command>
+      </action>
+      <action>
+        <name>Print Security Devices To Log</name>
+        <command>PRINT_SECURITY_DEVICES</command>
       </action>
       <action>
         <name>Forget API Key</name>
@@ -190,6 +222,54 @@
         <default>-</default>
       </property>
       <property>
+        <name>Viewers</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Arm Mode</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Protect's alarm state, as the console reports it. Also in the ARM_MODE variable for programming.</description>
+      </property>
+      <property>
+        <name>Arm Profile</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Offline Devices</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Event</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The most recent event off the console's live stream, of any type.</description>
+      </property>
+      <property>
+        <name>Webhook Token</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Shared secret for inbound webhooks from Protect's Alarm Manager. Webhook URL shape: http://controller:relay-port/webhook/NAME?token=TOKEN. Empty disables inbound webhooks. Generated automatically on first start if left empty.</description>
+      </property>
+      <property>
+        <name>SmartBuildOS Reporting</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>Off</default>
+        <description>Hands the Protect device roster (names, MACs, online state) to the SmartBuildOS Connector in this project, so cameras join the property's equipment registry and offline cameras can raise service tickets.</description>
+      </property>
+      <property>
         <name>Last Sync</name>
         <type>STRING</type>
         <readonly>true</readonly>
@@ -233,7 +313,76 @@
         <default>Off</default>
       </property>
     </properties>
-    <commands/>
+    <commands>
+      <command>
+        <name>Arm With Profile</name>
+        <description>Arm Protect, optionally selecting profile PROFILE first</description>
+        <params>
+          <param><name>Profile</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Disarm</name>
+        <description>Disarm Protect</description>
+      </command>
+      <command>
+        <name>Select Arm Profile</name>
+        <description>Select Protect arm profile PROFILE without arming</description>
+        <params>
+          <param><name>Profile</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Play Siren</name>
+        <description>SECURITY - Sound Protect siren SIREN for DURATION seconds (5/10/20/30)</description>
+        <params>
+          <param><name>Siren</name><type>STRING</type></param>
+          <param><name>Duration</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Stop Siren</name>
+        <description>Stop Protect siren SIREN</description>
+        <params>
+          <param><name>Siren</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Test Siren</name>
+        <description>Test Protect siren SIREN at VOLUME (1-100)</description>
+        <params>
+          <param><name>Siren</name><type>STRING</type></param>
+          <param><name>Volume</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Activate Relay</name>
+        <description>SECURITY - Activate Protect relay RELAY output OUTPUT (state on/off/empty=toggle, optional pulse ms)</description>
+        <params>
+          <param><name>Relay</name><type>STRING</type></param>
+          <param><name>Output</name><type>STRING</type></param>
+          <param><name>State</name><type>STRING</type></param>
+          <param><name>PulseMs</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Trigger Hub Output</name>
+        <description>SECURITY - Trigger Protect alarm hub HUB output OUTPUT</description>
+        <params>
+          <param><name>Hub</name><type>STRING</type></param>
+          <param><name>Output</name><type>STRING</type></param>
+          <param><name>Enable</name><type>STRING</type></param>
+          <param><name>DurationMs</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Trigger Protect Webhook</name>
+        <description>Fire Protect Alarm Manager webhook trigger TRIGGERID</description>
+        <params>
+          <param><name>TriggerId</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
   </config>
   <!-- No proxies: cameras appear in Navigator through the child camera driver,
        one instance per camera, attached over this driver's dynamic per-camera
