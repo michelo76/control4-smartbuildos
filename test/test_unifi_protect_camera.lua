@@ -450,5 +450,62 @@ check(
   props["Gateway Link"]
 )
 
+-- ─── [14] The device path ────────────────────────────────────────────────────
+
+print("\n[14] Requests also travel over SendToDevice, to the RIGHT device")
+
+--- The project as Director reports it: the Gateway at 900, a SIBLING camera
+--- instance at 901 whose driver file contains "unifi-protect" as a prefix —
+--- the trap a substring match would fall into.
+function C4:GetDevices()
+  return {
+    [900] = { deviceName = "UniFi Protect Gateway", driverFileName = "unifi-protect.c4z" },
+    [901] = { deviceName = "Other Camera", driverFileName = "unifi-protect-camera.c4z" },
+    [77] = { deviceName = "Some Dimmer", driverFileName = "dimmer.c4z" },
+  }
+end
+
+local deviceSent = {}
+function C4:SendToDevice(deviceId, command, params)
+  table.insert(deviceSent, { device = deviceId, command = command, params = params })
+end
+
+gGatewayDeviceId = nil -- force a re-scan with the stub in place
+sent = {}
+EC.REFRESH_CAMERA_INFO()
+
+check("binding path still asked", #sentTo(GATEWAY, "PROTECT_GET_CAMERA") == 1)
+local toGateway, toSibling = 0, 0
+for _, s in ipairs(deviceSent) do
+  if s.device == 900 then
+    toGateway = toGateway + 1
+  end
+  if s.device == 901 then
+    toSibling = toSibling + 1
+  end
+end
+check("device path asked the Gateway (900)", toGateway == 1, toGateway)
+check("the sibling camera driver (901) was NOT mistaken for it", toSibling == 0, toSibling)
+check(
+  "carrying this driver's id as requester",
+  (deviceSent[1] or {}).params ~= nil and deviceSent[1].params.requester == "12345",
+  ((deviceSent[1] or {}).params or {}).requester
+)
+
+print("\n[15] Replies through the ExecuteCommand door land in the same handlers")
+
+ExecuteCommand("PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Device Path Cam",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+})
+check("identity accepted via EC", props["Camera"] == "Device Path Cam", props["Camera"])
+
+fired = {}
+ExecuteCommand("PROTECT_EVENT", { kind = "ring" })
+check("events accepted via EC", fired[#fired] == "Doorbell Ring", fired[#fired])
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

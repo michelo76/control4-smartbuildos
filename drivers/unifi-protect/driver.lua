@@ -633,6 +633,58 @@ local function consoleHost()
   return tostring(protect.baseUrl or ""):gsub("^https?://", ""):gsub(":%d+$", "")
 end
 
+--- The child driver DEVICE bound to a camera binding, or nil.
+--- @param bindingId number The camera binding.
+--- @return number|nil childDeviceId
+local function boundConsumerForBinding(bindingId)
+  local ok, consumers = pcall(function()
+    return C4:GetBoundConsumerDevices(C4:GetDeviceID(), bindingId)
+  end)
+  if not ok or type(consumers) ~= "table" then
+    return nil
+  end
+  for deviceId in pairs(consumers) do
+    return tonumber(deviceId)
+  end
+  return nil
+end
+
+--- The camera a child DEVICE is bound to, walked through the bindings table.
+--- This is the SendToDevice-path twin of cameraForBinding.
+--- @param childDeviceId number The child driver's device id.
+--- @return table|nil camera
+local function cameraForChildDevice(childDeviceId)
+  for key, binding in pairs(bindings:getDynamicBindings(CAMERA_BINDING_NS)) do
+    if boundConsumerForBinding(binding.bindingId) == childDeviceId then
+      for _, cam in ipairs((gInventory or {}).cameras or {}) do
+        if cam.id == key then
+          return cam
+        end
+      end
+      return { id = key, name = binding.displayName, mac = "", state = "UNKNOWN" }
+    end
+  end
+  return nil
+end
+
+--- Sends to the child behind a camera binding, preferring the DEVICE path.
+---
+--- SendToDevice → ExecuteCommand is the transport the field-tested reference
+--- pair uses and the one measured to work; SendToProxy over a bound CONTROL
+--- binding is the documented-but-unproven one. One preferred path, not both,
+--- so an event never fires twice on a child that hears both.
+--- @param binding Binding The camera binding.
+--- @param command string
+--- @param params table
+local function sendToCamera(binding, command, params)
+  local child = boundConsumerForBinding(binding.bindingId)
+  if child ~= nil then
+    SendToDevice(child, command, params)
+  else
+    SendToProxy(binding.bindingId, command, params)
+  end
+end
+
 --- Pushes online/offline to every bound child. Runs on every sync; a child
 --- that is not bound simply never hears it, which is fine — it asks on bind.
 --- (Assigns the forward declaration above applyInventory.)
@@ -645,9 +697,20 @@ function pushCameraStates(cameras)
   for key, binding in pairs(bindings:getDynamicBindings(CAMERA_BINDING_NS)) do
     local cam = byId[key]
     if cam ~= nil then
-      SendToProxy(binding.bindingId, "PROTECT_STATE", { id = cam.id, name = cam.name, state = cam.state })
+      sendToCamera(binding, "PROTECT_STATE", { id = cam.id, name = cam.name, state = cam.state })
     end
   end
+end
+
+--- The identity payload for one camera.
+local function cameraReplyParams(cam)
+  return {
+    id = cam.id,
+    name = cam.name,
+    mac = cam.mac,
+    state = cam.state,
+    console_host = consoleHost(),
+  }
 end
 
 function RFP.PROTECT_GET_CAMERA(idBinding)
@@ -659,13 +722,26 @@ function RFP.PROTECT_GET_CAMERA(idBinding)
   -- INFO, not trace: this is the handshake a dealer is watching for when a
   -- camera instance says "waiting for a reply".
   log:info("Camera identity requested on binding %s; answering '%s' (%s)", idBinding, cam.name, cam.id)
-  SendToProxy(idBinding, "PROTECT_CAMERA", {
-    id = cam.id,
-    name = cam.name,
-    mac = cam.mac,
-    state = cam.state,
-    console_host = consoleHost(),
-  })
+  SendToProxy(idBinding, "PROTECT_CAMERA", cameraReplyParams(cam))
+end
+
+--- The SendToDevice twin: a child asking over the device path, carrying its
+--- own device id as `requester`. The answer goes back the way it came.
+function EC.PROTECT_GET_CAMERA(tParams)
+  local requester = tonumber((tParams or {}).requester)
+  if requester == nil then
+    return
+  end
+  local cam = cameraForChildDevice(requester)
+  if cam == nil then
+    log:warn(
+      "Device %s asked for its camera identity but is not bound to any camera connection - bind it in Connections",
+      requester
+    )
+    return
+  end
+  log:info("Camera identity requested by device %s; answering '%s' (%s)", requester, cam.name, cam.id)
+  SendToDevice(requester, "PROTECT_CAMERA", cameraReplyParams(cam))
 end
 
 --- The Connections picture from this driver's side of the fence: every
@@ -706,23 +782,24 @@ function EC.PRINT_CAMERA_BINDINGS()
   log:print("%d camera binding(s) total", count)
 end
 
---- Stream URLs for the bound camera: read what exists, enable what is
---- missing, answer with the union.
+--- Stream URLs for a camera: read what exists, enable what is missing,
+--- answer with the union — transport-agnostic core shared by both request
+--- paths.
 ---
 --- GET first because it is idempotent and free; POST only for qualities the
 --- GET came back without, so a camera whose streams are already enabled is
 --- never churned. `package` is not requested — it is the doorbell package
 --- lens, a special view no Navigator tile asks for by default.
-function RFP.PROTECT_GET_STREAMS(idBinding, _, tParams)
-  log:trace("RFP.PROTECT_GET_STREAMS(%s)", idBinding)
-  local key = tostring((tParams or {}).KEY or "")
-  local cam = cameraForBinding(idBinding)
+--- @param cam table|nil The camera, or nil when the requester maps to none.
+--- @param key string The requester's correlation key, echoed untouched.
+--- @param send fun(command: string, params: table) How to reach the requester.
+local function answerStreams(cam, key, send)
   if cam == nil then
-    SendToProxy(idBinding, "PROTECT_STREAMS_ERROR", { KEY = key, reason = "binding maps to no camera" })
+    send("PROTECT_STREAMS_ERROR", { KEY = key, reason = "not bound to any camera" })
     return
   end
   if not isConfigured() then
-    SendToProxy(idBinding, "PROTECT_STREAMS_ERROR", { KEY = key, reason = "gateway not configured" })
+    send("PROTECT_STREAMS_ERROR", { KEY = key, reason = "gateway not configured" })
     return
   end
   configureClient()
@@ -740,14 +817,14 @@ function RFP.PROTECT_GET_STREAMS(idBinding, _, tParams)
       end
     end
     if delivered == 0 then
-      SendToProxy(idBinding, "PROTECT_STREAMS_ERROR", { KEY = key, reason = "console returned no stream URLs" })
+      send("PROTECT_STREAMS_ERROR", { KEY = key, reason = "console returned no stream URLs" })
       return
     end
-    SendToProxy(idBinding, "PROTECT_STREAMS", params)
+    send("PROTECT_STREAMS", params)
   end
 
   local function fail(err)
-    SendToProxy(idBinding, "PROTECT_STREAMS_ERROR", { KEY = key, reason = describeFailure(err) })
+    send("PROTECT_STREAMS_ERROR", { KEY = key, reason = describeFailure(err) })
   end
 
   protect:getRtspsStreams(cam.id):next(function(res)
@@ -772,6 +849,27 @@ function RFP.PROTECT_GET_STREAMS(idBinding, _, tParams)
       reply(existing)
     end, fail)
   end, fail)
+end
+
+function RFP.PROTECT_GET_STREAMS(idBinding, _, tParams)
+  log:trace("RFP.PROTECT_GET_STREAMS(%s)", idBinding)
+  local key = tostring((tParams or {}).KEY or "")
+  answerStreams(cameraForBinding(idBinding), key, function(command, params)
+    SendToProxy(idBinding, command, params)
+  end)
+end
+
+--- The SendToDevice twin, keyed by the requester's device id.
+function EC.PROTECT_GET_STREAMS(tParams)
+  local requester = tonumber((tParams or {}).requester)
+  if requester == nil then
+    return
+  end
+  local key = tostring((tParams or {}).KEY or "")
+  log:trace("EC.PROTECT_GET_STREAMS from device %s", requester)
+  answerStreams(cameraForChildDevice(requester), key, function(command, params)
+    SendToDevice(requester, command, params)
+  end)
 end
 
 -- ─── Live events ──────────────────────────────────────────────────────────────
@@ -838,7 +936,7 @@ local function handleProtectEvent(data)
   end
 
   log:debug("Event %s/%s for camera %s -> binding %s", kind, phase, tostring(item.device), binding.bindingId)
-  SendToProxy(binding.bindingId, "PROTECT_EVENT", params)
+  sendToCamera(binding, "PROTECT_EVENT", params)
 end
 
 local function scheduleEventsReconnect()

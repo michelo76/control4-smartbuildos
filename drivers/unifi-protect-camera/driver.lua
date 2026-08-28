@@ -132,6 +132,9 @@ gCameraState = "UNKNOWN"
 --- Cached stream URLs from the Gateway: { high?, medium?, low?, fetched_at }.
 gStreams = nil
 
+--- The Gateway's device id, once found (see findGatewayDeviceId).
+gGatewayDeviceId = nil
+
 --- Navigator requests waiting on the Gateway, keyed by the KEY echoed through
 --- the binding protocol. Value: true. Keys are a 32-bit counter as the camera
 --- proxy docs recommend.
@@ -198,6 +201,50 @@ local function updateStatusProperties()
   UpdateProperty("Camera State", gCameraState)
 end
 
+--- The Gateway's DEVICE id, found by its driver FILE — exact match, because
+--- "unifi-protect-camera.c4z" contains "unifi-protect" and a substring match
+--- would find this driver's own siblings. Cached; re-scanned while unknown.
+--- @return number|nil gatewayDeviceId
+local function findGatewayDeviceId()
+  if gGatewayDeviceId ~= nil then
+    return gGatewayDeviceId
+  end
+  local ok, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not ok or type(devices) ~= "table" then
+    return nil
+  end
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring((type(device) == "table" and device.driverFileName) or "")
+    if id ~= nil and (file == "unifi-protect.c4z" or file == "unifi-protect.c4i") then
+      gGatewayDeviceId = id
+      log:debug("Found the Gateway: device %s", id)
+      return id
+    end
+  end
+  return nil
+end
+
+--- Sends a request to the Gateway over BOTH transports.
+---
+--- SendToDevice → ExecuteCommand is the transport the field-tested reference
+--- pair uses; SendToProxy over the bound CONTROL binding is the documented
+--- one. Requests are idempotent, so both fire and whichever arrives wins —
+--- the replies are keyed, and a duplicate identity answer is a no-op.
+--- @param command string
+--- @param params table
+local function askGateway(command, params)
+  SendToProxy(GATEWAY_BINDING, command, params)
+  local gatewayId = findGatewayDeviceId()
+  if gatewayId ~= nil then
+    params = params or {}
+    params.requester = tostring(C4:GetDeviceID())
+    SendToDevice(gatewayId, command, params)
+  end
+end
+
 --- Asks the Gateway who this driver is bound to. Cheap; asked on bind, on
 --- init, on any sign of life from a Gateway while identity is unknown, and
 --- every minute until answered — because the FIRST ask can land before the
@@ -206,7 +253,7 @@ end
 --- state pushes, and still calling itself "Not bound".
 local function requestIdentity()
   UpdateProperty("Gateway Link", "Asked gateway at " .. os.date("%H:%M:%S") .. " - waiting for a reply")
-  SendToProxy(GATEWAY_BINDING, "PROTECT_GET_CAMERA", {})
+  askGateway("PROTECT_GET_CAMERA", {})
 end
 
 --- Timer that re-asks until an answer arrives. A no-op tick once identity is
@@ -301,7 +348,7 @@ local function requestStreams()
   gNextStreamKey = gNextStreamKey + 1
   local key = gNextStreamKey
   gPendingStreamKeys[tostring(key)] = true
-  SendToProxy(GATEWAY_BINDING, "PROTECT_GET_STREAMS", { KEY = tostring(key) })
+  askGateway("PROTECT_GET_STREAMS", { KEY = tostring(key) })
   return key
 end
 
@@ -546,6 +593,28 @@ function RFP.PROTECT_STREAMS_ERROR(_, _, tParams)
   UpdateProperty("Streams", "unavailable - " .. tostring(tParams.reason or "unknown"))
 end
 
+-- ─── The device-path door ─────────────────────────────────────────────────────
+--
+-- The Gateway prefers SendToDevice → ExecuteCommand (the transport the
+-- field-tested reference pair uses), which handlers dispatch through EC.
+-- Same messages, same handlers, second door. EC handlers receive (tParams).
+
+EC.PROTECT_CAMERA = function(tParams)
+  RFP.PROTECT_CAMERA(nil, nil, tParams)
+end
+EC.PROTECT_STATE = function(tParams)
+  RFP.PROTECT_STATE(nil, nil, tParams)
+end
+EC.PROTECT_STREAMS = function(tParams)
+  RFP.PROTECT_STREAMS(nil, nil, tParams)
+end
+EC.PROTECT_STREAMS_ERROR = function(tParams)
+  RFP.PROTECT_STREAMS_ERROR(nil, nil, tParams)
+end
+EC.PROTECT_EVENT = function(tParams)
+  RFP.PROTECT_EVENT(nil, nil, tParams)
+end
+
 -- ─── Camera proxy ─────────────────────────────────────────────────────────────
 --
 -- Navigator's requests arrive through the UIRequest entry point (dispatched
@@ -674,6 +743,30 @@ function EC.PRINT_STREAMS()
       log:print("  %s: %s (delivered as: %s)", quality, gStreams[quality], applyProtocol(gStreams[quality]))
     end
   end
+end
+
+--- Everything a support call needs, in one log block.
+function EC.PRINT_DIAGNOSTICS()
+  log:print("== UniFi Protect Camera (SBOS) diagnostics ==")
+  log:print("  driver version: %s", tostring(C4.GetDriverConfigInfo and C4:GetDriverConfigInfo("version") or "?"))
+  log:print("  device id: %s", tostring(C4:GetDeviceID()))
+  local ok, proxyId = pcall(function()
+    return C4:GetProxyDevices()
+  end)
+  if ok and type(proxyId) == "number" then
+    log:print("  proxy device: %s - Navigator can see this camera", proxyId)
+  else
+    log:print("  proxy device: NONE - this instance predates the proxy fix; DELETE it and add a fresh one")
+  end
+  local gatewayId = findGatewayDeviceId()
+  log:print(
+    "  gateway device: %s",
+    gatewayId ~= nil and tostring(gatewayId) or "NOT FOUND in this project - add the UniFi Protect Gateway (SBOS)"
+  )
+  log:print("  identity: %s", gIdentity ~= nil and string.format("'%s' (%s)", gIdentity.name, gIdentity.id) or "none")
+  log:print("  camera state: %s", tostring(gCameraState))
+  log:print("  gateway link: %s", tostring(Properties["Gateway Link"]))
+  log:print("  streams cached: %s", gStreams ~= nil and "yes" or "no")
 end
 
 --- The explicit rename — dealer intent, so the clobber guard steps aside.

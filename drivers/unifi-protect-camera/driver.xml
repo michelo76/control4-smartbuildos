@@ -113,6 +113,10 @@
     <documentation file="www/documentation/index.html"/>
     <actions>
       <action>
+        <name>Print Diagnostics To Log</name>
+        <command>PRINT_DIAGNOSTICS</command>
+      </action>
+      <action>
         <name>Refresh Camera Info</name>
         <command>REFRESH_CAMERA_INFO</command>
       </action>

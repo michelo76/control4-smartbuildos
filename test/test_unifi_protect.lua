@@ -612,5 +612,85 @@ print("\n[16] Forgetting the key tears the socket down")
 EC.FORGET_API_KEY()
 check("socket deleted", ws.deleted == true)
 
+-- ─── [17] The device path: SendToDevice twins ────────────────────────────────
+
+print("\n[17] Requests over SendToDevice answer over SendToDevice")
+
+-- Reconfigure, and teach Director that device 777 is bound to cam-front's
+-- binding. From here on the parent PREFERS the device path.
+routeHappyConsole()
+Properties["API Key"] = "secret-key-123"
+OnPropertyChanged("API Key")
+
+local deviceSent = {}
+function C4:SendToDevice(deviceId, command, params)
+  table.insert(deviceSent, { device = deviceId, command = command, params = params })
+end
+local function deviceSentTo(deviceId, command)
+  local hits = {}
+  for _, s in ipairs(deviceSent) do
+    if s.device == deviceId and s.command == command then
+      table.insert(hits, s)
+    end
+  end
+  return hits
+end
+function C4:GetBoundConsumerDevices(_, bindingId)
+  if bindingId == frontBinding then
+    return { [777] = "UniFi Protect Camera" }
+  end
+  return nil
+end
+
+EC.PROTECT_GET_CAMERA({ requester = "777" })
+local devCam = deviceSentTo(777, "PROTECT_CAMERA")
+check("identity answered over SendToDevice", #devCam == 1, #devCam)
+check("with the right camera", ((devCam[1] or {}).params or {}).id == "cam-front", ((devCam[1] or {}).params or {}).id)
+
+EC.PROTECT_GET_CAMERA({ requester = "888" })
+check("an unbound requester gets no reply", #deviceSentTo(888, "PROTECT_CAMERA") == 0)
+
+routes = {
+  {
+    match = "/v1/cameras/cam-front/rtsps-stream",
+    method = "GET",
+    ok = true,
+    code = 200,
+    body = { high = "rtsps://192.168.4.1:7441/HIGHTOKEN?enableSrtp" },
+  },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+}
+EC.PROTECT_GET_STREAMS({ requester = "777", KEY = "9" })
+local devStreams = deviceSentTo(777, "PROTECT_STREAMS")
+check("streams answered over SendToDevice", #devStreams == 1, #devStreams)
+check("echoing the key", ((devStreams[1] or {}).params or {}).KEY == "9")
+
+print("\n[18] Pushes prefer the device path once a child is known")
+
+routeHappyConsole()
+proxySent = {}
+deviceSent = {}
+EC.SYNC_DEVICES()
+check("PROTECT_STATE went to device 777", #deviceSentTo(777, "PROTECT_STATE") == 1, #deviceSentTo(777, "PROTECT_STATE"))
+check(
+  "and NOT over cam-front's binding (no double delivery)",
+  #proxySentTo(frontBinding, "PROTECT_STATE") == 0,
+  #proxySentTo(frontBinding, "PROTECT_STATE")
+)
+
+local ws2 = wsInstances[#wsInstances]
+deviceSent = {}
+proxySent = {}
+ws2.processMessage(
+  ws2,
+  '{"type":"add","item":{"id":"e9","modelKey":"event","type":"motion","start":9000,"device":"cam-front"}}'
+)
+check(
+  "events prefer the device path too",
+  #deviceSentTo(777, "PROTECT_EVENT") == 1,
+  #deviceSentTo(777, "PROTECT_EVENT")
+)
+check("without a binding duplicate", #proxySentTo(frontBinding, "PROTECT_EVENT") == 0)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
