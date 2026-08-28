@@ -193,6 +193,13 @@
         <default>Starting</default>
       </property>
       <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+        <description>The build actually running on this instance. If this does not match the newest build after an update, the project is serving a cached copy of the driver.</description>
+      </property>
+      <property>
         <name>Logging</name>
         <type>LABEL</type>
         <default>Logging</default>

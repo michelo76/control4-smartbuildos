@@ -403,6 +403,12 @@ function OnDriverLateInit()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
+  -- The build actually running, said by the code itself. Instances have now
+  -- twice been discovered running a stale cached driver while the Drivers
+  -- folder held a newer build; this property ends the guessing.
+  pcall(function()
+    UpdateProperty("Driver Version", tostring(C4:GetDriverConfigInfo("version")))
+  end)
   updateStatusProperties()
   requestIdentity()
   armIdentityRetry()
