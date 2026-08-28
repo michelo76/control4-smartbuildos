@@ -1,8 +1,8 @@
 <devicedata>
-  <name>UniFi Protect Gateway</name>
+  <name>UniFi Protect Gateway (SBOS)</name>
   <version/>
   <manufacturer>Ubiquiti</manufacturer>
-  <model>UniFi Protect Gateway</model>
+  <model>UniFi Protect Gateway (SBOS)</model>
   <creator>SmartBuildOS</creator>
   <control>lua_gen</control>
   <controlmethod>ip</controlmethod>

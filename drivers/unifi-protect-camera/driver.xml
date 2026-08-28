@@ -1,8 +1,8 @@
 <devicedata>
-  <name>UniFi Protect Camera</name>
+  <name>UniFi Protect Camera (SBOS)</name>
   <version/>
   <manufacturer>Ubiquiti</manufacturer>
-  <model>UniFi Protect Camera</model>
+  <model>UniFi Protect Camera (SBOS)</model>
   <creator>SmartBuildOS</creator>
   <control>lua_gen</control>
   <controlmethod>ip</controlmethod>
