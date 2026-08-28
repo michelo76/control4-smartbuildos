@@ -1,0 +1,173 @@
+<devicedata>
+  <name>UniFi Protect Viewport (SBOS)</name>
+  <version/>
+  <manufacturer>Ubiquiti</manufacturer>
+  <model>UniFi Protect Viewport (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/28/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>VIEWPORT_ONLINE</name>
+      <type>BOOL</type>
+      <condition_statement>Viewport online status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Online</true_text>
+      <false_text>Offline</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>View Changed</name><description>The viewport's live view changed.</description></event>
+    <event><id>2</id><name>Viewport Online</name><description>The viewport reconnected to the console.</description></event>
+    <event><id>3</id><name>Viewport Offline</name><description>The viewport disconnected from the console.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Next Live View</name><command>NEXT_LIVE_VIEW</command></action>
+      <action><name>Previous Live View</name><command>PREVIOUS_LIVE_VIEW</command></action>
+      <action><name>Refresh Viewport Info</name><command>REFRESH_VIEWPORT_INFO</command></action>
+      <action><name>Forget Viewport</name><command>FORGET_VIEWPORT</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Viewport</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Protect Viewport this instance represents - bind the Protect Viewport connection to the Gateway.</description>
+      </property>
+      <property>
+        <name>Viewport State</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>UNKNOWN</default>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Protect Viewport connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Current View</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Available Views</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Set Live View</name>
+        <description>Show live view VIEW (name or id) on this viewport</description>
+        <params>
+          <param><name>View</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Next Live View</name>
+        <description>Step to the next live view</description>
+      </command>
+      <command>
+        <name>Previous Live View</name>
+        <description>Step to the previous live view</description>
+      </command>
+      <command>
+        <name>Show View Temporarily</name>
+        <description>Show VIEW for SECONDS, then restore the previous view (the doorbell-to-TV move)</description>
+        <params>
+          <param><name>View</name><type>STRING</type></param>
+          <param><name>Seconds</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Protect Viewport</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UNIFI_PROTECT_VIEWER</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -88,6 +88,9 @@ package.preload["lib.http"] = function()
     put = function(_, url, data, headers, options)
       return fakeRequest("PUT", url, data, headers, options)
     end,
+    patch = function(_, url, data, headers, options)
+      return fakeRequest("PATCH", url, data, headers, options)
+    end,
     delete = function(_, url, headers, options)
       return fakeRequest("DELETE", url, nil, headers, options)
     end,
@@ -799,6 +802,243 @@ check(
   ((snapCam[1] or {}).params or {}).snapshot_url == "http://10.0.0.5:47800/snapshot/cam-front",
   ((snapCam[1] or {}).params or {}).snapshot_url
 )
+
+-- ─── [21] The event router beyond cameras ────────────────────────────────────
+
+print("\n[21] Sensor, light, hub and identity events route to their homes")
+
+local fired = {}
+function C4:FireEvent(name)
+  table.insert(fired, name)
+end
+
+-- Fixture console with a sensor and a light so bindings exist.
+local SENSORS = { { id = "sen-1", name = "Garage", state = "CONNECTED", mac = "AA", mountType = "door" } }
+local LIGHTS =
+  { { id = "lt-1", name = "Backyard Flood", state = "CONNECTED", mac = "BB", isLightForceEnabled = false } }
+routes = {
+  { match = "/v1/meta/info", ok = true, code = 200, body = { applicationVersion = "7.2.105" } },
+  { match = "/v1/nvrs", ok = true, code = 200, body = { id = "nvr-1", name = "NVR" } },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+  { match = "/v1/lights", ok = true, code = 200, body = LIGHTS },
+  { match = "/v1/sensors", ok = true, code = 200, body = SENSORS },
+  {
+    match = "/v1/ulp-users",
+    ok = true,
+    code = 200,
+    body = { { id = "ulp-1", fullName = "John Doe", status = "ACTIVE" } },
+  },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+EC.SYNC_DEVICES()
+
+local sensorBinding, lightBinding
+for id, b in pairs(addedBindings) do
+  if b.class == "UNIFI_PROTECT_SENSOR" then
+    sensorBinding = id
+  elseif b.class == "UNIFI_PROTECT_LIGHT" then
+    lightBinding = id
+  end
+end
+check("sensor binding exists", sensorBinding ~= nil)
+check("light binding exists", lightBinding ~= nil)
+
+local ws3 = wsInstances[#wsInstances]
+proxySent = {}
+deviceSent = {}
+ws3.processMessage(
+  ws3,
+  '{"type":"add","item":{"id":"s1","modelKey":"event","type":"sensorOpened","start":1,"device":"sen-1"}}'
+)
+check("sensor event routed to the sensor binding", #proxySentTo(sensorBinding, "PROTECT_EVENT") == 1)
+check("as kind=opened", (proxySentTo(sensorBinding, "PROTECT_EVENT")[1].params or {}).kind == "opened")
+
+proxySent = {}
+ws3.processMessage(
+  ws3,
+  '{"type":"add","item":{"id":"l1","modelKey":"event","type":"lightMotion","start":2,"device":"lt-1"}}'
+)
+check("light motion routed to the light binding", #proxySentTo(lightBinding, "PROTECT_EVENT") == 1)
+
+fired = {}
+ws3.processMessage(
+  ws3,
+  '{"type":"add","item":{"id":"h1","modelKey":"event","type":"alarmHubGlassBreak","start":3,"device":"hub-9"}}'
+)
+check("hub glass break fires the gateway event", fired[#fired] == "Glass Break Detected", fired[#fired])
+
+proxySent = {}
+deviceSent = {}
+ws3.processMessage(
+  ws3,
+  '{"type":"add","item":{"id":"i1","modelKey":"event","type":"fingerprintIdentified","start":4,"device":"cam-front","metadata":{"ulpUserId":"ulp-1"}}}'
+)
+local identityMsgs = deviceSentTo(777, "PROTECT_EVENT")
+check("identity event reached the camera child", #identityMsgs == 1, #identityMsgs)
+check(
+  "resolved to the named person",
+  (identityMsgs[1].params or {}).value == "John Doe",
+  (identityMsgs[1].params or {}).value
+)
+check("marked known", (identityMsgs[1].params or {}).known == "true")
+
+print("\n[22] PROTECT_GET_DEVICE answers the new children")
+
+-- Bind child device 888 to the sensor binding.
+local boundMap = { [frontBinding] = 777, [sensorBinding] = 888 }
+function C4:GetBoundConsumerDevices(_, bindingId)
+  local child = boundMap[bindingId]
+  if child ~= nil then
+    return { [child] = "child" }
+  end
+  return nil
+end
+deviceSent = {}
+EC.PROTECT_GET_DEVICE({ requester = "888" })
+local devReply = deviceSentTo(888, "PROTECT_DEVICE")
+check("sensor identity answered", #devReply == 1, #devReply)
+check("with kind=sensors", (devReply[1].params or {}).kind == "sensors", (devReply[1].params or {}).kind)
+check("carrying the mount type", (devReply[1].params or {}).mount == "door", (devReply[1].params or {}).mount)
+
+print("\n[23] PROTECT_CONTROL executes exactly one PATCH and reports")
+
+routes = {
+  { match = "/v1/cameras/cam-front", method = "PATCH", ok = true, code = 200, body = {} },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+requests = {}
+deviceSent = {}
+EC.PROTECT_CONTROL({ requester = "777", op = "lcd_message", text = "Back in 5", duration_s = "60" })
+check("one PATCH went to the camera", #requests == 1 and requests[1].method == "PATCH", #requests)
+check(
+  "with the LCD body",
+  type(requests[1].data) == "table" and (requests[1].data.lcdMessage or {}).text == "Back in 5",
+  tostring((requests[1].data or {}).lcdMessage)
+)
+local ctrlResult = deviceSentTo(777, "PROTECT_CONTROL_RESULT")
+check("result reported ok", #ctrlResult == 1 and (ctrlResult[1].params or {}).ok == "true")
+
+deviceSent = {}
+requests = {}
+EC.PROTECT_CONTROL({ requester = "777", op = "definitely_not_an_op" })
+check(
+  "unknown op refused without a request",
+  #requests == 0 and (deviceSentTo(777, "PROTECT_CONTROL_RESULT")[1].params or {}).ok == "false"
+)
+
+print("\n[24] The alarm subsystem: state transitions and one-shot commands")
+
+routes = {
+  { match = "/v1/arm-profiles/settings", method = "PATCH", ok = true, code = 200, body = {} },
+  { match = "/v1/arm-profiles/enable", method = "POST", ok = true, code = 200, body = {} },
+  {
+    match = "/v1/arm-profiles",
+    ok = true,
+    code = 200,
+    body = { { id = "ap-1", name = "Away" }, { id = "ap-2", name = "Home" } },
+  },
+  {
+    match = "/v1/nvrs",
+    ok = true,
+    code = 200,
+    body = { id = "nvr-1", name = "NVR", armMode = "disarmed", armProfileId = "ap-2" },
+  },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+fired = {}
+EC.SYNC_DEVICES()
+check("Arm Mode learned", props["Arm Mode"] == "disarmed", props["Arm Mode"])
+check("no event on first learn", #fired == 0, #fired)
+
+routes[4] = {
+  match = "/v1/nvrs",
+  ok = true,
+  code = 200,
+  body = { id = "nvr-1", name = "NVR", armMode = "armed", armProfileId = "ap-1", breachDetectedAt = 999 },
+}
+fired = {}
+EC.SYNC_DEVICES()
+local sawArmed, sawProfile, sawBreach = false, false, false
+for _, name in ipairs(fired) do
+  if name == "Armed" then
+    sawArmed = true
+  elseif name == "Arm Profile Changed" then
+    sawProfile = true
+  elseif name == "Breach Detected" then
+    sawBreach = true
+  end
+end
+check("Armed fired on the transition", sawArmed)
+check("profile change fired", sawProfile)
+check("breach fired", sawBreach)
+check("Arm Profile shows the NAME", props["Arm Profile"] == "Away", props["Arm Profile"])
+
+requests = {}
+EC.ARM_WITH_PROFILE({ Profile = "home" })
+check("profile resolved case-insensitively: settings PATCH + enable POST", #requests == 2, #requests)
+check("PATCH selected ap-2", type(requests[1].data) == "table" and requests[1].data.armProfileId == "ap-2")
+
+print("\n[25] Security commands never retry")
+
+routes = {
+  { match = "/v1/sirens/sir-1/play", method = "POST", ok = false, code = nil, error = "timeout" },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+gInventory.sirens = { { id = "sir-1", name = "Yard Siren", state = "CONNECTED" } }
+requests = {}
+EC.PLAY_SIREN({ Siren = "yard siren", Duration = "12" })
+check("exactly ONE play POST despite the timeout", #requests == 1, #requests)
+check(
+  "duration snapped to a legal step",
+  type(requests[1].data) == "table" and requests[1].data.duration == 10,
+  tostring((requests[1].data or {}).duration)
+)
+
+print("\n[26] Inbound webhooks: token or nothing")
+
+fired = {}
+serverSends = {}
+OnServerDataIn(21, "POST /webhook/gate?token=testtoken HTTP/1.1\r\n\r\n", "10.0.0.9", 1, "protect-snapshot-relay")
+check("valid token accepted", serverSends[1].data:find("200 OK", 1, true) ~= nil)
+check("event fired", fired[#fired] == "Custom Webhook Received", fired[#fired])
+
+serverSends = {}
+fired = {}
+OnServerDataIn(22, "POST /webhook/gate?token=wrong HTTP/1.1\r\n\r\n", "10.0.0.9", 1, "protect-snapshot-relay")
+check("wrong token is a 404", serverSends[1].data:find("404", 1, true) ~= nil)
+check("and fires nothing", #fired == 0, #fired)
+
+serverSends = {}
+fired = {}
+OnServerDataIn(23, "POST /webhook/gate?token=testtoken HTTP/1.1\r\n\r\n", "10.0.0.9", 1, "protect-snapshot-relay")
+check(
+  "flood inside the cooldown answers but fires nothing",
+  #fired == 0 and serverSends[1].data:find("cooldown", 1, true) ~= nil
+)
+
+print("\n[27] The SmartBuildOS roster push, property-gated and change-driven")
+
+function C4:GetDevices()
+  return { [555] = { deviceName = "SmartBuildOS Connector", driverFileName = "smartbuildos.c4z" } }
+end
+routes = {
+  { match = "/v1/nvrs", ok = true, code = 200, body = { id = "nvr-1", name = "NVR" } },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+deviceSent = {}
+EC.SYNC_DEVICES()
+check("Off means zero traffic", #deviceSentTo(555, "SBOS_PROTECT_ROSTER") == 0)
+
+Properties["SmartBuildOS Reporting"] = "On"
+deviceSent = {}
+EC.SYNC_DEVICES()
+check("On hands the roster over", #deviceSentTo(555, "SBOS_PROTECT_ROSTER") == 1)
+deviceSent = {}
+EC.SYNC_DEVICES()
+check("an unchanged roster is not re-sent", #deviceSentTo(555, "SBOS_PROTECT_ROSTER") == 0)
+Properties["SmartBuildOS Reporting"] = "Off"
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

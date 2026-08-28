@@ -1676,9 +1676,15 @@ applyNvrState = function(nvr)
   end)
 
   local before = gAlarm
-  gAlarm = { armMode = mode, armProfileId = profileId, breachDetectedAt = breachAt }
+  -- An absent field is UNKNOWN, not a state: never record "" as something a
+  -- later real value would "transition" from.
+  gAlarm = {
+    armMode = mode ~= "" and mode or before.armMode,
+    armProfileId = profileId ~= "" and profileId or before.armProfileId,
+    breachDetectedAt = breachAt or before.breachDetectedAt,
+  }
 
-  if before.armMode ~= nil and before.armMode ~= mode and mode ~= "" then
+  if before.armMode ~= nil and before.armMode ~= "" and before.armMode ~= mode and mode ~= "" then
     -- armMode vocabulary is the console's; "disarmed"-shaped values read as
     -- disarmed, anything else as armed. Both events carry the raw mode in
     -- the ARM_MODE variable for programming that needs the exact word.
@@ -1691,7 +1697,12 @@ applyNvrState = function(nvr)
       fireGatewayEvent("Armed")
     end
   end
-  if before.armProfileId ~= nil and before.armProfileId ~= profileId and profileId ~= "" then
+  if
+    before.armProfileId ~= nil
+    and before.armProfileId ~= ""
+    and before.armProfileId ~= profileId
+    and profileId ~= ""
+  then
     log:info("Arm profile changed to %s", profileLabel)
     fireGatewayEvent("Arm Profile Changed")
   end

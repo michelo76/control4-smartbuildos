@@ -1,0 +1,242 @@
+<devicedata>
+  <name>UniFi Protect Sensor (SBOS)</name>
+  <version/>
+  <manufacturer>Ubiquiti</manufacturer>
+  <model>UniFi Protect Sensor (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/28/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Sensor</category>
+  </composer_categories>
+  <small>devices_sm\sensor_sm.gif</small>
+  <large>devices_lg\sensor_lg.gif</large>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>SENSOR_ONLINE</name>
+      <type>BOOL</type>
+      <condition_statement>Sensor online status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Online</true_text>
+      <false_text>Offline</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Motion Detected</name><description>The sensor detected motion.</description></event>
+    <event><id>2</id><name>Contact Opened</name><description>The sensor's contact opened.</description></event>
+    <event><id>3</id><name>Contact Closed</name><description>The sensor's contact closed.</description></event>
+    <event><id>4</id><name>Water Leak Detected</name><description>The sensor detected a water leak.</description></event>
+    <event><id>5</id><name>Tamper Detected</name><description>The sensor was tampered with.</description></event>
+    <event><id>6</id><name>Battery Low</name><description>The sensor's battery is low.</description></event>
+    <event><id>7</id><name>Alarm Detected</name><description>The sensor heard an alarm (smoke, CO, glass break).</description></event>
+    <event><id>8</id><name>Button Pressed</name><description>The sensor's button was pressed.</description></event>
+    <event><id>9</id><name>Temperature Above Threshold</name><description>Temperature crossed above the configured threshold.</description></event>
+    <event><id>10</id><name>Temperature Below Threshold</name><description>Temperature crossed below the configured threshold.</description></event>
+    <event><id>11</id><name>Humidity Above Threshold</name><description>Humidity crossed above the configured threshold.</description></event>
+    <event><id>12</id><name>Humidity Below Threshold</name><description>Humidity crossed below the configured threshold.</description></event>
+    <event><id>13</id><name>Sensor Online</name><description>The sensor reconnected to the console.</description></event>
+    <event><id>14</id><name>Sensor Offline</name><description>The sensor disconnected from the console.</description></event>
+    <event><id>15</id><name>CO Fault</name><description>The sensor reported a carbon monoxide fault.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action>
+        <name>Print Diagnostics To Log</name>
+        <command>PRINT_DIAGNOSTICS</command>
+      </action>
+      <action>
+        <name>Refresh Sensor Info</name>
+        <command>REFRESH_SENSOR_INFO</command>
+      </action>
+      <action>
+        <name>Forget Sensor</name>
+        <command>FORGET_SENSOR</command>
+      </action>
+    </actions>
+    <properties>
+      <property>
+        <name>Sensor</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Protect sensor this instance represents - bind the Protect Sensor connection to the Gateway.</description>
+      </property>
+      <property>
+        <name>Sensor State</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>UNKNOWN</default>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Protect Sensor connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Mount Type</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Contact</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Temperature</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Humidity</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Light Level</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Battery</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Temperature High Threshold</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Fire Temperature Above Threshold when the reading crosses above this value. Blank disables.</description>
+      </property>
+      <property>
+        <name>Temperature Low Threshold</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Fire Temperature Below Threshold when the reading crosses below this value. Blank disables.</description>
+      </property>
+      <property>
+        <name>Humidity High Threshold</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Fire Humidity Above Threshold when the reading crosses above this value. Blank disables.</description>
+      </property>
+      <property>
+        <name>Humidity Low Threshold</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Fire Humidity Below Threshold when the reading crosses below this value. Blank disables.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands/>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Protect Sensor</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UNIFI_PROTECT_SENSOR</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>200</id>
+      <facing>6</facing>
+      <connectionname>Contact</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>CONTACT_SENSOR</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>201</id>
+      <facing>6</facing>
+      <connectionname>Motion</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>CONTACT_SENSOR</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

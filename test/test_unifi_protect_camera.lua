@@ -652,5 +652,102 @@ check("without a relay, snapshots XML is empty", tostring(UIRequest("GET_SNAPSHO
 check("and the attachment URL is empty", GetNotificationAttachmentURL() == "")
 check("Snapshots property back to dash", props["Snapshots"] == "-", props["Snapshots"])
 
+-- ─── [19] Camera controls through the Gateway ────────────────────────────────
+
+print("\n[19] Control commands ride PROTECT_CONTROL; capability gates locally")
+
+-- Identity WITH capability flags: a doorbell that has an LCD and mic.
+ReceivedFromProxy(GATEWAY, "PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Front Door",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+  caps = "mic,speaker,led,lcd",
+  detects = "person,vehicle",
+})
+check(
+  "Capabilities property shows the flags",
+  tostring(props["Capabilities"]):find("lcd", 1, true) ~= nil,
+  props["Capabilities"]
+)
+
+sent = {}
+EC.SET_DOORBELL_MESSAGE({ Message = "Back in 5", Duration = "60" })
+local ctrl = sentTo(GATEWAY, "PROTECT_CONTROL")
+check("doorbell message sends lcd_message", #ctrl == 1 and (ctrl[1].params or {}).op == "lcd_message")
+check("with the text", (ctrl[1].params or {}).text == "Back in 5")
+
+sent = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_CONTROL_RESULT", { op = "lcd_message", ok = "true" })
+check(
+  "result lands in Last Control",
+  tostring(props["Last Control"]):find("lcd_message: ok", 1, true) ~= nil,
+  props["Last Control"]
+)
+
+-- A camera WITHOUT an LCD refuses locally.
+ReceivedFromProxy(GATEWAY, "PROTECT_CAMERA", {
+  id = "cam-front",
+  name = "Front Door",
+  mac = "60223263A4D0",
+  state = "CONNECTED",
+  console_host = "192.168.4.1",
+  caps = "mic,led",
+})
+sent = {}
+EC.DO_NOT_DISTURB()
+check("no-LCD camera refuses without sending", #sentTo(GATEWAY, "PROTECT_CONTROL") == 0)
+check("and says why", tostring(props["Last Control"]):find("unsupported", 1, true) ~= nil, props["Last Control"])
+
+sent = {}
+EC.RUN_PTZ_PRESET({ Slot = "2" })
+check("PTZ preset sends ptz_goto", (sentTo(GATEWAY, "PROTECT_CONTROL")[1].params or {}).op == "ptz_goto")
+
+print("\n[20] Cooldowns space event FIRING, never the variables")
+
+Properties["Motion Event Cooldown (seconds)"] = "3"
+fired = {}
+vars.MOTION_DETECTED = nil
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "motion", phase = "start" })
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "motion", phase = "end" })
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "motion", phase = "start" })
+local motionFires = 0
+for _, name in ipairs(fired) do
+  if name == "Motion Detected" then
+    motionFires = motionFires + 1
+  end
+end
+check("two rapid motions fire ONCE", motionFires == 1, motionFires)
+check("but the variable tracked both", vars.MOTION_DETECTED == "true", vars.MOTION_DETECTED)
+Properties["Motion Event Cooldown (seconds)"] = "0"
+
+print("\n[21] Known and unknown people, by touch")
+
+fired = {}
+ReceivedFromProxy(
+  GATEWAY,
+  "PROTECT_EVENT",
+  { kind = "identity", method = "fingerprint", known = "true", value = "John Doe" }
+)
+check("known person fires", fired[#fired] == "Known Person Detected")
+check("LAST_PERSON carries the name", vars.LAST_PERSON == "John Doe", vars.LAST_PERSON)
+
+fired = {}
+ReceivedFromProxy(GATEWAY, "PROTECT_EVENT", { kind = "identity", method = "nfc", known = "false" })
+check("unknown credential fires", fired[#fired] == "Unknown Person Detected")
+
+print("\n[22] Send Snapshot Notification is one command, three effects")
+
+local snapRecords = {}
+function C4:RecordHistory(severity, eventType)
+  table.insert(snapRecords, { severity = severity, eventType = eventType })
+  return "uuid-snap"
+end
+fired = {}
+EC.SEND_SNAPSHOT_NOTIFICATION({ Message = "Package at the door", Severity = "Warning" })
+check("event fired", fired[#fired] == "Snapshot Notification")
+check("history recorded at the given severity", #snapRecords == 1 and snapRecords[1].severity == "Warning")
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

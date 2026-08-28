@@ -1,0 +1,168 @@
+<devicedata>
+  <name>UniFi Protect Light (SBOS)</name>
+  <version/>
+  <manufacturer>Ubiquiti</manufacturer>
+  <model>UniFi Protect Light (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/28/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Light</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>LIGHT_ONLINE</name>
+      <type>BOOL</type>
+      <condition_statement>Floodlight online status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Online</true_text>
+      <false_text>Offline</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Motion Detected</name><description>The floodlight detected motion.</description></event>
+    <event><id>2</id><name>Light On</name><description>The floodlight turned on.</description></event>
+    <event><id>3</id><name>Light Off</name><description>The floodlight turned off.</description></event>
+    <event><id>4</id><name>Light Online</name><description>The floodlight reconnected to the console.</description></event>
+    <event><id>5</id><name>Light Offline</name><description>The floodlight disconnected from the console.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Light On</name><command>LIGHT_ON</command></action>
+      <action><name>Light Off</name><command>LIGHT_OFF</command></action>
+      <action><name>Refresh Light Info</name><command>REFRESH_LIGHT_INFO</command></action>
+      <action><name>Forget Light</name><command>FORGET_LIGHT</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Floodlight</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Protect floodlight this instance represents - bind the Protect Light connection to the Gateway.</description>
+      </property>
+      <property>
+        <name>Light State</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>UNKNOWN</default>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Protect Light connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Light</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Light Mode</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Light On</name>
+        <description>Force the floodlight on</description>
+      </command>
+      <command>
+        <name>Light Off</name>
+        <description>Force the floodlight off</description>
+      </command>
+      <command>
+        <name>Set Light Mode</name>
+        <description>Set floodlight activation MODE (always/motion/off), optionally ENABLEAT (fulltime/dark)</description>
+        <params>
+          <param><name>Mode</name><type>STRING</type></param>
+          <param><name>EnableAt</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Protect Light</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UNIFI_PROTECT_LIGHT</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>
