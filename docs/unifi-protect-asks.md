@@ -156,3 +156,5 @@ Build `20260828.17xxxx`; suite: 13 files, all green. Bench-verified (✅);
 | C19 NVR/system health | ✅ offline roster, device+NVR transition events, last event; ⚠ avg-latency/reconnect-count counters not kept (thin value, deliberate) |
 | C20 SBOS handoff | ✅ gateway side, property-gated, change-driven (platform ingestion = separate work item) |
 | C21 docs | ✅ API_MATRIX, EVENT_MATRIX, CURRENT_DRIVER_BEHAVIOR, TEST_PLAN, KNOWN_LIMITATIONS |
+| **C22 (field addendum) auto-provisioning** | ✅ D10 was WRONG — C4:AddDevice is official (OS 3.2.0+); Auto Provision Protect Devices adds + binds instances for every discovered unbound device, duplicate-safe, delete-never 🏠 |
+| **Field fix: camera XML events 15-17** | ✅ Known/Unknown Person + Snapshot Notification were Lua-registered but missing from driver.xml; both paths now carry them |

@@ -78,6 +78,10 @@
         <command>PRUNE_STALE_CAMERAS</command>
       </action>
       <action>
+        <name>Auto Provision Protect Devices</name>
+        <command>AUTO_PROVISION_DEVICES</command>
+      </action>
+      <action>
         <name>Print Arm Profiles To Log</name>
         <command>PRINT_ARM_PROFILES</command>
       </action>

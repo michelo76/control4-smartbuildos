@@ -107,6 +107,21 @@
       <name>Camera Offline</name>
       <description>This camera disconnected from the Protect console.</description>
     </event>
+    <event>
+      <id>15</id>
+      <name>Known Person Detected</name>
+      <description>A named person identified by fingerprint or NFC at this camera. LAST_PERSON carries the name.</description>
+    </event>
+    <event>
+      <id>16</id>
+      <name>Unknown Person Detected</name>
+      <description>An unrecognized fingerprint or NFC at this camera.</description>
+    </event>
+    <event>
+      <id>17</id>
+      <name>Snapshot Notification</name>
+      <description>Fired by the Send Snapshot Notification command - attach a push notification with the Camera Snapshot attachment to this event.</description>
+    </event>
   </events>
   <config>
     <script file="driver.lua" jit="1"/>

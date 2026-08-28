@@ -1040,5 +1040,82 @@ EC.SYNC_DEVICES()
 check("an unchanged roster is not re-sent", #deviceSentTo(555, "SBOS_PROTECT_ROSTER") == 0)
 Properties["SmartBuildOS Reporting"] = "Off"
 
+-- ─── [28] Auto-provisioning ──────────────────────────────────────────────────
+
+print("\n[28] Auto Provision adds only unbound devices, then binds them")
+
+-- Only cam-front's binding is bound now; the sensor's 888 from [22] is gone.
+function C4:GetBoundConsumerDevices(_, bindingId)
+  if bindingId == frontBinding then
+    return { [777] = "camera child" }
+  end
+  return nil
+end
+
+-- Restore a full inventory (the [27] fixture had no sensors).
+routes = {
+  { match = "/v1/nvrs", ok = true, code = 200, body = { id = "nvr-1", name = "NVR" } },
+  { match = "/v1/cameras", ok = true, code = 200, body = CAMERAS },
+  {
+    match = "/v1/sensors",
+    ok = true,
+    code = 200,
+    body = { { id = "sen-1", name = "Garage", state = "CONNECTED", mac = "AA", mountType = "door" } },
+  },
+  { match = "/v1/", ok = true, code = 200, body = {} },
+}
+EC.SYNC_DEVICES()
+
+local added, bound = {}, {}
+function C4:AddDevice(file, name, callback)
+  table.insert(added, { file = file, name = name })
+  -- Director answers with the fresh device id.
+  callback(4000 + #added, { protocol = 4000 + #added })
+end
+function C4:Bind(providerDevice, providerBinding, consumerDevice, consumerBinding, class)
+  table.insert(bound, {
+    providerBinding = providerBinding,
+    consumerDevice = consumerDevice,
+    consumerBinding = consumerBinding,
+    class = class,
+  })
+end
+
+-- cam-front's binding is bound (777); cam-drive and the sensor are not.
+EC.AUTO_PROVISION_DEVICES()
+
+local addedNames = {}
+for _, a in ipairs(added) do
+  table.insert(addedNames, a.name)
+end
+local addedJoined = table.concat(addedNames, ",")
+check("bound camera skipped", addedJoined:find("Front Door", 1, true) == nil, addedJoined)
+check("unbound camera added", addedJoined:find("Driveway", 1, true) ~= nil, addedJoined)
+check(
+  "sensor added with the sensor driver",
+  (function()
+    for _, a in ipairs(added) do
+      if a.name == "Garage" and a.file == "unifi-protect-sensor.c4z" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+check(
+  "every added instance got bound to consumer binding 1",
+  #bound == #added and (bound[1] or {}).consumerBinding == 1,
+  #bound
+)
+check("with a fresh device id", (bound[1] or {}).consumerDevice == 4001, (bound[1] or {}).consumerDevice)
+
+added = {}
+-- Everything now "bound"? Simulate by answering every binding as consumed.
+function C4:GetBoundConsumerDevices()
+  return { [12345] = "x" }
+end
+EC.AUTO_PROVISION_DEVICES()
+check("a fully-bound project adds nothing", #added == 0, #added)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

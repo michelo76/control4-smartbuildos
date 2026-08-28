@@ -2215,3 +2215,106 @@ EC.Test_Siren = EC.TEST_SIREN
 EC.Activate_Relay = EC.ACTIVATE_RELAY
 EC.Trigger_Hub_Output = EC.TRIGGER_HUB_OUTPUT
 EC.Trigger_Protect_Webhook = EC.TRIGGER_PROTECT_WEBHOOK
+
+-- ─── Auto-provisioning ────────────────────────────────────────────────────────
+--
+-- C4:AddDevice (official, OS 3.2.0+) lets a driver add drivers to the
+-- project. This is the competitors' "Add Drivers" button, done with the
+-- same care the rest of this suite practices: user-initiated only (an
+-- Action, per the API's own warning about recursive adds), duplicate-safe
+-- (only devices whose binding has NO bound child get an instance), and it
+-- never deletes anything. New instances land in the Gateway's own room,
+-- named after their device, and bound - the child's identity handshake
+-- does the rest.
+
+--- Driver file + binding class per kind, for provisioning.
+local PROVISION_SPECS = {
+  { key = "cameras", ns = CAMERA_BINDING_NS, file = "unifi-protect-camera.c4z", class = CAMERA_BINDING_CLASS },
+  { key = "sensors", ns = "sensors", file = "unifi-protect-sensor.c4z", class = "UNIFI_PROTECT_SENSOR" },
+  { key = "lights", ns = "lights", file = "unifi-protect-light.c4z", class = "UNIFI_PROTECT_LIGHT" },
+  { key = "viewers", ns = "viewers", file = "unifi-protect-viewport.c4z", class = "UNIFI_PROTECT_VIEWER" },
+}
+
+--- Work still to do, processed strictly one at a time: AddDevice's callback
+--- carries no context, so a queue with a single in-flight item is the only
+--- way to know WHICH binding the new device belongs to.
+gProvisionQueue = {}
+gProvisionInFlight = nil
+
+local function processProvisionQueue()
+  if gProvisionInFlight ~= nil then
+    return
+  end
+  gProvisionInFlight = table.remove(gProvisionQueue, 1)
+  if gProvisionInFlight == nil then
+    log:print("Auto provision: done")
+    return
+  end
+  local item = gProvisionInFlight
+  log:print("Auto provision: adding %s for '%s'", item.file, item.name)
+  local ok, err = pcall(function()
+    C4:AddDevice(item.file, item.name, OnProtectDeviceAdded)
+  end)
+  if not ok then
+    log:warn("AddDevice failed for %s: %s", item.name, tostring(err))
+    gProvisionInFlight = nil
+    processProvisionQueue()
+  end
+end
+
+--- AddDevice's callback. Binds the fresh instance to the binding it was
+--- queued for, then moves on.
+function OnProtectDeviceAdded(deviceId, tDeviceInfo)
+  local item = gProvisionInFlight
+  gProvisionInFlight = nil
+  if item == nil then
+    return
+  end
+  deviceId = tonumber(deviceId) or 0
+  if deviceId == 0 then
+    log:warn(
+      "Auto provision: AddDevice returned 0 for '%s' - is %s in the controller's driver database?",
+      item.name,
+      item.file
+    )
+  else
+    log:info("Auto provision: '%s' added as device %s (%s)", item.name, deviceId, tostring(tDeviceInfo))
+    -- The child's consumer connection is always binding 1.
+    local ok, err = pcall(function()
+      C4:Bind(C4:GetDeviceID(), item.bindingId, deviceId, 1, item.class)
+    end)
+    if not ok then
+      log:warn("Auto provision: bind failed for '%s': %s - bind it in Connections", item.name, tostring(err))
+    end
+  end
+  processProvisionQueue()
+end
+
+--- Queues an instance for every discovered device that has no bound child.
+function EC.AUTO_PROVISION_DEVICES()
+  if gInventory == nil then
+    log:print("No inventory yet - run Sync Devices Now first")
+    return
+  end
+  local queued = 0
+  for _, spec in ipairs(PROVISION_SPECS) do
+    for _, device in ipairs(gInventory[spec.key] or {}) do
+      local binding = bindings:getDynamicBinding(spec.ns, device.id)
+      if binding ~= nil and boundConsumerForBinding(binding.bindingId) == nil then
+        table.insert(gProvisionQueue, {
+          file = spec.file,
+          name = device.name,
+          bindingId = binding.bindingId,
+          class = spec.class,
+        })
+        queued = queued + 1
+      end
+    end
+  end
+  if queued == 0 then
+    log:print("Auto provision: every discovered device already has a bound driver")
+    return
+  end
+  log:print("Auto provision: %d device(s) to add", queued)
+  processProvisionQueue()
+end

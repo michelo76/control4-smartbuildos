@@ -18,8 +18,9 @@ Verified against the v7.2.105 official spec, not assumed.
   architecture question is unresolved. Research before any audio hack.
 - **Navigator presence for floodlights** (light_v2 proxy) is a follow-up;
   today floodlights are programmable, not tiles.
-- **Auto-provisioning cannot create driver instances.** No supported
-  Composer API exists for a driver to add drivers. Bindings are
-  auto-created; adding instances is the dealer's click.
+- ~~Auto-provisioning cannot create driver instances~~ — **corrected
+  2026-08-28**: `C4:AddDevice` (official, OS 3.2.0+) does exactly this, and
+  the Gateway's Auto Provision Protect Devices action now uses it. The
+  earlier claim was wrong; the field pointed it out.
 - **RTSP port 7447 is undocumented** by Ubiquiti and could vanish in a
   Protect release; RTSPS stays selectable for that day.
