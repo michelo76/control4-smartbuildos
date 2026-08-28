@@ -2270,21 +2270,33 @@ function OnProtectDeviceAdded(deviceId, tDeviceInfo)
   if item == nil then
     return
   end
+  -- Every outcome PRINTS: this is a dealer-initiated action watched in the
+  -- Lua window, where info/warn lines are invisible at default settings —
+  -- which is exactly how a field run once looked "done" while saying
+  -- nothing about what happened.
   deviceId = tonumber(deviceId) or 0
   if deviceId == 0 then
-    log:warn(
-      "Auto provision: AddDevice returned 0 for '%s' - is %s in the controller's driver database?",
+    log:print(
+      "Auto provision: FAILED to add '%s' - upload %s to the controller once via Driver > Add or Update Driver, then rerun",
       item.name,
       item.file
     )
   else
-    log:info("Auto provision: '%s' added as device %s (%s)", item.name, deviceId, tostring(tDeviceInfo))
+    local detail = {}
+    if type(tDeviceInfo) == "table" then
+      for k, v in pairs(tDeviceInfo) do
+        table.insert(detail, tostring(k) .. "=" .. tostring(v))
+      end
+    end
+    log:print("Auto provision: '%s' added as device %s (%s)", item.name, deviceId, table.concat(detail, ", "))
     -- The child's consumer connection is always binding 1.
     local ok, err = pcall(function()
       C4:Bind(C4:GetDeviceID(), item.bindingId, deviceId, 1, item.class)
     end)
-    if not ok then
-      log:warn("Auto provision: bind failed for '%s': %s - bind it in Connections", item.name, tostring(err))
+    if ok then
+      log:print("Auto provision: '%s' bound", item.name)
+    else
+      log:print("Auto provision: bind FAILED for '%s': %s - bind it in Connections", item.name, tostring(err))
     end
   end
   processProvisionQueue()
