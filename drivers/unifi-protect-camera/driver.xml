@@ -1,0 +1,274 @@
+<devicedata>
+  <name>UniFi Protect Camera</name>
+  <version/>
+  <manufacturer>Ubiquiti</manufacturer>
+  <model>UniFi Protect Camera</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/28/2026 12:00:00 PM</created>
+  <modified/>
+  <!-- NO <combo> element, deliberately. Per the DriverWorks fundamentals,
+       combo tells Director the driver "does not use a proxy" and "a Navigator
+       UI is not provided for combo drivers" — with it, Director never creates
+       the camera proxy device, the room's camera list stays empty, and there
+       is nothing to assign in Navigator. Cost a field install to learn. -->
+  <!-- Dynamic streams (GET_STREAM_URLS / STREAM_URLS_READY) landed in OS 3.3.2;
+       below that this driver renders a camera it can never stream. -->
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Camera</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>CAMERA_ONLINE</name>
+      <type>BOOL</type>
+      <condition_statement>Camera online status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Online</true_text>
+      <false_text>Offline</false_text>
+    </conditional>
+  </conditionals>
+  <!-- XML events register only when an instance is first ADDED; updates in
+       place do not register new ones. The driver also AddEvent()s these at
+       init (same ids) so existing instances get them — same trap the
+       SmartBuildOS connector paid for. -->
+  <events>
+    <event>
+      <id>1</id>
+      <name>Motion Detected</name>
+      <description>Protect detected motion on this camera.</description>
+    </event>
+    <event>
+      <id>2</id>
+      <name>Motion Ended</name>
+      <description>The motion event on this camera ended.</description>
+    </event>
+    <event>
+      <id>3</id>
+      <name>Person Detected</name>
+      <description>Protect detected a person on this camera.</description>
+    </event>
+    <event>
+      <id>4</id>
+      <name>Vehicle Detected</name>
+      <description>Protect detected a vehicle on this camera.</description>
+    </event>
+    <event>
+      <id>5</id>
+      <name>Package Detected</name>
+      <description>Protect detected a package on this camera.</description>
+    </event>
+    <event>
+      <id>6</id>
+      <name>Animal Detected</name>
+      <description>Protect detected an animal on this camera.</description>
+    </event>
+    <event>
+      <id>7</id>
+      <name>License Plate Detected</name>
+      <description>Protect read a license plate on this camera. The plate text is in the LAST_LICENSE_PLATE variable.</description>
+    </event>
+    <event>
+      <id>8</id>
+      <name>Face Detected</name>
+      <description>Protect detected a face on this camera.</description>
+    </event>
+    <event>
+      <id>9</id>
+      <name>Doorbell Ring</name>
+      <description>The doorbell button on this camera was pressed.</description>
+    </event>
+    <event>
+      <id>10</id>
+      <name>Audio Alarm Detected</name>
+      <description>Protect detected an audio alarm (smoke/CO alarm, siren, glass break, and similar). The specific type is in the LAST_AUDIO_TYPE variable.</description>
+    </event>
+    <event>
+      <id>11</id>
+      <name>Line Crossed</name>
+      <description>Protect detected a line crossing on this camera.</description>
+    </event>
+    <event>
+      <id>12</id>
+      <name>Loitering Detected</name>
+      <description>Protect detected loitering on this camera.</description>
+    </event>
+    <event>
+      <id>13</id>
+      <name>Camera Online</name>
+      <description>This camera reconnected to the Protect console.</description>
+    </event>
+    <event>
+      <id>14</id>
+      <name>Camera Offline</name>
+      <description>This camera disconnected from the Protect console.</description>
+    </event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action>
+        <name>Refresh Camera Info</name>
+        <command>REFRESH_CAMERA_INFO</command>
+      </action>
+      <action>
+        <name>Refresh Stream URLs</name>
+        <command>REFRESH_STREAMS</command>
+      </action>
+      <action>
+        <name>Print Stream URLs To Log</name>
+        <command>PRINT_STREAMS</command>
+      </action>
+      <action>
+        <name>Forget Camera</name>
+        <command>FORGET_CAMERA</command>
+      </action>
+    </actions>
+    <properties>
+      <property>
+        <name>Camera</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Protect camera this instance represents. Set by binding this driver's Protect Camera connection to one of the UniFi Protect Gateway's camera connections in the Connections view.</description>
+      </property>
+      <property>
+        <name>Camera State</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>UNKNOWN</default>
+      </property>
+      <property>
+        <name>MAC Address</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Streams</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Which stream qualities the console has provided URLs for.</description>
+      </property>
+      <property>
+        <name>Stream Protocol</name>
+        <type>LIST</type>
+        <items>
+          <item>RTSPS (secure, port 7441)</item>
+          <item>RTSP (unencrypted, port 7447)</item>
+        </items>
+        <default>RTSPS (secure, port 7441)</default>
+        <description>How stream URLs are handed to Navigators. RTSPS is Protect's native, encrypted stream. If touchscreens show a black tile on RTSPS, switch to RTSP: same stream, unencrypted, on the console's port 7447. The RTSP port is undocumented by Ubiquiti and may not exist on every Protect version.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands/>
+  </config>
+  <proxies qty="1">
+    <proxy proxybindingid="5001" name="UniFi Protect Camera" primary="True">camera</proxy>
+  </proxies>
+  <!-- Plain capability elements, no proxybindingid attributes — the shape a
+       field-tested single-proxy camera driver uses. -->
+  <capabilities>
+    <!-- Protect stream URLs are revocable per-channel tokens: the textbook
+         case for dynamic streams. MULTIPLE because a token stays valid until
+         revoked; DYNAMIC_URLS_CHANGED is sent whenever the set changes. -->
+    <requires_dynamic_stream_urls>True</requires_dynamic_stream_urls>
+    <dynamic_urls_use_type>MULTIPLE</dynamic_urls_use_type>
+    <modes>H264</modes>
+    <aspect_ratio>16x9</aspect_ratio>
+    <default_aspect_ratio>16x9</default_aspect_ratio>
+    <show_test_url>True</show_test_url>
+    <has_pan>False</has_pan>
+    <has_pan_scan>False</has_pan_scan>
+    <has_tilt>False</has_tilt>
+    <has_tilt_scan>False</has_tilt_scan>
+    <has_zoom>False</has_zoom>
+    <has_home>False</has_home>
+    <has_night_mode>False</has_night_mode>
+    <number_presets>0</number_presets>
+    <default_rtsp_port>7441</default_rtsp_port>
+    <default_http_port>443</default_http_port>
+    <default_authentication_required>False</default_authentication_required>
+    <address_readonly>True</address_readonly>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Camera</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <hidden>False</hidden>
+      <classes>
+        <class>
+          <classname>CAMERA</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Protect Camera</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UNIFI_PROTECT_CAMERA</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

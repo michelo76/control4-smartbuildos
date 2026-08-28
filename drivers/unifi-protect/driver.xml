@@ -1,0 +1,205 @@
+<devicedata>
+  <name>UniFi Protect Gateway</name>
+  <version/>
+  <manufacturer>Ubiquiti</manufacturer>
+  <model>UniFi Protect Gateway</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/28/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <!-- 3.3.2, not 3.3.1: the parent alone would run on less, but the child
+       camera driver needs the dynamic-streams API (OS 3.3.2) and a parent
+       that installs where its children refuse to is a support case. -->
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Cameras</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>UNIFI_PROTECT_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>UniFi Protect connection status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Connected</true_text>
+      <false_text>Disconnected</false_text>
+    </conditional>
+  </conditionals>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action>
+        <name>Test Connection</name>
+        <command>TEST_CONNECTION</command>
+      </action>
+      <action>
+        <name>Sync Devices Now</name>
+        <command>SYNC_DEVICES</command>
+      </action>
+      <action>
+        <name>Print Inventory To Log</name>
+        <command>PRINT_INVENTORY</command>
+      </action>
+      <action>
+        <name>Prune Missing Camera Bindings</name>
+        <command>PRUNE_STALE_CAMERAS</command>
+      </action>
+      <action>
+        <name>Forget API Key</name>
+        <command>FORGET_API_KEY</command>
+      </action>
+    </actions>
+    <properties>
+      <property>
+        <name>UniFi Protect</name>
+        <type>LABEL</type>
+        <default>UniFi Protect Console</default>
+      </property>
+      <property>
+        <name>Console Address</name>
+        <type>STRING</type>
+        <default>https://192.168.1.1</default>
+        <description>Address of the UniFi console running Protect. A bare IP or hostname is fine; anything pasted after the host is ignored. The console must be reachable from this controller.</description>
+      </property>
+      <property>
+        <name>API Key</name>
+        <type>STRING</type>
+        <password>true</password>
+        <default/>
+        <description>API key from UniFi OS: Settings, Control Plane, Integrations (requires Protect 5.3 or later, created by an administrator). Stored encrypted on the controller and cleared from this field once saved - an empty field after pasting means it was accepted.</description>
+      </property>
+      <property>
+        <name>Verify TLS Certificate</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>Off</default>
+        <description>Off accepts the console's self-signed certificate, which is what a console has out of the box. Turn On only if the console presents a certificate this controller can verify (for example a UniFi remote-access hostname).</description>
+      </property>
+      <property>
+        <name>Device Poll Interval</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>30s</item>
+          <item>1m</item>
+          <item>2m</item>
+          <item>5m</item>
+          <item>15m</item>
+        </items>
+        <default>1m</default>
+        <description>How often the device inventory and online/offline state are refreshed from the console. Off disables polling; Test Connection and Sync Devices Now still work.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Connection Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not configured - set the Console Address and API Key</default>
+      </property>
+      <property>
+        <name>Protect Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>NVR Name</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Cameras</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Lights</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Sensors</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Chimes</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Sync</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Never</default>
+      </property>
+      <property>
+        <name>Event Stream</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Off</default>
+        <description>Live connection to the console's event stream - motion, smart detections, doorbell rings. Reconnects automatically if the console restarts.</description>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands/>
+  </config>
+  <!-- No proxies: cameras appear in Navigator through the child camera driver,
+       one instance per camera, attached over this driver's dynamic per-camera
+       CONTROL bindings (class UNIFI_PROTECT_CAMERA, created at sync time and
+       restored in OnDriverInit). -->
+  <proxies/>
+  <connections/>
+</devicedata>

@@ -1,0 +1,645 @@
+--[[==========================================================================
+  UniFi Protect Camera — child driver
+
+  One instance per camera. Carries the camera proxy — the thing that actually
+  puts a camera tile in Navigator — and a consumer CONTROL binding back to the
+  UniFi Protect Gateway, which owns the console connection and the API key.
+  This driver NEVER holds a credential: every console exchange goes over the
+  binding, and everything it receives is a URL or a state string.
+
+  ── HOW A CAMERA GETS ITS IDENTITY ────────────────────────────────────────────
+
+  The dealer binds this driver's "Protect Camera" connection to one of the
+  Gateway's per-camera connections in Composer. On bind, this driver asks
+  PROTECT_GET_CAMERA over the binding; the Gateway knows which camera each of
+  its bindings represents and answers with id/name/mac/state/console host.
+  Identity is persisted, so a Director restart shows the camera without
+  waiting for the Gateway.
+
+  ── STREAMS ARE DYNAMIC, BECAUSE PROTECT'S ARE ────────────────────────────────
+
+  Protect stream URLs are per-channel TOKENS (rtsps://console:7441/<token>)
+  that a console can revoke and reissue. So this driver declares
+  requires_dynamic_stream_urls and answers Navigator's GET_STREAM_URLS —
+  synchronously from cache when it can, otherwise with a generating_key
+  followed by a STREAM_URLS_READY notify once the Gateway has asked the
+  console. When refreshed URLs differ from the cached ones, the proxy gets
+  DYNAMIC_URLS_CHANGED so Navigators drop their caches.
+
+  ── THE RTSPS QUESTION, MADE INTO A PROPERTY ──────────────────────────────────
+
+  Whether a Navigator can actually PLAY rtsps+SRTP from a self-signed console
+  is unmeasured (docs/unifi-protect-driver-research.md §0). The vendor-
+  published fallback is the mechanical downgrade rtsps→rtsp, 7441→7447, query
+  dropped. Rather than betting the driver on either answer, the Stream
+  Protocol property offers both, defaulting to the native RTSPS URL. If the
+  tile stays black, the dealer flips one property instead of filing a ticket —
+  and the first field install answers the research question for free.
+============================================================================]]
+
+--#ifdef DRIVERCENTRAL
+DC_PID = 0
+DC_X = nil
+DC_FILENAME = "unifi-protect-camera.c4z"
+--#else
+DRIVER_GITHUB_REPO = "michelo76/control4-smartbuildos"
+DRIVER_FILENAMES = {
+  "unifi-protect-camera.c4z",
+}
+--#endif
+
+require("lib.utils")
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.lib")
+require("drivers-common-public.global.timer")
+
+JSON = require("JSON")
+
+local log = require("lib.logging")
+local persist = require("lib.persist")
+
+-- ─── Constants ────────────────────────────────────────────────────────────────
+
+--- The camera proxy binding (declared in driver.xml).
+local CAMERA_PROXY_BINDING = 5001
+--- The consumer CONTROL binding to the Gateway (declared in driver.xml).
+local GATEWAY_BINDING = 1
+
+--- Persisted camera identity: { id, name, mac, console_host }.
+local IDENTITY_PERSIST = "camera_identity"
+
+--- The last name this driver set on its own devices. The auto-name guard:
+--- rename only when the current name is the install default or OUR last
+--- write, so a dealer's deliberate rename is never clobbered by a poll.
+local AUTONAME_PERSIST = "auto_name_last"
+
+--- Names the installer gets from a fresh add — the ones auto-naming may
+--- overwrite. Composer suffixes duplicates ("UniFi Protect Camera 2"), so
+--- prefix-match rather than equality.
+local DEFAULT_NAME_PREFIX = "UniFi Protect Camera"
+
+--- Composer events, ids matching driver.xml <events>. Registered again at
+--- init because XML events only register when an instance is first added —
+--- an update-in-place reaches nobody (measured on the connector).
+local EVENTS = {
+  { 1, "Motion Detected", "Protect detected motion on this camera." },
+  { 2, "Motion Ended", "The motion event on this camera ended." },
+  { 3, "Person Detected", "Protect detected a person on this camera." },
+  { 4, "Vehicle Detected", "Protect detected a vehicle on this camera." },
+  { 5, "Package Detected", "Protect detected a package on this camera." },
+  { 6, "Animal Detected", "Protect detected an animal on this camera." },
+  { 7, "License Plate Detected", "Protect read a license plate on this camera." },
+  { 8, "Face Detected", "Protect detected a face on this camera." },
+  { 9, "Doorbell Ring", "The doorbell button on this camera was pressed." },
+  { 10, "Audio Alarm Detected", "Protect detected an audio alarm on this camera." },
+  { 11, "Line Crossed", "Protect detected a line crossing on this camera." },
+  { 12, "Loitering Detected", "Protect detected loitering on this camera." },
+  { 13, "Camera Online", "This camera reconnected to the Protect console." },
+  { 14, "Camera Offline", "This camera disconnected from the Protect console." },
+}
+
+--- Programming variables. BOOL for the live motion flag, STRINGs for the
+--- last-seen facts programming can branch on.
+local VARIABLES = {
+  { "MOTION_DETECTED", "false", "BOOL" },
+  { "LAST_MOTION", "", "STRING" },
+  { "LAST_DETECTION", "", "STRING" },
+  { "LAST_LICENSE_PLATE", "", "STRING" },
+  { "LAST_AUDIO_TYPE", "", "STRING" },
+  { "LAST_RING", "", "STRING" },
+}
+
+--- Ports Protect serves streams on. Fixed by Protect, not configurable per
+--- camera: 7441 is RTSPS+SRTP, 7447 is the undocumented plain-RTSP sibling.
+local RTSPS_PORT = 7441
+local RTSP_PORT = 7447
+
+--- How long a cached stream answer stays trusted. Protect URLs live until
+--- revoked, so this is generous; the cache exists to spare the console a
+--- round trip per tile render, not to model expiry Protect does not have.
+local STREAM_CACHE_SECONDS = 12 * 60 * 60
+
+-- ─── State ────────────────────────────────────────────────────────────────────
+
+gInitialized = false
+
+--- Camera identity as told by the Gateway. nil until first told.
+gIdentity = nil
+
+--- Last known camera state string (CONNECTED/CONNECTING/DISCONNECTED/UNKNOWN).
+gCameraState = "UNKNOWN"
+
+--- Cached stream URLs from the Gateway: { high?, medium?, low?, fetched_at }.
+gStreams = nil
+
+--- Navigator requests waiting on the Gateway, keyed by the KEY echoed through
+--- the binding protocol. Value: true. Keys are a 32-bit counter as the camera
+--- proxy docs recommend.
+gPendingStreamKeys = {}
+gNextStreamKey = 0
+
+-- ─── Helpers ──────────────────────────────────────────────────────────────────
+
+local function xmlEscape(s)
+  return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
+end
+
+--- Applies the Stream Protocol property to a native Protect URL.
+---
+--- The downgrade is the vendor-published recipe, applied MECHANICALLY and only
+--- to URLs that match the expected shape — anything else passes through
+--- untouched rather than being half-rewritten.
+--- @param url string A rtsps://host:7441/token?query URL from Protect.
+--- @return string url The URL to hand Navigator.
+local function applyProtocol(url)
+  if Properties["Stream Protocol"] ~= "RTSP (unencrypted, port 7447)" then
+    return url
+  end
+  local host, token = url:match("^rtsps://([^/:]+):" .. RTSPS_PORT .. "/([^?]+)")
+  if host == nil then
+    return url
+  end
+  return string.format("rtsp://%s:%d/%s", host, RTSP_PORT, token)
+end
+
+--- The `<streams>` XML for the current cache, in the shape the camera proxy
+--- documents for GET_STREAM_URLS / STREAM_URLS_READY.
+--- @param key string|nil The client's KEY to echo as an attribute, if any.
+--- @return string xml
+local function streamsXml(key)
+  local parts = {}
+  local attrs = {}
+  if key ~= nil and key ~= "" then
+    table.insert(attrs, string.format(' key="%s"', xmlEscape(key)))
+  end
+  if gIdentity ~= nil and gIdentity.console_host ~= "" then
+    table.insert(attrs, string.format(' camera_address="%s"', xmlEscape(gIdentity.console_host)))
+  end
+  table.insert(parts, string.format("<streams%s>", table.concat(attrs)))
+  -- high first: a client that ignores attributes takes the first entry, and
+  -- the first entry should be the good one.
+  for _, quality in ipairs({ "high", "medium", "low" }) do
+    local url = (gStreams or {})[quality]
+    if type(url) == "string" and url ~= "" then
+      table.insert(parts, string.format('<stream url="%s" codec="h264"/>', xmlEscape(applyProtocol(url))))
+    end
+  end
+  table.insert(parts, "</streams>")
+  return table.concat(parts)
+end
+
+local function cacheIsFresh()
+  return gStreams ~= nil and (os.time() - (gStreams.fetched_at or 0)) < STREAM_CACHE_SECONDS
+end
+
+local function updateStatusProperties()
+  UpdateProperty("Camera", gIdentity ~= nil and gIdentity.name or "Not bound")
+  UpdateProperty("MAC Address", gIdentity ~= nil and gIdentity.mac or "-")
+  UpdateProperty("Camera State", gCameraState)
+end
+
+--- Asks the Gateway who this driver is bound to. Cheap; asked on bind, on
+--- init, and on demand from the action.
+local function requestIdentity()
+  SendToProxy(GATEWAY_BINDING, "PROTECT_GET_CAMERA", {})
+end
+
+--- Fires a Composer event by name. pcall'd: an event that failed to register
+--- must not take down the handler that fires it.
+local function fireEvent(name)
+  log:debug("Firing event: %s", name)
+  pcall(function()
+    C4:FireEvent(name)
+  end)
+end
+
+--- Sets a programming variable, quietly tolerating its absence.
+local function setVariable(name, value)
+  pcall(function()
+    C4:SetVariable(name, tostring(value))
+  end)
+end
+
+--- Renames this driver's devices after the bound camera.
+---
+--- Renames BOTH ids: Composer's device tree shows the PROXY device, so
+--- renaming only the protocol driver (this Lua's own id) changes nothing the
+--- dealer can see — the API docs call this out. Guarded: a device is renamed
+--- only while its name is still the install default or the name this driver
+--- set last time, so a dealer who typed "Backyard Cam" keeps it forever.
+--- @param cameraName string The Protect camera's name.
+local function autoNameDevices(cameraName)
+  cameraName = tostring(cameraName or "")
+  if cameraName == "" then
+    return
+  end
+  local lastAuto = persist:get(AUTONAME_PERSIST, "")
+  local renamedAny = false
+
+  local ids = { C4:GetDeviceID() }
+  local ok, proxyId = pcall(function()
+    return C4:GetProxyDevices()
+  end)
+  if ok and type(proxyId) == "number" then
+    table.insert(ids, proxyId)
+  end
+
+  for _, id in ipairs(ids) do
+    local current = tostring(C4:GetDeviceData(id, "name") or "")
+    local isDefault = current:sub(1, #DEFAULT_NAME_PREFIX) == DEFAULT_NAME_PREFIX
+    local isOurs = lastAuto ~= "" and current == lastAuto
+    if current ~= cameraName and (isDefault or isOurs) then
+      log:info("Renaming device %s: '%s' -> '%s'", id, current, cameraName)
+      pcall(function()
+        C4:RenameDevice(id, cameraName)
+      end)
+      renamedAny = true
+    end
+  end
+
+  if renamedAny then
+    persist:set(AUTONAME_PERSIST, cameraName)
+  end
+end
+
+--- Asks the Gateway for stream URLs, tagged with a fresh key.
+--- @return number key The key the reply will carry.
+local function requestStreams()
+  gNextStreamKey = gNextStreamKey + 1
+  local key = gNextStreamKey
+  gPendingStreamKeys[tostring(key)] = true
+  SendToProxy(GATEWAY_BINDING, "PROTECT_GET_STREAMS", { KEY = tostring(key) })
+  return key
+end
+
+-- ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+function OnDriverInit()
+  --#ifdef DRIVERCENTRAL
+  require("cloud-client-byte")
+  C4:AllowExecute(false)
+  --#else
+  C4:AllowExecute(true)
+  --#endif
+  gInitialized = false
+  log:setLogName(C4:GetDeviceData(C4:GetDeviceID(), "name"))
+  log:setLogLevel(Properties["Log Level"])
+  log:setLogMode(Properties["Log Mode"])
+  log:trace("OnDriverInit()")
+end
+
+function OnDriverLateInit()
+  log:trace("OnDriverLateInit()")
+  if not CheckMinimumVersion("Driver Status") then
+    return
+  end
+
+  -- Guarded by SHAPE: persist:get with no default returns its EMPTY sentinel
+  -- table for a missing key.
+  local cached = persist:get(IDENTITY_PERSIST)
+  if type(cached) == "table" and cached.id ~= nil then
+    gIdentity = cached
+  end
+
+  for p, _ in pairs(Properties) do
+    local status, err = pcall(OnPropertyChanged, p)
+    if not status and err then
+      log:error("Error in OnPropertyChanged for property '%s': %s", p, err or "unknown error")
+    end
+  end
+
+  -- Register events + variables on THIS instance. XML alone reaches only
+  -- freshly-added instances; every field install is an update.
+  for _, e in ipairs(EVENTS) do
+    pcall(function()
+      C4:AddEvent(e[1], e[2], e[3])
+    end)
+  end
+  for _, v in ipairs(VARIABLES) do
+    pcall(function()
+      C4:AddVariable(v[1], v[2], v[3], true)
+    end)
+  end
+
+  gInitialized = true
+  UpdateProperty("Driver Status", "Online")
+  updateStatusProperties()
+  requestIdentity()
+end
+
+-- ─── Gateway binding ──────────────────────────────────────────────────────────
+
+--- Bound or unbound in Composer. On bind, learn who we are; on unbind, keep
+--- the identity — an unbind during a project reshuffle must not blank a
+--- camera that will be rebound in a minute. Forget Camera exists for the
+--- deliberate case.
+OBC[GATEWAY_BINDING] = function(_, _, bIsBound)
+  log:debug("Gateway binding %s", bIsBound and "bound" or "unbound")
+  if bIsBound then
+    requestIdentity()
+  else
+    gCameraState = "UNKNOWN"
+    updateStatusProperties()
+  end
+end
+
+function RFP.PROTECT_CAMERA(_, _, tParams)
+  tParams = tParams or {}
+  gIdentity = {
+    id = tostring(tParams.id or ""),
+    name = tostring(tParams.name or "Camera"),
+    mac = tostring(tParams.mac or ""),
+    console_host = tostring(tParams.console_host or ""),
+  }
+  gCameraState = tostring(tParams.state or "UNKNOWN")
+  persist:set(IDENTITY_PERSIST, gIdentity)
+  updateStatusProperties()
+  autoNameDevices(gIdentity.name)
+  log:info("Bound to Protect camera '%s' (%s)", gIdentity.name, gIdentity.id)
+end
+
+function RFP.PROTECT_STATE(_, _, tParams)
+  tParams = tParams or {}
+  local newState = tostring(tParams.state or "UNKNOWN")
+  if gIdentity ~= nil and tostring(tParams.name or "") ~= "" then
+    if gIdentity.name ~= tostring(tParams.name) then
+      -- The camera was renamed in Protect; follow it (same clobber guard).
+      gIdentity.name = tostring(tParams.name)
+      persist:set(IDENTITY_PERSIST, gIdentity)
+      autoNameDevices(gIdentity.name)
+    end
+  end
+  if newState ~= gCameraState then
+    local previous = gCameraState
+    log:info("Camera state: %s -> %s", previous, newState)
+    gCameraState = newState
+    -- Online/Offline events fire on REAL transitions only. From UNKNOWN is a
+    -- driver (re)start learning the state, not the camera changing it — an
+    -- event there would page someone on every Director reboot.
+    if previous ~= "UNKNOWN" then
+      if newState == "CONNECTED" then
+        fireEvent("Camera Online")
+      elseif newState == "DISCONNECTED" then
+        fireEvent("Camera Offline")
+      end
+    end
+  end
+  updateStatusProperties()
+end
+
+--- A Protect event for this camera, normalized by the Gateway:
+--- { kind = motion|smart|audio|ring|line|loiter, phase = start|end,
+---   types = "person,vehicle", at = <unix ms>, value = <plate text, if any> }.
+function RFP.PROTECT_EVENT(_, _, tParams)
+  tParams = tParams or {}
+  local kind = tostring(tParams.kind or "")
+  local phase = tostring(tParams.phase or "start")
+  local types = tostring(tParams.types or "")
+  local now = os.date("%Y-%m-%d %H:%M:%S")
+
+  if kind == "motion" then
+    if phase == "start" then
+      setVariable("MOTION_DETECTED", "true")
+      setVariable("LAST_MOTION", now)
+      fireEvent("Motion Detected")
+    else
+      setVariable("MOTION_DETECTED", "false")
+      fireEvent("Motion Ended")
+    end
+  elseif kind == "smart" and phase == "start" then
+    local BY_TYPE = {
+      person = "Person Detected",
+      vehicle = "Vehicle Detected",
+      package = "Package Detected",
+      animal = "Animal Detected",
+      licensePlate = "License Plate Detected",
+      face = "Face Detected",
+    }
+    for detected in types:gmatch("[^,]+") do
+      local eventName = BY_TYPE[detected]
+      if eventName ~= nil then
+        setVariable("LAST_DETECTION", detected)
+        if detected == "licensePlate" and tostring(tParams.value or "") ~= "" then
+          setVariable("LAST_LICENSE_PLATE", tostring(tParams.value))
+        end
+        fireEvent(eventName)
+      else
+        log:debug("Unknown smart detection type '%s' — Protect grew a vocabulary word", detected)
+      end
+    end
+  elseif kind == "audio" and phase == "start" then
+    setVariable("LAST_AUDIO_TYPE", types)
+    fireEvent("Audio Alarm Detected")
+  elseif kind == "ring" then
+    setVariable("LAST_RING", now)
+    fireEvent("Doorbell Ring")
+  elseif kind == "line" and phase == "start" then
+    setVariable("LAST_DETECTION", types ~= "" and types or "line")
+    fireEvent("Line Crossed")
+  elseif kind == "loiter" and phase == "start" then
+    setVariable("LAST_DETECTION", types ~= "" and types or "loiter")
+    fireEvent("Loitering Detected")
+  end
+end
+
+--- Stream URLs arrived from the Gateway. Two audiences: the cache (always),
+--- and any Navigator waiting on the echoed KEY (notified via
+--- STREAM_URLS_READY, per the async half of the dynamic-streams API).
+function RFP.PROTECT_STREAMS(_, _, tParams)
+  tParams = tParams or {}
+  local key = tostring(tParams.KEY or "")
+
+  local changed = gStreams == nil
+  local fresh = { fetched_at = os.time() }
+  for _, quality in ipairs({ "high", "medium", "low" }) do
+    local url = tParams[quality]
+    if type(url) == "string" and url ~= "" then
+      fresh[quality] = url
+      if gStreams ~= nil and gStreams[quality] ~= url then
+        changed = true
+      end
+    elseif gStreams ~= nil and gStreams[quality] ~= nil then
+      changed = true
+    end
+  end
+  gStreams = fresh
+  UpdateProperty(
+    "Streams",
+    table.concat(
+      (function()
+        local qualities = {}
+        for _, quality in ipairs({ "high", "medium", "low" }) do
+          if fresh[quality] then
+            table.insert(qualities, quality)
+          end
+        end
+        return #qualities > 0 and qualities or { "none" }
+      end)(),
+      ", "
+    )
+  )
+
+  if gPendingStreamKeys[key] then
+    gPendingStreamKeys[key] = nil
+    SendToProxy(CAMERA_PROXY_BINDING, "STREAM_URLS_READY", { KEY = key, URLS = streamsXml(key) }, "NOTIFY")
+  end
+
+  -- A cache-driven refresh (no Navigator waiting) that CHANGED the URLs means
+  -- every Navigator holding the old ones is now holding revoked tokens.
+  if changed then
+    SendToProxy(CAMERA_PROXY_BINDING, "DYNAMIC_URLS_CHANGED", {}, "NOTIFY")
+  end
+end
+
+function RFP.PROTECT_STREAMS_ERROR(_, _, tParams)
+  tParams = tParams or {}
+  local key = tostring(tParams.KEY or "")
+  gPendingStreamKeys[key] = nil
+  log:warn("Gateway could not provide stream URLs: %s", tostring(tParams.reason or "unknown"))
+  UpdateProperty("Streams", "unavailable - " .. tostring(tParams.reason or "unknown"))
+end
+
+-- ─── Camera proxy ─────────────────────────────────────────────────────────────
+--
+-- Navigator's requests arrive through the UIRequest entry point (dispatched
+-- via the UIR table), NOT ReceivedFromProxy — measured in a field-tested
+-- camera driver, and the reason the first build of this driver streamed
+-- nothing. The same commands are also registered under RFP because Composer's
+-- Camera Test sends proxy commands; one implementation serves both doors.
+
+--- Navigator wants stream URLs. Answered synchronously from a fresh cache,
+--- otherwise with the generating_key handshake while the Gateway is asked.
+--- @param tParams table|nil CODEC/RESOLUTION/FPS/useCache/KEY from the client.
+--- @return string xml
+local function handleGetStreamUrls(tParams)
+  tParams = tParams or {}
+  local useCache = tostring(tParams.useCache or "") == "true"
+  if cacheIsFresh() or (useCache and gStreams ~= nil) then
+    -- Echo the client's KEY when it sent one; a keyless request gets the
+    -- plain form. Both are documented shapes for the synchronous answer.
+    return streamsXml(tostring(tParams.KEY or ""))
+  end
+  local key = requestStreams()
+  return string.format('<streams generating_key="%d"/>', key)
+end
+
+--- Composer/Navigator asking how to reach the camera. With dynamic streams
+--- the URLs are the real answer, but the proxy still asks; the console host
+--- is the only address that means anything (Protect fronts every camera).
+--- @return string xml
+local function handleGetProperties()
+  local host = gIdentity ~= nil and gIdentity.console_host or ""
+  local rtspPort = Properties["Stream Protocol"] == "RTSP (unencrypted, port 7447)" and RTSP_PORT or RTSPS_PORT
+  return table.concat({
+    "<camera_properties>",
+    string.format("<address>%s</address>", xmlEscape(host)),
+    "<http_port>443</http_port>",
+    string.format("<rtsp_port>%d</rtsp_port>", rtspPort),
+    "<authentication_required>false</authentication_required>",
+    "<authentication_type>BASIC</authentication_type>",
+    "<username></username>",
+    "<password></password>",
+    "<publicly_accessible>false</publicly_accessible>",
+    "</camera_properties>",
+  })
+end
+
+function UIR.GET_STREAM_URLS(tParams)
+  return handleGetStreamUrls(tParams)
+end
+
+function UIR.GET_PROPERTIES()
+  return handleGetProperties()
+end
+
+function RFP.GET_STREAM_URLS(idBinding, _, tParams)
+  if idBinding ~= CAMERA_PROXY_BINDING then
+    return
+  end
+  return handleGetStreamUrls(tParams)
+end
+
+function RFP.GET_PROPERTIES(idBinding)
+  if idBinding ~= CAMERA_PROXY_BINDING then
+    return
+  end
+  return handleGetProperties()
+end
+
+-- ─── Conditionals ─────────────────────────────────────────────────────────────
+
+function TC.CAMERA_ONLINE()
+  return gCameraState == "CONNECTED"
+end
+
+-- ─── Property handlers ────────────────────────────────────────────────────────
+
+function OPC.Stream_Protocol(propertyValue)
+  log:trace("OPC.Stream_Protocol('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- The URLs Navigators hold were rendered under the OLD protocol choice.
+  SendToProxy(CAMERA_PROXY_BINDING, "DYNAMIC_URLS_CHANGED", {}, "NOTIFY")
+end
+
+function OPC.Log_Mode(propertyValue)
+  log:trace("OPC.Log_Mode('%s')", propertyValue)
+  log:setLogMode(propertyValue)
+  CancelTimer("LogMode")
+  if not log:isEnabled() then
+    UpdateProperty("Log Level", "3 - Info", true)
+    return
+  end
+  log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
+  SetTimer("LogMode", 3 * ONE_HOUR, function()
+    log:warn("Setting log mode to 'Off' (timer expired)")
+    UpdateProperty("Log Mode", "Off", true)
+  end)
+  OnPropertyChanged("Log Level")
+end
+
+function OPC.Log_Level(propertyValue)
+  log:trace("OPC.Log_Level('%s')", propertyValue)
+  log:setLogLevel(propertyValue)
+end
+
+-- ─── Actions ──────────────────────────────────────────────────────────────────
+
+function EC.REFRESH_CAMERA_INFO()
+  log:trace("EC.REFRESH_CAMERA_INFO()")
+  requestIdentity()
+end
+
+function EC.REFRESH_STREAMS()
+  log:trace("EC.REFRESH_STREAMS()")
+  requestStreams()
+end
+
+function EC.PRINT_STREAMS()
+  log:trace("EC.PRINT_STREAMS()")
+  if gStreams == nil then
+    log:print("No stream URLs cached - run Refresh Stream URLs, or open the camera once")
+    return
+  end
+  for _, quality in ipairs({ "high", "medium", "low" }) do
+    if gStreams[quality] then
+      log:print("  %s: %s (delivered as: %s)", quality, gStreams[quality], applyProtocol(gStreams[quality]))
+    end
+  end
+end
+
+--- The deliberate forget, for re-purposing an instance onto another camera.
+function EC.FORGET_CAMERA()
+  log:trace("EC.FORGET_CAMERA()")
+  gIdentity = nil
+  gStreams = nil
+  gCameraState = "UNKNOWN"
+  persist:delete(IDENTITY_PERSIST)
+  -- Forgetting the camera also forgets the auto-name claim: the next bound
+  -- camera may rename freely, and a dealer rename before then stays put.
+  persist:delete(AUTONAME_PERSIST)
+  updateStatusProperties()
+  UpdateProperty("Streams", "-")
+  requestIdentity()
+end
