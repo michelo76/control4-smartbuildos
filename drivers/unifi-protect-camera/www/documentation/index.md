@@ -15,14 +15,20 @@ console connection; this driver holds no credentials at all.
    Navigator — the first view fetches stream URLs from the console through the
    Gateway.
 
-## If the tile is black
+## Stream protocol and resolution
 
-Protect's native stream is RTSPS (encrypted, port 7441). If a touchscreen shows
-a black tile on the default setting, switch **Stream Protocol** to **RTSP
-(unencrypted, port 7447)** — the same stream without encryption. Note the RTSP
-port is undocumented by Ubiquiti and may be absent on some Protect versions; if
-both fail, use **Print Stream URLs To Log** and test the URLs in VLC to see
-which side is refusing.
+**Stream Protocol** defaults to RTSP (port 7447) because that is what Control4
+clients actually play — measured 2026-08-28 on OS 4.2.1 against Protect 7.2.105:
+RTSPS rendered a black tile, RTSP played. RTSPS remains selectable; try it after
+OS or Protect updates, and prefer it if it works. If both render black, use
+**Print Stream URLs To Log** and test the URLs in VLC to see which side is
+refusing.
+
+**Streams Offered** is the resolution selector. Control4 clients pick from the
+offered stream list silently — there is no picker in the app — so narrowing the
+offer to High, Medium, or Low is how you choose what plays. If the chosen
+quality does not exist on the console, everything available is offered instead
+of nothing.
 
 ## Automation: events and variables
 

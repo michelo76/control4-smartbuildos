@@ -178,8 +178,20 @@
           <item>RTSPS (secure, port 7441)</item>
           <item>RTSP (unencrypted, port 7447)</item>
         </items>
-        <default>RTSPS (secure, port 7441)</default>
-        <description>How stream URLs are handed to Navigators. RTSPS is Protect's native, encrypted stream. If touchscreens show a black tile on RTSPS, switch to RTSP: same stream, unencrypted, on the console's port 7447. The RTSP port is undocumented by Ubiquiti and may not exist on every Protect version.</description>
+        <default>RTSP (unencrypted, port 7447)</default>
+        <description>How stream URLs are handed to Navigators. RTSP is the default because it is what Control4 clients actually play (measured 2026-08-28 on OS 4.2.1 against Protect 7.2.105: RTSPS rendered black, RTSP played). RTSPS is Protect's native encrypted stream - try it after OS or Protect updates; if it plays, prefer it. The RTSP port is undocumented by Ubiquiti and may disappear in a future Protect version, at which point RTSPS is the only option.</description>
+      </property>
+      <property>
+        <name>Streams Offered</name>
+        <type>LIST</type>
+        <items>
+          <item>All (client picks)</item>
+          <item>High only</item>
+          <item>Medium only</item>
+          <item>Low only</item>
+        </items>
+        <default>All (client picks)</default>
+        <description>Which stream qualities are offered to Navigators. Control4 clients pick from the offered list on their own - there is no picker in the app - so limiting the offer is how you choose the resolution. High is the camera's full recording quality; Low keeps multi-camera walls light. If the chosen quality is not available from the console, whatever exists is offered instead of nothing.</description>
       </property>
       <property>
         <name>Status</name>

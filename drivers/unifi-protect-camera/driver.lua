@@ -179,9 +179,29 @@ local function streamsXml(key)
     table.insert(attrs, string.format(' camera_address="%s"', xmlEscape(gIdentity.console_host)))
   end
   table.insert(parts, string.format("<streams%s>", table.concat(attrs)))
+  -- Which qualities to offer. Navigator has no picker — the client silently
+  -- takes from whatever list it is handed — so the Streams Offered property
+  -- IS the resolution selector. A chosen quality the console did not provide
+  -- falls back to offering everything: a wrong-resolution picture beats a
+  -- black tile every time.
+  local ONLY = {
+    ["High only"] = "high",
+    ["Medium only"] = "medium",
+    ["Low only"] = "low",
+  }
+  local offered = { "high", "medium", "low" }
+  local chosen = ONLY[Properties["Streams Offered"]]
+  if chosen ~= nil then
+    local url = (gStreams or {})[chosen]
+    if type(url) == "string" and url ~= "" then
+      offered = { chosen }
+    else
+      log:warn("Streams Offered wants '%s' but the console provided no such stream; offering all", chosen)
+    end
+  end
   -- high first: a client that ignores attributes takes the first entry, and
   -- the first entry should be the good one.
-  for _, quality in ipairs({ "high", "medium", "low" }) do
+  for _, quality in ipairs(offered) do
     local url = (gStreams or {})[quality]
     if type(url) == "string" and url ~= "" then
       table.insert(parts, string.format('<stream url="%s" codec="h264"/>', xmlEscape(applyProtocol(url))))
@@ -702,6 +722,15 @@ function OPC.Stream_Protocol(propertyValue)
     return
   end
   -- The URLs Navigators hold were rendered under the OLD protocol choice.
+  SendToProxy(CAMERA_PROXY_BINDING, "DYNAMIC_URLS_CHANGED", {}, "NOTIFY")
+end
+
+function OPC.Streams_Offered(propertyValue)
+  log:trace("OPC.Streams_Offered('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  -- Same reasoning: the cached lists Navigators hold no longer match the offer.
   SendToProxy(CAMERA_PROXY_BINDING, "DYNAMIC_URLS_CHANGED", {}, "NOTIFY")
 end
 

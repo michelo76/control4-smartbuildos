@@ -99,6 +99,7 @@ Properties = {
   ["Streams"] = "-",
   ["Gateway Link"] = "Not bound - bind the Protect Camera connection to the Gateway",
   ["Stream Protocol"] = "RTSPS (secure, port 7441)",
+  ["Streams Offered"] = "All (client picks)",
   ["Driver Status"] = "Starting",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
@@ -506,6 +507,42 @@ check("identity accepted via EC", props["Camera"] == "Device Path Cam", props["C
 fired = {}
 ExecuteCommand("PROTECT_EVENT", { kind = "ring" })
 check("events accepted via EC", fired[#fired] == "Doorbell Ring", fired[#fired])
+
+-- ─── [16] Streams Offered is the resolution selector ─────────────────────────
+
+print("\n[16] Streams Offered narrows the offer; a missing quality falls back")
+
+-- Refresh the cache with high+medium (no low).
+ReceivedFromProxy(GATEWAY, "PROTECT_STREAMS", {
+  KEY = "555",
+  high = "rtsps://192.168.4.1:7441/HIGHTOKEN?enableSrtp",
+  medium = "rtsps://192.168.4.1:7441/MEDTOKEN?enableSrtp",
+})
+
+Properties["Streams Offered"] = "Medium only"
+sent = {}
+OnPropertyChanged("Streams Offered")
+check("changing the offer notifies DYNAMIC_URLS_CHANGED", #sentTo(PROXY, "DYNAMIC_URLS_CHANGED") == 1)
+
+local narrowed = tostring(ReceivedFromProxy(PROXY, "GET_STREAM_URLS", {}))
+check("only the chosen quality is offered", narrowed:find("MEDTOKEN", 1, true) ~= nil, narrowed)
+check("the others are withheld", narrowed:find("HIGHTOKEN", 1, true) == nil, narrowed)
+
+Properties["Streams Offered"] = "Low only"
+local fallback = tostring(ReceivedFromProxy(PROXY, "GET_STREAM_URLS", {}))
+check(
+  "a chosen quality the console never provided falls back to offering all",
+  fallback:find("HIGHTOKEN", 1, true) ~= nil and fallback:find("MEDTOKEN", 1, true) ~= nil,
+  fallback
+)
+
+Properties["Streams Offered"] = "All (client picks)"
+local everything = tostring(ReceivedFromProxy(PROXY, "GET_STREAM_URLS", {}))
+check(
+  "All offers everything the console provided",
+  everything:find("HIGHTOKEN", 1, true) ~= nil and everything:find("MEDTOKEN", 1, true) ~= nil,
+  everything
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -33,6 +33,13 @@ The Control4 side *does* know the scheme: the dynamic-streams docs list default
 ports per transport including `rtsps - 443`. That is not proof the decoder
 accepts SRTP with an untrusted cert. Measure it.
 
+> **ANSWERED 2026-08-28, on real hardware** (Composer 2026.5.27, OS Management
+> Package 4.2.1, Protect 7.2.105, Control4 app): **rtsps+SRTP renders a black
+> tile; plain rtsp on 7447 plays.** The dealer toggle in the camera driver now
+> defaults to RTSP; the "only rtsp:7447 works" row below is the world we live
+> in — fragile against Protect removing the undocumented port, exactly as
+> written.
+
 **Outcome matrix:**
 
 | Result | What the driver becomes |
