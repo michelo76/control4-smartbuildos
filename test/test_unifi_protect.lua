@@ -1076,7 +1076,6 @@ function C4:AddDevice(file, callback)
 end
 function C4:RenameDevice(id, name)
   provRenames[id] = name
-  added[#added].name = name
 end
 function C4:Bind(providerDevice, providerBinding, consumerDevice, consumerBinding, class)
   table.insert(bound, {
@@ -1087,27 +1086,31 @@ function C4:Bind(providerDevice, providerBinding, consumerDevice, consumerBindin
   })
 end
 
+-- Renames ride a post-batch timer; fire it inline for the test.
+SetTimer = function(_, _, callback)
+  callback()
+end
+CancelTimer = function() end
+
 -- cam-front's binding is bound (777); cam-drive and the sensor are not.
 EC.AUTO_PROVISION_DEVICES()
 
+-- Names land via the post-batch rename, keyed by fresh device id.
 local addedNames = {}
-for _, a in ipairs(added) do
-  table.insert(addedNames, a.name)
+for _, name in pairs(provRenames) do
+  table.insert(addedNames, name)
 end
 local addedJoined = table.concat(addedNames, ",")
 check("bound camera skipped", addedJoined:find("Front Door", 1, true) == nil, addedJoined)
 check("unbound camera added", addedJoined:find("Driveway", 1, true) ~= nil, addedJoined)
-check(
-  "sensor added with the sensor driver",
-  (function()
-    for _, a in ipairs(added) do
-      if a.name == "Garage" and a.file == "unifi-protect-sensor.c4z" then
-        return true
-      end
+check("sensor added with the sensor driver", (function()
+  for _, a in ipairs(added) do
+    if a.file == "unifi-protect-sensor.c4z" then
+      return true
     end
-    return false
-  end)()
-)
+  end
+  return false
+end)() and addedJoined:find("Garage", 1, true) ~= nil)
 check(
   "every added instance got bound to consumer binding 1",
   #bound == #added and (bound[1] or {}).consumerBinding == 1,

@@ -625,6 +625,7 @@ end
 
 function OnDriverDestroyed()
   CancelTimer(POLL_TIMER)
+  CancelTimer("ProtectProvisionRename")
   stopEventsSocket()
   stopSnapshotRelay()
 end
@@ -2241,6 +2242,32 @@ local PROVISION_SPECS = {
 gProvisionQueue = {}
 gProvisionInFlight = nil
 
+--- Renames queued for after the batch: { ids = {n...}, name = "..." }.
+--- Renaming happens on a short timer once the queue drains — the callback's
+--- deviceId is the PROTOCOL id, Composer's tree shows the PROXY device (the
+--- RenameDevice docs call this out), and renaming mid-add-transaction was
+--- measured doing nothing. So: every id Director handed back, a beat later.
+gProvisionRenames = {}
+
+local PROVISION_RENAME_TIMER = "ProtectProvisionRename"
+
+local function flushProvisionRenames()
+  if #gProvisionRenames == 0 then
+    return
+  end
+  SetTimer(PROVISION_RENAME_TIMER, 2 * ONE_SECOND, function()
+    for _, entry in ipairs(gProvisionRenames) do
+      for _, id in ipairs(entry.ids) do
+        pcall(function()
+          C4:RenameDevice(id, entry.name)
+        end)
+      end
+      log:print("Auto provision: renamed %d device id(s) to '%s'", #entry.ids, entry.name)
+    end
+    gProvisionRenames = {}
+  end)
+end
+
 local function processProvisionQueue()
   if gProvisionInFlight ~= nil then
     return
@@ -2248,6 +2275,7 @@ local function processProvisionQueue()
   gProvisionInFlight = table.remove(gProvisionQueue, 1)
   if gProvisionInFlight == nil then
     log:print("Auto provision: done")
+    flushProvisionRenames()
     return
   end
   local item = gProvisionInFlight
@@ -2294,9 +2322,25 @@ function OnProtectDeviceAdded(deviceId, tDeviceInfo)
       end
     end
     log:print("Auto provision: '%s' added as device %s (%s)", item.name, deviceId, table.concat(detail, ", "))
-    pcall(function()
-      C4:RenameDevice(deviceId, item.name)
-    end)
+    -- Collect EVERY id Director mentioned: protocol id plus any proxy ids
+    -- nested in the info table, whatever its shape.
+    local ids = { deviceId }
+    local function collectIds(t)
+      for k, v in pairs(t) do
+        if type(v) == "number" then
+          table.insert(ids, v)
+        elseif type(v) == "table" then
+          collectIds(v)
+        end
+        if type(k) == "number" and k > 100 then
+          table.insert(ids, k)
+        end
+      end
+    end
+    if type(tDeviceInfo) == "table" then
+      pcall(collectIds, tDeviceInfo)
+    end
+    table.insert(gProvisionRenames, { ids = ids, name = item.name })
     -- The child's consumer connection is always binding 1.
     local ok, err = pcall(function()
       C4:Bind(C4:GetDeviceID(), item.bindingId, deviceId, 1, item.class)
