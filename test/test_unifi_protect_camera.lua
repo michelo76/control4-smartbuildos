@@ -101,6 +101,11 @@ Properties = {
   ["Stream Protocol"] = "RTSPS (secure, port 7441)",
   ["Streams Offered"] = "All (client picks)",
   ["History"] = "Smart detections only",
+  -- Zero for the legacy sections; the dedicated cooldown section sets its own.
+  ["Motion Event Cooldown (seconds)"] = "0",
+  ["Detection Event Cooldown (seconds)"] = "0",
+  ["Capabilities"] = "-",
+  ["Last Control"] = "-",
   ["Snapshots"] = "-",
   ["Driver Status"] = "Starting",
   ["Log Level"] = "3 - Info",

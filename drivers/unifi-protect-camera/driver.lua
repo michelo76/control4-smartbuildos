@@ -96,6 +96,17 @@ local EVENTS = {
   { 12, "Loitering Detected", "Protect detected loitering on this camera." },
   { 13, "Camera Online", "This camera reconnected to the Protect console." },
   { 14, "Camera Offline", "This camera disconnected from the Protect console." },
+  {
+    15,
+    "Known Person Detected",
+    "A named person identified by fingerprint or NFC at this camera. LAST_PERSON carries the name.",
+  },
+  { 16, "Unknown Person Detected", "An unrecognized fingerprint or NFC at this camera." },
+  {
+    17,
+    "Snapshot Notification",
+    "Fired by the Send Snapshot Notification command - attach a push notification with the Camera Snapshot attachment to this event.",
+  },
 }
 
 --- Programming variables. BOOL for the live motion flag, STRINGs for the
@@ -107,6 +118,14 @@ local VARIABLES = {
   { "LAST_LICENSE_PLATE", "", "STRING" },
   { "LAST_AUDIO_TYPE", "", "STRING" },
   { "LAST_RING", "", "STRING" },
+  { "LAST_EVENT", "", "STRING" },
+  { "LAST_EVENT_TYPE", "", "STRING" },
+  { "LAST_EVENT_TIME", "", "STRING" },
+  { "LAST_PERSON", "", "STRING" },
+  { "LAST_PERSON_TIME", "", "STRING" },
+  { "LAST_VEHICLE_TIME", "", "STRING" },
+  { "LAST_PACKAGE_TIME", "", "STRING" },
+  { "LAST_ANIMAL_TIME", "", "STRING" },
 }
 
 --- Ports Protect serves streams on. Fixed by Protect, not configurable per
@@ -221,6 +240,13 @@ local function updateStatusProperties()
   UpdateProperty("Camera State", gCameraState)
   local snapshotUrl = gIdentity ~= nil and tostring(gIdentity.snapshot_url or "") or ""
   UpdateProperty("Snapshots", snapshotUrl ~= "" and "Available via gateway relay" or "-")
+  if gIdentity ~= nil and (gIdentity.caps or "") ~= "" then
+    local parts = { gIdentity.caps }
+    if (gIdentity.detects or "") ~= "" then
+      table.insert(parts, "detects: " .. gIdentity.detects)
+    end
+    UpdateProperty("Capabilities", table.concat(parts, " | "))
+  end
 end
 
 --- The Gateway's DEVICE id, found by its driver FILE — exact match, because
@@ -517,6 +543,10 @@ function RFP.PROTECT_CAMERA(_, _, tParams)
     mac = tostring(tParams.mac or ""),
     console_host = tostring(tParams.console_host or ""),
     snapshot_url = tostring(tParams.snapshot_url or ""),
+    caps = tostring(tParams.caps or ""),
+    detects = tostring(tParams.detects or ""),
+    audio_detects = tostring(tParams.audio_detects or ""),
+    video_modes = tostring(tParams.video_modes or ""),
   }
   gCameraState = tostring(tParams.state or "UNKNOWN")
   persist:set(IDENTITY_PERSIST, gIdentity)
@@ -575,8 +605,48 @@ function RFP.PROTECT_STATE(_, _, tParams)
 end
 
 --- A Protect event for this camera, normalized by the Gateway:
---- { kind = motion|smart|audio|ring|line|loiter, phase = start|end,
----   types = "person,vehicle", at = <unix ms>, value = <plate text, if any> }.
+--- { kind = motion|smart|audio|ring|line|loiter|identity, phase = start|end,
+---   types = "person,vehicle", at = <unix ms>, value = <plate/name>,
+---   method = fingerprint|nfc, known = "true"|"false" }.
+---
+--- Storm control: busy cameras emit motion continuously and smart
+--- detections in bursts. Cooldowns gate COMPOSER EVENT FIRING (and the
+--- history records that ride on it) — never the variables, which must stay
+--- truthful, and never the underlying state.
+local gLastFired = {}
+
+local function cooldownFor(kind)
+  if kind == "motion" then
+    return tonumber(Properties["Motion Event Cooldown (seconds)"]) or 3
+  end
+  return tonumber(Properties["Detection Event Cooldown (seconds)"]) or 3
+end
+
+--- Whether firing `key` now respects its cooldown; records the firing time
+--- when it does.
+local function mayFire(kind, key)
+  local seconds = cooldownFor(kind)
+  if seconds <= 0 then
+    return true
+  end
+  local now = os.time()
+  if gLastFired[key] ~= nil and now - gLastFired[key] < seconds then
+    log:debug("Cooldown suppressed %s (%ds window)", key, seconds)
+    return false
+  end
+  gLastFired[key] = now
+  return true
+end
+
+--- Every routed event stamps the generic trio programming filters on.
+local function stampLastEvent(eventName, detail)
+  local now = os.date("%Y-%m-%d %H:%M:%S")
+  setVariable("LAST_EVENT", eventName)
+  setVariable("LAST_EVENT_TYPE", detail or eventName)
+  setVariable("LAST_EVENT_TIME", now)
+  return now
+end
+
 function RFP.PROTECT_EVENT(_, _, tParams)
   tParams = tParams or {}
   local kind = tostring(tParams.kind or "")
@@ -590,9 +660,12 @@ function RFP.PROTECT_EVENT(_, _, tParams)
     if phase == "start" then
       setVariable("MOTION_DETECTED", "true")
       setVariable("LAST_MOTION", now)
-      fireEvent("Motion Detected")
-      if historyWants(kind) then
-        recordHistory("Info", "Motion Detected", "Motion on " .. cameraName)
+      stampLastEvent("Motion Detected", "motion")
+      if mayFire(kind, "motion") then
+        fireEvent("Motion Detected")
+        if historyWants(kind) then
+          recordHistory("Info", "Motion Detected", "Motion on " .. cameraName)
+        end
       end
     else
       setVariable("MOTION_DETECTED", "false")
@@ -607,56 +680,99 @@ function RFP.PROTECT_EVENT(_, _, tParams)
       licensePlate = "License Plate Detected",
       face = "Face Detected",
     }
+    local TIME_VAR = {
+      person = "LAST_PERSON_TIME",
+      vehicle = "LAST_VEHICLE_TIME",
+      package = "LAST_PACKAGE_TIME",
+      animal = "LAST_ANIMAL_TIME",
+    }
     for detected in types:gmatch("[^,]+") do
       local eventName = BY_TYPE[detected]
       if eventName ~= nil then
         setVariable("LAST_DETECTION", detected)
+        stampLastEvent(eventName, detected)
+        if TIME_VAR[detected] ~= nil then
+          setVariable(TIME_VAR[detected], now)
+        end
         if detected == "licensePlate" and tostring(tParams.value or "") ~= "" then
           setVariable("LAST_LICENSE_PLATE", tostring(tParams.value))
         end
-        fireEvent(eventName)
-        if historyWants(kind) then
-          local detail = eventName .. " on " .. cameraName
-          if detected == "licensePlate" and tostring(tParams.value or "") ~= "" then
-            detail = detail .. " (" .. tostring(tParams.value) .. ")"
+        if mayFire(kind, "smart:" .. detected) then
+          fireEvent(eventName)
+          if historyWants(kind) then
+            local detail = eventName .. " on " .. cameraName
+            if detected == "licensePlate" and tostring(tParams.value or "") ~= "" then
+              detail = detail .. " (" .. tostring(tParams.value) .. ")"
+            end
+            recordHistory("Info", eventName, detail)
           end
-          recordHistory("Info", eventName, detail)
         end
       else
         log:debug("Unknown smart detection type '%s' — Protect grew a vocabulary word", detected)
       end
     end
+  elseif kind == "identity" then
+    -- Fingerprint/NFC at the doorbell, already resolved by the Gateway
+    -- against the console's identity store. Official, and honest about
+    -- what it is: touch identity, not video face recognition.
+    local known = tostring(tParams.known or "false") == "true"
+    local who = tostring(tParams.value or "")
+    if known then
+      setVariable("LAST_PERSON", who)
+      setVariable("LAST_PERSON_TIME", now)
+      stampLastEvent("Known Person Detected", who)
+      fireEvent("Known Person Detected")
+      if historyWants(kind) then
+        recordHistory("Info", "Known Person Detected", who .. " identified at " .. cameraName)
+      end
+    else
+      stampLastEvent("Unknown Person Detected", tostring(tParams.method or ""))
+      fireEvent("Unknown Person Detected")
+      if historyWants(kind) then
+        recordHistory(
+          "Warning",
+          "Unknown Person Detected",
+          "Unrecognized " .. tostring(tParams.method or "credential") .. " at " .. cameraName
+        )
+      end
+    end
   elseif kind == "audio" and phase == "start" then
     setVariable("LAST_AUDIO_TYPE", types)
-    fireEvent("Audio Alarm Detected")
-    if historyWants(kind) then
-      -- An audio ALARM (smoke, CO, siren, glass break) outranks a sighting.
-      recordHistory("Warning", "Audio Alarm Detected", "Audio alarm (" .. types .. ") on " .. cameraName)
+    stampLastEvent("Audio Alarm Detected", types)
+    if mayFire(kind, "audio") then
+      fireEvent("Audio Alarm Detected")
+      if historyWants(kind) then
+        recordHistory("Warning", "Audio Alarm Detected", "Audio alarm (" .. types .. ") on " .. cameraName)
+      end
     end
   elseif kind == "ring" then
     setVariable("LAST_RING", now)
+    stampLastEvent("Doorbell Ring", "ring")
     fireEvent("Doorbell Ring")
     if historyWants(kind) then
       recordHistory("Info", "Doorbell Ring", "Doorbell pressed at " .. cameraName)
     end
   elseif kind == "line" and phase == "start" then
     setVariable("LAST_DETECTION", types ~= "" and types or "line")
-    fireEvent("Line Crossed")
-    if historyWants(kind) then
-      recordHistory("Info", "Line Crossed", "Line crossed on " .. cameraName)
+    stampLastEvent("Line Crossed", "line")
+    if mayFire(kind, "line") then
+      fireEvent("Line Crossed")
+      if historyWants(kind) then
+        recordHistory("Info", "Line Crossed", "Line crossed on " .. cameraName)
+      end
     end
   elseif kind == "loiter" and phase == "start" then
     setVariable("LAST_DETECTION", types ~= "" and types or "loiter")
-    fireEvent("Loitering Detected")
-    if historyWants(kind) then
-      recordHistory("Info", "Loitering Detected", "Loitering on " .. cameraName)
+    stampLastEvent("Loitering Detected", "loiter")
+    if mayFire(kind, "loiter") then
+      fireEvent("Loitering Detected")
+      if historyWants(kind) then
+        recordHistory("Info", "Loitering Detected", "Loitering on " .. cameraName)
+      end
     end
   end
 end
 
---- Stream URLs arrived from the Gateway. Two audiences: the cache (always),
---- and any Navigator waiting on the echoed KEY (notified via
---- STREAM_URLS_READY, per the async half of the dynamic-streams API).
 function RFP.PROTECT_STREAMS(_, _, tParams)
   tParams = tParams or {}
   local key = tostring(tParams.KEY or "")
@@ -955,3 +1071,129 @@ function EC.FORGET_CAMERA()
   UpdateProperty("Streams", "-")
   requestIdentity()
 end
+
+-- ─── Camera controls (through the Gateway, which holds the key) ───────────────
+
+--- Whether this camera claims a capability token (from the API's own
+--- featureFlags, relayed in identity). Unknown-capability cameras (identity
+--- not yet learned) are allowed through — the console is the final referee
+--- and the result reports back either way.
+local function hasCap(token)
+  local caps = gIdentity ~= nil and tostring(gIdentity.caps or "") or ""
+  if caps == "" then
+    return true
+  end
+  return ("," .. caps .. ","):find("," .. token .. ",", 1, true) ~= nil
+end
+
+--- Sends one control op to the Gateway. Exactly once — control results
+--- arrive as PROTECT_CONTROL_RESULT; a timeout is a reported unknown, never
+--- a retry (some of these are security-adjacent).
+local function sendControl(op, params, capToken, capLabel)
+  if capToken ~= nil and not hasCap(capToken) then
+    log:warn("%s: this camera reports no %s capability", op, capLabel or capToken)
+    UpdateProperty("Last Control", op .. ": unsupported on this camera")
+    return
+  end
+  params = params or {}
+  params.op = op
+  UpdateProperty("Last Control", op .. ": sent " .. os.date("%H:%M:%S"))
+  askGateway("PROTECT_CONTROL", params)
+end
+
+function RFP.PROTECT_CONTROL_RESULT(_, _, tParams)
+  tParams = tParams or {}
+  local op = tostring(tParams.op or "")
+  if tostring(tParams.ok or "") == "true" then
+    log:info("Control %s: ok", op)
+    UpdateProperty("Last Control", op .. ": ok " .. os.date("%H:%M:%S"))
+  else
+    log:warn("Control %s failed: %s", op, tostring(tParams.reason or "unknown"))
+    UpdateProperty("Last Control", op .. ": FAILED - " .. tostring(tParams.reason or "unknown"))
+  end
+end
+
+EC.PROTECT_CONTROL_RESULT = function(tParams)
+  RFP.PROTECT_CONTROL_RESULT(nil, nil, tParams)
+end
+
+-- Doorbell display
+function EC.SET_DOORBELL_MESSAGE(tParams)
+  sendControl("lcd_message", {
+    text = tostring((tParams or {}).Message or ""),
+    duration_s = tostring((tParams or {}).Duration or ""),
+  }, "lcd", "display")
+end
+
+function EC.DO_NOT_DISTURB()
+  sendControl("lcd_dnd", {}, "lcd", "display")
+end
+
+function EC.LEAVE_PACKAGE()
+  sendControl("lcd_leave_package", {}, "lcd", "display")
+end
+
+function EC.RESET_DOORBELL_DISPLAY()
+  sendControl("lcd_reset", {}, "lcd", "display")
+end
+
+-- Camera settings
+function EC.SET_LED(tParams)
+  local state = tostring((tParams or {}).State or ""):lower()
+  sendControl("led", { on = (state == "on" or state == "true") and "true" or "false" }, "led", "status LED")
+end
+
+function EC.SET_MICROPHONE_VOLUME(tParams)
+  sendControl("mic_volume", { volume = tostring((tParams or {}).Volume or "") }, "mic", "microphone")
+end
+
+function EC.SET_HDR(tParams)
+  sendControl("hdr", { mode = tostring((tParams or {}).Mode or "auto") }, "hdr", "HDR")
+end
+
+function EC.SET_VIDEO_MODE(tParams)
+  sendControl("video_mode", { mode = tostring((tParams or {}).Mode or "default") })
+end
+
+-- PTZ (presets and patrols are what the official API offers)
+function EC.RUN_PTZ_PRESET(tParams)
+  sendControl("ptz_goto", { slot = tostring((tParams or {}).Slot or "0") })
+end
+
+function EC.START_PATROL(tParams)
+  sendControl("ptz_patrol_start", { slot = tostring((tParams or {}).Slot or "0") })
+end
+
+function EC.STOP_PATROL()
+  sendControl("ptz_patrol_stop", {})
+end
+
+--- One Composer command for the whole "tell someone, with the picture"
+--- move: history record + the Snapshot Notification event, which the dealer
+--- pairs once with a push notification carrying the Camera Snapshot
+--- attachment.
+function EC.SEND_SNAPSHOT_NOTIFICATION(tParams)
+  tParams = tParams or {}
+  local message = tostring(tParams.Message or "Camera snapshot")
+  local severity = tostring(tParams.Severity or "Info")
+  if severity ~= "Info" and severity ~= "Warning" and severity ~= "Critical" then
+    severity = "Info"
+  end
+  recordHistory(severity, "Snapshot Notification", message)
+  fireEvent("Snapshot Notification")
+  log:info("Snapshot notification: %s", message)
+end
+
+-- Command-name aliases (the dispatcher underscores spaces).
+EC.Set_Doorbell_Message = EC.SET_DOORBELL_MESSAGE
+EC.Do_Not_Disturb = EC.DO_NOT_DISTURB
+EC.Leave_Package = EC.LEAVE_PACKAGE
+EC.Reset_Doorbell_Display = EC.RESET_DOORBELL_DISPLAY
+EC.Set_LED = EC.SET_LED
+EC.Set_Microphone_Volume = EC.SET_MICROPHONE_VOLUME
+EC.Set_HDR = EC.SET_HDR
+EC.Set_Video_Mode = EC.SET_VIDEO_MODE
+EC.Run_PTZ_Preset = EC.RUN_PTZ_PRESET
+EC.Start_Patrol = EC.START_PATROL
+EC.Stop_Patrol = EC.STOP_PATROL
+EC.Send_Snapshot_Notification = EC.SEND_SNAPSHOT_NOTIFICATION

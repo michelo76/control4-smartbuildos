@@ -165,6 +165,32 @@
         <default>-</default>
       </property>
       <property>
+        <name>Capabilities</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>What this camera reports it can do, from the console's own metadata. Commands the camera lacks the hardware for refuse locally and say so.</description>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The most recent control command and its outcome.</description>
+      </property>
+      <property>
+        <name>Motion Event Cooldown (seconds)</name>
+        <type>STRING</type>
+        <default>3</default>
+        <description>Minimum seconds between Motion Detected Composer events. Variables always update; only event firing is spaced. 0 disables.</description>
+      </property>
+      <property>
+        <name>Detection Event Cooldown (seconds)</name>
+        <type>STRING</type>
+        <default>3</default>
+        <description>Minimum seconds between Composer events per smart-detection type. 0 disables.</description>
+      </property>
+      <property>
         <name>Snapshots</name>
         <type>STRING</type>
         <readonly>true</readonly>
@@ -260,7 +286,82 @@
         <default>Off</default>
       </property>
     </properties>
-    <commands/>
+    <commands>
+      <command>
+        <name>Set Doorbell Message</name>
+        <description>Show MESSAGE on the doorbell display, optionally reverting after DURATION seconds</description>
+        <params>
+          <param><name>Message</name><type>STRING</type></param>
+          <param><name>Duration</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Do Not Disturb</name>
+        <description>Set the doorbell display to Do Not Disturb</description>
+      </command>
+      <command>
+        <name>Leave Package</name>
+        <description>Set the doorbell display to Leave Package At Door</description>
+      </command>
+      <command>
+        <name>Reset Doorbell Display</name>
+        <description>Reset the doorbell display to its default</description>
+      </command>
+      <command>
+        <name>Set LED</name>
+        <description>Turn the camera status LED STATE (on/off)</description>
+        <params>
+          <param><name>State</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Microphone Volume</name>
+        <description>Set the camera microphone volume VOLUME (0-100)</description>
+        <params>
+          <param><name>Volume</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set HDR</name>
+        <description>Set HDR MODE (auto/on/off)</description>
+        <params>
+          <param><name>Mode</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Video Mode</name>
+        <description>Set the camera video MODE (default/highFps/sport/slowShutter)</description>
+        <params>
+          <param><name>Mode</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Run PTZ Preset</name>
+        <description>Move a PTZ camera to preset SLOT</description>
+        <params>
+          <param><name>Slot</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Start Patrol</name>
+        <description>Start PTZ patrol SLOT</description>
+        <params>
+          <param><name>Slot</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Stop Patrol</name>
+        <description>Stop the active PTZ patrol</description>
+      </command>
+      <command>
+        <name>Send Snapshot Notification</name>
+        <description>Record MESSAGE in History and fire the Snapshot Notification event (pair it once with a push notification carrying the Camera Snapshot attachment)</description>
+        <params>
+          <param><name>Message</name><type>STRING</type></param>
+          <param><name>Severity</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
   </config>
   <!-- Composer's stock camera icons, so the device reads as a camera in the
        tree. Backslash paths and .gif names are Composer's own convention. -->
