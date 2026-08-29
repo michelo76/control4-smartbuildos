@@ -1555,21 +1555,79 @@ end
 
 --- The HTTP snapshot URL for a camera device, or nil.
 ---
---- ⚠ HARDWARE-GATED: the general path is the camera proxy's
---- GET_SNAPSHOT_QUERY_STRING (an async proxy return the shim cannot model),
---- combined with the camera's address. Until that is confirmed on a real
---- camera, this returns only a URL the device record explicitly carries —
---- never a GUESSED path, because a fabricated snapshot URL is worse than
---- "no snapshot available". The vocabulary, tier gate, live-only relay and
---- never-stored guarantee are all real now; this resolver is the one piece
---- waiting on hardware.
---- @return string|nil
-function snapshotUrlFor(device)
-  local url = device and device.snapshot_url
-  if type(url) == "string" and url:match("^https?://") then
-    return url
+--- ── HOW A CAMERA IS ASKED ───────────────────────────────────────────────────
+---
+--- The camera proxy answers `GET_SNAPSHOT_QUERY_STRING`, which per the Snap One
+--- Camera Proxy SDK "immediately returns a block of XML" of the form
+--- `<snapshot_query_string>url-query-string</snapshot_query_string>` — the
+--- QUERY STRING only, to be combined with the camera's own address.
+---
+--- ⚠ This resolver previously returned nil for every camera and said it was
+--- "waiting on hardware", on the belief that the call was "an async proxy
+--- return the shim cannot model". That was wrong, and it cost the feature: the
+--- ASYNC pattern belongs to GET_STREAM_URLS, which answers later through the
+--- separate STREAM_URLS_READY notify keyed back to the caller. Snapshots are
+--- synchronous. `C4:SendUIRequest` is the synchronous driver-to-driver call and
+--- it returns XML, which is exactly the shape the camera proxy documents.
+---
+--- The one thing NOT guessed is the path. We send the request and use what
+--- comes back; a camera whose driver answers nothing still yields nil, because
+--- a fabricated snapshot URL is worse than "no snapshot available" — it
+--- produces a broken image instead of an honest refusal. The address is the
+--- one the device inventory already holds, never invented.
+--- @param device table Device record from readDeviceState().
+--- @param id number|nil Control4 device id, for the proxy request.
+--- @return string|nil url
+--- @return string|nil why  Why there is no URL, for the failure message.
+function snapshotUrlFor(device, id)
+  -- An explicit URL on the record still wins: a camera integration that
+  -- already knows its own snapshot path should not be re-interrogated.
+  local carried = device and device.snapshot_url
+  if type(carried) == "string" and carried:match("^https?://") then
+    return carried, nil
   end
-  return nil
+
+  local address = device and device.address
+  if type(address) ~= "string" or not isRealAddress(address) then
+    return nil, "the camera has no reachable address in this project"
+  end
+  if type(id) ~= "number" then
+    return nil, "no device id to ask"
+  end
+
+  -- SIZE X / SIZE Y are the documented parameters. Asking for a modest frame
+  -- keeps the relay well inside the payload budget; the viewer is a check on
+  -- a camera, not a recording.
+  local okReq, xml = pcall(function()
+    return C4:SendUIRequest(id, "GET_SNAPSHOT_QUERY_STRING", { ["SIZE X"] = 640, ["SIZE Y"] = 480 })
+  end)
+  if not okReq then
+    return nil, "the camera driver refused the snapshot request: " .. tostring(xml):sub(1, 80)
+  end
+  if type(xml) ~= "string" or xml == "" then
+    return nil, "the camera driver does not answer GET_SNAPSHOT_QUERY_STRING"
+  end
+
+  local query = xml:match("<snapshot_query_string>%s*(.-)%s*</snapshot_query_string>")
+  if query == nil or query == "" then
+    -- Some drivers answer with the bare string rather than the documented
+    -- wrapper. Accept that, but only when it cannot be anything else.
+    local bare = xml:gsub("^%s+", ""):gsub("%s+$", "")
+    if bare ~= "" and not bare:find("<") then
+      query = bare
+    else
+      return nil, "the camera answered without a snapshot query string"
+    end
+  end
+
+  local port = tonumber(device.http_port) or 80
+  local base = port == 80 and string.format("http://%s", address) or string.format("http://%s:%d", address, port)
+  -- The proxy returns a QUERY STRING, which may or may not carry its own
+  -- leading separator. Normalising here keeps a double slash out of the URL.
+  if query:sub(1, 1) ~= "/" and query:sub(1, 1) ~= "?" then
+    query = "/" .. query
+  end
+  return base .. query, nil
 end
 
 --- Fetch one snapshot and relay it to the platform — LIVE-ONLY, NEVER STORED.
@@ -2039,10 +2097,12 @@ local COMMAND_RUNNERS = {
   -- is VERIFIED_BY_DOCS; the async proxy return is the hardware-gated part.
   CAMERA_SNAPSHOT = function(payload)
     requireTier(2, "camera snapshot")
-    local _id, key, device = resolveWriteTarget(payload)
-    local url = snapshotUrlFor(device)
+    local id, key, device = resolveWriteTarget(payload)
+    local url, why = snapshotUrlFor(device, id)
     if url == nil then
-      error("no snapshot URL for " .. key .. " (camera driver does not expose one)")
+      -- The REASON, not a shrug. "camera driver does not expose one" was true
+      -- of every camera and told nobody which of several things to check.
+      error(string.format("no snapshot for %s: %s", key, why or "unknown reason"))
     end
     -- Fetch and relay happen off the ack path; the ack confirms the attempt.
     postCameraSnapshot(key, url, tostring(payload.request_id or ""))
