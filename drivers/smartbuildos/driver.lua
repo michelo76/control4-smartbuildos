@@ -1621,8 +1621,7 @@ function snapshotUrlFor(device, id)
   end
 
   local port = tonumber(device.http_port) or 80
-  local base = port == 80 and string.format("http://%s", address)
-    or string.format("http://%s:%d", address, port)
+  local base = port == 80 and string.format("http://%s", address) or string.format("http://%s:%d", address, port)
   -- The proxy returns a QUERY STRING, which may or may not carry its own
   -- leading separator. Normalising here keeps a double slash out of the URL.
   if query:sub(1, 1) ~= "/" and query:sub(1, 1) ~= "?" then

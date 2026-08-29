@@ -1317,10 +1317,16 @@ nextSnapshotXml = "<snapshot_query_string>/cgi/jpg?q=80</snapshot_query_string>"
 local url, why = snapshotUrlFor({ address = "192.168.1.77" }, 637)
 check("the documented query string becomes a URL", url == "http://192.168.1.77/cgi/jpg?q=80", tostring(url))
 check("no reason is given when it worked", why == nil, tostring(why))
-check("the camera proxy was asked", #snapshotRequests == 1 and snapshotRequests[1].request == "GET_SNAPSHOT_QUERY_STRING",
-  #snapshotRequests > 0 and snapshotRequests[1].request or "none")
-check("the documented SIZE parameters were sent",
-  snapshotRequests[1].params and snapshotRequests[1].params["SIZE X"] == 640, "missing SIZE X")
+check(
+  "the camera proxy was asked",
+  #snapshotRequests == 1 and snapshotRequests[1].request == "GET_SNAPSHOT_QUERY_STRING",
+  #snapshotRequests > 0 and snapshotRequests[1].request or "none"
+)
+check(
+  "the documented SIZE parameters were sent",
+  snapshotRequests[1].params and snapshotRequests[1].params["SIZE X"] == 640,
+  "missing SIZE X"
+)
 
 -- A non-default HTTP port belongs in the URL.
 nextSnapshotXml = "<snapshot_query_string>/snap.jpg</snapshot_query_string>"
