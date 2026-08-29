@@ -75,6 +75,18 @@ local LABELS = {
   CLOUD_VALIDATION_REQUIRED = "Cloud Validation Required",
   LEGACY = "Authorized - Licensing Not Yet Enforced",
   AGENT_MISSING = "SMARTBUILDOS AGENT REQUIRED",
+  REGISTRATION_REQUIRED = "SMARTBUILDOS COMPANY REGISTRATION REQUIRED",
+}
+
+--- Human labels for the per-driver license SOURCE (#3a): is this driver
+--- covered by the company's subscription tier, or bought outright?
+local SOURCE_LABELS = {
+  SUBSCRIPTION_INCLUDED = "Included with subscription",
+  PERPETUAL = "Purchased outright",
+  TRIAL = "Trial",
+  GRACE = "Grace period",
+  DEVELOPER = "Developer license",
+  NFR = "Not for resale",
 }
 
 local state = {
@@ -85,6 +97,14 @@ local state = {
   licenseType = "",
   features = {},
   company = "",
+  -- Display context the Agent forwards (unsigned): the company's subscription
+  -- tier and name, and whether the Agent is paired to a REGISTERED company. A
+  -- SmartBuildOS driver needs the Agent AND a registered company (#5).
+  subscriptionTier = "",
+  companyName = "",
+  registered = false,
+  registrationKnown = false,
+  agentPresent = false,
   graceUntil = "",
   checkedAt = "",
   -- "observe" | "enforce", set by the Agent from the server's (unsigned)
@@ -118,8 +138,21 @@ local function findAgent()
   return nil
 end
 
+--- Updates an optional standardized display property, if the driver declares
+--- it. pcall so a driver that has not added the property is a silent no-op.
+local function setDisplay(name, value)
+  pcall(function()
+    UpdateProperty(name, value)
+  end)
+end
+
 local function publishStatus()
   local label = LABELS[state.status] or state.status
+  -- The Agent found the company unregistered (paired to no registered
+  -- company): the loudest thing a dependent driver can say short of enforcing.
+  if state.agentPresent and state.registrationKnown and not state.registered then
+    label = LABELS.REGISTRATION_REQUIRED
+  end
   if state.status == "AUTHORIZED_GRACE" and state.graceUntil ~= "" then
     label = label .. " until " .. state.graceUntil
   end
@@ -128,15 +161,22 @@ local function publishStatus()
     -- the READ-ONLY consequence explicit, not just the status.
     label = label .. " (read-only)"
   end
-  pcall(function()
-    UpdateProperty(state.statusProperty, label)
-  end)
+  setDisplay(state.statusProperty, label)
+  -- The standardized display set (#3/#3a): each optional, painted only if the
+  -- driver declares the property.
+  setDisplay(
+    "License Source",
+    SOURCE_LABELS[state.licenseType] or (state.licenseType ~= "" and state.licenseType or "-")
+  )
+  setDisplay("Subscription Tier", state.subscriptionTier ~= "" and state.subscriptionTier or "-")
+  setDisplay("SmartBuildOS Company", state.companyName ~= "" and state.companyName or "-")
 end
 
 --- Registers this driver with the Agent. Called from setup and safe to
 --- re-call (the Agent's inventory is keyed by sku + device id).
 function M.register()
   local agent = findAgent()
+  state.agentPresent = agent ~= nil
   if agent == nil then
     -- Absent Agent = the one state that must be LOUD but not (yet)
     -- enforcement: existing installs predate the Agent requirement.
@@ -182,6 +222,10 @@ function M.onEntitlement(tParams)
   state.status = status
   state.licenseType = tostring(tParams.license_type or "")
   state.company = tostring(tParams.company or "")
+  state.subscriptionTier = tostring(tParams.subscription_tier or "")
+  state.companyName = tostring(tParams.company_name or "")
+  state.registrationKnown = tParams.registered ~= nil
+  state.registered = tostring(tParams.registered or "") == "true"
   state.graceUntil = tostring(tParams.grace_until or "")
   state.checkedAt = tostring(tParams.checked_at or "")
   state.enforcement = tostring(tParams.enforcement or "") == "enforce" and "enforce" or "observe"
@@ -254,6 +298,36 @@ function M.hasFeature(name)
   return state.features[tostring(name)] == true
 end
 
+--- The company's subscription tier (#3), e.g. "Professional". Blank until the
+--- Agent has answered with it.
+function M.subscriptionTier()
+  return state.subscriptionTier
+end
+
+--- The company this project is licensed to (#3).
+function M.companyName()
+  return state.companyName
+end
+
+--- Whether the Agent is paired to a REGISTERED company (#5). A SmartBuildOS
+--- driver needs both the Agent present AND a registered company.
+function M.isRegistered()
+  return state.agentPresent and state.registered
+end
+
+--- Whether the loud "registration required" state applies (#5): the Agent is
+--- present and has DEFINITIVELY answered that no registered company is paired.
+--- An absent answer is not treated as unregistered (fail-safe).
+function M.isRegistrationRequired()
+  return state.agentPresent and state.registrationKnown and not state.registered
+end
+
+--- A friendly label for THIS driver's license source (#3a): included with the
+--- subscription, or purchased outright.
+function M.licenseSource()
+  return SOURCE_LABELS[state.licenseType] or (state.licenseType ~= "" and state.licenseType or "-")
+end
+
 --- For diagnostics prints.
 function M.describe()
   return string.format(
@@ -276,6 +350,11 @@ function M._reset()
   state.licenseType = ""
   state.features = {}
   state.company = ""
+  state.subscriptionTier = ""
+  state.companyName = ""
+  state.registered = false
+  state.registrationKnown = false
+  state.agentPresent = false
   state.graceUntil = ""
   state.checkedAt = ""
   state.enforcement = "observe"

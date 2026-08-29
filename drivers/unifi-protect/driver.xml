@@ -275,6 +275,27 @@
         <description>This driver's entitlement, answered by the SmartBuildOS Agent (the SmartBuildOS Connector driver) in this project. Legacy mode operates normally while the licensing backend rolls out.</description>
       </property>
       <property>
+        <name>License Source</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>How this driver is licensed: included with the company's SmartBuildOS subscription, or purchased outright (perpetual). Answered by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
+        <name>Subscription Tier</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The SmartBuildOS subscription tier of the company this driver is licensed under, as reported by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
+        <name>SmartBuildOS Company</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The registered SmartBuildOS company this driver is associated with, as reported by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
         <name>SmartBuildOS Reporting</name>
         <type>LIST</type>
         <items>

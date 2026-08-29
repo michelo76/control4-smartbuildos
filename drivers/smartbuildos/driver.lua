@@ -108,6 +108,14 @@ local SUPPORT_ID_KEY = "support_id"
 local ENTITLEMENT_CACHE_KEY = "sbos_entitlement_cache"
 local ENTITLEMENT_TIMER = "SmartBuildOSEntitlements"
 local PROPERTY_NAME_KEY = "property_name"
+--- The registered company name + its SmartBuildOS subscription tier, as the
+--- platform resolves them. Sent on pair and every refresh; cached so the Agent
+--- can display the account picture (#3) before its first refresh and while
+--- offline. A BLANK inbound value never overwrites a known one — the platform
+--- sends blank only when it could not confirm the value, and last-known beats
+--- mislabeling a paid customer.
+local SUBSCRIPTION_TIER_KEY = "sbos_subscription_tier"
+local COMPANY_NAME_KEY = "sbos_company_name"
 --- The site's street address, as SmartBuildOS composes it.
 ---
 --- Composed on the platform, never here: a system linked to a property uses
@@ -320,7 +328,7 @@ local sendCatalogue
 local scheduleTimers
 -- Phase 5 licensing engine (defined with the Agent section at file end;
 -- referenced by timers, pairing and unpair above it).
-local entitlementTick, refreshEntitlements, updateLicenseProperties
+local entitlementTick, refreshEntitlements, updateLicenseProperties, licensedDriverCounts
 -- Same trap again: the heartbeat refreshes the site address and repaints the
 -- "Paired Property" line, and that painter is defined with the pairing code
 -- far below. Without this it resolves to a nil GLOBAL and dies inside the
@@ -3603,6 +3611,14 @@ local function redeemPairingCode(code)
       )
       persist:set(PROPERTY_NAME_KEY, body.property_name or "")
       persist:set(SITE_LABEL_KEY, body.site_label or "")
+      -- The account picture the Agent shows before its first refresh (#3). A
+      -- blank tier means the platform could not confirm it; keep last-known.
+      if type(body.subscription_tier) == "string" and body.subscription_tier ~= "" then
+        persist:set(SUBSCRIPTION_TIER_KEY, body.subscription_tier)
+      end
+      if type(body.company_name) == "string" and body.company_name ~= "" then
+        persist:set(COMPANY_NAME_KEY, body.company_name)
+      end
       showPairingState()
       C4:FireEvent("Paired")
       log:info(
@@ -5588,6 +5604,28 @@ end
 function updateLicenseProperties()
   local cache = entitlementCache()
   UpdateProperty("Support ID", persist:get(SUPPORT_ID_KEY, "") or (cache and fieldOrEmpty(cache.support_id)) or "")
+  -- #3/#3a/#4: the account picture a dealer reads at a glance — which company
+  -- this Agent authenticates, its SmartBuildOS subscription tier, and how many
+  -- installed SmartBuildOS drivers currently hold a license. Painted in every
+  -- path (including not-yet-validated) from cached values.
+  do
+    local company = persist:get(COMPANY_NAME_KEY, "") or ""
+    local tier = persist:get(SUBSCRIPTION_TIER_KEY, "") or ""
+    if not isPaired() then
+      UpdateProperty("SmartBuildOS Company", "Not registered - pair to a company")
+      UpdateProperty("Subscription Tier", "Not paired")
+    else
+      UpdateProperty("SmartBuildOS Company", company ~= "" and company or "Registered (name syncing)")
+      local inGrace = type(cache) == "table" and cache.subscription_in_grace == true
+      UpdateProperty("Subscription Tier", tier ~= "" and (tier .. (inGrace and " (grace)" or "")) or "Syncing...")
+    end
+    local installed, licensed = licensedDriverCounts()
+    if installed == 0 then
+      UpdateProperty("Licensed Drivers", "No SmartBuildOS drivers installed")
+    else
+      UpdateProperty("Licensed Drivers", string.format("%d licensed / %d installed", licensed, installed))
+    end
+  end
   if cache == nil then
     if isPaired() then
       UpdateProperty("License Cloud", "Not yet validated - drivers run in legacy mode")
@@ -5730,6 +5768,30 @@ local function statusForSku(sku)
   return answer
 end
 
+--- #4: installed vs licensed SmartBuildOS drivers in this project. "Installed"
+--- is every driver registered with this Agent; "licensed" is those whose
+--- current entitlement answer is an authorized status. Best-effort display,
+--- never a gate. Assigned to the forward-declared local so updateLicenseProperties
+--- (defined above statusForSku) can call it.
+--- @return number installed, number licensed
+licensedDriverCounts = function()
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  local installed, licensed = 0, 0
+  for sku in pairs(inventory) do
+    installed = installed + 1
+    local status = statusForSku(sku).status
+    if
+      status == "AUTHORIZED_SUBSCRIPTION"
+      or status == "AUTHORIZED_PERPETUAL"
+      or status == "AUTHORIZED_GRACE"
+      or status == "TRIAL"
+    then
+      licensed = licensed + 1
+    end
+  end
+  return installed, licensed
+end
+
 --- Answers one entitlement question — the Phase-2 seam, now with real
 --- statuses behind it. Every caller and the protocol shape are unchanged.
 --- @param requester number The asking driver's device id.
@@ -5742,6 +5804,14 @@ local function answerEntitlement(requester, sku)
     license_type = answer.license_type,
     features = answer.features,
     company = persist:get(PROPERTY_NAME_KEY, "") or "",
+    -- #3/#3a: the account the driver is licensed under, so a dependent driver
+    -- can show tier + company + which company it came from without its own
+    -- cloud call. #5: `registered` is the pairing fact — a paired Agent means a
+    -- fully registered company. Sent as a string so it survives SendToDevice's
+    -- string-typed params on-controller (the SDK reads it as "true"/"false").
+    subscription_tier = persist:get(SUBSCRIPTION_TIER_KEY, "") or "",
+    company_name = persist:get(COMPANY_NAME_KEY, "") or "",
+    registered = isPaired() and "true" or "false",
     grace_until = answer.grace_until,
     enforcement = answer.enforcement,
     checked_at = answer.checked_at,
@@ -5842,9 +5912,20 @@ function refreshEntitlements(reason)
       verified = secret ~= "",
       assertions = assertions,
       enforcement = enforcement,
+      -- Account-level display config (#3), unsigned like enforcement mode.
+      subscription_in_grace = body.subscription_in_grace == true,
     }, true)
     if fieldOrEmpty(body.support_id) ~= "" then
       persist:set(SUPPORT_ID_KEY, body.support_id)
+    end
+    -- The tier + company the platform re-resolves each refresh. Blank means
+    -- "could not confirm"; keep the last known rather than blanking a paid
+    -- customer's display (mirrors the pairing path).
+    if fieldOrEmpty(body.subscription_tier) ~= "" then
+      persist:set(SUBSCRIPTION_TIER_KEY, body.subscription_tier)
+    end
+    if fieldOrEmpty(body.company_name) ~= "" then
+      persist:set(COMPANY_NAME_KEY, body.company_name)
     end
     gEntitlements.lastError = ""
     gEntitlements.verifyWarned = {}

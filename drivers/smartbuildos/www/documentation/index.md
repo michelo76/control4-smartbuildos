@@ -3,8 +3,15 @@
 Makes the Control4 Director the source of truth for what is up and what is down
 at a property, and reports it to [SmartBuildOS](https://app.smartbuildos.io).
 
-Add one instance per project. The driver talks outbound over HTTPS only —
-nothing needs to be opened on the client's firewall.
+Add one instance per project. It installs as a Control4 **Agent**, not a room
+driver: in Composer, add it from **Agents → Add → SmartBuildOS** (Composer will
+not let you place it in a room, and only one can exist per project — it is the
+licensing authority for every SmartBuildOS driver on the controller). It talks
+outbound over HTTPS only — nothing needs to be opened on the client's firewall.
+
+> **Upgrading from an older build** that was added to a *room*: delete that
+> instance and re-add it under **Agents**. Pairing identity is preserved in the
+> Pairing Backup property, so it re-pairs itself with no new code.
 
 ## Pairing
 
@@ -18,6 +25,32 @@ access; it is never displayed, never logged, and never written to the project
 file in plain text. **Unpair** discards it — and discards it locally even if
 SmartBuildOS cannot be reached at the time, so a driver can never be stranded in
 a paired state it cannot leave.
+
+## Licensing & subscription
+
+Every SmartBuildOS driver on the controller asks this Agent whether it is
+licensed; the Agent answers from a signed entitlement it fetches from
+SmartBuildOS and caches. It also surfaces the account picture so a dealer can
+read it at a glance:
+
+- **SmartBuildOS Company** — the registered company this controller is paired
+  to. A SmartBuildOS driver only runs against a **fully registered company**;
+  until the Agent is paired, dependent drivers show *SMARTBUILDOS COMPANY
+  REGISTRATION REQUIRED*.
+- **Subscription Tier** — the company's SmartBuildOS plan (Free / Essential /
+  Professional / Business / Enterprise), with `(grace)` when it is riding the
+  grace window.
+- **Licensed Drivers** — how many SmartBuildOS drivers in this project currently
+  hold a license, over how many are installed (`3 licensed / 4 installed`).
+
+Each dependent driver additionally shows its own **License Source** — whether it
+is *Included with subscription* (covered by the plan) or *Purchased outright* (a
+perpetual license bought for that driver).
+
+The Agent shows the tier and company from the moment it pairs; both refresh on
+every entitlement check. A value the platform cannot confirm is left blank
+rather than shown wrong, and the last known value is kept until a confirmed one
+replaces it.
 
 ## What it monitors
 
@@ -93,6 +126,9 @@ project coming online at once.
 | API URL              | Base URL of the SmartBuildOS instance. Trailing slashes are tolerated.                    |
 | Pairing Code         | Paste a code from SmartBuildOS here. Clears itself once redeemed.                         |
 | Paired Property      | Read-only. The property this controller reports against.                                  |
+| SmartBuildOS Company | Read-only. The registered company this controller is paired to.                           |
+| Subscription Tier    | Read-only. The company's SmartBuildOS plan, `(grace)` when in the grace window.           |
+| Licensed Drivers     | Read-only. Licensed-vs-installed count of SmartBuildOS drivers in this project.           |
 | Connection Status    | Read-only. `Connected`, `Unreachable`, `HTTP <code>`, `Not paired`, or a pairing failure. |
 | Last Successful Sync | Read-only timestamp of the last accepted payload.                                         |
 | Device Poll Interval | 1m / 5m / 15m / 30m. Default 5m.                                                          |

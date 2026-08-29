@@ -1,4 +1,10 @@
 <devicedata>
+  <!-- A true DriverWorks Agent (OS 3.1.3+): a project-wide singleton in the
+       Agents section, not a device driver in a room. The Connector fits the
+       agent criteria exactly - one per project, self-proxy (combo), backed by
+       a service, no room binding, no proxy UI. See docs/driver-cloud-status.md
+       for the re-add-from-Agents-panel migration note. -->
+  <agent>true</agent>
   <name>SmartBuildOS Agent</name>
   <version/>
   <manufacturer>SmartBuildOS</manufacturer>
@@ -376,6 +382,24 @@
         <name>Support ID</name>
         <type>STRING</type>
         <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>SmartBuildOS Company</name>
+        <type>STRING</type>
+        <default>Not registered - pair to a company</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Subscription Tier</name>
+        <type>STRING</type>
+        <default>Not paired</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Licensed Drivers</name>
+        <type>STRING</type>
+        <default>No SmartBuildOS drivers installed</default>
         <readonly>true</readonly>
       </property>
       <property>
