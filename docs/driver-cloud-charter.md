@@ -103,9 +103,9 @@ console's whole suite. Future: `SBOS_UNIFI_NETWORK, SBOS_TESLA, …`
 | 3 Domain model | web repo | `driver_catalog, driver_entitlements(+features), driver_installations, driver_events, driver_purchases, driver_license_transfers, driver_audit_log, driver_risk_flags` — extending, never duplicating, `control4_controllers`. Per-controller HMAC secret column (encrypted). Guard-test fixtures updated (the tenant-tables trap). | next |
 | 4 Backend APIs | web repo | `/api/driver-cloud/{entitlements/refresh, events, health}` on the existing DEVICE_SESSION auth bucket; enrollment stays the existing `/pair` (extended to mint the HMAC secret) | next |
 | 5 Agent licensing | driver repo | Agent fetches + HMAC-verifies (C4:HMAC re-sign over the canonical string) + caches assertions in encrypted persist; staleness ladder 24h revalidate / 7d cache / dated grace to day 10 → CLOUD_VALIDATION_REQUIRED; unknown skus stay LEGACY; pair mints + Pairing Backup mirrors the per-controller secret; pre-Phase-5 pairings serve unsigned until a re-pair | ✅ 2026-08-29 |
-| 6 Driver Cloud UI | web repo | Studio-grade: Overview, Companies, Controllers, Drivers, Licenses, Grace, Health, Events + Support ID search | after 5 |
-| 7 Purchases | web repo | entitlement-purchase domain (pending/paid/activated/refunded/revoked/transferred), Stripe rides the existing payments stack | after 6 |
-| 8 Hardening | both | the mega-prompt's security test list, incl. the critical cross-sku/cross-controller forgeries | last |
+| 6 Driver Cloud UI | web repo | Studio in the Ops console: Overview (+ Support ID search), Fleet, Licenses (issue/revoke/transfer), Catalog, Events | ✅ 2026-08-29 (PR #193) |
+| 7 Purchases | web repo | driver_purchases lifecycle on the platform Stripe stack; dealer Driver Store; webhook auto-issues PERPETUAL; refunds + transfers | ✅ 2026-08-29 (PR #196) |
+| 8 Hardening | both | clock-anomaly handling (Agent); adversarial + cross-language parity test suites both repos (cross-sku/cross-controller/tamper) | ✅ 2026-08-29 |
 
 ## Ground rules adopted verbatim from the charter prompt
 
