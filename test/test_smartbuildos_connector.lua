@@ -42,6 +42,12 @@ local requests = {}
 local nextResponse = { ok = true, code = 200 }
 --- Body returned to the next pair request.
 local pairBody = nil
+--- What C4:GetProjectItems answers. Shaped like the live project (diagnostics
+--- line 06): flat <item> entries whose <name> is the DEALER-TYPED name.
+local nextProjectXml = nil
+C4.GetProjectItems = function()
+  return nextProjectXml or ""
+end
 
 --- Minimal stand-in for the Deferred lib.http returns. The driver only ever
 --- calls `:next(onOk, onErr)` once per request and never chains, so resolving
@@ -1291,6 +1297,78 @@ check(
   detail ~= nil and detail:find("no response body", 1, true) ~= nil,
   tostring(detail)
 )
+
+print("\n[31c] The DIRECTOR is reported, not this driver")
+-- ⚠ REGRESSION. director_name and director_device_id came from
+-- C4:GetDeviceData(C4:GetDeviceID()), which returns THIS DRIVER'S OWN
+-- driver.xml <name> -- documented behaviour, so it was always going to answer
+-- "SmartBuildOS Agent" and 591 whatever controller it ran on. Composer showed
+-- the Director as "Beta-Miami", device 19. Owner-confirmed 2026-08-29.
+--
+-- The fixture's controller is device 63 at 127.0.0.1 ("Home Controller EA5"),
+-- which is the same shape as both live projects: Fort Lauderdale device 19
+-- and Julie Dwyer device 4656 each report loopback.
+--
+-- ⚠ Loopback identifies the Director; it is NOT its IP. The first
+-- controller's real address is 192.168.1.123 and appears nowhere in the
+-- project inventory.
+-- The cache is driver-local with no setter, so age it out via os.time. The
+-- offset must GROW: a fixed jump makes each call look the same age as the
+-- last, so the cache never expires and every assertion reads the first answer.
+local directorClock = 0
+local function freshDirector()
+  local realTime = os.time
+  directorClock = directorClock + 7200
+  os.time = function() return realTime() + directorClock end
+  local id, name = directorIdentity()
+  os.time = realTime
+  return id, name
+end
+
+nextProjectXml = "<item><id>63</id><name>Beta-Miami</name><type>7</type></item>"
+  .. "<item><id>39</id><name>Apple TV Jesse Alt</name><type>6</type></item>"
+local dirId, dirName = freshDirector()
+check("the Director is found by loopback", dirId == 63, tostring(dirId))
+check("and named as Composer shows it, not as the driver is named", dirName == "Beta-Miami", tostring(dirName))
+check("never this driver's own device id", dirId ~= C4:GetDeviceID(), tostring(dirId))
+
+-- Without a project item the device name is an honest fallback, not nothing.
+nextProjectXml = ""
+dirId, dirName = freshDirector()
+check("no project item falls back to the device name", dirId == 63 and dirName == "Home Controller EA5", tostring(dirName))
+
+-- An item for a DIFFERENT id must not be borrowed.
+nextProjectXml = "<item><id>39</id><name>Apple TV Jesse Alt</name></item>"
+dirId, dirName = freshDirector()
+check("another item's name is never borrowed", dirName == "Home Controller EA5", tostring(dirName))
+
+-- Composer permits & in a name; the XML carries it escaped.
+nextProjectXml = "<item><id>63</id><name>Kraus &amp; Co</name></item>"
+dirId, dirName = freshDirector()
+check("XML entities are decoded", dirName == "Kraus & Co", tostring(dirName))
+
+-- Cached: repeated calls inside the TTL must not re-parse the project. The
+-- heartbeat runs every 30s and each payload asks twice, so an uncached lookup
+-- would be six 33KB project parses a minute.
+directorIdentity() -- populate at ORDINARY time, so the entry is not future-dated
+local parses = 0
+local realGetProjectItems = C4.GetProjectItems
+C4.GetProjectItems = function(...) parses = parses + 1 return realGetProjectItems(...) end
+directorIdentity(); directorIdentity(); directorIdentity()
+C4.GetProjectItems = realGetProjectItems
+check("the lookup is cached, not re-parsed every heartbeat", parses == 0, tostring(parses))
+
+-- ⚠ A BACKWARDS clock must not pin the cache. Controllers correct via NTP
+-- after a cold boot; a negative age read as "fresh" would freeze the Director
+-- name until the clock caught up, with no way to flush it but a restart.
+local realTime = os.time
+os.time = function() return realTime() - 86400 end
+parses = 0
+C4.GetProjectItems = function(...) parses = parses + 1 return realGetProjectItems(...) end
+directorIdentity()
+C4.GetProjectItems = realGetProjectItems
+os.time = realTime
+check("a clock that moved backwards re-reads instead of pinning", parses == 1, tostring(parses))
 
 print("\n[30] Overlapping reads do not cancel each other's ping watchdog")
 -- SetTimer is keyed by NAME. A shared watchdog name meant a full sync starting
