@@ -893,8 +893,7 @@ function projectItemName(id)
       local name = item:match("<name>%s*(.-)%s*</name>")
       if type(name) == "string" and name ~= "" then
         -- Composer permits & and < in a name; the XML carries them escaped.
-        name = name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"')
-          :gsub("&apos;", "'"):gsub("&amp;", "&")
+        name = name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'"):gsub("&amp;", "&")
         return name
       end
       return nil

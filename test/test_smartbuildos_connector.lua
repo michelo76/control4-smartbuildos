@@ -1319,7 +1319,9 @@ local directorClock = 0
 local function freshDirector()
   local realTime = os.time
   directorClock = directorClock + 7200
-  os.time = function() return realTime() + directorClock end
+  os.time = function()
+    return realTime() + directorClock
+  end
   local id, name = directorIdentity()
   os.time = realTime
   return id, name
@@ -1335,7 +1337,11 @@ check("never this driver's own device id", dirId ~= C4:GetDeviceID(), tostring(d
 -- Without a project item the device name is an honest fallback, not nothing.
 nextProjectXml = ""
 dirId, dirName = freshDirector()
-check("no project item falls back to the device name", dirId == 63 and dirName == "Home Controller EA5", tostring(dirName))
+check(
+  "no project item falls back to the device name",
+  dirId == 63 and dirName == "Home Controller EA5",
+  tostring(dirName)
+)
 
 -- An item for a DIFFERENT id must not be borrowed.
 nextProjectXml = "<item><id>39</id><name>Apple TV Jesse Alt</name></item>"
@@ -1353,8 +1359,13 @@ check("XML entities are decoded", dirName == "Kraus & Co", tostring(dirName))
 directorIdentity() -- populate at ORDINARY time, so the entry is not future-dated
 local parses = 0
 local realGetProjectItems = C4.GetProjectItems
-C4.GetProjectItems = function(...) parses = parses + 1 return realGetProjectItems(...) end
-directorIdentity(); directorIdentity(); directorIdentity()
+C4.GetProjectItems = function(...)
+  parses = parses + 1
+  return realGetProjectItems(...)
+end
+directorIdentity()
+directorIdentity()
+directorIdentity()
 C4.GetProjectItems = realGetProjectItems
 check("the lookup is cached, not re-parsed every heartbeat", parses == 0, tostring(parses))
 
@@ -1362,9 +1373,14 @@ check("the lookup is cached, not re-parsed every heartbeat", parses == 0, tostri
 -- after a cold boot; a negative age read as "fresh" would freeze the Director
 -- name until the clock caught up, with no way to flush it but a restart.
 local realTime = os.time
-os.time = function() return realTime() - 86400 end
+os.time = function()
+  return realTime() - 86400
+end
 parses = 0
-C4.GetProjectItems = function(...) parses = parses + 1 return realGetProjectItems(...) end
+C4.GetProjectItems = function(...)
+  parses = parses + 1
+  return realGetProjectItems(...)
+end
 directorIdentity()
 C4.GetProjectItems = realGetProjectItems
 os.time = realTime
