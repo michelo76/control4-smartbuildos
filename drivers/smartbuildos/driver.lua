@@ -5890,6 +5890,52 @@ end
 --- device). Persisted for the platform handoff; the ingest endpoint that
 --- carries it upstream is Driver Cloud Phase 3-4 — inventing a payload the
 --- current telemetry route would 400 helps nobody.
+--- Forwards a driver's device roster to Driver Cloud (Phase 9B). The Agent is
+--- the telemetry aggregator: dependent drivers hand it their roster and it
+--- relays operational metadata (id/name/model/state) to the platform. Change-
+--- driven at the gateway already; here we only require a paired Agent. Fire-
+--- and-forget — device telemetry must never disrupt licensing or the driver.
+--- @param source string The reporting driver ("unifi-protect").
+--- @param roster table Array of { kind, id, name, mac, state, model, firmware }.
+local function forwardDeviceRoster(source, roster)
+  local url = driverCloudUrl("devices")
+  if not url or not isPaired() then
+    return
+  end
+  local sku = source == "unifi-protect" and "SBOS_UNIFI_PROTECT" or ""
+  local devices = {}
+  for _, d in ipairs(roster) do
+    if type(d) == "table" and d.id ~= nil then
+      devices[#devices + 1] = {
+        external_id = tostring(d.id),
+        kind = tostring(d.kind or "unknown"),
+        name = tostring(d.name or ""),
+        model = tostring(d.model or ""),
+        firmware = tostring(d.firmware or ""),
+        mac = tostring(d.mac or ""),
+        -- The gateway reports state as a Protect string; normalize the two we
+        -- key on and leave the rest to the server's "unknown".
+        state = (tostring(d.state or ""):upper() == "CONNECTED" or tostring(d.state or ""):lower() == "online")
+            and "online"
+          or (tostring(d.state or ""):upper() == "DISCONNECTED" or tostring(d.state or ""):lower() == "offline") and "offline"
+          or "unknown",
+      }
+    end
+  end
+  if #devices == 0 then
+    return
+  end
+  pcall(function()
+    http
+      :post(url, { driver_sku = sku, devices = devices }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+      :next(function()
+        log:debug("Forwarded %d device(s) to Driver Cloud", #devices)
+      end, function(err)
+        log:debug("Device roster forward failed (non-fatal): %s", tostring(err and (err.error or err.code) or err))
+      end)
+  end)
+end
+
 function EC.SBOS_PROTECT_ROSTER(tParams)
   tParams = tParams or {}
   local ok, roster = pcall(function()
@@ -5900,7 +5946,8 @@ function EC.SBOS_PROTECT_ROSTER(tParams)
     return
   end
   persist:set("sbos_protect_roster", { received_at = os.date("%Y-%m-%d %H:%M:%S"), devices = roster })
-  log:info("Protect roster received: %d device(s) held for platform handoff", #roster)
+  log:info("Protect roster received: %d device(s)", #roster)
+  forwardDeviceRoster(tostring(tParams.source or ""), roster)
 end
 
 --- The Agent-side inventory, for support calls.

@@ -2632,5 +2632,52 @@ check(
 )
 Properties["Remote Control"] = "Identify only"
 
+print("\n[30] The Agent forwards a Protect device roster to Driver Cloud (Phase 9B)")
+pair()
+requests = {}
+EC.SBOS_PROTECT_ROSTER({
+  source = "unifi-protect",
+  payload = JSON:encode({
+    {
+      kind = "cameras",
+      id = "cam-front",
+      name = "Front Door",
+      mac = "aa:bb",
+      state = "CONNECTED",
+      model = "G4 Doorbell",
+    },
+    { kind = "cameras", id = "cam-drive", name = "Driveway", mac = "cc:dd", state = "DISCONNECTED" },
+  }),
+})
+local function lastRequestToPlain(needle)
+  for i = #requests, 1, -1 do
+    if requests[i].url:find(needle, 1, true) then
+      return requests[i]
+    end
+  end
+  return nil
+end
+local fwd = lastRequestToPlain("/api/driver-cloud/devices")
+check("a device roster was forwarded", fwd ~= nil)
+check("with the driver sku", fwd ~= nil and (fwd.data or {}).driver_sku == "SBOS_UNIFI_PROTECT")
+local devs = fwd and (fwd.data or {}).devices or {}
+check("both devices mapped", #devs == 2, #devs)
+local byId = {}
+for _, d in ipairs(devs) do
+  byId[d.external_id] = d
+end
+check("CONNECTED maps to online", (byId["cam-front"] or {}).state == "online", (byId["cam-front"] or {}).state)
+check("DISCONNECTED maps to offline", (byId["cam-drive"] or {}).state == "offline", (byId["cam-drive"] or {}).state)
+check("it is token-authed", fwd ~= nil and (fwd.headers or {})["Authorization"] ~= nil)
+
+-- An UNPAIRED agent forwards nothing.
+EC.UNPAIR()
+requests = {}
+EC.SBOS_PROTECT_ROSTER({
+  source = "unifi-protect",
+  payload = JSON:encode({ { kind = "cameras", id = "x", state = "CONNECTED" } }),
+})
+check("an unpaired agent forwards no devices", lastRequestToPlain("/api/driver-cloud/devices") == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
