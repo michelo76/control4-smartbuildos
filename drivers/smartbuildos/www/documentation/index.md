@@ -3,14 +3,16 @@
 Makes the Control4 Director the source of truth for what is up and what is down
 at a property, and reports it to [SmartBuildOS](https://app.smartbuildos.io).
 
-Add one instance per project. It installs as a Control4 **Agent**, not a room
-driver: in Composer, add it from **Agents → Add → SmartBuildOS** (Composer will
-not let you place it in a room, and only one can exist per project — it is the
-licensing authority for every SmartBuildOS driver on the controller). It talks
-outbound over HTTPS only — nothing needs to be opened on the client's firewall.
+Add one instance per project. In Composer, load it with **Driver → Add or Update
+Driver…**, then add **SmartBuildOS Agent** to the project. It is the licensing
+authority for every SmartBuildOS driver on the controller; keep just one per
+project. It talks outbound over HTTPS only — nothing needs to be opened on the
+client's firewall.
 
-> **Upgrading from an older build** that was added to a *room*: delete that
-> instance and re-add it under **Agents**. Pairing identity is preserved in the
+> **Updating an existing install:** use **Driver → Add or Update Driver…** and
+> load the new `smartbuildos.c4z`; it refreshes the instance in place. If
+> Composer will not surface a change, remove `smartbuildos` from the local
+> driver database and re-add the file. Pairing identity is preserved in the
 > Pairing Backup property, so it re-pairs itself with no new code.
 
 ## Pairing

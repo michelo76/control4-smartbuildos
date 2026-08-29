@@ -250,23 +250,14 @@ build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package
 # without Composer installed.
 .PHONY: install-local
 COMPOSER_DRIVERS ?= $(HOME)/Documents/Control4/Drivers
-# A DriverWorks Agent belongs in the Agents folder, not Drivers - Composer loads
-# agents from there and it prevents a dealer from adding it as a driver (which a
-# converted agent will not load properly as).
-COMPOSER_AGENTS ?= $(HOME)/Documents/Control4/Agents
-install-local: ## Copy built .c4z into the Composer drivers/agents folders
+install-local: ## Copy built .c4z into the Composer Drivers folder
 	@for f in dist/*/*.c4z; do \
 		[ -e "$$f" ] || continue; \
 		base=$$(basename $$f); \
-		if [ "$$base" = "smartbuildos.c4z" ]; then \
-			dest="$(COMPOSER_AGENTS)"; \
+		if [ -d "$(COMPOSER_DRIVERS)" ]; then \
+			cp -f "$$f" "$(COMPOSER_DRIVERS)/" && echo "installed $$base -> $(COMPOSER_DRIVERS)"; \
 		else \
-			dest="$(COMPOSER_DRIVERS)"; \
-		fi; \
-		if [ -d "$$dest" ]; then \
-			cp -f "$$f" "$$dest/" && echo "installed $$base -> $$dest"; \
-		else \
-			mkdir -p "$$dest" && cp -f "$$f" "$$dest/" && echo "installed $$base -> $$dest (created)"; \
+			mkdir -p "$(COMPOSER_DRIVERS)" && cp -f "$$f" "$(COMPOSER_DRIVERS)/" && echo "installed $$base -> $(COMPOSER_DRIVERS) (created)"; \
 		fi; \
 	done
 

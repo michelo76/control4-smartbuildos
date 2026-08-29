@@ -29,7 +29,7 @@ _Last updated: 2026-08-29._
 | 7 | Purchases — dealer Driver Store, one-time Stripe Checkout, webhook auto-issues PERPETUAL, refunds, transfers | web PR #196 | ✅ |
 | 8 | Hardening — clock-anomaly handling; adversarial + cross-language parity suites (cross-sku/cross-controller/tamper) | driver repo + web PR #197 | ✅ |
 | — | Enforcement (READ-ONLY when unlicensed) — SDK gate + gateway choke point; **defaults to observe, dormant until the platform enables it per SKU** | driver repo | ✅ built, off by default |
-| 12 | **Agent conversion + account display** — `smartbuildos.c4z` is a true DriverWorks Agent (`<agent>true</agent>`); the platform carries subscription tier + company name on pair/refresh; the Agent and every dependent driver show tier, company, per-driver license source (subscription vs perpetual), the project's licensed-driver count, and a loud REGISTRATION REQUIRED when the Agent is present but paired to no registered company | driver repo + web PR #208 | ✅ |
+| 12 | **Agent conversion + account display** — `smartbuildos.c4z` is the singular Agent (a project driver); the platform carries subscription tier + company name on pair/refresh; the Agent and every dependent driver show tier, company, per-driver license source (subscription vs perpetual), the project's licensed-driver count, and a loud REGISTRATION REQUIRED when the Agent is present but paired to no registered company | driver repo + web PR #208 | ✅ |
 | 13 | **Account-number pairing** — a client pairs by entering their account number; the platform emails a single-use code to the account's own address (`/pair/request-code` + `/pair/verify-code`), and the controller's Director identity picks or creates its system. Alongside the dealer pairing code, not replacing it. One `finalizePairing` seam serves both doors | driver repo + web PR #212 | ✅ |
 
 ## Architecture decisions (from the charter)
@@ -46,15 +46,14 @@ _Last updated: 2026-08-29._
   operates normally. Enforcement activates per-SKU, server-controlled, never
   retroactively bricking a shipped build.
 
-- **D4 — the Agent is a true DriverWorks Agent.** `smartbuildos.c4z` declares
-  `<agent>true</agent>` (OS 3.1.3+): one singleton per project, loaded from
-  Composer's **Agents** panel, not added to a room. This matches what it is —
-  the project-wide licensing authority for every SmartBuildOS driver — and a
-  singleton is enforced by the platform, not just by convention.
-  **Migration:** an install that added the pre-12 build to a *room* must delete
-  that instance and re-add it from **Agents → Add → SmartBuildOS**; pairing
-  identity survives in the Pairing Backup property, so it re-pairs itself. A
-  converted Agent will not load as a room driver, by design.
+- **D4 — the Agent is a project driver, not a Composer Agents-panel agent.**
+  `smartbuildos.c4z` was briefly converted to a true DriverWorks `<agent>`
+  (OS 3.1.3+), but that did not reliably surface a third-party driver in
+  Composer's Agents panel in the field (2026-08-29), so the flag was removed.
+  It is added to the project as a normal combo/self-proxy driver via **Add or
+  Update Driver**, one per project by convention. Everything else about it —
+  the licensing authority role, pairing, display, account-number auth — is
+  unchanged; only the install surface reverted.
 
 ## Guarantees the tests hold to
 

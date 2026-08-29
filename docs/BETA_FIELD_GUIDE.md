@@ -89,12 +89,13 @@ Work through these top-down; each line is one visit-sized test.
     and **SmartBuildOS Company**; the Agent shows **Licensed Drivers**
     (`N licensed / M installed`). *Record:* do all four read sensibly for
     this account?
-14. **Agent installs as an Agent** — `smartbuildos.c4z` now loads from
-    Composer's **Agents** panel (Agents → Add → SmartBuildOS), not a room.
-    Upgrading a site that had it in a room: delete that instance and re-add
-    it under **Agents**; the Pairing Backup property should re-pair it with
-    no new code. *Record:* did it re-pair itself, or did you have to pair
-    fresh? Do dependent drivers still get answered?
+14. **Agent install + update** — add `smartbuildos.c4z` to the project with
+    **Driver → Add or Update Driver…** (it is a normal project driver, one per
+    project). To update, load the new `.c4z` the same way — it refreshes in
+    place; if a change won't surface, remove `smartbuildos` from the local
+    driver database and re-add. Pairing survives in the Pairing Backup property,
+    so it re-pairs itself. *Record:* did the update refresh in place? Do
+    dependent drivers still get answered?
 15. **Pair by account number** — as an alternative to a pairing code, on
     the Agent enter **Account Number** (the SmartBuildOS company code); a
     code is emailed to the account's own address; enter it in
