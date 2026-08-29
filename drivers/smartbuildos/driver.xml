@@ -1,8 +1,8 @@
 <devicedata>
-  <name>SmartBuildOS Connector</name>
+  <name>SmartBuildOS Agent</name>
   <version/>
   <manufacturer>SmartBuildOS</manufacturer>
-  <model>SmartBuildOS Connector</model>
+  <model>SmartBuildOS Agent</model>
   <creator>SmartBuildOS</creator>
   <control>lua_gen</control>
   <controlmethod>ip</controlmethod>
