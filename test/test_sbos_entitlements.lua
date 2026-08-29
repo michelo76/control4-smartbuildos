@@ -127,11 +127,16 @@ function C4:ErrorLog() end
 Properties = {
   ["API URL"] = "https://app.smartbuildos.io",
   ["Pairing Code"] = "",
+  ["Account Number"] = "",
+  ["Verification Code"] = "",
   ["Pairing Backup"] = "",
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
   ["License Cloud"] = "Not paired - drivers run in legacy mode",
   ["Support ID"] = "",
+  ["SmartBuildOS Company"] = "Not registered - pair to a company",
+  ["Subscription Tier"] = "Not paired",
+  ["Licensed Drivers"] = "No SmartBuildOS drivers installed",
   ["Last Successful Sync"] = "Never",
   ["Touchpanel Name"] = "Touchpanel",
   ["Touchpanel URL"] = "Not generated",
@@ -659,6 +664,193 @@ seedCache({ SBOS_UNIFI_PROTECT = signedAssertion({ status = "AUTHORIZED_PERPETUA
 answer = ask("SBOS_UNIFI_PROTECT")
 check("perpetual is authorized", answer.status == "AUTHORIZED_PERPETUAL", answer.status)
 check("perpetual rides the full cache window", answer.license_type == "PERPETUAL", answer.license_type)
+
+print("\n[23] Account display: tier, company, registration, licensed-driver count")
+
+-- Pairing carries the account picture so the Agent shows it before its first
+-- refresh (#3). A blank value never overwrites a known one.
+reset()
+pairBody = {
+  token = "sbc4_feedface_token",
+  property_id = "0f1c9a52-7d33-4f0e-9a11-2b6c8d4e5f00",
+  property_name = "Doerr Residence",
+  agent_secret = SECRET,
+  support_id = "SBOS-D0E44R",
+  subscription_tier = "Professional",
+  company_name = "Aurora AV",
+}
+nextResponse = { ok = true, code = 200, body = "" }
+OPC.Pairing_Code("H7K2-9QXR")
+check("pairing cached the subscription tier", store["sbos_subscription_tier"] == "Professional")
+check("pairing cached the company name", store["sbos_company_name"] == "Aurora AV")
+
+-- The dependent-driver protocol carries tier + company + the registration fact.
+reset()
+paired()
+store["sbos_subscription_tier"] = "Business"
+store["sbos_company_name"] = "Northlight Integrations"
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() })
+answer = ask("SBOS_UNIFI_PROTECT")
+check("the answer forwards the subscription tier", answer.subscription_tier == "Business", answer.subscription_tier)
+check("the answer forwards the company name", answer.company_name == "Northlight Integrations", answer.company_name)
+check("a paired Agent answers registered=true", answer.registered == "true", tostring(answer.registered))
+
+-- An Agent with no registered company (unpaired) answers registered=false, so a
+-- dependent driver shows REGISTRATION REQUIRED (#5).
+reset()
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() })
+answer = ask("SBOS_UNIFI_PROTECT")
+check("an unpaired Agent answers registered=false", answer.registered == "false", tostring(answer.registered))
+
+-- A refresh re-resolves tier + company + grace and paints the display; the
+-- licensed-driver count reflects authorized inventory (#4).
+reset()
+paired()
+store["sbos_driver_inventory"] = {
+  SBOS_UNIFI_PROTECT = { version = "x", device_id = 301, registered_at = "x", last_seen = "x" },
+}
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    assertions = { signedAssertion() },
+    support_id = "SBOS-A1B2C3",
+    checked_at = "2026-08-29T05:00:00.000Z",
+    revalidate_after_hours = 24,
+    offline_cache_days = 7,
+    subscription_tier = "Enterprise",
+    company_name = "Vantage Systems",
+    subscription_in_grace = false,
+  }),
+}
+EC.REFRESH_ENTITLEMENTS()
+check("refresh cached the tier", store["sbos_subscription_tier"] == "Enterprise")
+check("refresh cached the company", store["sbos_company_name"] == "Vantage Systems")
+check(
+  "Subscription Tier property painted",
+  Properties["Subscription Tier"] == "Enterprise",
+  Properties["Subscription Tier"]
+)
+check(
+  "SmartBuildOS Company property painted",
+  Properties["SmartBuildOS Company"] == "Vantage Systems",
+  Properties["SmartBuildOS Company"]
+)
+check(
+  "Licensed Drivers counts the authorized driver",
+  Properties["Licensed Drivers"] == "1 licensed / 1 installed",
+  Properties["Licensed Drivers"]
+)
+
+-- Grace is surfaced in the tier line so a dealer sees the account is riding it.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    assertions = { signedAssertion() },
+    revalidate_after_hours = 24,
+    offline_cache_days = 7,
+    subscription_tier = "Professional",
+    company_name = "Vantage Systems",
+    subscription_in_grace = true,
+  }),
+}
+EC.REFRESH_ENTITLEMENTS()
+check(
+  "Subscription Tier shows the grace suffix",
+  Properties["Subscription Tier"] == "Professional (grace)",
+  Properties["Subscription Tier"]
+)
+
+-- A blank inbound tier (platform could not confirm it) keeps the last known
+-- value rather than blanking a paid customer's display.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    assertions = { signedAssertion() },
+    revalidate_after_hours = 24,
+    offline_cache_days = 7,
+    subscription_tier = "",
+    company_name = "",
+  }),
+}
+EC.REFRESH_ENTITLEMENTS()
+check(
+  "a blank inbound tier does not clobber the known one",
+  store["sbos_subscription_tier"] == "Professional",
+  store["sbos_subscription_tier"]
+)
+
+print("\n[24] Account-number pairing: request a code, then redeem it (#6)")
+
+-- Entering an account number asks the platform to email a code.
+reset()
+Properties["Account Number"] = "AB12CD"
+OPC.Account_Number("AB12CD")
+local req = lastRequestTo("/pair/request-code")
+check("the request hit the request-code route", req ~= nil)
+check(
+  "it carried the account number, upper-cased",
+  req and (req.data or {}).account_number == "AB12CD",
+  req and (req.data or {}).account_number
+)
+check("it carried the controller identity", req and type((req.data or {}).system) == "table")
+check("the account number was remembered", store["sbos_account_number"] == "AB12CD")
+check(
+  "the status invites the code",
+  tostring(Properties["Connection Status"]):find("emailed", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+-- The reload guard: a property replay before init must not email a code.
+reset()
+gInitialized = false
+OPC.Account_Number("ZZ99YY")
+check("no code was requested during the pre-init replay", lastRequestTo("/pair/request-code") == nil)
+gInitialized = true
+
+-- Entering the emailed code pairs, through the same handler as a pairing code.
+reset()
+store["sbos_account_number"] = "AB12CD"
+Properties["Account Number"] = "AB12CD"
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    token = "sbc4_acct_token",
+    system_id = "7e14128e-fb05-4645-929f-e1ee9e1ee964",
+    property_id = "",
+    agent_secret = SECRET,
+    support_id = "SBOS-ACCT01",
+    property_name = "Rivera Residence",
+    subscription_tier = "Professional",
+    company_name = "Aurora AV",
+  }),
+}
+deviceSent = {}
+OPC.Verification_Code("123456")
+local vreq = lastRequestTo("/pair/verify-code")
+check("the request hit the verify-code route", vreq ~= nil)
+check("it carried the account number", vreq and (vreq.data or {}).account_number == "AB12CD")
+check("it carried the code", vreq and (vreq.data or {}).code == "123456")
+check("the token was stored", store["device_token"] == "sbc4_acct_token", store["device_token"])
+check("the agent secret was stored", store["agent_secret"] == SECRET)
+check("the subscription tier was cached", store["sbos_subscription_tier"] == "Professional")
+check("the company name was cached", store["sbos_company_name"] == "Aurora AV")
+check("the verification code field was cleared", Properties["Verification Code"] == "")
+check("the remembered account number was consumed", store["sbos_account_number"] == nil)
+
+-- A code with no account number entered refuses locally rather than calling out.
+reset()
+Properties["Account Number"] = ""
+OPC.Verification_Code("123456")
+check("no verify call without an account number", lastRequestTo("/pair/verify-code") == nil)
+check(
+  "the status asks for the account number",
+  tostring(Properties["Connection Status"]):find("account number", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
 
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 

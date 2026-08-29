@@ -96,6 +96,10 @@ Properties = {
   ["Device Poll Interval"] = "1m",
   ["Driver Status"] = "Starting",
   ["Connection Status"] = "",
+  ["License Status"] = "Authorized - Licensing Not Yet Enforced",
+  ["License Source"] = "-",
+  ["Subscription Tier"] = "-",
+  ["SmartBuildOS Company"] = "-",
   ["Log Level"] = "3 - Info",
   ["Log Mode"] = "Off",
 }
