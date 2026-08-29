@@ -2134,6 +2134,16 @@ local function executeControl(deviceId, tParams, reply)
     reply({ op = opName, ok = "false", reason = "unknown op" })
     return
   end
+  -- Enforcement choke point for the whole suite: control is the one thing an
+  -- unlicensed driver refuses (read-only), and every child routes control
+  -- through here. Live video, detections and status reads never touch this
+  -- function, so they keep running — the home is never darkened. Only fires
+  -- when the SERVER enabled enforcement AND the account is definitively
+  -- unlicensed (never on legacy, grace, trial, or a cloud outage).
+  if license.enforces() then
+    reply({ op = opName, ok = "false", reason = license.enforcementReason() })
+    return
+  end
   if not isConfigured() then
     reply({ op = opName, ok = "false", reason = "gateway not configured" })
     return
@@ -2178,6 +2188,11 @@ end
 --- costs nothing. (Assigns fwd decl.)
 pushSbosRoster = function(inventory)
   if Properties["SmartBuildOS Reporting"] ~= "On" then
+    return
+  end
+  if license.enforces() then
+    -- Platform reporting is a licensed feature; an unlicensed gateway keeps
+    -- serving video and events locally but stops feeding the registry.
     return
   end
   if gSbosConnectorId == nil then
@@ -2375,6 +2390,10 @@ end
 
 --- Queues an instance for every discovered device that has no bound child.
 function EC.AUTO_PROVISION_DEVICES()
+  if license.enforces() then
+    log:print("Auto provision unavailable: %s", license.enforcementReason())
+    return
+  end
   if gInventory == nil then
     log:print("No inventory yet - run Sync Devices Now first")
     return

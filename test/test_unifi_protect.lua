@@ -927,6 +927,41 @@ check(
   #requests == 0 and (deviceSentTo(777, "PROTECT_CONTROL_RESULT")[1].params or {}).ok == "false"
 )
 
+print("\n[23b] Enforcement: an unlicensed gateway is READ-ONLY, never dark")
+
+-- Drive the gateway's own license through the Agent reply it already handles.
+-- Camera 777 is still bound here (set up in [23]). Enforcement ON + a
+-- definitive denial → control refused with a license reason and NO API call.
+EC.SBOS_ENTITLEMENT({ sku = "SBOS_UNIFI_PROTECT", status = "NOT_ENTITLED", enforcement = "enforce" })
+requests = {}
+deviceSent = {}
+EC.PROTECT_CONTROL({ requester = "777", op = "lcd_message", text = "nope", duration_s = "60" })
+local denied = deviceSentTo(777, "PROTECT_CONTROL_RESULT")
+check("control refused under enforcement", #denied == 1 and (denied[1].params or {}).ok == "false", #denied)
+check("no API request was made", #requests == 0, #requests)
+check(
+  "the reason names licensing",
+  tostring((denied[1].params or {}).reason):lower():find("licens", 1, true) ~= nil,
+  (denied[1].params or {}).reason
+)
+
+-- Restore a licensed state → control flows again (the gate is state, not latch).
+EC.SBOS_ENTITLEMENT({ sku = "SBOS_UNIFI_PROTECT", status = "AUTHORIZED_SUBSCRIPTION" })
+requests = {}
+deviceSent = {}
+EC.PROTECT_CONTROL({ requester = "777", op = "lcd_message", text = "back", duration_s = "60" })
+check("control flows again once licensed", #requests == 1 and requests[1].method == "PATCH", #requests)
+
+-- Observe mode never enforces even when unlicensed (the default posture).
+EC.SBOS_ENTITLEMENT({ sku = "SBOS_UNIFI_PROTECT", status = "NOT_ENTITLED" })
+requests = {}
+deviceSent = {}
+EC.PROTECT_CONTROL({ requester = "777", op = "lcd_message", text = "observe", duration_s = "60" })
+check("observe mode (default) does not block control", #requests == 1, #requests)
+
+-- Leave the SDK permissive for the remaining gateway-level tests.
+EC.SBOS_ENTITLEMENT({ sku = "SBOS_UNIFI_PROTECT", status = "LEGACY" })
+
 print("\n[24] The alarm subsystem: state transitions and one-shot commands")
 
 routes = {

@@ -5588,11 +5588,18 @@ local function statusForSku(sku)
     license_type = "",
     features = "",
     grace_until = "",
+    enforcement = "observe",
     checked_at = os.date("%Y-%m-%d %H:%M:%S"),
   }
   local cache = entitlementCache()
   if not isPaired() or cache == nil then
     return answer
+  end
+  -- Enforcement mode is UNSIGNED server config carried alongside the signed
+  -- assertions: it changes how the driver REACTS to a status, never whether
+  -- a status is authentic. Absent => observe (every pre-Phase-9 backend).
+  if type(cache.enforcement) == "table" and cache.enforcement[sku] == "enforce" then
+    answer.enforcement = "enforce"
   end
   local a = cache.assertions[sku]
   if type(a) ~= "table" then
@@ -5692,6 +5699,7 @@ local function answerEntitlement(requester, sku)
     features = answer.features,
     company = persist:get(PROPERTY_NAME_KEY, "") or "",
     grace_until = answer.grace_until,
+    enforcement = answer.enforcement,
     checked_at = answer.checked_at,
   })
 end
@@ -5751,6 +5759,15 @@ function refreshEntitlements(reason)
 
     local secret = agentSecret()
     local assertions = {}
+    -- Per-SKU enforcement policy from the server (unsigned). Whitelisted to
+    -- the two known modes so a malformed value degrades to observe, never to
+    -- surprise enforcement.
+    local enforcement = {}
+    if type(body.enforcement) == "table" then
+      for sku, mode in pairs(body.enforcement) do
+        enforcement[tostring(sku)] = tostring(mode) == "enforce" and "enforce" or "observe"
+      end
+    end
     local rejected = 0
     for _, a in ipairs(body.assertions) do
       local sku = fieldOrEmpty(a.driver_sku)
@@ -5780,6 +5797,7 @@ function refreshEntitlements(reason)
       cache_days = tonumber(body.offline_cache_days) or 7,
       verified = secret ~= "",
       assertions = assertions,
+      enforcement = enforcement,
     }, true)
     if fieldOrEmpty(body.support_id) ~= "" then
       persist:set(SUPPORT_ID_KEY, body.support_id)

@@ -48,6 +48,19 @@ local OPERATIONAL = {
   LEGACY = true,
 }
 
+--- The ONLY statuses enforcement may act on: a DEFINITIVE "you are not
+--- entitled" from the backend. Everything else — authorized, trial, legacy,
+--- and crucially the UNCERTAIN states (cloud unreachable, agent not yet
+--- authenticated) — is never enforced against. Uncertainty fails OPEN: a
+--- SmartBuildOS outage must never dark a home (charter). CLOUD_VALIDATION_
+--- REQUIRED and AGENT_UNAUTHENTICATED are deliberately absent from this set.
+local DEFINITIVE_DENY = {
+  NOT_ENTITLED = true,
+  ENTITLEMENT_EXPIRED = true,
+  ACCOUNT_SUSPENDED = true,
+  CONTROLLER_MISMATCH = true,
+}
+
 --- Human labels for the standardized License Status property.
 local LABELS = {
   AUTHORIZED_SUBSCRIPTION = "Authorized - Subscription Included",
@@ -74,6 +87,10 @@ local state = {
   company = "",
   graceUntil = "",
   checkedAt = "",
+  -- "observe" | "enforce", set by the Agent from the server's (unsigned)
+  -- per-SKU enforcement config. Defaults to observe so a backend that does
+  -- not send it — every backend before this release — never enforces.
+  enforcement = "observe",
   statusProperty = "License Status",
 }
 
@@ -105,6 +122,11 @@ local function publishStatus()
   local label = LABELS[state.status] or state.status
   if state.status == "AUTHORIZED_GRACE" and state.graceUntil ~= "" then
     label = label .. " until " .. state.graceUntil
+  end
+  if state.enforcement == "enforce" and DEFINITIVE_DENY[state.status] then
+    -- Enforcement is live AND the account is definitively unlicensed: make
+    -- the READ-ONLY consequence explicit, not just the status.
+    label = label .. " (read-only)"
   end
   pcall(function()
     UpdateProperty(state.statusProperty, label)
@@ -162,6 +184,7 @@ function M.onEntitlement(tParams)
   state.company = tostring(tParams.company or "")
   state.graceUntil = tostring(tParams.grace_until or "")
   state.checkedAt = tostring(tParams.checked_at or "")
+  state.enforcement = tostring(tParams.enforcement or "") == "enforce" and "enforce" or "observe"
   state.features = {}
   for feature in tostring(tParams.features or ""):gmatch("[^,]+") do
     state.features[feature] = true
@@ -198,6 +221,30 @@ function M.isOperational()
   return OPERATIONAL[state.status] == true
 end
 
+--- The enforcement gate. Returns true ONLY when the server has turned
+--- enforcement on for this SKU AND the status is a definitive denial. A
+--- driver consults this at each PRIVILEGED action (control, provisioning,
+--- platform reporting) and refuses when it is true; it must NEVER consult it
+--- for safety/awareness paths (live video, detections, status reads), which
+--- always run. Three independent conditions must all hold, so the default
+--- everywhere — legacy installs, outages, authorized accounts, observe mode
+--- — is false. Enforcement is opt-in by the server and blind to uncertainty.
+--- @return boolean
+function M.enforces()
+  return state.enforcement == "enforce" and DEFINITIVE_DENY[state.status] == true
+end
+
+--- The current server-set enforcement mode ("observe" | "enforce").
+function M.enforcementMode()
+  return state.enforcement
+end
+
+--- A human line for the property/log when enforcement denies an action.
+function M.enforcementReason()
+  local label = LABELS[state.status] or state.status
+  return string.format("%s - control disabled until licensed", label)
+end
+
 --- Whether a feature flag is present on the entitlement. Under LEGACY
 --- every feature is granted — enforcement cannot precede issuance.
 function M.hasFeature(name)
@@ -210,11 +257,12 @@ end
 --- For diagnostics prints.
 function M.describe()
   return string.format(
-    "sku=%s status=%s type=%s company=%s agent=%s",
+    "sku=%s status=%s type=%s company=%s enforcement=%s agent=%s",
     state.sku,
     state.status,
     state.licenseType ~= "" and state.licenseType or "-",
     state.company ~= "" and state.company or "-",
+    state.enforcement,
     tostring(state.agentDeviceId or "NOT FOUND")
   )
 end
@@ -230,6 +278,7 @@ function M._reset()
   state.company = ""
   state.graceUntil = ""
   state.checkedAt = ""
+  state.enforcement = "observe"
   state.statusProperty = "License Status"
 end
 

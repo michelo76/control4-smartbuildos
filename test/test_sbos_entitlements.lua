@@ -600,6 +600,66 @@ end
 check("a multi-year skew is reported", skewFlagged)
 check("skew does not stop the cache landing", store["sbos_entitlement_cache"] ~= nil)
 
+print("\n[19] Ladder: internet lost on day 6 is still fully authorized")
+reset()
+paired()
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() }, { fetched_at = os.time() - 6 * 86400 })
+answer = ask("SBOS_UNIFI_PROTECT")
+check("day 6 (inside the 7d cache) is as-issued", answer.status == "AUTHORIZED_SUBSCRIPTION", answer.status)
+
+print("\n[20] Ladder: a subscription canceled while OFFLINE stays cached until reconnect")
+reset()
+paired()
+-- The server cancels the subscription, but the controller has no internet to
+-- hear it. It cannot invent a denial it was never told about; it rides its
+-- last cached authorization through the ladder. This is "outage != revocation"
+-- (never dark a home) and is the intended behavior, not a bug.
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() }, { fetched_at = os.time() - 5 * 86400 })
+nextResponse = { ok = false, code = 503, error = "offline" }
+EC.REFRESH_ENTITLEMENTS()
+answer = ask("SBOS_UNIFI_PROTECT")
+check(
+  "an offline controller keeps its last-known authorization",
+  answer.status == "AUTHORIZED_SUBSCRIPTION",
+  answer.status
+)
+
+print("\n[21] Ladder: a subscription REACTIVATED during grace recovers on refresh")
+reset()
+paired()
+store["sbos_driver_inventory"] =
+  { SBOS_UNIFI_PROTECT = { version = "x", device_id = 301, registered_at = "x", last_seen = "x" } }
+-- Day 8: riding grace because the cache is stale.
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() }, { fetched_at = os.time() - 8 * 86400 })
+check("precondition: day 8 is grace", ask("SBOS_UNIFI_PROTECT").status == "AUTHORIZED_GRACE")
+-- Reactivated: a successful refresh returns a fresh AUTHORIZED assertion.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    assertions = { signedAssertion() },
+    support_id = "SBOS-A1B2C3",
+    checked_at = "2026-08-29T05:00:00.000Z",
+    revalidate_after_hours = 24,
+    offline_cache_days = 7,
+  }),
+}
+EC.REFRESH_ENTITLEMENTS()
+answer = ask("SBOS_UNIFI_PROTECT")
+check("reactivation clears grace and restores as-issued", answer.status == "AUTHORIZED_SUBSCRIPTION", answer.status)
+check("and the grace date is gone", answer.grace_until == "", answer.grace_until)
+
+print("\n[22] Ladder: a PERPETUAL entitlement is honored regardless of subscription")
+reset()
+paired()
+-- The server resolves perpetual-beside-expired-subscription and sends
+-- AUTHORIZED_PERPETUAL; the driver honors the status it is given and never
+-- second-guesses it against subscription state it does not hold.
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion({ status = "AUTHORIZED_PERPETUAL", license_type = "PERPETUAL" }) })
+answer = ask("SBOS_UNIFI_PROTECT")
+check("perpetual is authorized", answer.status == "AUTHORIZED_PERPETUAL", answer.status)
+check("perpetual rides the full cache window", answer.license_type == "PERPETUAL", answer.license_type)
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

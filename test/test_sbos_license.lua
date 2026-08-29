@@ -119,6 +119,46 @@ check(
   license.status()
 )
 
+print("\n[3b] Enforcement gate: server mode x status")
+
+-- The default: no enforcement field at all (every pre-Phase-9 backend).
+license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = "NOT_ENTITLED" })
+check("unlicensed but observe-by-default does NOT enforce", license.enforces() == false)
+
+-- Server turns enforcement ON for a definitively-unlicensed account.
+license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = "NOT_ENTITLED", enforcement = "enforce" })
+check("enforce + NOT_ENTITLED enforces", license.enforces() == true)
+check(
+  "the property shows read-only",
+  tostring(props["License Status"]):find("read-only", 1, true) ~= nil,
+  props["License Status"]
+)
+check("a reason is offered", license.enforcementReason():find("control disabled", 1, true) ~= nil)
+
+-- Enforcement must NEVER bite an authorized/legacy/grace/trial account, even
+-- if the server flag is on (it should not be, but the driver is defensive).
+for _, status in ipairs({ "AUTHORIZED_SUBSCRIPTION", "AUTHORIZED_PERPETUAL", "AUTHORIZED_GRACE", "TRIAL", "LEGACY" }) do
+  license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = status, enforcement = "enforce" })
+  check("enforce is inert under " .. status, license.enforces() == false)
+end
+
+-- The UNCERTAIN states fail OPEN: a cloud outage or an unauthenticated agent
+-- must never enforce, even with the flag on.
+for _, status in ipairs({ "CLOUD_VALIDATION_REQUIRED", "AGENT_UNAUTHENTICATED" }) do
+  license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = status, enforcement = "enforce" })
+  check("uncertainty fails open under " .. status, license.enforces() == false)
+end
+
+-- The other definitive-deny statuses all enforce under enforce mode.
+for _, status in ipairs({ "ENTITLEMENT_EXPIRED", "ACCOUNT_SUSPENDED", "CONTROLLER_MISMATCH" }) do
+  license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = status, enforcement = "enforce" })
+  check("enforce bites " .. status, license.enforces() == true)
+end
+
+-- A malformed enforcement value degrades to observe, never to surprise enforce.
+license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = "NOT_ENTITLED", enforcement = "ON!!!" })
+check("a malformed mode is treated as observe", license.enforces() == false)
+
 print("\n[4] check() re-asks the Agent")
 
 deviceSent = {}
