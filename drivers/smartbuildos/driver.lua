@@ -561,7 +561,13 @@ local function systemIdentity()
     os_version = C4:GetVersionInfo().version,
     driver_version = C4:GetDriverConfigInfo("version"),
     device_id = C4:GetDeviceID(),
-    director_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+    -- The DRIVER's own identity, named as such. Kept because it is genuinely
+    -- useful (which instance, which version) — it was only ever wrong as an
+    -- answer to "what is the Director?".
+    driver_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+    driver_device_id = C4:GetDeviceID(),
+    director_device_id = select(1, directorIdentity()),
+    director_name = select(2, directorIdentity()),
   }
 end
 
@@ -863,6 +869,39 @@ end
 --- fact.
 ---
 --- @return table<string, table<string, any>> devices Keyed by "c4:<device id>".
+--- The name Composer shows for a project item, or nil.
+---
+--- `C4:GetProjectItems` returns the project as XML whose items look like
+--- `<item><id>39</id><name>Apple TV Jesse Alt</name><type>6</type>...` — the
+--- DEALER-TYPED name, which is the one worth reporting. Measured on this
+--- project (diagnostics line 06).
+---
+--- Non-greedy to the first `</item>`, which is safe here only because `<id>`
+--- and `<name>` precede any nested item in the observed shape. The id is
+--- verified against the match rather than assumed by position.
+--- @param id number
+--- @return string|nil
+function projectItemName(id)
+  local ok, xml = pcall(function()
+    return C4:GetProjectItems("DEVICES", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+  end)
+  if not ok or type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  for item in xml:gmatch("<item>(.-)</item>") do
+    if tonumber(item:match("<id>%s*(%d+)%s*</id>") or "") == id then
+      local name = item:match("<name>%s*(.-)%s*</name>")
+      if type(name) == "string" and name ~= "" then
+        -- Composer permits & and < in a name; the XML carries them escaped.
+        name = name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'"):gsub("&amp;", "&")
+        return name
+      end
+      return nil
+    end
+  end
+  return nil
+end
+
 local function readDeviceState()
   local devices = {}
   for rawId, device in pairs(C4:GetDevices({}) or {}) do
@@ -1628,6 +1667,98 @@ function snapshotUrlFor(device, id)
     query = "/" .. query
   end
   return base .. query, nil
+end
+
+--- Cached Director identity; see directorIdentity().
+local gDirector = { id = nil, name = nil, at = nil }
+local DIRECTOR_CACHE_SECONDS = 3600
+
+--- The DIRECTOR's identity — the controller this driver runs on.
+---
+--- ⚠ NOT this driver's, which is what was reported until 2026-08-29.
+--- `C4:GetDeviceData(C4:GetDeviceID(), "name")` returns the `<name>` tag from
+--- THIS DRIVER'S OWN driver.xml. That is documented behaviour — GetDeviceData
+--- "returns data found in the driver's device data, <devicedata> XML" — so it
+--- was always going to answer "SmartBuildOS Agent" and device 591, no matter
+--- which controller it ran on. Composer showed the Director as "Beta-Miami",
+--- device 19. Owner-confirmed.
+---
+--- ── HOW THE DIRECTOR IS FOUND ───────────────────────────────────────────────
+---
+--- By LOOPBACK. The controller this driver runs on is the one device that
+--- reports 127.0.0.1. Measured on the live project: device 19,
+--- "System Controller", c4:control4_core1, address 127.0.0.1 — the id the
+--- owner confirmed.
+---
+--- Loopback is the discriminator, and device TYPE is not: the same project
+--- holds two more c4:control4_core1 devices (584, 587) with no address at
+--- all, so matching on type would pick whichever came first out of a pairs()
+--- loop. This is also why `addressKey()` deliberately refuses to MATCH on
+--- loopback across inventories — every controller has one — while
+--- `hasUsableAddress()` accepts it as real. Both remain correct.
+---
+--- Confirmed on two projects and two controller models:
+---   Fort Lauderdale Condo  device 19    "System Controller"  c4:control4_core1
+---   Julie Dwyer            device 4656  "Dwyer-Director"     c4:control4_ca10
+--- both at 127.0.0.1.
+---
+--- ⚠ 127.0.0.1 IS NOT THE CONTROLLER'S IP. It is how Director refers to
+--- itself. The real LAN address of the first controller is 192.168.1.123
+--- (owner-confirmed), and NOTHING in the project inventory carries it — the
+--- network scan even lists .123 among the addresses that answered but are
+--- "not in project". So this value must never be reported as a "Director IP";
+--- that field needs a different source entirely.
+---
+--- The instance NAME comes from the project item, because that is where a
+--- dealer-typed name lives. `C4:GetDevices()` returns the DRIVER's name
+--- ("System Controller"); the project item carries what Composer shows.
+--- ── CACHED, BECAUSE IT IS NOT FREE ──────────────────────────────────────────
+---
+--- This walks every device and parses the project XML (33KB on the live
+--- project). It is called from three payload builders, twice each for the id
+--- and the name, and the heartbeat runs every 30 seconds — so uncached it
+--- would be six full project parses a minute to answer a question whose
+--- answer changes when somebody re-names a controller in Composer. The TTL
+--- makes a rename appear within the hour without paying for it every beat;
+--- a driver restart clears it immediately.
+--- @return number|nil id
+--- @return string|nil name
+function directorIdentity()
+  -- A NEGATIVE age means the clock moved backwards, which a controller does
+  -- on NTP correction after a cold boot. Treating that as "fresh" would pin
+  -- the cache until the clock caught up — potentially forever. Re-read
+  -- instead: the cost is one project parse, the alternative is a stale
+  -- Director name nobody can flush without restarting the driver.
+  local age = gDirector.at ~= nil and (os.time() - gDirector.at) or nil
+  if age ~= nil and age >= 0 and age < DIRECTOR_CACHE_SECONDS then
+    return gDirector.id, gDirector.name
+  end
+
+  -- The snapshot the driver already holds, not a fresh enumeration. A full
+  -- read walks every device and its bindings; the poll has just done that and
+  -- gDeviceState is the result. Falls back to a read only before the first
+  -- poll, when there is no snapshot to consult.
+  local snapshot = gDeviceState
+  if snapshot == nil or next(snapshot) == nil then
+    snapshot = readDeviceState() or {}
+  end
+
+  local id, driverName
+  for key, device in pairs(snapshot) do
+    if type(device) == "table" and device.address == "127.0.0.1" then
+      id = tointeger(device.device_id) or tointeger(tostring(key):match("^c4:(%d+)$"))
+      driverName = device.name
+      break
+    end
+  end
+  if id == nil then
+    -- NOT cached: a missing controller is usually a snapshot that has not
+    -- been taken yet, and caching that would keep the field empty for an hour
+    -- after the project became readable.
+    return nil, nil
+  end
+  gDirector = { id = id, name = projectItemName(id) or driverName, at = os.time() }
+  return gDirector.id, gDirector.name
 end
 
 --- Fetch one snapshot and relay it to the platform — LIVE-ONLY, NEVER STORED.
@@ -3711,7 +3842,10 @@ local function redeemPairingCode(code)
         os_version = C4:GetVersionInfo().version,
         driver_version = C4:GetDriverConfigInfo("version"),
         device_id = C4:GetDeviceID(),
-        director_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+        driver_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+        driver_device_id = C4:GetDeviceID(),
+        director_device_id = select(1, directorIdentity()),
+        director_name = select(2, directorIdentity()),
       },
     }, { ["Content-Type"] = "application/json" }, { timeout = REQUEST_TIMEOUT })
     :next(function(response)
@@ -3730,7 +3864,13 @@ local function pairingSystemInfo()
     os_version = C4:GetVersionInfo().version,
     driver_version = C4:GetDriverConfigInfo("version"),
     device_id = C4:GetDeviceID(),
-    director_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+    -- The DRIVER's own identity, named as such. Kept because it is genuinely
+    -- useful (which instance, which version) — it was only ever wrong as an
+    -- answer to "what is the Director?".
+    driver_name = C4:GetDeviceData(C4:GetDeviceID(), "name"),
+    driver_device_id = C4:GetDeviceID(),
+    director_device_id = select(1, directorIdentity()),
+    director_name = select(2, directorIdentity()),
   }
 end
 
