@@ -57,9 +57,14 @@ read it at a glance:
 - **Licensed Drivers** — how many SmartBuildOS drivers in this project currently
   hold a license, over how many are installed (`3 licensed / 4 installed`).
 
-Each dependent driver additionally shows its own **License Source** — whether it
-is *Included with subscription* (covered by the plan) or *Purchased outright* (a
-perpetual license bought for that driver).
+Each dependent SmartBuildOS driver shows its standing with the Agent on one
+**License Status** line: *No SmartBuildOS Agent Found* → *SmartBuildOS Agent
+Found - Not Linked* (add and pair the Agent) → *Checking...* → then **Licensed /
+Subscribed**, **Licensed / Permanent**, **Licensed / Grace**, or a plain reason
+it is not (e.g. *Agent Linked - Not Licensed*, *License Expired*, *Cloud
+Validation Required*). It also shows its **License Source** — *Included with
+subscription* (covered by the plan) or *Purchased outright* (a perpetual license
+bought for that driver) — plus the account's tier and company.
 
 The Agent shows the tier and company from the moment it pairs; both refresh on
 every entitlement check. A value the platform cannot confirm is left blank

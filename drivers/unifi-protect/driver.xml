@@ -271,8 +271,8 @@
         <name>License Status</name>
         <type>STRING</type>
         <readonly>true</readonly>
-        <default>Authorized - Licensing Not Yet Enforced</default>
-        <description>This driver's entitlement, answered by the SmartBuildOS Agent (the SmartBuildOS Connector driver) in this project. Legacy mode operates normally while the licensing backend rolls out.</description>
+        <default>No SmartBuildOS Agent Found</default>
+        <description>This driver's standing with the SmartBuildOS Agent in this project, as one line: No SmartBuildOS Agent Found; SmartBuildOS Agent Found - Not Linked (add and pair the Agent); Checking...; then Licensed / Subscribed, Licensed / Permanent, Licensed / Grace, or a reason it is not. Everything keeps working while licensing rolls out.</description>
       </property>
       <property>
         <name>License Source</name>

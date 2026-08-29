@@ -69,13 +69,38 @@ Work through these top-down; each line is one visit-sized test.
     the checklists in TEST_PLAN.md §Gate 3.
 11. **SmartBuildOS handoff** — Reporting On → `SBOS_PROTECT_ROSTER` in
     the Connector's log. (Platform ingestion is a separate deliverable.)
-12. **Licensing round-trip (Phase 5)** — on the Agent: *Refresh
-    Entitlements Now*, then *Print Entitlements*. Expect License Cloud
-    `OK - N assertion(s)`, a Support ID, and the Protect Gateway's License
-    Status flipping from legacy to `Authorized - Subscription Included`
-    within a minute (or run *Refresh License* on the Gateway). Note
-    whether the cache reads `signed` — a pre-Phase-5 pairing says
-    UNSIGNED until one re-pair.
+12. **Licensing round-trip** — on the Agent: *Refresh Entitlements Now*,
+    then *Print Entitlements*. Expect License Cloud `OK - N assertion(s)`,
+    a Support ID, and the Protect Gateway's **License Status** reading
+    **Licensed / Subscribed** (or **Licensed / Permanent** for an outright
+    purchase) within a minute — or run *Refresh License* on the Gateway.
+    The status is relationship-first, so before the Agent answers you may
+    see, in order: **No SmartBuildOS Agent Found** → **SmartBuildOS Agent
+    Found - Not Linked** (Agent present but unpaired) → **SmartBuildOS
+    Agent Found - Checking...** → then the Licensed line. Other values you
+    might see and what they mean: *Licensed / Grace (until …)* (offline,
+    riding grace), *Agent Linked - Not Licensed* (paired but this driver
+    isn't entitled), *Cloud Validation Required*, *Licensing Not Yet
+    Enforced* (legacy). *Record:* the exact License Status text, and
+    whether the cache reads `signed` — a pre-Phase-5 pairing says UNSIGNED
+    until one re-pair.
+13. **Account display** — the Gateway shows **License Source** (*Included
+    with subscription* vs *Purchased outright*), **Subscription Tier**,
+    and **SmartBuildOS Company**; the Agent shows **Licensed Drivers**
+    (`N licensed / M installed`). *Record:* do all four read sensibly for
+    this account?
+14. **Agent installs as an Agent** — `smartbuildos.c4z` now loads from
+    Composer's **Agents** panel (Agents → Add → SmartBuildOS), not a room.
+    Upgrading a site that had it in a room: delete that instance and re-add
+    it under **Agents**; the Pairing Backup property should re-pair it with
+    no new code. *Record:* did it re-pair itself, or did you have to pair
+    fresh? Do dependent drivers still get answered?
+15. **Pair by account number** — as an alternative to a pairing code, on
+    the Agent enter **Account Number** (the SmartBuildOS company code); a
+    code is emailed to the account's own address; enter it in
+    **Verification Code** → the Agent pairs, and a new unassigned system
+    appears in the platform's Control4 Systems tab (assign it a customer
+    there). *Record:* did the email arrive, and did pairing complete?
 
 ### 🐞 Known issues (open)
 
