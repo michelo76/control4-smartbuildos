@@ -56,8 +56,8 @@ license.setup({ sku = "SBOS_UNIFI_PROTECT" })
 check("status is LEGACY", license.status() == "LEGACY", license.status())
 check("still operational", license.isOperational() == true)
 check(
-  "property shouts AGENT REQUIRED",
-  tostring(props["License Status"]):find("AGENT REQUIRED", 1, true) ~= nil,
+  "property reads No SmartBuildOS Agent Found",
+  tostring(props["License Status"]):find("No SmartBuildOS Agent Found", 1, true) ~= nil,
   props["License Status"]
 )
 check("no message went anywhere", #deviceSent == 0, #deviceSent)
@@ -90,8 +90,8 @@ license.onEntitlement({
 })
 check("status updated", license.status() == "AUTHORIZED_SUBSCRIPTION")
 check(
-  "property reads as the subscription",
-  tostring(props["License Status"]):find("Subscription Included", 1, true) ~= nil,
+  "property reads Licensed / Subscribed",
+  tostring(props["License Status"]):find("Licensed / Subscribed", 1, true) ~= nil,
   props["License Status"]
 )
 check("listed feature granted", license.hasFeature("EVENTS") == true)
@@ -231,8 +231,8 @@ license.onEntitlement({
   registered = "false",
 })
 check(
-  "the driver shouts REGISTRATION REQUIRED",
-  tostring(props["License Status"]):find("REGISTRATION REQUIRED", 1, true) ~= nil,
+  "the driver reads Agent Found - Not Linked",
+  tostring(props["License Status"]):find("Not Linked", 1, true) ~= nil,
   props["License Status"]
 )
 check("isRegistrationRequired is true", license.isRegistrationRequired() == true)
@@ -247,11 +247,61 @@ license.onEntitlement({
   features = "BASE",
 })
 check(
-  "an absent registration answer does not trigger the shout",
-  tostring(props["License Status"]):find("REGISTRATION REQUIRED", 1, true) == nil,
+  "an absent registration answer does not read Not Linked",
+  tostring(props["License Status"]):find("Not Linked", 1, true) == nil,
   props["License Status"]
 )
 check("and isRegistrationRequired stays false", license.isRegistrationRequired() == false)
+
+print("\n[7] License Status reads as the relationship to the Agent")
+
+PROJECT = { [900] = { deviceName = "Agent", driverFileName = "smartbuildos.c4z" } }
+license._reset()
+license.setup({ sku = "SBOS_UNIFI_PROTECT" })
+check(
+  "Agent present, not yet answered -> Checking...",
+  tostring(props["License Status"]):find("Checking", 1, true) ~= nil,
+  props["License Status"]
+)
+
+license.onEntitlement({
+  sku = "SBOS_UNIFI_PROTECT",
+  status = "AUTHORIZED_PERPETUAL",
+  license_type = "PERPETUAL",
+  registered = "true",
+})
+check(
+  "Perpetual reads Licensed / Permanent",
+  tostring(props["License Status"]) == "Licensed / Permanent",
+  props["License Status"]
+)
+check(
+  "statusLabel() accessor matches the property",
+  license.statusLabel() == "Licensed / Permanent",
+  license.statusLabel()
+)
+
+license.onEntitlement({
+  sku = "SBOS_UNIFI_PROTECT",
+  status = "AUTHORIZED_SUBSCRIPTION",
+  license_type = "SUBSCRIPTION_INCLUDED",
+  registered = "true",
+})
+check(
+  "Subscription reads Licensed / Subscribed",
+  tostring(props["License Status"]) == "Licensed / Subscribed",
+  props["License Status"]
+)
+
+-- No Agent in the project at all.
+PROJECT = {}
+license._reset()
+license.setup({ sku = "SBOS_UNIFI_PROTECT" })
+check(
+  "No Agent reads No SmartBuildOS Agent Found",
+  tostring(props["License Status"]) == "No SmartBuildOS Agent Found",
+  props["License Status"]
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
