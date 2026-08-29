@@ -580,6 +580,50 @@ end
 ---   that returns an empty 200 would otherwise turn "delivered" into
 ---   "unconfirmed", and anything retrying on unconfirmed would resend the
 ---   same payload forever.
+--- Renders a rejected response body as something a person can act on.
+---
+--- ⚠ `err.body` is the DECODED response — a TABLE, not a string — so
+--- `tostring()` on it yields "table: 0x4dd4abc05778". That is not a hypothetical:
+--- on 2026-08-29 every device sync on every controller failed for about a day,
+--- and SmartBuildOS said exactly why in the body it returned —
+---
+---   {"error":"Could not record device state.",
+---    "detail":"PGRST204 Could not find the 'room_id' column"}
+---
+--- — while this driver reported `HTTP 503: table: 0x4dd4abc05778` to the
+--- dealer's screen and to the platform's own event log. The cause was named,
+--- travelled the whole way back, and was replaced with a pointer address at the
+--- last step. The outage read as a pairing problem for a day because of it.
+---
+--- The platform's routes deliberately return `detail` alongside `error` for
+--- this reason (see the devices route). Rendering it is the other half of that
+--- contract.
+--- @param body any Decoded response body, a string, or nil.
+--- @return string
+local function bodyText(body)
+  if type(body) == "table" then
+    local parts = {}
+    if type(body.error) == "string" and body.error ~= "" then
+      parts[#parts + 1] = body.error
+    end
+    if type(body.detail) == "string" and body.detail ~= "" then
+      parts[#parts + 1] = body.detail
+    end
+    if #parts > 0 then
+      return table.concat(parts, " — ")
+    end
+    -- No known shape: the whole body beats a pointer, truncated by the caller.
+    local ok, encoded = pcall(function()
+      return JSON:encode(body)
+    end)
+    return (ok and type(encoded) == "string") and encoded or "unreadable response body"
+  end
+  if body == nil or body == "" then
+    return "no response body"
+  end
+  return tostring(body)
+end
+
 local function send(path, payload, description, onOk, onDelivered)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
@@ -628,9 +672,9 @@ local function send(path, payload, description, onOk, onDelivered)
     local code = err and err.code
     local reason
     if type(code) == "number" then
-      reason = string.format("HTTP %d: %s", code, tostring(err.body))
+      reason = string.format("HTTP %d: %s", code, bodyText(err.body))
       setConnected(false, string.format("HTTP %d", code))
-      log:error("%s rejected with HTTP %d: %s", description, code, tostring(err.body))
+      log:error("%s rejected with HTTP %d: %s", description, code, bodyText(err.body))
     else
       reason = tostring(err and err.error or err)
       setConnected(false, "Unreachable")

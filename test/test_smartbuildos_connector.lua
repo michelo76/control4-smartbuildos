@@ -1215,6 +1215,83 @@ nextResponse = { ok = false, code = 500, error = "boom" }
 EC.SEND_EVENT({ NAME = "anything", DETAIL = "x" })
 check("a failed EVENT does not report itself, or the loop never ends", #requests == 1, #requests)
 
+print("\n[29b] The platform's REASON reaches the dealer, not a pointer address")
+-- ⚠ REGRESSION, and an expensive one. `err.body` is the DECODED response — a
+-- table — and this driver ran it through tostring(), producing
+-- "HTTP 503: table: 0x4dd4abc05778".
+--
+-- On 2026-08-29 every device sync on every controller failed for about a day.
+-- SmartBuildOS returned the cause in the body it sent back:
+--   {"error":"Could not record device state.",
+--    "detail":"PGRST204 Could not find the 'room_id' column"}
+-- The driver replaced it with a pointer address, so the outage read as a
+-- pairing problem instead of a missing database column. The platform's routes
+-- return `detail` FOR this; rendering it is the other half of the contract.
+local function syncFailureDetail()
+  for _, r in ipairs(requests) do
+    if tostring(r.data and r.data.name or "") == "sync failed" then
+      return tostring(r.data.detail or "")
+    end
+  end
+  return nil
+end
+
+pair()
+reset()
+nextResponse = {
+  ok = false,
+  code = 503,
+  body = { error = "Could not record device state.", detail = "PGRST204 Could not find the 'room_id' column" },
+}
+EC.SEND_FULL_SYNC()
+local detail = syncFailureDetail()
+check(
+  "the server's error text is reported",
+  detail ~= nil and detail:find("Could not record device state", 1, true) ~= nil,
+  tostring(detail)
+)
+check(
+  "the server's DETAIL is reported — the part that names the cause",
+  detail ~= nil and detail:find("room_id", 1, true) ~= nil,
+  tostring(detail)
+)
+check("no pointer address reaches the report", detail ~= nil and detail:find("table: 0x") == nil, tostring(detail))
+
+-- A body with no recognised shape still beats a pointer.
+pair()
+reset()
+nextResponse = { ok = false, code = 500, body = { unexpected = "shape" } }
+EC.SEND_FULL_SYNC()
+detail = syncFailureDetail()
+check(
+  "an unknown body shape is encoded, not stringified",
+  detail ~= nil and detail:find("unexpected", 1, true) ~= nil,
+  tostring(detail)
+)
+
+-- A plain string body is passed through, and an absent one says so.
+pair()
+reset()
+nextResponse = { ok = false, code = 502, body = "upstream refused" }
+EC.SEND_FULL_SYNC()
+detail = syncFailureDetail()
+check(
+  "a string body passes through",
+  detail ~= nil and detail:find("upstream refused", 1, true) ~= nil,
+  tostring(detail)
+)
+
+pair()
+reset()
+nextResponse = { ok = false, code = 500 }
+EC.SEND_FULL_SYNC()
+detail = syncFailureDetail()
+check(
+  "an absent body is named, not blank",
+  detail ~= nil and detail:find("no response body", 1, true) ~= nil,
+  tostring(detail)
+)
+
 print("\n[30] Overlapping reads do not cancel each other's ping watchdog")
 -- SetTimer is keyed by NAME. A shared watchdog name meant a full sync starting
 -- while a poll was still pinging replaced the poll's only way out of a stranded
