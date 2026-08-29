@@ -481,6 +481,125 @@ check("the support id is gone", store["support_id"] == nil)
 answer = ask("SBOS_UNIFI_PROTECT")
 check("answers fall back to LEGACY", answer.status == "LEGACY", answer.status)
 
+print("\n[13] Adversarial: an assertion presented under the WRONG sku")
+reset()
+paired()
+-- A real, correctly-signed assertion for Protect, filed in the cache under a
+-- DIFFERENT sku key. Its bound driver_sku no longer matches the key, so the
+-- signature (which covers driver_sku) must fail to verify.
+local misfiled = signedAssertion()
+seedCache({ SBOS_SOME_OTHER = misfiled })
+answer = ask("SBOS_SOME_OTHER")
+check("a misfiled assertion does not verify", answer.status == "CLOUD_VALIDATION_REQUIRED", answer.status)
+
+print("\n[14] Adversarial: every bound field, tampered one at a time")
+reset()
+paired()
+local function tamperField(mutate)
+  local a = signedAssertion()
+  mutate(a) -- edit AFTER signing
+  seedCache({ SBOS_UNIFI_PROTECT = a })
+  return ask("SBOS_UNIFI_PROTECT").status
+end
+check("tampered company_id caught", tamperField(function(a)
+  a.company_id = "someone-else"
+end) == "CLOUD_VALIDATION_REQUIRED")
+check("tampered controller_id caught", tamperField(function(a)
+  a.controller_id = "another-controller"
+end) == "CLOUD_VALIDATION_REQUIRED")
+check("tampered license_type caught", tamperField(function(a)
+  a.license_type = "PERPETUAL"
+end) == "CLOUD_VALIDATION_REQUIRED")
+check("tampered features caught", tamperField(function(a)
+  a.features = { "BASE", "EVENTS", "ADMIN" }
+end) == "CLOUD_VALIDATION_REQUIRED")
+check("tampered valid_until caught", tamperField(function(a)
+  a.valid_until = "2099-01-01T00:00:00.000Z"
+end) == "CLOUD_VALIDATION_REQUIRED")
+check("tampered grace_until caught", tamperField(function(a)
+  a.grace_until = "2099-01-01T00:00:00.000Z"
+end) == "CLOUD_VALIDATION_REQUIRED")
+
+print("\n[15] Adversarial: a whole cache lifted onto another controller")
+reset()
+paired()
+-- The attacker copies a legitimate signed cache from controller A onto
+-- controller B, whose secret is different. B's verify re-signs with ITS
+-- secret and the MACs cannot match — cross-controller theft is closed.
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() })
+store["agent_secret"] = "a-completely-different-controllers-secret"
+answer = ask("SBOS_UNIFI_PROTECT")
+check("a stolen cache fails on the new controller", answer.status == "CLOUD_VALIDATION_REQUIRED", answer.status)
+
+print("\n[16] Clock rolled BACKWARDS cannot buy eternal freshness")
+reset()
+paired()
+-- fetched_at in the future = the controller clock moved back after the last
+-- refresh. A naive age (now - fetched_at) is negative and reads as "brand
+-- new forever". cacheAge clamps to 0 and the anomaly is flagged, but the
+-- answer still serves (never a dark home).
+seedCache({ SBOS_UNIFI_PROTECT = signedAssertion() }, { fetched_at = os.time() + 5 * 86400 })
+answer = ask("SBOS_UNIFI_PROTECT")
+check(
+  "a backwards clock still answers (clamped, not eternal)",
+  answer.status == "AUTHORIZED_SUBSCRIPTION",
+  answer.status
+)
+local flagged = false
+for _, req in ipairs(requests) do
+  if req.url:find("/events", 1, true) then
+    for _, e in ipairs((req.data or {}).events or {}) do
+      if e.code == "clock_backwards" then
+        flagged = true
+      end
+    end
+  end
+end
+check("the backwards clock was reported once", flagged)
+
+print("\n[17] A forward clock only makes the ladder STRICTER, never looser")
+reset()
+paired()
+-- Even a wildly-ahead clock cannot UNLOCK anything: it only ages the cache
+-- faster, and grace/CLOUD_VALIDATION_REQUIRED absorb that. A refused status
+-- stays refused.
+seedCache(
+  { SBOS_UNIFI_PROTECT = signedAssertion({ status = "NOT_ENTITLED", features = {} }) },
+  { fetched_at = os.time() - 20 * 86400 }
+)
+answer = ask("SBOS_UNIFI_PROTECT")
+check("an old refusal is still a refusal", answer.status == "NOT_ENTITLED", answer.status)
+
+print("\n[18] Clock skew vs the server stamp is flagged once on refresh")
+reset()
+paired()
+store["sbos_driver_inventory"] = {}
+-- Server says it is 2026; a controller whose clock is years off will skew.
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    assertions = { signedAssertion() },
+    support_id = "SBOS-A1B2C3",
+    checked_at = "2020-01-01T00:00:00.000Z",
+    revalidate_after_hours = 24,
+    offline_cache_days = 7,
+  }),
+}
+EC.REFRESH_ENTITLEMENTS()
+local skewFlagged = false
+for _, req in ipairs(requests) do
+  if req.url:find("/events", 1, true) then
+    for _, e in ipairs((req.data or {}).events or {}) do
+      if e.code == "clock_skew" then
+        skewFlagged = true
+      end
+    end
+  end
+end
+check("a multi-year skew is reported", skewFlagged)
+check("skew does not stop the cache landing", store["sbos_entitlement_cache"] ~= nil)
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

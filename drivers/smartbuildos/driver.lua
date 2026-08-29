@@ -5360,7 +5360,8 @@ local SBOS_DRIVERS_PERSIST = "sbos_driver_inventory"
 local GRACE_DAYS = 10
 
 --- Refresh bookkeeping that must not persist across reboots.
-local gEntitlements = { lastAttempt = 0, inFlight = false, lastError = "", verifyWarned = {} }
+local gEntitlements =
+  { lastAttempt = 0, inFlight = false, lastError = "", verifyWarned = {}, backwardsWarned = false, clockSkewed = false }
 
 --- @return string secret The per-controller HMAC secret, "" pre-Phase-5 pairings.
 local function agentSecret()
@@ -5464,6 +5465,81 @@ local function licenseEvent(severity, category, code, message)
   end)
 end
 
+--- Parses an ISO-8601 UTC timestamp ("2026-08-29T04:00:00.000Z") to epoch
+--- seconds, nil when unparseable. os.time interprets its table as LOCAL
+--- time, so the current UTC offset is backed out via the os.date round-trip.
+--- @param iso string
+--- @return number|nil epoch
+local function isoToEpoch(iso)
+  local y, mo, d, h, mi, sec = tostring(iso or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+  if y == nil then
+    return nil
+  end
+  local utc = os.time({
+    year = tonumber(y),
+    month = tonumber(mo),
+    day = tonumber(d),
+    hour = tonumber(h),
+    min = tonumber(mi),
+    sec = tonumber(sec),
+  })
+  if utc == nil then
+    return nil
+  end
+  local offset = os.difftime(os.time(os.date("*t", utc)), os.time(os.date("!*t", utc)))
+  return utc + offset
+end
+
+--- Clock-anomaly policy (charter: FLAG, never auto-brick).
+---
+--- The exploit this closes: set the controller clock BACKWARDS and a cached
+--- authorization stays "fresh" forever, because age = now - fetched_at goes
+--- negative. cacheAge() therefore clamps at zero and reports the anomaly so
+--- the ladder keeps moving — while a skewed-but-forward clock only ever
+--- makes the ladder STRICTER, which grace absorbs. Nothing here refuses an
+--- answer: a wrong clock is a support signal, not a dark home.
+--- @param cache table
+--- @return number ageSeconds
+--- @return boolean anomalous
+local function cacheAge(cache)
+  local fetched = tonumber(cache.fetched_at) or 0
+  local age = os.time() - fetched
+  if age < -3600 then
+    return 0, true
+  end
+  return math.max(0, age), false
+end
+
+--- Reports (once per boot) that the controller clock disagrees with the
+--- platform's. Called from the refresh path where both times are in hand.
+local function noteClockSkew(serverIso)
+  local serverEpoch = isoToEpoch(serverIso)
+  if serverEpoch == nil then
+    return
+  end
+  local skew = os.time() - serverEpoch
+  local skewed = math.abs(skew) > 48 * 3600
+  -- Warn on the transition INTO skew (the connection-transition pattern used
+  -- throughout this driver), so a fixed-then-broken clock re-alerts and a
+  -- persistent one does not spam every refresh.
+  if skewed and not gEntitlements.clockSkewed then
+    local hours = math.floor(math.abs(skew) / 3600)
+    local direction = skew > 0 and "ahead of" or "behind"
+    log:warn("Controller clock is %dh %s SmartBuildOS - licensing stays up, but fix the clock", hours, direction)
+    UpdateProperty(
+      "License Cloud",
+      string.format("OK - but the controller clock is %dh %s the cloud", hours, direction)
+    )
+    licenseEvent(
+      "WARNING",
+      "CONFIGURATION",
+      "clock_skew",
+      string.format("Controller clock %dh %s platform time", hours, direction)
+    )
+  end
+  gEntitlements.clockSkewed = skewed
+end
+
 --- Paints the License Cloud + Support ID properties from current state.
 function updateLicenseProperties()
   local cache = entitlementCache()
@@ -5480,7 +5556,7 @@ function updateLicenseProperties()
   for _ in pairs(cache.assertions) do
     count = count + 1
   end
-  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local age = cacheAge(cache)
   local cacheDays = tonumber(cache.cache_days) or 7
   local label
   if age <= cacheDays * 86400 then
@@ -5524,6 +5600,18 @@ local function statusForSku(sku)
     -- not enrolled in licensing yet. Enforcement cannot precede issuance.
     return answer
   end
+  if fieldOrEmpty(a.driver_sku) ~= sku then
+    -- The assertion's bound sku disagrees with the key it is filed under: a
+    -- misfiled or swapped entry. The signature covers driver_sku so this also
+    -- fails verification below — but refuse plainly rather than trust the key.
+    return {
+      status = "CLOUD_VALIDATION_REQUIRED",
+      license_type = "",
+      features = "",
+      grace_until = "",
+      checked_at = os.date("%Y-%m-%d %H:%M:%S"),
+    }
+  end
 
   local secret = agentSecret()
   if secret ~= "" and cache.verified and not verifyAssertion(a, secret) then
@@ -5554,27 +5642,38 @@ local function statusForSku(sku)
   answer.grace_until = fieldOrEmpty(a.grace_until)
   answer.checked_at = fieldOrEmpty(cache.checked_at)
 
-  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local age, clockAnomaly = cacheAge(cache)
+  if clockAnomaly and not gEntitlements.backwardsWarned then
+    -- fetched_at is in the FUTURE: the clock moved backwards since the last
+    -- refresh. Flag once and revalidate — the clamped age keeps serving.
+    gEntitlements.backwardsWarned = true
+    log:warn("Controller clock moved backwards since the last entitlement refresh - revalidating")
+    licenseEvent(
+      "WARNING",
+      "CONFIGURATION",
+      "clock_backwards",
+      "Cache fetched_at is in the future; controller clock moved backwards"
+    )
+  end
   local cacheDays = tonumber(cache.cache_days) or 7
   local status = fieldOrEmpty(a.status)
+  local authorizedish = status == "AUTHORIZED_SUBSCRIPTION"
+    or status == "AUTHORIZED_PERPETUAL"
+    or status == "AUTHORIZED_GRACE"
+    or status == "TRIAL"
   if age <= cacheDays * 86400 then
     answer.status = status
+  elseif not authorizedish then
+    -- Staleness NEVER grants what the server did not: a refusal that has aged
+    -- out is still that refusal, never softened to a revalidate a caller
+    -- might read as maybe-authorized.
+    answer.status = status
   elseif age <= GRACE_DAYS * 86400 then
-    -- The cloud has been out of reach past the cache window: authorized
-    -- statuses ride a dated grace instead of going dark; refusals stay
-    -- refusals (staleness never grants what the server did not).
-    if
-      status == "AUTHORIZED_SUBSCRIPTION"
-      or status == "AUTHORIZED_PERPETUAL"
-      or status == "AUTHORIZED_GRACE"
-      or status == "TRIAL"
-    then
-      answer.status = "AUTHORIZED_GRACE"
-      answer.grace_until = os.date("%Y-%m-%d", (tonumber(cache.fetched_at) or 0) + GRACE_DAYS * 86400)
-    else
-      answer.status = status
-    end
+    -- Authorized but past cache: a dated grace instead of going dark.
+    answer.status = "AUTHORIZED_GRACE"
+    answer.grace_until = os.date("%Y-%m-%d", (tonumber(cache.fetched_at) or 0) + GRACE_DAYS * 86400)
   else
+    -- Authorized but past grace too: the one case that must re-reach cloud.
     answer.status = "CLOUD_VALIDATION_REQUIRED"
   end
   return answer
@@ -5687,6 +5786,7 @@ function refreshEntitlements(reason)
     end
     gEntitlements.lastError = ""
     gEntitlements.verifyWarned = {}
+    noteClockSkew(fieldOrEmpty(body.checked_at))
     local count = 0
     for _ in pairs(assertions) do
       count = count + 1
@@ -5720,7 +5820,11 @@ function entitlementTick()
     refreshEntitlements("initial validation")
     return
   end
-  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local age, clockAnomaly = cacheAge(cache)
+  if clockAnomaly then
+    refreshEntitlements("clock anomaly")
+    return
+  end
   local revalidateHours = tonumber(cache.revalidate_hours) or 24
   if age >= revalidateHours * 3600 then
     refreshEntitlements("revalidation window")
