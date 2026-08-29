@@ -1,0 +1,82 @@
+name: Publish drivers to SmartBuildOS store
+
+# When a release is published, upload each built .c4z to the SmartBuildOS driver
+# package store so paired Agents can auto-update from SmartBuildOS instead of
+# GitHub. Dormant until the two secrets are set:
+#   STORE_UPLOAD_URL     e.g. https://app.smartbuildos.io/api/platform/driver-cloud/packages
+#   STORE_UPLOAD_SECRET  matches DRIVER_PACKAGES_UPLOAD_SECRET in the platform env
+# Manual `gh release create` fires this (the real release flow). A release
+# created by another workflow's GITHUB_TOKEN would not, by GitHub's design.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the release's .c4z assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p pkgs
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.c4z' --dir pkgs
+          ls -la pkgs
+
+      - name: Upload each build to the SmartBuildOS store
+        env:
+          STORE_UPLOAD_URL: ${{ secrets.STORE_UPLOAD_URL }}
+          STORE_UPLOAD_SECRET: ${{ secrets.STORE_UPLOAD_SECRET }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STORE_UPLOAD_URL:-}" ] || [ -z "${STORE_UPLOAD_SECRET:-}" ]; then
+            echo "Store upload not configured (STORE_UPLOAD_URL / STORE_UPLOAD_SECRET unset) — skipping."
+            exit 0
+          fi
+
+          # A prerelease publishes to the BETA channel; a normal release to STABLE
+          # (only STABLE advances the catalog's advertised current_version).
+          channel=STABLE
+          if [ "${PRERELEASE:-false}" = "true" ]; then channel=BETA; fi
+
+          # Only drivers that exist in the catalog are uploaded; the UniFi suite's
+          # files all belong to the gateway SKU (children inherit through it).
+          sku_for() {
+            case "$1" in
+              smartbuildos.c4z) echo SBOS_AGENT ;;
+              unifi-protect.c4z|unifi-protect-camera.c4z|unifi-protect-light.c4z|unifi-protect-sensor.c4z|unifi-protect-viewport.c4z) echo SBOS_UNIFI_PROTECT ;;
+              *) echo "" ;;
+            esac
+          }
+
+          uploaded=0
+          for f in pkgs/*.c4z; do
+            base=$(basename "$f")
+            sku=$(sku_for "$base")
+            if [ -z "$sku" ]; then echo "skip $base (no catalog SKU)"; continue; fi
+
+            # The .c4z's INTERNAL version — what the Agent's updater compares its
+            # installed version against — not the release tag.
+            ver=$(unzip -p "$f" driver.xml | grep -oE '<version>[0-9.]+</version>' | head -1 | sed -E 's|</?version>||g')
+            if [ -z "$ver" ]; then echo "skip $base (no <version> in driver.xml)"; continue; fi
+
+            echo "uploading $base v$ver ($sku, $channel)"
+            b64=$(base64 -w0 "$f")
+            payload=$(jq -n --arg sku "$sku" --arg fn "$base" --arg ver "$ver" --arg ch "$channel" --arg c "$b64" \
+              '{driver_sku:$sku, filename:$fn, version:$ver, release_channel:$ch, content_base64:$c, notes:"Published by CI"}')
+            code=$(printf '%s' "$payload" | curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -X POST "$STORE_UPLOAD_URL" \
+              -H "Authorization: Bearer $STORE_UPLOAD_SECRET" \
+              -H "Content-Type: application/json" --data @-)
+            echo "  -> HTTP $code $(cat /tmp/resp.json)"
+            if [ "$code" != "200" ]; then echo "::error::upload of $base failed (HTTP $code)"; exit 1; fi
+            uploaded=$((uploaded + 1))
+          done
+          echo "Uploaded $uploaded build(s) to the SmartBuildOS store."
