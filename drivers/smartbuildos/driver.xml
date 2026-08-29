@@ -322,6 +322,17 @@
         </items>
       </property>
       <property>
+        <name>Update Source</name>
+        <type>LIST</type>
+        <default>Auto</default>
+        <items>
+          <item>Auto</item>
+          <item>SmartBuildOS</item>
+          <item>GitHub</item>
+        </items>
+        <description>Where driver updates come from. Auto: from SmartBuildOS when paired, falling back to GitHub. SmartBuildOS: the platform only. GitHub: public releases only.</description>
+      </property>
+      <property>
         <name>SmartBuildOS Settings</name>
         <type>LABEL</type>
         <default>SmartBuildOS Connection</default>

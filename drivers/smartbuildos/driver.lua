@@ -38,6 +38,7 @@ local persist = require("lib.persist")
 local Rooms = require("telemetry.rooms")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
+local sbosUpdater = require("lib.sbos-updater")
 --#endif
 
 --- Interval labels mapped to seconds.
@@ -4385,23 +4386,72 @@ function OPC.Update_Channel(propertyValue)
   log:trace("OPC.Update_Channel('%s')", propertyValue)
 end
 
---- Updates this driver from its GitHub releases.
---- `updateAll` filters to drivers actually installed in the project and writes
---- into C4Z_ROOT itself, so there is no file-directory setup to do here.
+function OPC.Update_Source(propertyValue)
+  log:trace("OPC.Update_Source('%s')", propertyValue)
+end
+
+--- Updates installed SmartBuildOS drivers.
+---
+--- Source is server-of-record first: a paired Agent asks SmartBuildOS what
+--- builds it hosts (`/api/driver-cloud/updates`) and installs from there, so a
+--- dealer never has to touch GitHub. The `Update Source` property chooses:
+---   Auto (default) — SmartBuildOS when paired, falling back to GitHub when the
+---     platform hosts nothing yet or is unreachable (nothing regresses during
+---     the migration to self-hosted builds);
+---   SmartBuildOS — platform only (skips silently if unpaired, since the
+---     endpoint is token-authed);
+---   GitHub — the original public-releases path.
+--- Both updaters filter to drivers actually installed and write into C4Z_ROOT
+--- themselves, so there is no directory setup here.
 --- @param forceUpdate? boolean Re-download even when already current.
 function UpdateDrivers(forceUpdate)
   log:trace("UpdateDrivers(%s)", forceUpdate)
-  githubUpdater
-    :updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, Properties["Update Channel"] == "Prerelease", forceUpdate)
-    :next(function(updatedDrivers)
-      if not IsEmpty(updatedDrivers) then
-        log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))
+  local source = Properties["Update Source"] or "Auto"
+  local prerelease = Properties["Update Channel"] == "Prerelease"
+
+  local function fromGitHub()
+    githubUpdater:updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, prerelease, forceUpdate):next(function(updated)
+      if not IsEmpty(updated) then
+        log:info("Updated driver(s) from GitHub: %s", table.concat(updated, ","))
       else
-        log:info("No driver updates available")
+        log:info("No driver updates available (GitHub)")
       end
     end, function(err)
-      log:error("An error occurred updating drivers: %s", tostring(err))
+      log:error("An error occurred updating drivers from GitHub: %s", tostring(err))
     end)
+  end
+
+  local url = driverCloudUrl("updates")
+  if source ~= "GitHub" and url and isPaired() then
+    sbosUpdater
+      :updateAll(url, authHeaders(), DRIVER_FILENAMES, prerelease and "Prerelease" or "Production", forceUpdate)
+      :next(function(updated)
+        if not IsEmpty(updated) then
+          log:info("Updated driver(s) from SmartBuildOS: %s", table.concat(updated, ","))
+        elseif source == "Auto" then
+          log:info("No SmartBuildOS-hosted updates; checking GitHub (Auto)")
+          fromGitHub()
+        else
+          log:info("No driver updates available (SmartBuildOS)")
+        end
+      end, function(err)
+        log:warn(
+          "SmartBuildOS update check failed (%s)%s",
+          tostring(err),
+          source == "Auto" and "; checking GitHub" or ""
+        )
+        if source == "Auto" then
+          fromGitHub()
+        end
+      end)
+    return
+  end
+
+  if source == "SmartBuildOS" then
+    log:info("Update Source is SmartBuildOS but the Agent is not paired; nothing to check")
+    return
+  end
+  fromGitHub()
 end
 --#endif
 

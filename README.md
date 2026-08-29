@@ -174,7 +174,12 @@ project coming online at once.
   Intelligence reporting: rooms, room variables, device variables and programmed
   code items. Run once; it does considerably more work than a device poll and is
   never run on a timer.
-- **Update Drivers** — checks GitHub releases and updates in place.
+- **Update Drivers** — updates every installed SmartBuildOS driver in place. The
+  **Update Source** property chooses where builds come from: *Auto* (default)
+  takes them from SmartBuildOS when the Agent is paired and falls back to GitHub
+  otherwise; *SmartBuildOS* uses the platform only; *GitHub* uses the public
+  releases. **Automatic Updates** + **Update Channel** (Production / Prerelease)
+  control the scheduled check.
 
 ## Programming
 
