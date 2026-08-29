@@ -151,6 +151,14 @@
         <command>PRINT_SBOS_DRIVERS</command>
       </action>
       <action>
+        <name>Refresh Entitlements Now</name>
+        <command>REFRESH_ENTITLEMENTS</command>
+      </action>
+      <action>
+        <name>Print Entitlements</name>
+        <command>PRINT_ENTITLEMENTS</command>
+      </action>
+      <action>
         <name>Test Connection</name>
         <command>TEST_CONNECTION</command>
       </action>
@@ -356,6 +364,18 @@
         <name>Connection Status</name>
         <type>STRING</type>
         <default>Not paired</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>License Cloud</name>
+        <type>STRING</type>
+        <default>Not paired - drivers run in legacy mode</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Support ID</name>
+        <type>STRING</type>
+        <default></default>
         <readonly>true</readonly>
       </property>
       <property>

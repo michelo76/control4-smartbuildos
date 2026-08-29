@@ -30,6 +30,25 @@ function C4:GetDeviceData(deviceId, key)
   return nil
 end
 function C4:AllowExecute() end
+
+--- Deterministic HMAC fake for tests. Real C4:HMAC is an OpenSSL binding;
+--- what tests need is (1) the same inputs give the same hex, (2) different
+--- secret/data give a different hex, (3) lowercase-hex shape. Tests that
+--- assert cross-language byte parity pin the CANONICAL STRING instead —
+--- HMAC-SHA256 itself is a standard both runtimes implement by spec.
+function C4:HMAC(digest, secret, data, options)
+  local acc = 5381
+  local input = tostring(digest) .. "\1" .. tostring(secret) .. "\1" .. tostring(data)
+  for i = 1, #input do
+    acc = (acc * 33 + input:byte(i)) % 0xFFFFFFFF
+  end
+  local hex = string.format("%08x", acc)
+  local out = hex:rep(8)
+  if options and options.return_encoding == "BASE64" then
+    return out -- tests only use HEX
+  end
+  return out
+end
 function C4:UpdateProperty() end
 function C4:SetPropertyAttribs() end
 function C4:GetVersionInfo()

@@ -69,6 +69,13 @@ Work through these top-down; each line is one visit-sized test.
     the checklists in TEST_PLAN.md §Gate 3.
 11. **SmartBuildOS handoff** — Reporting On → `SBOS_PROTECT_ROSTER` in
     the Connector's log. (Platform ingestion is a separate deliverable.)
+12. **Licensing round-trip (Phase 5)** — on the Agent: *Refresh
+    Entitlements Now*, then *Print Entitlements*. Expect License Cloud
+    `OK - N assertion(s)`, a Support ID, and the Protect Gateway's License
+    Status flipping from legacy to `Authorized - Subscription Included`
+    within a minute (or run *Refresh License* on the Gateway). Note
+    whether the cache reads `signed` — a pre-Phase-5 pairing says
+    UNSIGNED until one re-pair.
 
 ### 🐞 Known issues (open)
 

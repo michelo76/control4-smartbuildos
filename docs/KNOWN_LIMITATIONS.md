@@ -24,3 +24,18 @@ Verified against the v7.2.105 official spec, not assumed.
   earlier claim was wrong; the field pointed it out.
 - **RTSP port 7447 is undocumented** by Ubiquiti and could vanish in a
   Protect release; RTSPS stays selectable for that day.
+
+## Licensing (Driver Cloud Phase 5)
+
+- **Pairings made before Phase 5 have no signing secret.** The Agent still
+  fetches and serves entitlements over TLS, but the offline cache is
+  unsigned (License Cloud says so). One re-pair upgrades the installation
+  to signed assertions. Nothing darkens either way.
+- **Rotating the platform's master HMAC key re-keys every controller.**
+  There is no key-version/rekey path yet, so a rotation forces fleet-wide
+  re-pairing. Treat the master key as long-lived; rotate only on suspected
+  compromise. A dual-key acceptance path is planned before enforcement.
+- **Enforcement is still off.** Statuses are real (AUTHORIZED_*, TRIAL,
+  NOT_ENTITLED, CLOUD_VALIDATION_REQUIRED...) and visible in properties,
+  but every driver continues to operate under any status. Enforcement
+  policies arrive per-driver, per-release (charter D3).

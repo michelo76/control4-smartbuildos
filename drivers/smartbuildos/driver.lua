@@ -92,6 +92,21 @@ local PROPERTY_KEY = "property_id"
 --- the response carried no property id. Three attempts, three spent codes,
 --- three orphan controllers, and no way for the dealer to tell.
 local SYSTEM_KEY = "system_id"
+--- Per-controller HMAC secret for entitlement assertions (Driver Cloud
+--- Phase 5). Minted by /pair alongside the token; same trust domain, same
+--- storage rules: encrypted persist + the Pairing Backup mirror. It rides
+--- the project file for the same measured reason the token does (encrypted
+--- persist has not survived driver updates) — and that is an accepted
+--- tradeoff, not an oversight: a restored project IS the same paired
+--- controller identity, so secret and cache moving together changes
+--- nothing the token has not already decided.
+local AGENT_SECRET_KEY = "agent_secret"
+local SUPPORT_ID_KEY = "support_id"
+--- Verified entitlement assertions from the platform, encrypted persist:
+--- { fetched_at, checked_at, support_id, revalidate_hours, cache_days,
+---   verified, assertions = { [sku] = assertion } }.
+local ENTITLEMENT_CACHE_KEY = "sbos_entitlement_cache"
+local ENTITLEMENT_TIMER = "SmartBuildOSEntitlements"
 local PROPERTY_NAME_KEY = "property_name"
 --- The site's street address, as SmartBuildOS composes it.
 ---
@@ -303,6 +318,9 @@ local sendCatalogue
 -- Called from the heartbeat response (config apply) which is defined above
 -- the definition — same lexical trap as collectCommands below.
 local scheduleTimers
+-- Phase 5 licensing engine (defined with the Agent section at file end;
+-- referenced by timers, pairing and unpair above it).
+local entitlementTick, refreshEntitlements, updateLicenseProperties
 -- Same trap again: the heartbeat refreshes the site address and repaints the
 -- "Paired Property" line, and that painter is defined with the pairing code
 -- far below. Without this it resolves to a nil GLOBAL and dies inside the
@@ -497,6 +515,18 @@ local function ingestUrl(path)
     return nil
   end
   return string.format("%s/api/integrations/control4/%s", base, path)
+end
+
+--- Builds a Driver Cloud URL (a different API root than the ingest routes).
+--- @param path string Path beneath /api/driver-cloud, no leading slash.
+--- @return string|nil url The absolute URL, or nil when no base URL is set.
+local function driverCloudUrl(path)
+  local base = Properties["API URL"] or ""
+  base = base:gsub("%s+", ""):gsub("/+$", "")
+  if base == "" then
+    return nil
+  end
+  return string.format("%s/api/driver-cloud/%s", base, path)
 end
 
 --- Returns the auth headers for an authenticated ingest request.
@@ -2090,6 +2120,10 @@ function scheduleTimers()
   local fullSync = INTERVALS[Properties["Full Sync Interval"] or ""] or INTERVALS["24h"]
 
   SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, sendHeartbeat, true)
+  -- Hourly CHECK, server-tuned ACTION: the tick refreshes entitlements only
+  -- once the cache is past the platform's revalidate window.
+  CancelTimer(ENTITLEMENT_TIMER)
+  SetTimer(ENTITLEMENT_TIMER, 3600 * ONE_SECOND, entitlementTick, true)
   SetTimer(DEVICE_POLL_TIMER, poll * ONE_SECOND, pollDeviceState, true)
   SetTimer(FULL_SYNC_TIMER, fullSync * ONE_SECOND, sendFullSync, true)
   SetTimer(TELEMETRY_QUEUE_TIMER, 45 * ONE_SECOND, flushTelemetry, true)
@@ -3499,6 +3533,15 @@ local function redeemPairingCode(code)
       persist:set(TOKEN_KEY, body.token, true)
       persist:set(PROPERTY_KEY, body.property_id or "")
       persist:set(SYSTEM_KEY, body.system_id or "")
+      -- Phase 5: the per-controller entitlement secret rides the same
+      -- pairing response. Absent on older platforms — that is the unsigned
+      -- legacy path, not an error.
+      if type(body.agent_secret) == "string" and body.agent_secret ~= "" then
+        persist:set(AGENT_SECRET_KEY, body.agent_secret, true)
+      end
+      if type(body.support_id) == "string" and body.support_id ~= "" then
+        persist:set(SUPPORT_ID_KEY, body.support_id)
+      end
       -- Mirrored into a hidden readonly property. Property VALUES live in the
       -- project file and survive a driver update; encrypted persist has not
       -- (measured: five re-pairs on the first customer site, one per update).
@@ -3509,6 +3552,8 @@ local function redeemPairingCode(code)
           token = body.token,
           system_id = body.system_id or "",
           property_id = body.property_id or "",
+          agent_secret = type(body.agent_secret) == "string" and body.agent_secret or "",
+          support_id = type(body.support_id) == "string" and body.support_id or "",
         }),
         true
       )
@@ -3529,6 +3574,7 @@ local function redeemPairingCode(code)
       scheduleTimers()
       sendFullSync()
       sendHeartbeat()
+      refreshEntitlements("paired")
     end, function(err)
       local code_ = err and err.code
       if code_ == 404 or code_ == 410 then
@@ -3588,6 +3634,12 @@ function restorePairingFromBackup()
   persist:set(TOKEN_KEY, backup.token, true)
   persist:set(SYSTEM_KEY, backup.system_id or "")
   persist:set(PROPERTY_KEY, backup.property_id or "")
+  if type(backup.agent_secret) == "string" and backup.agent_secret ~= "" then
+    persist:set(AGENT_SECRET_KEY, backup.agent_secret, true)
+  end
+  if type(backup.support_id) == "string" and backup.support_id ~= "" then
+    persist:set(SUPPORT_ID_KEY, backup.support_id)
+  end
   log:info("Pairing restored from backup after a driver update")
   return true
 end
@@ -3708,6 +3760,11 @@ function OnDriverLateInit()
   for _, step in ipairs({
     { "registerSystemEvents", registerSystemEvents },
     { "applyDiscovery", applyDiscovery },
+    -- Phase 5: paint licensing properties from the cache, then fetch only
+    -- if the revalidate window has passed. Guarded like the rest — a
+    -- licensing hiccup must never cost the heartbeat timers below.
+    { "updateLicenseProperties", updateLicenseProperties },
+    { "entitlementTick", entitlementTick },
   }) do
     local okStep, errStep = pcall(step[2])
     if not okStep then
@@ -5126,6 +5183,14 @@ function EC.UNPAIR()
   persist:delete(SYSTEM_KEY)
   persist:delete(PROPERTY_NAME_KEY)
   persist:delete(SITE_LABEL_KEY)
+  -- Licensing state is pairing state: the secret and every cached assertion
+  -- belong to the identity being forgotten. Registered drivers fall back to
+  -- LEGACY on their next ask — unpairing never darks a home (charter D3).
+  persist:delete(AGENT_SECRET_KEY)
+  persist:delete(SUPPORT_ID_KEY)
+  persist:delete(ENTITLEMENT_CACHE_KEY)
+  CancelTimer(ENTITLEMENT_TIMER)
+  updateLicenseProperties()
   -- The panels themselves keep working: a display URL is its own credential and
   -- is revoked from SmartBuildOS, not from here. What is cleared is this
   -- driver's COPY, which after unpairing is no longer a URL it can vouch for.
@@ -5279,20 +5344,387 @@ end
 --- { [sku] = { version, device_id, registered_at, last_seen } }.
 local SBOS_DRIVERS_PERSIST = "sbos_driver_inventory"
 
---- Answers one entitlement question. THE Phase-5 seam: everything above
---- and below this function keeps its shape when real entitlements arrive.
---- @param requester number The asking driver's device id.
---- @param sku string The driver SKU.
-local function answerEntitlement(requester, sku)
-  SendToDevice(requester, "SBOS_ENTITLEMENT", {
-    sku = sku,
+-- ── Phase 5: real entitlements ───────────────────────────────────────────────
+--
+-- The Agent fetches HMAC-signed assertions from Driver Cloud, verifies them
+-- with the per-controller secret minted at pairing, caches them in encrypted
+-- persist, and answers dependent drivers from that cache. Staleness ladder
+-- (server-tunable via the refresh response): fresh within cache_days; then a
+-- dated grace until GRACE_DAYS; then CLOUD_VALIDATION_REQUIRED. A sku with
+-- no assertion — or an Agent that has never fetched — still answers LEGACY:
+-- enforcement can never precede issuance (charter D3).
+
+--- Days from the last successful fetch until an authorized status stops
+--- riding grace and demands the cloud. cache_days (7 by default) ends the
+--- as-issued window first; this ends the grace window.
+local GRACE_DAYS = 10
+
+--- Refresh bookkeeping that must not persist across reboots.
+local gEntitlements = { lastAttempt = 0, inFlight = false, lastError = "", verifyWarned = {} }
+
+--- @return string secret The per-controller HMAC secret, "" pre-Phase-5 pairings.
+local function agentSecret()
+  return persist:get(AGENT_SECRET_KEY, "", true) or ""
+end
+
+--- @return table|nil cache The entitlement cache, shape-checked.
+local function entitlementCache()
+  local cache = persist:get(ENTITLEMENT_CACHE_KEY, nil, true)
+  if type(cache) ~= "table" or type(cache.assertions) ~= "table" then
+    return nil
+  end
+  return cache
+end
+
+--- The nullable string fields ride JSON null; anything non-string is "".
+local function fieldOrEmpty(value)
+  if type(value) == "string" then
+    return value
+  end
+  return ""
+end
+
+--- Canonical signing string. MUST byte-match canonicalAssertion() in the
+--- platform's src/lib/driver-cloud/entitlements.ts — fixed field order,
+--- pipe-joined, features comma-joined. NEVER reorder.
+--- @param a table A decoded assertion.
+--- @return string canonical
+local function canonicalAssertion(a)
+  local features = {}
+  if type(a.features) == "table" then
+    for _, feature in ipairs(a.features) do
+      features[#features + 1] = tostring(feature)
+    end
+  end
+  return table.concat({
+    tostring(a.v or ""),
+    fieldOrEmpty(a.sig_alg),
+    fieldOrEmpty(a.company_id),
+    fieldOrEmpty(a.controller_id),
+    fieldOrEmpty(a.driver_sku),
+    fieldOrEmpty(a.status),
+    fieldOrEmpty(a.license_type),
+    table.concat(features, ","),
+    fieldOrEmpty(a.issued_at),
+    fieldOrEmpty(a.valid_until),
+    fieldOrEmpty(a.grace_until),
+  }, "|")
+end
+
+--- HMAC-SHA256 as lowercase hex, matching node crypto's digest("hex").
+--- @return string|nil hex nil when the platform primitive is unavailable.
+local function hmacHex(secret, data)
+  local ok, result = pcall(function()
+    return C4:HMAC("SHA256", secret, data, {
+      return_encoding = "HEX",
+      key_encoding = "NONE",
+      data_encoding = "NONE",
+    })
+  end)
+  if not ok or type(result) ~= "string" or result == "" then
+    return nil
+  end
+  return result:lower()
+end
+
+--- Re-signs the canonical string and compares. There is no C4:Verify; this
+--- IS the verification (charter D2). An unavailable HMAC primitive fails
+--- verification — the fetch path then drops the assertion LOUDLY and the
+--- unknown sku answers LEGACY, so an ancient OS degrades, never darks.
+--- @return boolean verified
+local function verifyAssertion(a, secret)
+  local expected = hmacHex(secret, canonicalAssertion(a))
+  if expected == nil then
+    return false
+  end
+  return expected == tostring(a.sig or ""):lower()
+end
+
+--- Reports one licensing event to Driver Cloud. Fire-and-forget: an event
+--- that cannot send must never affect licensing behavior.
+local function licenseEvent(severity, category, code, message)
+  local url = driverCloudUrl("events")
+  if not url or not isPaired() then
+    return
+  end
+  pcall(function()
+    http
+      :post(url, {
+        events = {
+          {
+            severity = severity,
+            category = category,
+            code = code,
+            message = message,
+            driver_sku = "SBOS_AGENT",
+          },
+        },
+      }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+      :next(function() end, function() end)
+  end)
+end
+
+--- Paints the License Cloud + Support ID properties from current state.
+function updateLicenseProperties()
+  local cache = entitlementCache()
+  UpdateProperty("Support ID", persist:get(SUPPORT_ID_KEY, "") or (cache and fieldOrEmpty(cache.support_id)) or "")
+  if cache == nil then
+    if isPaired() then
+      UpdateProperty("License Cloud", "Not yet validated - drivers run in legacy mode")
+    else
+      UpdateProperty("License Cloud", "Not paired - drivers run in legacy mode")
+    end
+    return
+  end
+  local count = 0
+  for _ in pairs(cache.assertions) do
+    count = count + 1
+  end
+  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local cacheDays = tonumber(cache.cache_days) or 7
+  local label
+  if age <= cacheDays * 86400 then
+    label = string.format(
+      "OK - %d assertion(s), checked %s",
+      count,
+      os.date("%Y-%m-%d %H:%M", tonumber(cache.fetched_at) or 0)
+    )
+  elseif age <= GRACE_DAYS * 86400 then
+    label = string.format(
+      "Offline - riding grace until %s",
+      os.date("%Y-%m-%d", (tonumber(cache.fetched_at) or 0) + GRACE_DAYS * 86400)
+    )
+  else
+    label = "Offline too long - cloud validation required"
+  end
+  if not cache.verified then
+    label = label .. " (unsigned cache - re-pair to enable signing)"
+  end
+  UpdateProperty("License Cloud", label)
+end
+
+--- The answer for one SKU, from the cache through the staleness ladder.
+--- @param sku string
+--- @return table answer {status, license_type, features, grace_until, checked_at}
+local function statusForSku(sku)
+  local answer = {
     status = "LEGACY",
     license_type = "",
     features = "",
-    company = persist:get(PROPERTY_NAME_KEY, "") or "",
     grace_until = "",
     checked_at = os.date("%Y-%m-%d %H:%M:%S"),
+  }
+  local cache = entitlementCache()
+  if not isPaired() or cache == nil then
+    return answer
+  end
+  local a = cache.assertions[sku]
+  if type(a) ~= "table" then
+    -- A sku the platform issued nothing for is not refused — it is simply
+    -- not enrolled in licensing yet. Enforcement cannot precede issuance.
+    return answer
+  end
+
+  local secret = agentSecret()
+  if secret ~= "" and cache.verified and not verifyAssertion(a, secret) then
+    -- A cached assertion that no longer verifies is tampering or corruption,
+    -- never a network condition. Say so once per boot, loudly.
+    if not gEntitlements.verifyWarned[sku] then
+      gEntitlements.verifyWarned[sku] = true
+      log:error("Entitlement for %s failed signature verification - demanding cloud validation", sku)
+      licenseEvent(
+        "CRITICAL",
+        "SECURITY",
+        "assertion_verify_failed",
+        "Cached assertion for " .. sku .. " failed HMAC verification"
+      )
+    end
+    answer.status = "CLOUD_VALIDATION_REQUIRED"
+    return answer
+  end
+
+  local features = {}
+  if type(a.features) == "table" then
+    for _, feature in ipairs(a.features) do
+      features[#features + 1] = tostring(feature)
+    end
+  end
+  answer.license_type = fieldOrEmpty(a.license_type)
+  answer.features = table.concat(features, ",")
+  answer.grace_until = fieldOrEmpty(a.grace_until)
+  answer.checked_at = fieldOrEmpty(cache.checked_at)
+
+  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local cacheDays = tonumber(cache.cache_days) or 7
+  local status = fieldOrEmpty(a.status)
+  if age <= cacheDays * 86400 then
+    answer.status = status
+  elseif age <= GRACE_DAYS * 86400 then
+    -- The cloud has been out of reach past the cache window: authorized
+    -- statuses ride a dated grace instead of going dark; refusals stay
+    -- refusals (staleness never grants what the server did not).
+    if
+      status == "AUTHORIZED_SUBSCRIPTION"
+      or status == "AUTHORIZED_PERPETUAL"
+      or status == "AUTHORIZED_GRACE"
+      or status == "TRIAL"
+    then
+      answer.status = "AUTHORIZED_GRACE"
+      answer.grace_until = os.date("%Y-%m-%d", (tonumber(cache.fetched_at) or 0) + GRACE_DAYS * 86400)
+    else
+      answer.status = status
+    end
+  else
+    answer.status = "CLOUD_VALIDATION_REQUIRED"
+  end
+  return answer
+end
+
+--- Answers one entitlement question — the Phase-2 seam, now with real
+--- statuses behind it. Every caller and the protocol shape are unchanged.
+--- @param requester number The asking driver's device id.
+--- @param sku string The driver SKU.
+local function answerEntitlement(requester, sku)
+  local answer = statusForSku(sku)
+  SendToDevice(requester, "SBOS_ENTITLEMENT", {
+    sku = sku,
+    status = answer.status,
+    license_type = answer.license_type,
+    features = answer.features,
+    company = persist:get(PROPERTY_NAME_KEY, "") or "",
+    grace_until = answer.grace_until,
+    checked_at = answer.checked_at,
   })
+end
+
+--- Pushes current entitlements to every registered driver — after a refresh,
+--- nobody should wait out their own daily re-ask to hear the news.
+local function pushEntitlements()
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  for sku, entry in pairs(inventory) do
+    local device = tonumber(entry.device_id)
+    if device ~= nil then
+      answerEntitlement(device, sku)
+    end
+  end
+end
+
+--- Fetches fresh assertions from Driver Cloud and re-caches.
+--- @param reason string For the log line.
+function refreshEntitlements(reason)
+  local url = driverCloudUrl("entitlements/refresh")
+  if not url or not isPaired() or gEntitlements.inFlight then
+    return
+  end
+  gEntitlements.inFlight = true
+  gEntitlements.lastAttempt = os.time()
+
+  local installed = {}
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  for sku, entry in pairs(inventory) do
+    installed[#installed + 1] = {
+      sku = sku,
+      version = tostring(entry.version or ""),
+      device_id = tonumber(entry.device_id),
+    }
+  end
+  installed[#installed + 1] = {
+    sku = "SBOS_AGENT",
+    version = tostring(C4:GetDriverConfigInfo("version")),
+    device_id = C4:GetDeviceID(),
+  }
+
+  log:info("Refreshing entitlements (%s)", reason)
+  http:post(url, { installed = installed }, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
+    gEntitlements.inFlight = false
+    local body = response.body
+    if type(body) == "string" then
+      local okDecode, decoded = pcall(function()
+        return JSON:decode(body)
+      end)
+      body = okDecode and decoded or nil
+    end
+    if type(body) ~= "table" or type(body.assertions) ~= "table" then
+      gEntitlements.lastError = "unexpected response"
+      log:warn("Entitlement refresh returned an unexpected response")
+      return
+    end
+
+    local secret = agentSecret()
+    local assertions = {}
+    local rejected = 0
+    for _, a in ipairs(body.assertions) do
+      local sku = fieldOrEmpty(a.driver_sku)
+      if sku ~= "" then
+        if secret == "" or verifyAssertion(a, secret) then
+          assertions[sku] = a
+        else
+          rejected = rejected + 1
+          log:error("Assertion for %s failed verification at fetch - dropped", sku)
+        end
+      end
+    end
+    if rejected > 0 then
+      licenseEvent(
+        "CRITICAL",
+        "SECURITY",
+        "assertion_verify_failed",
+        string.format("%d assertion(s) failed HMAC verification at fetch", rejected)
+      )
+    end
+
+    persist:set(ENTITLEMENT_CACHE_KEY, {
+      fetched_at = os.time(),
+      checked_at = fieldOrEmpty(body.checked_at),
+      support_id = fieldOrEmpty(body.support_id),
+      revalidate_hours = tonumber(body.revalidate_after_hours) or 24,
+      cache_days = tonumber(body.offline_cache_days) or 7,
+      verified = secret ~= "",
+      assertions = assertions,
+    }, true)
+    if fieldOrEmpty(body.support_id) ~= "" then
+      persist:set(SUPPORT_ID_KEY, body.support_id)
+    end
+    gEntitlements.lastError = ""
+    gEntitlements.verifyWarned = {}
+    local count = 0
+    for _ in pairs(assertions) do
+      count = count + 1
+    end
+    log:info(
+      "Entitlements refreshed: %d assertion(s)%s",
+      count,
+      secret == "" and " (unsigned - pre-Phase-5 pairing, re-pair to enable signing)" or ""
+    )
+    updateLicenseProperties()
+    pushEntitlements()
+  end, function(err)
+    gEntitlements.inFlight = false
+    local detail = tostring(err and (err.error or err.code) or err)
+    -- An unreachable cloud is a CONNECTION condition, never a licensing
+    -- one: the cache and its grace ladder carry the answers (fail-secure
+    -- but an outage must never dark a home).
+    if gEntitlements.lastError == "" then
+      log:warn("Entitlement refresh failed (%s) - cache and grace ladder remain in effect", detail)
+    end
+    gEntitlements.lastError = detail
+    updateLicenseProperties()
+  end)
+end
+
+--- The hourly tick: refresh only once the cache is older than the server's
+--- revalidate window (default 24h), so the cadence is server-tunable.
+function entitlementTick()
+  local cache = entitlementCache()
+  if cache == nil then
+    refreshEntitlements("initial validation")
+    return
+  end
+  local age = os.time() - (tonumber(cache.fetched_at) or 0)
+  local revalidateHours = tonumber(cache.revalidate_hours) or 24
+  if age >= revalidateHours * 3600 then
+    refreshEntitlements("revalidation window")
+  end
 end
 
 --- A SmartBuildOS driver announcing itself: inventoried, then answered.
@@ -5313,6 +5745,13 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   persist:set(SBOS_DRIVERS_PERSIST, inventory)
   log:info("SmartBuildOS driver registered: %s %s (device %s)", sku, entry.version, requester)
   answerEntitlement(requester, sku)
+  -- A sku the cache has never seen deserves a prompt cloud ask (debounced:
+  -- a Director restart registers everybody at once, and one refresh serves
+  -- them all).
+  local cache = entitlementCache()
+  if isPaired() and (cache == nil or cache.assertions[sku] == nil) and os.time() - gEntitlements.lastAttempt > 300 then
+    refreshEntitlements("new driver " .. sku)
+  end
 end
 
 function EC.SBOS_CHECK_ENTITLEMENT(tParams)
@@ -5351,4 +5790,44 @@ function EC.PRINT_SBOS_DRIVERS()
     log:print("  %s v%s (device %s, last seen %s)", sku, entry.version, tostring(entry.device_id), entry.last_seen)
   end
   log:print("%d SmartBuildOS driver(s) registered with this Agent", count)
+end
+
+--- Dealer-triggered refresh (Actions): the support move after a purchase,
+--- a transfer, or any "why does it still say..." call.
+function EC.REFRESH_ENTITLEMENTS()
+  gEntitlements.lastAttempt = 0
+  refreshEntitlements("dealer request")
+end
+
+--- The whole licensing picture in one print, for support calls.
+function EC.PRINT_ENTITLEMENTS()
+  local cache = entitlementCache()
+  log:print("Support ID: %s", persist:get(SUPPORT_ID_KEY, "") or "")
+  if cache == nil then
+    log:print(
+      "No entitlement cache - %s",
+      isPaired() and "not yet validated (legacy mode)" or "not paired (legacy mode)"
+    )
+    return
+  end
+  log:print(
+    "Fetched %s, revalidate %sh, cache %sd, %s",
+    os.date("%Y-%m-%d %H:%M", tonumber(cache.fetched_at) or 0),
+    tostring(cache.revalidate_hours),
+    tostring(cache.cache_days),
+    cache.verified and "signed" or "UNSIGNED (pre-Phase-5 pairing)"
+  )
+  for sku in pairs(cache.assertions) do
+    local answer = statusForSku(sku)
+    log:print(
+      "  %s: %s%s%s",
+      sku,
+      answer.status,
+      answer.license_type ~= "" and (" (" .. answer.license_type .. ")") or "",
+      answer.grace_until ~= "" and (" grace until " .. answer.grace_until) or ""
+    )
+  end
+  if gEntitlements.lastError ~= "" then
+    log:print("Last refresh error: %s", gEntitlements.lastError)
+  end
 end
