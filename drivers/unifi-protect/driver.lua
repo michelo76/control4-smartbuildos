@@ -55,6 +55,12 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local bindings = require("lib.bindings")
 local Protect = require("unifi.protect")
+--- The SmartBuildOS licensing SDK: this driver registers as
+--- SBOS_UNIFI_PROTECT with the SmartBuildOS Agent (the Connector) and
+--- carries the standardized License Status property. LEGACY = operate
+--- normally until the entitlement backend ships (charter D3); child
+--- drivers inherit through this gateway and do not license separately.
+local license = require("sbos.license")
 --- The vendored (locally-forked) websocket module — used for the console's
 --- live event stream. The official Protect events socket speaks PLAIN JSON
 --- text frames, unlike the unofficial API's deflate-compressed binary
@@ -582,6 +588,8 @@ function OnDriverLateInit()
   end
 
   registerGatewayEvents()
+
+  license.setup({ sku = "SBOS_UNIFI_PROTECT" })
 
   -- Inbound webhooks need a shared secret; mint one on first start so the
   -- feature works out of the box without the dealer inventing entropy.
@@ -2202,6 +2210,17 @@ pushSbosRoster = function(inventory)
   gSbosLastRoster = serialized
   log:debug("Handing %d Protect devices to the SmartBuildOS Connector", #roster)
   SendToDevice(gSbosConnectorId, "SBOS_PROTECT_ROSTER", { source = "unifi-protect", payload = serialized })
+end
+
+--- The Agent's entitlement answer.
+EC.SBOS_ENTITLEMENT = function(tParams)
+  license.onEntitlement(tParams)
+end
+
+--- Re-registers and re-checks with the Agent on demand.
+function EC.REFRESH_LICENSE()
+  license.register()
+  license.check()
 end
 
 -- Composer sends command NAMES with spaces underscored by the dispatcher;

@@ -147,6 +147,10 @@
     <documentation file="www/documentation/index.html"/>
     <actions>
       <action>
+        <name>Print SmartBuildOS Drivers</name>
+        <command>PRINT_SBOS_DRIVERS</command>
+      </action>
+      <action>
         <name>Test Connection</name>
         <command>TEST_CONNECTION</command>
       </action>

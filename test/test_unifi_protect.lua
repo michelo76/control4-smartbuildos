@@ -239,6 +239,7 @@ Properties = {
   ["Last Event"] = "-",
   ["Webhook Token"] = "testtoken",
   ["SmartBuildOS Reporting"] = "Off",
+  ["License Status"] = "Authorized - Licensing Not Yet Enforced",
   ["Relay Port"] = "47800",
   ["Relay Address"] = "10.0.0.5",
   ["Relay Status"] = "Off",

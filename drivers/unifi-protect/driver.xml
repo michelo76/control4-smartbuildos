@@ -90,6 +90,10 @@
         <command>PRINT_SECURITY_DEVICES</command>
       </action>
       <action>
+        <name>Refresh License</name>
+        <command>REFRESH_LICENSE</command>
+      </action>
+      <action>
         <name>Forget API Key</name>
         <command>FORGET_API_KEY</command>
       </action>
@@ -262,6 +266,13 @@
         <type>STRING</type>
         <default></default>
         <description>Shared secret for inbound webhooks from Protect's Alarm Manager. Webhook URL shape: http://controller:relay-port/webhook/NAME?token=TOKEN. Empty disables inbound webhooks. Generated automatically on first start if left empty.</description>
+      </property>
+      <property>
+        <name>License Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Authorized - Licensing Not Yet Enforced</default>
+        <description>This driver's entitlement, answered by the SmartBuildOS Agent (the SmartBuildOS Connector driver) in this project. Legacy mode operates normally while the licensing backend rolls out.</description>
       </property>
       <property>
         <name>SmartBuildOS Reporting</name>

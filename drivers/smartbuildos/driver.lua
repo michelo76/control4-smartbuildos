@@ -5261,3 +5261,94 @@ end
 function TC.SMARTBUILDOS_PAIRED()
   return isPaired()
 end
+
+-- ─── SmartBuildOS Agent: local licensing authority (Driver Cloud Phase 2) ─────
+--
+-- Per docs/driver-cloud-charter.md (decision D1): this driver IS the
+-- SmartBuildOS Agent. Dependent SmartBuildOS drivers (UniFi Protect today,
+-- everything after) register here and ask entitlement questions here; they
+-- never hold account credentials and never call licensing APIs themselves.
+--
+-- PHASE 2 SCOPE: registration inventory + the protocol + the LEGACY answer.
+-- The entitlement backend does not exist yet, so every check answers
+-- LEGACY — drivers operate normally and say so. Phase 5 replaces
+-- answerEntitlement's body with HMAC-verified cached assertions from the
+-- platform; the protocol and every caller stay untouched (charter D3).
+
+--- Registered SmartBuildOS drivers in this project, persisted:
+--- { [sku] = { version, device_id, registered_at, last_seen } }.
+local SBOS_DRIVERS_PERSIST = "sbos_driver_inventory"
+
+--- Answers one entitlement question. THE Phase-5 seam: everything above
+--- and below this function keeps its shape when real entitlements arrive.
+--- @param requester number The asking driver's device id.
+--- @param sku string The driver SKU.
+local function answerEntitlement(requester, sku)
+  SendToDevice(requester, "SBOS_ENTITLEMENT", {
+    sku = sku,
+    status = "LEGACY",
+    license_type = "",
+    features = "",
+    company = persist:get(PROPERTY_NAME_KEY, "") or "",
+    grace_until = "",
+    checked_at = os.date("%Y-%m-%d %H:%M:%S"),
+  })
+end
+
+--- A SmartBuildOS driver announcing itself: inventoried, then answered.
+function EC.SBOS_REGISTER_DRIVER(tParams)
+  tParams = tParams or {}
+  local sku = tostring(tParams.sku or "")
+  local requester = tonumber(tParams.requester)
+  if sku == "" or requester == nil then
+    return
+  end
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  local now = os.date("%Y-%m-%d %H:%M:%S")
+  local entry = inventory[sku] or { registered_at = now }
+  entry.version = tostring(tParams.version or "")
+  entry.device_id = requester
+  entry.last_seen = now
+  inventory[sku] = entry
+  persist:set(SBOS_DRIVERS_PERSIST, inventory)
+  log:info("SmartBuildOS driver registered: %s %s (device %s)", sku, entry.version, requester)
+  answerEntitlement(requester, sku)
+end
+
+function EC.SBOS_CHECK_ENTITLEMENT(tParams)
+  tParams = tParams or {}
+  local sku = tostring(tParams.sku or "")
+  local requester = tonumber(tParams.requester)
+  if sku == "" or requester == nil then
+    return
+  end
+  answerEntitlement(requester, sku)
+end
+
+--- The UniFi Protect Gateway's device roster (name/MAC/state per Protect
+--- device). Persisted for the platform handoff; the ingest endpoint that
+--- carries it upstream is Driver Cloud Phase 3-4 — inventing a payload the
+--- current telemetry route would 400 helps nobody.
+function EC.SBOS_PROTECT_ROSTER(tParams)
+  tParams = tParams or {}
+  local ok, roster = pcall(function()
+    return JSON:decode(tostring(tParams.payload or ""))
+  end)
+  if not ok or type(roster) ~= "table" then
+    log:warn("SBOS_PROTECT_ROSTER carried an undecodable payload")
+    return
+  end
+  persist:set("sbos_protect_roster", { received_at = os.date("%Y-%m-%d %H:%M:%S"), devices = roster })
+  log:info("Protect roster received: %d device(s) held for platform handoff", #roster)
+end
+
+--- The Agent-side inventory, for support calls.
+function EC.PRINT_SBOS_DRIVERS()
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  local count = 0
+  for sku, entry in pairs(inventory) do
+    count = count + 1
+    log:print("  %s v%s (device %s, last seen %s)", sku, entry.version, tostring(entry.device_id), entry.last_seen)
+  end
+  log:print("%d SmartBuildOS driver(s) registered with this Agent", count)
+end
