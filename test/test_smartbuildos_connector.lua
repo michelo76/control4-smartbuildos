@@ -42,6 +42,20 @@ local requests = {}
 local nextResponse = { ok = true, code = 200 }
 --- Body returned to the next pair request.
 local pairBody = nil
+--- What the camera proxy answers GET_SNAPSHOT_QUERY_STRING with, and what it
+--- was asked. Set per-test; nil means "the driver does not answer".
+local nextSnapshotXml = nil
+local snapshotRequests = {}
+C4.SendUIRequest = function(_, id, request, params)
+  table.insert(snapshotRequests, { id = id, request = request, params = params })
+  if nextSnapshotXml == nil then
+    return ""
+  end
+  if type(nextSnapshotXml) == "function" then
+    return nextSnapshotXml()
+  end
+  return nextSnapshotXml
+end
 
 --- Minimal stand-in for the Deferred lib.http returns. The driver only ever
 --- calls `:next(onOk, onErr)` once per request and never chains, so resolving
@@ -1291,6 +1305,55 @@ check(
   detail ~= nil and detail:find("no response body", 1, true) ~= nil,
   tostring(detail)
 )
+
+print("\n[31b] A camera snapshot URL is ASKED FOR, never guessed")
+-- The resolver used to return nil for every camera and call itself "waiting on
+-- hardware", believing GET_SNAPSHOT_QUERY_STRING was an async proxy return.
+-- The Snap One Camera Proxy SDK says it "immediately returns a block of XML";
+-- the async pattern belongs to GET_STREAM_URLS and its STREAM_URLS_READY
+-- notify. C4:SendUIRequest is the synchronous call and it returns XML.
+snapshotRequests = {}
+nextSnapshotXml = "<snapshot_query_string>/cgi/jpg?q=80</snapshot_query_string>"
+local url, why = snapshotUrlFor({ address = "192.168.1.77" }, 637)
+check("the documented query string becomes a URL", url == "http://192.168.1.77/cgi/jpg?q=80", tostring(url))
+check("no reason is given when it worked", why == nil, tostring(why))
+check("the camera proxy was asked", #snapshotRequests == 1 and snapshotRequests[1].request == "GET_SNAPSHOT_QUERY_STRING",
+  #snapshotRequests > 0 and snapshotRequests[1].request or "none")
+check("the documented SIZE parameters were sent",
+  snapshotRequests[1].params and snapshotRequests[1].params["SIZE X"] == 640, "missing SIZE X")
+
+-- A non-default HTTP port belongs in the URL.
+nextSnapshotXml = "<snapshot_query_string>/snap.jpg</snapshot_query_string>"
+url = snapshotUrlFor({ address = "10.0.0.5", http_port = 8080 }, 12)
+check("a non-default port is carried", url == "http://10.0.0.5:8080/snap.jpg", tostring(url))
+
+-- A query string with no leading separator must not produce a double slash.
+nextSnapshotXml = "<snapshot_query_string>snap.jpg</snapshot_query_string>"
+url = snapshotUrlFor({ address = "10.0.0.5" }, 12)
+check("a bare path gets exactly one separator", url == "http://10.0.0.5/snap.jpg", tostring(url))
+
+-- ⚠ The refusals. Each must say WHICH thing to check, because "camera driver
+-- does not expose one" was true of every camera and named nothing.
+nextSnapshotXml = ""
+url, why = snapshotUrlFor({ address = "10.0.0.5" }, 12)
+check("a silent camera yields no URL", url == nil, tostring(url))
+check("and says the driver does not answer", why ~= nil and why:find("does not answer", 1, true) ~= nil, tostring(why))
+
+nextSnapshotXml = "<streams key='1'><stream url='rtsp://x'/></streams>"
+url, why = snapshotUrlFor({ address = "10.0.0.5" }, 12)
+check("a wrong-shaped answer is refused, not parsed hopefully", url == nil, tostring(url))
+check("and says the answer had no query string", why ~= nil and why:find("query string", 1, true) ~= nil, tostring(why))
+
+nextSnapshotXml = "<snapshot_query_string>/x.jpg</snapshot_query_string>"
+url, why = snapshotUrlFor({ address = "NOT_SET" }, 12)
+check("an unaddressed camera is refused", url == nil, tostring(url))
+check("and says the address is the problem", why ~= nil and why:find("address", 1, true) ~= nil, tostring(why))
+
+-- An explicit URL on the record still wins and skips the interrogation.
+snapshotRequests = {}
+url = snapshotUrlFor({ snapshot_url = "https://cam.example/s.jpg", address = "10.0.0.5" }, 12)
+check("a carried URL is used as-is", url == "https://cam.example/s.jpg", tostring(url))
+check("and the camera is not asked again", #snapshotRequests == 0, #snapshotRequests)
 
 print("\n[30] Overlapping reads do not cancel each other's ping watchdog")
 -- SetTimer is keyed by NAME. A shared watchdog name meant a full sync starting
@@ -2693,11 +2756,20 @@ check(
 )
 check("the user code is NEVER echoed in the ack", tostring(ack.result):find("1234", 1, true) == nil)
 
--- Camera: no snapshot URL yet → honest refusal, never a fabricated success
+-- Camera: an unanswerable camera → honest refusal, never a fabricated success.
+-- The refusal must also NAME the reason. "camera driver does not expose one"
+-- was true of every camera in the project and told nobody what to check.
+nextSnapshotXml = nil
 ack = runCmd("CAMERA_SNAPSHOT", { key = "c4:25", request_id = "r1" })
 check(
   "camera snapshot refuses honestly when no URL is available",
-  ack.ok == false and tostring(ack.error):find("no snapshot URL", 1, true) ~= nil
+  ack.ok == false and tostring(ack.error):find("no snapshot for c4:25", 1, true) ~= nil,
+  tostring(ack.error)
+)
+check(
+  "the refusal names a reason, not just a shrug",
+  tostring(ack.error):find(": ", 1, true) ~= nil and #tostring(ack.error) > #"no snapshot for c4:25: ",
+  tostring(ack.error)
 )
 
 -- Off refuses everything, whatever the platform sends
