@@ -341,6 +341,19 @@
         <description>Paste the pairing code generated on the SmartBuildOS property. Clears itself once redeemed.</description>
       </property>
       <property>
+        <name>Account Number</name>
+        <type>STRING</type>
+        <default/>
+        <description>Alternative to a pairing code: enter your SmartBuildOS account number and a verification code will be emailed to the account's address. Then enter it in Verification Code.</description>
+      </property>
+      <property>
+        <name>Verification Code</name>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+        <description>Enter the code emailed to your account to finish pairing by account number. Single-use; clears itself once redeemed.</description>
+      </property>
+      <property>
         <name>Pairing Backup</name>
         <type>STRING</type>
         <default/>

@@ -30,6 +30,7 @@ _Last updated: 2026-08-29._
 | 8 | Hardening — clock-anomaly handling; adversarial + cross-language parity suites (cross-sku/cross-controller/tamper) | driver repo + web PR #197 | ✅ |
 | — | Enforcement (READ-ONLY when unlicensed) — SDK gate + gateway choke point; **defaults to observe, dormant until the platform enables it per SKU** | driver repo | ✅ built, off by default |
 | 12 | **Agent conversion + account display** — `smartbuildos.c4z` is a true DriverWorks Agent (`<agent>true</agent>`); the platform carries subscription tier + company name on pair/refresh; the Agent and every dependent driver show tier, company, per-driver license source (subscription vs perpetual), the project's licensed-driver count, and a loud REGISTRATION REQUIRED when the Agent is present but paired to no registered company | driver repo + web PR #208 | ✅ |
+| 13 | **Account-number pairing** — a client pairs by entering their account number; the platform emails a single-use code to the account's own address (`/pair/request-code` + `/pair/verify-code`), and the controller's Director identity picks or creates its system. Alongside the dealer pairing code, not replacing it. One `finalizePairing` seam serves both doors | driver repo + web PR #212 | ✅ |
 
 ## Architecture decisions (from the charter)
 

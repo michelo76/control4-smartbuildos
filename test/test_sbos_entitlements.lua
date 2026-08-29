@@ -127,6 +127,8 @@ function C4:ErrorLog() end
 Properties = {
   ["API URL"] = "https://app.smartbuildos.io",
   ["Pairing Code"] = "",
+  ["Account Number"] = "",
+  ["Verification Code"] = "",
   ["Pairing Backup"] = "",
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
@@ -778,6 +780,76 @@ check(
   "a blank inbound tier does not clobber the known one",
   store["sbos_subscription_tier"] == "Professional",
   store["sbos_subscription_tier"]
+)
+
+print("\n[24] Account-number pairing: request a code, then redeem it (#6)")
+
+-- Entering an account number asks the platform to email a code.
+reset()
+Properties["Account Number"] = "AB12CD"
+OPC.Account_Number("AB12CD")
+local req = lastRequestTo("/pair/request-code")
+check("the request hit the request-code route", req ~= nil)
+check(
+  "it carried the account number, upper-cased",
+  req and (req.data or {}).account_number == "AB12CD",
+  req and (req.data or {}).account_number
+)
+check("it carried the controller identity", req and type((req.data or {}).system) == "table")
+check("the account number was remembered", store["sbos_account_number"] == "AB12CD")
+check(
+  "the status invites the code",
+  tostring(Properties["Connection Status"]):find("emailed", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+-- The reload guard: a property replay before init must not email a code.
+reset()
+gInitialized = false
+OPC.Account_Number("ZZ99YY")
+check("no code was requested during the pre-init replay", lastRequestTo("/pair/request-code") == nil)
+gInitialized = true
+
+-- Entering the emailed code pairs, through the same handler as a pairing code.
+reset()
+store["sbos_account_number"] = "AB12CD"
+Properties["Account Number"] = "AB12CD"
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    token = "sbc4_acct_token",
+    system_id = "7e14128e-fb05-4645-929f-e1ee9e1ee964",
+    property_id = "",
+    agent_secret = SECRET,
+    support_id = "SBOS-ACCT01",
+    property_name = "Rivera Residence",
+    subscription_tier = "Professional",
+    company_name = "Aurora AV",
+  }),
+}
+deviceSent = {}
+OPC.Verification_Code("123456")
+local vreq = lastRequestTo("/pair/verify-code")
+check("the request hit the verify-code route", vreq ~= nil)
+check("it carried the account number", vreq and (vreq.data or {}).account_number == "AB12CD")
+check("it carried the code", vreq and (vreq.data or {}).code == "123456")
+check("the token was stored", store["device_token"] == "sbc4_acct_token", store["device_token"])
+check("the agent secret was stored", store["agent_secret"] == SECRET)
+check("the subscription tier was cached", store["sbos_subscription_tier"] == "Professional")
+check("the company name was cached", store["sbos_company_name"] == "Aurora AV")
+check("the verification code field was cleared", Properties["Verification Code"] == "")
+check("the remembered account number was consumed", store["sbos_account_number"] == nil)
+
+-- A code with no account number entered refuses locally rather than calling out.
+reset()
+Properties["Account Number"] = ""
+OPC.Verification_Code("123456")
+check("no verify call without an account number", lastRequestTo("/pair/verify-code") == nil)
+check(
+  "the status asks for the account number",
+  tostring(Properties["Connection Status"]):find("account number", 1, true) ~= nil,
+  Properties["Connection Status"]
 )
 
 -- ─── Summary ──────────────────────────────────────────────────────────────────

@@ -26,6 +26,20 @@ file in plain text. **Unpair** discards it — and discards it locally even if
 SmartBuildOS cannot be reached at the time, so a driver can never be stranded in
 a paired state it cannot leave.
 
+### Pair by account number
+
+No pairing code on hand? Enter the client's **account number** in the driver's
+**Account Number** field. SmartBuildOS emails a short verification code to the
+account's own email address; enter it in **Verification Code** and the driver
+pairs. The code is single-use, expires in a few minutes, and is only ever sent
+to the address already on the account — so possession of the account number
+alone is not enough to pair.
+
+Which system the controller lands in is worked out automatically: a controller
+SmartBuildOS has seen before re-pairs into its existing system; a new one gets a
+fresh system under the account, which a dealer links to a property from the
+console.
+
 ## Licensing & subscription
 
 Every SmartBuildOS driver on the controller asks this Agent whether it is
@@ -121,22 +135,24 @@ project coming online at once.
 
 ## Properties
 
-| Property             | Description                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------- |
-| API URL              | Base URL of the SmartBuildOS instance. Trailing slashes are tolerated.                    |
-| Pairing Code         | Paste a code from SmartBuildOS here. Clears itself once redeemed.                         |
-| Paired Property      | Read-only. The property this controller reports against.                                  |
-| SmartBuildOS Company | Read-only. The registered company this controller is paired to.                           |
-| Subscription Tier    | Read-only. The company's SmartBuildOS plan, `(grace)` when in the grace window.           |
-| Licensed Drivers     | Read-only. Licensed-vs-installed count of SmartBuildOS drivers in this project.           |
-| Connection Status    | Read-only. `Connected`, `Unreachable`, `HTTP <code>`, `Not paired`, or a pairing failure. |
-| Last Successful Sync | Read-only timestamp of the last accepted payload.                                         |
-| Device Poll Interval | 1m / 5m / 15m / 30m. Default 5m.                                                          |
-| Non Control4 Devices | Devices with no Control4 driver, reached directly by IP.                                  |
-| Devices Offline      | Read-only count of devices currently down.                                                |
-| Last Device Change   | Read-only. The most recent device to change state.                                        |
-| Heartbeat Interval   | 5m / 15m / 30m / 1h / 6h. Default 15m.                                                    |
-| Full Sync Interval   | 6h / 12h / 24h. Default 24h.                                                              |
+| Property             | Description                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| API URL              | Base URL of the SmartBuildOS instance. Trailing slashes are tolerated.                       |
+| Pairing Code         | Paste a code from SmartBuildOS here. Clears itself once redeemed.                            |
+| Account Number       | Alternative to a pairing code: enter the account number to have a verification code emailed. |
+| Verification Code    | The emailed code. Enter it to finish account-number pairing. Single-use; clears itself.      |
+| Paired Property      | Read-only. The property this controller reports against.                                     |
+| SmartBuildOS Company | Read-only. The registered company this controller is paired to.                              |
+| Subscription Tier    | Read-only. The company's SmartBuildOS plan, `(grace)` when in the grace window.              |
+| Licensed Drivers     | Read-only. Licensed-vs-installed count of SmartBuildOS drivers in this project.              |
+| Connection Status    | Read-only. `Connected`, `Unreachable`, `HTTP <code>`, `Not paired`, or a pairing failure.    |
+| Last Successful Sync | Read-only timestamp of the last accepted payload.                                            |
+| Device Poll Interval | 1m / 5m / 15m / 30m. Default 5m.                                                             |
+| Non Control4 Devices | Devices with no Control4 driver, reached directly by IP.                                     |
+| Devices Offline      | Read-only count of devices currently down.                                                   |
+| Last Device Change   | Read-only. The most recent device to change state.                                           |
+| Heartbeat Interval   | 5m / 15m / 30m / 1h / 6h. Default 15m.                                                       |
+| Full Sync Interval   | 6h / 12h / 24h. Default 24h.                                                                 |
 
 ## Actions
 
