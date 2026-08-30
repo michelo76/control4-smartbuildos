@@ -2,7 +2,9 @@ name: Publish drivers to SmartBuildOS store
 
 # When a release is published, upload each built .c4z to the SmartBuildOS driver
 # package store so paired Agents can auto-update from SmartBuildOS instead of
-# GitHub. Dormant until the two secrets are set:
+# GitHub. Also runnable by hand (workflow_dispatch) to (re)publish an existing
+# release — e.g. after a transient upload failure — without cutting a new build.
+# Dormant until the two secrets are set:
 #   STORE_UPLOAD_URL     e.g. https://app.smartbuildos.io/api/platform/driver-cloud/packages
 #   STORE_UPLOAD_SECRET  matches DRIVER_PACKAGES_UPLOAD_SECRET in the platform env
 # Manual `gh release create` fires this (the real release flow). A release
@@ -11,6 +13,11 @@ name: Publish drivers to SmartBuildOS store
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)publish to the store"
+        required: true
 
 permissions:
   contents: read
@@ -20,10 +27,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Resolve the release tag and channel
+        id: rel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${EVENT_TAG:-${INPUT_TAG:-}}"
+          if [ -z "$tag" ]; then echo "::error::no release tag to publish"; exit 1; fi
+          # A prerelease publishes to BETA; a normal release to STABLE (only
+          # STABLE advances the catalog's advertised current_version). On a
+          # release event GitHub hands us the flag; on a manual run we ask.
+          prerelease=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q .isPrerelease)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Publishing release $tag (prerelease=$prerelease)"
+
       - name: Download the release's .c4z assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           mkdir -p pkgs
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.c4z' --dir pkgs
@@ -33,7 +58,7 @@ jobs:
         env:
           STORE_UPLOAD_URL: ${{ secrets.STORE_UPLOAD_URL }}
           STORE_UPLOAD_SECRET: ${{ secrets.STORE_UPLOAD_SECRET }}
-          PRERELEASE: ${{ github.event.release.prerelease }}
+          PRERELEASE: ${{ steps.rel.outputs.prerelease }}
         run: |
           set -euo pipefail
           if [ -z "${STORE_UPLOAD_URL:-}" ] || [ -z "${STORE_UPLOAD_SECRET:-}" ]; then
@@ -41,8 +66,6 @@ jobs:
             exit 0
           fi
 
-          # A prerelease publishes to the BETA channel; a normal release to STABLE
-          # (only STABLE advances the catalog's advertised current_version).
           channel=STABLE
           if [ "${PRERELEASE:-false}" = "true" ]; then channel=BETA; fi
 
@@ -68,14 +91,19 @@ jobs:
             if [ -z "$ver" ]; then echo "skip $base (no <version> in driver.xml)"; continue; fi
 
             echo "uploading $base v$ver ($sku, $channel)"
-            b64=$(base64 -w0 "$f")
-            payload=$(jq -n --arg sku "$sku" --arg fn "$base" --arg ver "$ver" --arg ch "$channel" --arg c "$b64" \
-              '{driver_sku:$sku, filename:$fn, version:$ver, release_channel:$ch, content_base64:$c, notes:"Published by CI"}')
-            code=$(printf '%s' "$payload" | curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            # base64 the .c4z to a file (stripped of newlines) and hand it to jq
+            # via --rawfile: a multi-MB value passed as a jq --arg overflows
+            # ARG_MAX ("Argument list too long"). For the same reason the payload
+            # goes to curl as --data @file, never as an argv-sized string.
+            base64 -w0 "$f" | tr -d '\n' > payload.b64
+            jq -n --arg sku "$sku" --arg fn "$base" --arg ver "$ver" --arg ch "$channel" --rawfile c payload.b64 \
+              '{driver_sku:$sku, filename:$fn, version:$ver, release_channel:$ch, content_base64:$c, notes:"Published by CI"}' > payload.json
+            code=$(curl -sS -o resp.json -w '%{http_code}' \
               -X POST "$STORE_UPLOAD_URL" \
               -H "Authorization: Bearer $STORE_UPLOAD_SECRET" \
-              -H "Content-Type: application/json" --data @-)
-            echo "  -> HTTP $code $(cat /tmp/resp.json)"
+              -H "Content-Type: application/json" --data @payload.json)
+            echo "  -> HTTP $code $(cat resp.json)"
+            rm -f payload.b64 payload.json resp.json
             if [ "$code" != "200" ]; then echo "::error::upload of $base failed (HTTP $code)"; exit 1; fi
             uploaded=$((uploaded + 1))
           done
