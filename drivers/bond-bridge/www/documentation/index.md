@@ -51,6 +51,7 @@ derives functions from them:
 | Heater with heat levels   | Heater child (thermostat dial, 0-100 = heat level)    |
 | Anything else with on/off | Generic switch child                                  |
 | Sidekick remote           | Keypad child (events, button links, battery alerts)   |
+| Breeze weather sensor     | Weather child (outdoor temp/humidity for thermostats) |
 
 ## State updates
 

@@ -660,6 +660,97 @@ firedEvents = {}
 pushState({ battery = 8 })
 check("critical band fires Battery Critical", firedEvents[#firedEvents] == "Battery Critical")
 
+-- ═══ WEATHER ══════════════════════════════════════════════════════════════════
+
+print("\n[weather] measurements, value connections, transition events")
+
+loadChild(
+  "bond-weather",
+  childProps({
+    ["Temperature"] = "-",
+    ["Humidity"] = "-",
+    ["Wind Speed"] = "-",
+    ["Rain"] = "-",
+    ["Sun Level"] = "-",
+    ["Solar Battery"] = "-",
+    ["Backup Battery"] = "-",
+    ["Sensor Status"] = "-",
+    ["Last Measured"] = "-",
+    ["Display Units"] = "Fahrenheit",
+  })
+)
+
+firedEvents = {}
+identify({
+  id = "ws1",
+  fn = "WEATHER",
+  name = "Patio Breeze",
+  type = "WS",
+  actions = {},
+  props = { model = "BWS-1000" },
+  state = {
+    status = "idle",
+    data_temperature_dc = 212,
+    data_humidity_percent = 65,
+    data_wind_speed_dms = 32,
+    data_rain_mmh = 0,
+    data_sun_level = 0,
+    is_raining = false,
+    battery = 80,
+    battery_voltage_dV = 24,
+    battery_2 = 77,
+    status_flag_no_data = false,
+    status_flag_battery_low = false,
+  },
+})
+
+check("temperature in Fahrenheit by default", props["Temperature"] == "70.2 F", props["Temperature"])
+check("humidity published", props["Humidity"] == "65%", props["Humidity"])
+check("wind in m/s from dm/s", props["Wind Speed"] == "3.2 m/s", props["Wind Speed"])
+check("sun level 0 reads Dark", props["Sun Level"] == "Dark", props["Sun Level"])
+check("solar battery with voltage", props["Solar Battery"] == "80% (2.4V)", props["Solar Battery"])
+check("first sight is baseline - no transition events", #firedEvents == 0, firedEvents[1])
+
+local temps = proxyNotifies(100, "VALUE_CHANGED")
+check("outdoor temperature published to the value connection", #temps >= 1)
+check(
+  "both scales carried",
+  #temps >= 1 and temps[#temps].params.CELSIUS == "21.2" and temps[#temps].params.FAHRENHEIT == "70.2",
+  #temps >= 1 and temps[#temps].params.CELSIUS
+)
+local hums = proxyNotifies(101, "VALUE_CHANGED")
+check("humidity published to its value connection", #hums >= 1 and hums[#hums].params.VALUE == 65)
+
+resetTraffic()
+firedEvents = {}
+pushState({ is_raining = true, data_rain_mmh = 4 })
+check("rain transition fires Rain Started", firedEvents[#firedEvents] == "Rain Started", firedEvents[#firedEvents])
+check("rain property updated", props["Rain"] == "4 mm/h", props["Rain"])
+
+firedEvents = {}
+pushState({ status = "triggered_wind" })
+check("status transition fires Wind Triggered", firedEvents[#firedEvents] == "Wind Triggered")
+
+resetTraffic()
+firedEvents = {}
+pushState({ status_flag_no_data = true })
+check("no-data transition fires Data Lost", firedEvents[#firedEvents] == "Data Lost")
+check(
+  "value connections report unavailable, not stale",
+  #proxyNotifies(100, "VALUE_UNAVAILABLE") >= 1 and #proxyNotifies(101, "VALUE_UNAVAILABLE") >= 1
+)
+
+resetTraffic()
+firedEvents = {}
+pushState({ status_flag_no_data = false, data_temperature_dc = 200 })
+check("recovery fires Data Restored", firedEvents[#firedEvents] == "Data Restored")
+temps = proxyNotifies(100, "VALUE_CHANGED")
+check("temperature flows again after recovery", #temps >= 1 and temps[#temps].params.CELSIUS == "20.0")
+
+resetTraffic()
+RFP.GET_SENSOR_VALUE(100)
+check("a consumer's request republishes the value", #proxyNotifies(100, "VALUE_CHANGED") >= 1)
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

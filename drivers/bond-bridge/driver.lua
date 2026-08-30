@@ -82,6 +82,7 @@ local FUNCTION_NS = {
   HEATER = "bond_heater",
   GENERIC = "bond_generic",
   KEYPAD = "bond_keypad",
+  WEATHER = "bond_weather",
 }
 
 --- Child driver file per function, for Auto Configure.
@@ -93,10 +94,11 @@ local PROVISION_FILES = {
   HEATER = "bond-heater.c4z",
   GENERIC = "bond-generic.c4z",
   KEYPAD = "bond-keypad.c4z",
+  WEATHER = "bond-weather.c4z",
 }
 
 --- Function order for walks that should be deterministic.
-local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC", "KEYPAD" }
+local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC", "KEYPAD", "WEATHER" }
 
 local POLL_TIMER = "BondPoll"
 local KEEPALIVE_TIMER = "BondBpupKeepalive"
@@ -163,6 +165,11 @@ gDiscovery = nil
 
 --- Bonds heard during discovery: bondid -> { ip, port, fw, setup }.
 gDiscovered = {}
+
+--- Root hash of /v2/sidekicks from the last sync. Weather measurements and
+--- keypad batteries live under this tree, not /v2/devices — the poll checks
+--- both comparators.
+gSidekicksHash = nil
 
 --- Forward declarations, defined below in dependency order.
 local pushDeviceStates, syncDevices, testConnection, startPush, stopPush
@@ -683,7 +690,9 @@ syncDevices = function(onDone)
     --- sync carries on.
     local function fetchSidekicks(scenes)
       bond:getSidekicks():next(function(sidekicksResponse)
-        local sidekickIds = Bond.idsFromTree(Bond.decodeBody(sidekicksResponse.body))
+        local sidekicksTree = Bond.decodeBody(sidekicksResponse.body)
+        gSidekicksHash = (sidekicksTree or {})["_"]
+        local sidekickIds = Bond.idsFromTree(sidekicksTree)
         local function fetchSidekick(j)
           if j > #sidekickIds then
             finish(scenes)
@@ -703,8 +712,40 @@ syncDevices = function(onDone)
                 state = { battery = tonumber(doc.battery), signal = tonumber(doc.signal) },
                 functions = { model.FUNCTIONS.KEYPAD },
               })
+              fetchSidekick(j + 1)
+            elseif tostring(doc.type or "") == "weather_sensor" then
+              -- Breeze weather station: the measurements live on its own
+              -- state endpoint. A failed state read still lists the sensor
+              -- (a Breeze with a dead battery is exactly when the child's
+              -- No Data surfaces matter).
+              bond:getSidekickState(id):next(function(stateResponse)
+                table.insert(devices, {
+                  id = id,
+                  name = tostring(doc.name or id),
+                  type = "WS",
+                  location = tostring(doc.location or ""),
+                  actions = {},
+                  props = { model = doc.model },
+                  state = Bond.decodeBody(stateResponse.body) or {},
+                  functions = { model.FUNCTIONS.WEATHER },
+                })
+                fetchSidekick(j + 1)
+              end, function()
+                table.insert(devices, {
+                  id = id,
+                  name = tostring(doc.name or id),
+                  type = "WS",
+                  location = tostring(doc.location or ""),
+                  actions = {},
+                  props = { model = doc.model },
+                  state = {},
+                  functions = { model.FUNCTIONS.WEATHER },
+                })
+                fetchSidekick(j + 1)
+              end)
+            else
+              fetchSidekick(j + 1)
             end
-            fetchSidekick(j + 1)
           end, function()
             fetchSidekick(j + 1)
           end)
@@ -833,6 +874,19 @@ local function pollTick()
     end
     setConnected(true)
     if tree["_"] ~= nil and tree["_"] == gDevicesHash then
+      -- Devices unmoved: weather measurements and keypad batteries live
+      -- under the SIDEKICKS tree, so check its hash too (skipped entirely
+      -- when the last sync saw no sidekicks tree at all).
+      if gSidekicksHash ~= nil then
+        bond:getSidekicks():next(function(sidekicksResponse)
+          local sidekicksTree = Bond.decodeBody(sidekicksResponse.body)
+          local hash = (sidekicksTree or {})["_"]
+          if hash ~= nil and hash ~= gSidekicksHash then
+            log:debug("Sidekicks tree hash moved (%s -> %s); syncing", tostring(gSidekicksHash), tostring(hash))
+            syncDevices()
+          end
+        end, function() end)
+      end
       return
     end
     log:debug("Device tree hash moved (%s -> %s); syncing", tostring(gDevicesHash), tostring(tree["_"]))
@@ -884,6 +938,13 @@ local function handleBpupFrame(line)
   UpdateProperty("Push Status", "Delivering")
   if frame.deviceId ~= nil then
     applyPushedState(frame.deviceId, frame.state)
+    return
+  end
+  -- Weather sensor (and future sidekick) state pushes: same pipeline as
+  -- device state — the sensor is a pseudo-device in the inventory.
+  local wsId = tostring(frame.topic or ""):match("^sidekicks/([^/]+)/state$")
+  if wsId ~= nil and type(frame.body) == "table" then
+    applyPushedState(wsId, frame.body)
     return
   end
   -- Sidekick key events: push-only by contract (the HTTP endpoint answers

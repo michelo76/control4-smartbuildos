@@ -285,7 +285,31 @@ local function routeHappyBond()
       ok = true,
       body = { name = "Bedroom Sidekick", location = "Bedroom", keys = 3, battery = 90, signal = 97, model = "SKN-386" },
     },
-    { match = "/v2/sidekicks", ok = true, body = { ["_"] = "sk-root", sk1 = { ["_"] = "k1" } } },
+    {
+      match = "/v2/sidekicks/ws1/state",
+      ok = true,
+      body = {
+        status = "idle",
+        data_temperature_dc = 212,
+        data_humidity_percent = 65,
+        data_wind_speed_dms = 32,
+        data_rain_mmh = 0,
+        data_sun_level = 6,
+        is_raining = false,
+        battery = 80,
+        battery_2 = 77,
+      },
+    },
+    {
+      match = "/v2/sidekicks/ws1",
+      ok = true,
+      body = { name = "Patio Breeze", location = "Patio", type = "weather_sensor", model = "BWS-1000" },
+    },
+    {
+      match = "/v2/sidekicks",
+      ok = true,
+      body = { ["_"] = "sk-root", sk1 = { ["_"] = "k1" }, ws1 = { ["_"] = "w1" } },
+    },
     {
       match = "/v2/devices",
       ok = true,
@@ -350,7 +374,7 @@ check("token stored ENCRYPTED", storeEncrypted["bond_token"] == true)
 check("property wiped", props["Local Token"] == "")
 check("connected", TC.BOND_CONNECTED() == true)
 check("Bond Online fired", firedEvents[#firedEvents] == "Bond Online")
-check("Devices count published (incl. keypad)", props["Devices"] == "3", props["Devices"])
+check("Devices count published (incl. sidekicks)", props["Devices"] == "4", props["Devices"])
 
 local authed = 0
 for _, r in ipairs(requests) do
@@ -365,6 +389,8 @@ check("fan LIGHT binding exists", bindingIdByName("Master Fan Light") ~= nil)
 check("shade binding exists", bindingIdByName("Patio Shade") ~= nil)
 check("keypad binding exists", bindingIdByName("Bedroom Sidekick") ~= nil)
 check("keypad binding class", addedBindings[bindingIdByName("Bedroom Sidekick")].class == "SBOS_BOND_KEYPAD")
+check("weather binding exists", bindingIdByName("Patio Breeze") ~= nil)
+check("weather binding class", addedBindings[bindingIdByName("Patio Breeze")].class == "SBOS_BOND_WEATHER")
 check("fan binding class", addedBindings[bindingIdByName("Master Fan")].class == "SBOS_BOND_FAN")
 check("light binding class", addedBindings[bindingIdByName("Master Fan Light")].class == "SBOS_BOND_LIGHT")
 check("shade binding class", addedBindings[bindingIdByName("Patio Shade")].class == "SBOS_BOND_SHADE")
@@ -373,14 +399,14 @@ local bindingCount = 0
 for _ in pairs(addedBindings) do
   bindingCount = bindingCount + 1
 end
-check("exactly four bindings", bindingCount == 4, bindingCount)
+check("exactly five bindings", bindingCount == 5, bindingCount)
 
 EC.SYNC_DEVICES()
 local bindingCountAfter = 0
 for _ in pairs(addedBindings) do
   bindingCountAfter = bindingCountAfter + 1
 end
-check("re-sync is idempotent", bindingCountAfter == 4, bindingCountAfter)
+check("re-sync is idempotent", bindingCountAfter == 5, bindingCountAfter)
 
 -- ─── [3b] Scenes ─────────────────────────────────────────────────────────────
 
@@ -571,6 +597,26 @@ RFN[bpupBinding](
   '{"B":"ZZBL12345","t":"sidekicks/unknown/keystream","s":200,"m":0,"b":{"event":"TAP","key":1}}\n'
 )
 check("unknown sidekick keystream is quietly dropped", #deviceSent == 0, #deviceSent)
+
+-- ─── [6c] Weather state pushes ───────────────────────────────────────────────
+
+print("\n[6c] Weather sensor state pushes route through the device pipeline")
+
+local weatherBinding = bindingIdByName("Patio Breeze")
+boundMap[weatherBinding] = { [402] = true }
+deviceSent = {}
+RFN[bpupBinding](
+  bpupBinding,
+  30007,
+  '{"B":"ZZBL12345","t":"sidekicks/ws1/state","s":200,"m":0,"b":{"status":"triggered_rain","data_temperature_dc":185,"is_raining":true,"data_rain_mmh":4}}\n'
+)
+local weatherPushes = sentTo(deviceSent, "device", 402, "BOND_STATE")
+check("weather push reached the child", #weatherPushes == 1, #weatherPushes)
+local pushedWeather = JSON:decode((weatherPushes[1] or {}).params.state_json or "")
+check(
+  "pushed measurements intact",
+  type(pushedWeather) == "table" and pushedWeather.data_temperature_dc == 185 and pushedWeather.is_raining == true
+)
 
 -- ─── [7] Failure vocabulary ──────────────────────────────────────────────────
 

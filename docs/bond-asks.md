@@ -43,7 +43,12 @@ baked in from day one, plus the capabilities their architecture can't reach.
    key ramps a bound dimmer), LAST_* variables, battery band events, Learn
    New Sidekick gateway action. The /v2/sidekicks endpoint also hosts Breeze
    weather sensors (ws_id, `state` of measurements) — a bond-weather child
-   is the natural follow-on.
+   is the natural follow-on. → ✅ BUILT (`bond-weather`, 9th driver): all
+   measurements as variables/properties, transition-only events (rain, wind,
+   sun, batteries, freeze, data-lost), TEMPERATURE_VALUE + HUMIDITY_VALUE
+   provider connections so the Breeze is any thermostat's outdoor sensor
+   (unavailable on no-data, never stale), sidekicks-tree hash polling +
+   BPUP state routing in the gateway.
 4. **Firefly color devices** — Color/ColorTemp features (SetHSV); light_v2
    color capabilities on a dedicated bond-color-light child.
 5. Per-shade-type Navigator icons (their Curtain-icon fix) — blind proxy

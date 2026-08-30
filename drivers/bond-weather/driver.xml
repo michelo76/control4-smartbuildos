@@ -1,0 +1,224 @@
+<devicedata>
+  <name>Bond Weather (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Weather (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Sensors</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_WEATHER_RAINING</name>
+      <type>BOOL</type>
+      <condition_statement>Raining</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Raining</true_text>
+      <false_text>Dry</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Rain Started</name><description>It started raining.</description></event>
+    <event><id>2</id><name>Rain Stopped</name><description>It stopped raining.</description></event>
+    <event><id>3</id><name>Wind Triggered</name><description>Wind reached the configured trigger level.</description></event>
+    <event><id>4</id><name>Sun Triggered</name><description>Sun intensity reached the configured trigger level.</description></event>
+    <event><id>5</id><name>Solar Battery Low</name><description>The solar battery is running low.</description></event>
+    <event><id>6</id><name>Solar Battery OK</name><description>The solar battery recovered.</description></event>
+    <event><id>7</id><name>Backup Battery Low</name><description>The backup AA battery is running low.</description></event>
+    <event><id>8</id><name>Backup Battery OK</name><description>The backup AA battery recovered.</description></event>
+    <event><id>9</id><name>Freeze Warning</name><description>Sensor temperature is low - external 12V supply recommended.</description></event>
+    <event><id>10</id><name>Freeze Warning Cleared</name><description>Sensor temperature recovered.</description></event>
+    <event><id>11</id><name>Data Lost</name><description>No measurements for more than 30 minutes.</description></event>
+    <event><id>12</id><name>Data Restored</name><description>Measurements are flowing again.</description></event>
+  </events>
+  <config>
+    <documentation file="www/documentation/index.html">Documentation</documentation>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond Breeze weather sensor this instance represents - bind the Bond Weather connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Weather connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Temperature</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Humidity</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Wind Speed</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Rain</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Sun Level</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Solar Battery</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Backup Battery</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Sensor Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>idle, or which trigger is active (wind / rain / sun). Flags append when raised: unstable, no data, freeze warning.</description>
+      </property>
+      <property>
+        <name>Last Measured</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Display Units</name>
+        <type>LIST</type>
+        <items>
+          <item>Fahrenheit</item>
+          <item>Celsius</item>
+        </items>
+        <default>Fahrenheit</default>
+        <description>Units for the Temperature property display. Programming variables always carry both.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>100</id>
+      <facing>6</facing>
+      <connectionname>Outdoor Temperature</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>TEMPERATURE_VALUE</classname></class></classes>
+    </connection>
+    <connection>
+      <id>101</id>
+      <facing>6</facing>
+      <connectionname>Outdoor Humidity</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>HUMIDITY_VALUE</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Weather</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_WEATHER</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -75,6 +75,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Bond's pairing window. Sidekicks sync as keypad pseudo-devices, so bindings,
   provisioning and renames reuse the existing machinery unchanged.
 
+- **Bond Weather** (`bond-weather.c4z`, 9th driver): Breeze weather stations as
+  Control4 sensors. Every measurement becomes a programming variable
+  (temperature both scales, humidity, wind m/s, rain rate, sun level, both
+  batteries) with transition-only events — Rain Started/Stopped, Wind and Sun
+  Triggered, battery Low/OK for both cells, Freeze Warning, Data Lost/Restored.
+  The differentiator: Outdoor Temperature and Outdoor Humidity provider
+  connections (TEMPERATURE_VALUE / HUMIDITY_VALUE) turn the Breeze into any
+  thermostat's outdoor sensor, reporting unavailable rather than stale when the
+  sensor goes quiet. The gateway polls the sidekicks tree hash alongside devices
+  and routes pushed weather state through the same pipeline as everything else.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added

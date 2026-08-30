@@ -191,6 +191,26 @@ def keypad_glyph() -> str:
 </g>"""
 
 
+def weather_glyph() -> str:
+    """Breeze station: sun peeking over a cloud with rain ticks."""
+    return f"""
+<g>
+  <circle cx="64" cy="34" r="13" fill="none" stroke="url(#amber)" stroke-width="5"/>
+  <g stroke="url(#amber)" stroke-width="4" stroke-linecap="round">
+    <line x1="64" y1="14" x2="64" y2="19"/>
+    <line x1="82" y1="34" x2="87" y2="34"/>
+    <line x1="77" y1="21" x2="80" y2="18"/>
+  </g>
+  <path d="M 24 62 A 11 11 0 0 1 30 42 A 15 15 0 0 1 59 44 A 10 10 0 0 1 62 62 Z"
+        fill="none" stroke="{NEUTRAL}" stroke-width="5" stroke-linejoin="round"/>
+  <g stroke="{NEUTRAL}" stroke-width="4" stroke-linecap="round">
+    <line x1="32" y1="72" x2="29" y2="82"/>
+    <line x1="44" y1="72" x2="41" y2="82"/>
+    <line x1="56" y1="72" x2="53" y2="82"/>
+  </g>
+</g>"""
+
+
 def bridge_glyph() -> str:
     return f"""
 <g stroke="{NEUTRAL}" stroke-width="5" fill="none" stroke-linecap="round">
@@ -232,6 +252,7 @@ DEVICE_ICONS = {
     "bond-heater": svg(heater_glyph()),
     "bond-generic": svg(power(False)),
     "bond-keypad": svg(keypad_glyph()),
+    "bond-weather": svg(weather_glyph()),
 }
 
 

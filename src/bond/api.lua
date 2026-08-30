@@ -324,6 +324,13 @@ function Bond:getSidekick(sidekickId)
   return self:get("/v2/sidekicks/" .. sidekickId)
 end
 
+--- A weather sensor's state document: temperature (deci-Celsius), humidity,
+--- wind (dm/s), rain rate (mm/h), sun level, batteries, status flags.
+--- @param sidekickId string The weather sensor's ws_id.
+function Bond:getSidekickState(sidekickId)
+  return self:get("/v2/sidekicks/" .. sidekickId .. "/state")
+end
+
 --- Opens the learn window so a new Sidekick can be paired by pressing a
 --- key on it near the Bond.
 --- @param windowMs number|nil Window length in ms (60s when nil — the spec's example).
