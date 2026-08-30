@@ -196,31 +196,22 @@ M.ADAPTERS.THERMOSTAT = {
       table.insert(cmds, { command = "SET_MODE_HVAC", params = { MODE = state.hvac_mode } })
     end
     if state.heat_setpoint_f then
-      table.insert(
-        cmds,
-        {
-          command = "SET_SETPOINT_HEAT",
-          params = { FAHRENHEIT = clamp(state.heat_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
-        }
-      )
+      table.insert(cmds, {
+        command = "SET_SETPOINT_HEAT",
+        params = { FAHRENHEIT = clamp(state.heat_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
+      })
     end
     if state.cool_setpoint_f then
-      table.insert(
-        cmds,
-        {
-          command = "SET_SETPOINT_COOL",
-          params = { FAHRENHEIT = clamp(state.cool_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
-        }
-      )
+      table.insert(cmds, {
+        command = "SET_SETPOINT_COOL",
+        params = { FAHRENHEIT = clamp(state.cool_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
+      })
     end
     if state.single_setpoint_f then
-      table.insert(
-        cmds,
-        {
-          command = "SET_SETPOINT_SINGLE",
-          params = { FAHRENHEIT = clamp(state.single_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
-        }
-      )
+      table.insert(cmds, {
+        command = "SET_SETPOINT_SINGLE",
+        params = { FAHRENHEIT = clamp(state.single_setpoint_f, SETPOINT_MIN_F, SETPOINT_MAX_F) },
+      })
     end
     if state.fan_mode then
       table.insert(cmds, { command = "SET_MODE_FAN", params = { MODE = state.fan_mode } })

@@ -82,15 +82,12 @@ addDevice(
   "4001",
   { proxy = "securitypanel", vars = { ["PARTITION_STATE"] = "DISARMED_READY" }, online = true, name = "Panel" }
 )
-addDevice(
-  "5001",
-  {
-    proxy = "thermostatV2",
-    vars = { ["HVAC_MODE"] = "Cool", ["TEMPERATURE_F"] = "74", ["COOL_SETPOINT_F"] = "72" },
-    online = true,
-    name = "Hall Tstat",
-  }
-)
+addDevice("5001", {
+  proxy = "thermostatV2",
+  vars = { ["HVAC_MODE"] = "Cool", ["TEMPERATURE_F"] = "74", ["COOL_SETPOINT_F"] = "72" },
+  online = true,
+  name = "Hall Tstat",
+})
 addDevice("6001", { proxy = "blind", vars = { ["Level Target"] = "50" }, online = false, name = "Pool House Shade" })
 
 local function resolve(key)

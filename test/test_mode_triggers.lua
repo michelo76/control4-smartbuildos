@@ -247,35 +247,29 @@ check("bounded at 5", #hist:list() == 5, #hist:list())
 check("newest first", hist:list()[1].activation_id == "a8")
 local hist2 = historylib.new({ limit = 5, persist = hPersist })
 check("reload from persist", #hist2:list() == 5)
-local line = historylib.renderLine(
-  {
-    mode_id = "m",
-    time = 1,
-    result = "SUCCESS_WITH_WARNINGS",
-    source = "KEYPAD",
-    meta = { slot_name = "Kitchen 5", gesture = "hold", hold_s = 3.2 },
-    failures = { { device = "Shade", detail = "offline" } },
-  },
-  function()
-    return "Away"
-  end
-)
+local line = historylib.renderLine({
+  mode_id = "m",
+  time = 1,
+  result = "SUCCESS_WITH_WARNINGS",
+  source = "KEYPAD",
+  meta = { slot_name = "Kitchen 5", gesture = "hold", hold_s = 3.2 },
+  failures = { { device = "Shade", detail = "offline" } },
+}, function()
+  return "Away"
+end)
 check("line carries source+gesture", line:find("Kitchen 5", 1, true) ~= nil and line:find("hold", 1, true) ~= nil, line)
-local detail = historylib.renderDetail(
-  {
-    mode_id = "m",
-    activation_id = "abc",
-    time = 1,
-    result = "SUCCESS_WITH_WARNINGS",
-    source = "KEYPAD",
-    actions = 73,
-    succeeded = 72,
-    failures = { { device = "Pool House Shade", detail = "Device unavailable" } },
-  },
-  function()
-    return "Away"
-  end
-)
+local detail = historylib.renderDetail({
+  mode_id = "m",
+  activation_id = "abc",
+  time = 1,
+  result = "SUCCESS_WITH_WARNINGS",
+  source = "KEYPAD",
+  actions = 73,
+  succeeded = 72,
+  failures = { { device = "Pool House Shade", detail = "Device unavailable" } },
+}, function()
+  return "Away"
+end)
 check("detail names the failed device (§40)", detail:find("Pool House Shade", 1, true) ~= nil, detail)
 
 -- ── LED ─────────────────────────────────────────────────────────────────────
