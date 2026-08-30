@@ -20,6 +20,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+## v20260829.222717 - 2026-08-29
+
 ### Added
 
 - **SmartBuildOS Mode Composer** (`smartbuildos-mode-composer.c4z`) — a
