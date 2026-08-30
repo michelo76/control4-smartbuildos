@@ -75,6 +75,7 @@ jobs:
             case "$1" in
               smartbuildos.c4z) echo SBOS_AGENT ;;
               unifi-protect.c4z|unifi-protect-camera.c4z|unifi-protect-light.c4z|unifi-protect-sensor.c4z|unifi-protect-viewport.c4z) echo SBOS_UNIFI_PROTECT ;;
+              smartbuildos-mode-composer.c4z|smartbuildos-mode-button.c4z) echo SBOS_MODE_COMPOSER ;;
               *) echo "" ;;
             esac
           }
