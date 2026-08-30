@@ -50,6 +50,7 @@ derives functions from them:
 | Light / dimmer            | Light child                                           |
 | Heater with heat levels   | Heater child (thermostat dial, 0-100 = heat level)    |
 | Anything else with on/off | Generic switch child                                  |
+| Sidekick remote           | Keypad child (events, button links, battery alerts)   |
 
 ## State updates
 

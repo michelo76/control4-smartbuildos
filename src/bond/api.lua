@@ -305,6 +305,32 @@ function Bond:runScene(sceneId)
   return self:put("/v2/scenes/" .. sceneId .. "/run", "{}")
 end
 
+-- ─── Sidekicks ────────────────────────────────────────────────────────────────
+--
+-- The /v2/sidekicks enumeration hosts TWO kinds of hardware: Sidekick
+-- keypads (entries with a `keys` count; presses arrive push-only over BPUP
+-- on `sidekicks/<id>/keystream`) and Breeze weather sensors (entries with a
+-- state document of measurements). Callers tell them apart by shape.
+
+--- The sidekick enumeration, same hash-tree shape as /v2/devices.
+--- Older firmware without Sidekick support 404s — treat as "none".
+function Bond:getSidekicks()
+  return self:get("/v2/sidekicks")
+end
+
+--- One sidekick: `{ name, location, keys, chans, battery, signal, model, … }`.
+--- @param sidekickId string The sidekick's id.
+function Bond:getSidekick(sidekickId)
+  return self:get("/v2/sidekicks/" .. sidekickId)
+end
+
+--- Opens the learn window so a new Sidekick can be paired by pressing a
+--- key on it near the Bond.
+--- @param windowMs number|nil Window length in ms (60s when nil — the spec's example).
+function Bond:openSidekickLearn(windowMs)
+  return self:patch("/v2/sidekicks/_learn", { learn_window_ms = windowMs or 60000 })
+end
+
 -- ─── Devices ──────────────────────────────────────────────────────────────────
 
 --- The device enumeration: `{ "_": "<hash>", "<id>": { "_": "<hash>" }, … }`.

@@ -24,6 +24,9 @@ M.FUNCTIONS = {
   FIREPLACE = "FIREPLACE",
   HEATER = "HEATER",
   GENERIC = "GENERIC",
+  -- Not derived from actions[]: assigned by the gateway to Sidekick keypads
+  -- from the /v2/sidekicks enumeration.
+  KEYPAD = "KEYPAD",
 }
 
 --- Binding class per function (provider side; children declare the same
@@ -43,6 +46,7 @@ M.BINDING_CLASSES = {
   FIREPLACE = "SBOS_BOND_FIREPLACE",
   HEATER = "SBOS_BOND_HEATER",
   GENERIC = "SBOS_BOND_GENERIC",
+  KEYPAD = "SBOS_BOND_KEYPAD",
 }
 
 --- Turns an actions array into a lookup set.
@@ -133,6 +137,7 @@ function M.childLabel(name, fn, isPrimary)
     FIREPLACE = " Fireplace",
     HEATER = " Heater",
     GENERIC = " Switch",
+    KEYPAD = " Keypad",
   }
   return name .. (suffixes[fn] or "")
 end

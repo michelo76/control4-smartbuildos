@@ -63,6 +63,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   DNS wire parser (name compression included) is pure and pinned by its own
   test suite.
 
+- **Bond Keypad** (`bond-keypad.c4z`, 8th driver): Bond Sidekick remotes as
+  Control4 keypads. Key presses arrive over the Bond's push protocol (the only
+  way it reports them) and become, per key: Composer events (Tap / Double Tap /
+  Hold Start / Hold End, 8 buttons, the event-id layout dealers already know),
+  Tap and Double-Tap button links that click, and a Hold link that pushes on
+  hold-start and releases on hold-end so a held Sidekick key ramps a bound
+  dimmer like a real keypad button. LAST_BUTTON / LAST_EVENT / LAST_HOLD_MS
+  variables cover any-key programming; coarse battery bands fire Battery
+  OK/Low/Critical on transitions; a Learn New Sidekick gateway action opens the
+  Bond's pairing window. Sidekicks sync as keypad pseudo-devices, so bindings,
+  provisioning and renames reuse the existing machinery unchanged.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added

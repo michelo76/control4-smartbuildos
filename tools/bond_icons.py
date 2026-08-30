@@ -177,6 +177,20 @@ def heater_glyph() -> str:
 </g>"""
 
 
+def keypad_glyph() -> str:
+    """Sidekick remote: rounded body with a 2x3 button grid."""
+    buttons = "".join(
+        f'<circle cx="{cx}" cy="{cy}" r="6" fill="{NEUTRAL}"/>'
+        for cy in (34, 52, 70)
+        for cx in (41, 59)
+    )
+    return f"""
+<g>
+  <rect x="28" y="16" width="44" height="68" rx="10" fill="none" stroke="{NEUTRAL}" stroke-width="5"/>
+  {buttons}
+</g>"""
+
+
 def bridge_glyph() -> str:
     return f"""
 <g stroke="{NEUTRAL}" stroke-width="5" fill="none" stroke-linecap="round">
@@ -217,6 +231,7 @@ DEVICE_ICONS = {
     "bond-fireplace": svg(flame(0.9, True)),
     "bond-heater": svg(heater_glyph()),
     "bond-generic": svg(power(False)),
+    "bond-keypad": svg(keypad_glyph()),
 }
 
 

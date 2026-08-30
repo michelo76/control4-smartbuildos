@@ -1,0 +1,432 @@
+<devicedata>
+  <name>Bond Keypad (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Keypad (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Others</category>
+  </composer_categories>
+  <events>
+    <event><id>1</id><name>Button 1 - Tap</name><description>NAME button 1 tapped.</description></event>
+    <event><id>2</id><name>Button 1 - Double Tap</name><description>NAME button 1 double tapped.</description></event>
+    <event><id>3</id><name>Button 1 - Hold Start</name><description>NAME button 1 hold started.</description></event>
+    <event><id>4</id><name>Button 1 - Hold End</name><description>NAME button 1 hold released.</description></event>
+    <event><id>6</id><name>Button 2 - Tap</name><description>NAME button 2 tapped.</description></event>
+    <event><id>7</id><name>Button 2 - Double Tap</name><description>NAME button 2 double tapped.</description></event>
+    <event><id>8</id><name>Button 2 - Hold Start</name><description>NAME button 2 hold started.</description></event>
+    <event><id>9</id><name>Button 2 - Hold End</name><description>NAME button 2 hold released.</description></event>
+    <event><id>11</id><name>Button 3 - Tap</name><description>NAME button 3 tapped.</description></event>
+    <event><id>12</id><name>Button 3 - Double Tap</name><description>NAME button 3 double tapped.</description></event>
+    <event><id>13</id><name>Button 3 - Hold Start</name><description>NAME button 3 hold started.</description></event>
+    <event><id>14</id><name>Button 3 - Hold End</name><description>NAME button 3 hold released.</description></event>
+    <event><id>16</id><name>Button 4 - Tap</name><description>NAME button 4 tapped.</description></event>
+    <event><id>17</id><name>Button 4 - Double Tap</name><description>NAME button 4 double tapped.</description></event>
+    <event><id>18</id><name>Button 4 - Hold Start</name><description>NAME button 4 hold started.</description></event>
+    <event><id>19</id><name>Button 4 - Hold End</name><description>NAME button 4 hold released.</description></event>
+    <event><id>21</id><name>Button 5 - Tap</name><description>NAME button 5 tapped.</description></event>
+    <event><id>22</id><name>Button 5 - Double Tap</name><description>NAME button 5 double tapped.</description></event>
+    <event><id>23</id><name>Button 5 - Hold Start</name><description>NAME button 5 hold started.</description></event>
+    <event><id>24</id><name>Button 5 - Hold End</name><description>NAME button 5 hold released.</description></event>
+    <event><id>26</id><name>Button 6 - Tap</name><description>NAME button 6 tapped.</description></event>
+    <event><id>27</id><name>Button 6 - Double Tap</name><description>NAME button 6 double tapped.</description></event>
+    <event><id>28</id><name>Button 6 - Hold Start</name><description>NAME button 6 hold started.</description></event>
+    <event><id>29</id><name>Button 6 - Hold End</name><description>NAME button 6 hold released.</description></event>
+    <event><id>31</id><name>Button 7 - Tap</name><description>NAME button 7 tapped.</description></event>
+    <event><id>32</id><name>Button 7 - Double Tap</name><description>NAME button 7 double tapped.</description></event>
+    <event><id>33</id><name>Button 7 - Hold Start</name><description>NAME button 7 hold started.</description></event>
+    <event><id>34</id><name>Button 7 - Hold End</name><description>NAME button 7 hold released.</description></event>
+    <event><id>36</id><name>Button 8 - Tap</name><description>NAME button 8 tapped.</description></event>
+    <event><id>37</id><name>Button 8 - Double Tap</name><description>NAME button 8 double tapped.</description></event>
+    <event><id>38</id><name>Button 8 - Hold Start</name><description>NAME button 8 hold started.</description></event>
+    <event><id>39</id><name>Button 8 - Hold End</name><description>NAME button 8 hold released.</description></event>
+    <event><id>41</id><name>Battery OK</name><description>NAME battery back to OK.</description></event>
+    <event><id>42</id><name>Battery Low</name><description>NAME battery low - replace within a year.</description></event>
+    <event><id>43</id><name>Battery Critical</name><description>NAME battery critical - may fail at any time.</description></event>
+  </events>
+  <config>
+    <documentation file="www/documentation/index.html">Documentation</documentation>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond Sidekick this instance represents - bind the Bond Keypad connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Keypad connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Keys</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Battery</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Sidekick battery: OK (green), Low (replace within about a year), Critical (may fail at any time). From the Bond's coarse reporting.</description>
+      </property>
+      <property>
+        <name>Signal</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Button</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+  </config>
+  <proxies/>
+  <connections>
+    <connection>
+      <id>210</id>
+      <facing>6</facing>
+      <connectionname>Button 1 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>211</id>
+      <facing>6</facing>
+      <connectionname>Button 2 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>212</id>
+      <facing>6</facing>
+      <connectionname>Button 3 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>213</id>
+      <facing>6</facing>
+      <connectionname>Button 4 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>214</id>
+      <facing>6</facing>
+      <connectionname>Button 5 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>215</id>
+      <facing>6</facing>
+      <connectionname>Button 6 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>216</id>
+      <facing>6</facing>
+      <connectionname>Button 7 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>217</id>
+      <facing>6</facing>
+      <connectionname>Button 8 Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>220</id>
+      <facing>6</facing>
+      <connectionname>Button 1 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>221</id>
+      <facing>6</facing>
+      <connectionname>Button 2 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>222</id>
+      <facing>6</facing>
+      <connectionname>Button 3 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>223</id>
+      <facing>6</facing>
+      <connectionname>Button 4 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>224</id>
+      <facing>6</facing>
+      <connectionname>Button 5 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>225</id>
+      <facing>6</facing>
+      <connectionname>Button 6 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>226</id>
+      <facing>6</facing>
+      <connectionname>Button 7 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>227</id>
+      <facing>6</facing>
+      <connectionname>Button 8 Double Tap Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>200</id>
+      <facing>6</facing>
+      <connectionname>Button 1 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>201</id>
+      <facing>6</facing>
+      <connectionname>Button 2 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>202</id>
+      <facing>6</facing>
+      <connectionname>Button 3 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>203</id>
+      <facing>6</facing>
+      <connectionname>Button 4 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>204</id>
+      <facing>6</facing>
+      <connectionname>Button 5 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>205</id>
+      <facing>6</facing>
+      <connectionname>Button 6 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>206</id>
+      <facing>6</facing>
+      <connectionname>Button 7 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>207</id>
+      <facing>6</facing>
+      <connectionname>Button 8 Hold Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Keypad</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_KEYPAD</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

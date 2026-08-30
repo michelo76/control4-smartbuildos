@@ -58,6 +58,10 @@
         <command>AUTO_CONFIGURE_DEVICES</command>
       </action>
       <action>
+        <name>Learn New Sidekick</name>
+        <command>LEARN_SIDEKICK</command>
+      </action>
+      <action>
         <name>Auto Rename Bound Drivers</name>
         <command>AUTO_RENAME_BOUND_DRIVERS</command>
       </action>

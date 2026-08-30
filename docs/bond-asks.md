@@ -36,8 +36,14 @@ baked in from day one, plus the capabilities their architecture can't reach.
    transport as BPUP); Discovered Bonds property, Discover action, startup
    pass, auto-fill of a still-default address, never re-points a
    configured gateway.
-3. **Sidekick / keypad support** (`/v2/sidekicks`) — Bond's physical remotes
-   as C4 keypads.
+3. ~~**Sidekick / keypad support**~~ ✅ BUILT (`bond-keypad`, 8th driver):
+   keystream is BPUP-push-only, routed to per-Sidekick children; 8 buttons x
+   Tap/Double Tap/Hold Start/Hold End events (their id layout preserved),
+   per-key Tap/Double-Tap/Hold button links (hold pushes+releases so a held
+   key ramps a bound dimmer), LAST_* variables, battery band events, Learn
+   New Sidekick gateway action. The /v2/sidekicks endpoint also hosts Breeze
+   weather sensors (ws_id, `state` of measurements) — a bond-weather child
+   is the natural follow-on.
 4. **Firefly color devices** — Color/ColorTemp features (SetHSV); light_v2
    color capabilities on a dedicated bond-color-light child.
 5. Per-shade-type Navigator icons (their Curtain-icon fix) — blind proxy

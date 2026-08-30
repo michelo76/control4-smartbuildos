@@ -281,6 +281,12 @@ local function routeHappyBond()
     { match = "/v2/scenes/scene1", ok = true, body = { name = "Goodnight" } },
     { match = "/v2/scenes", ok = true, body = { ["_"] = "sc-1", scene1 = { ["_"] = "s1" } } },
     {
+      match = "/v2/sidekicks/sk1",
+      ok = true,
+      body = { name = "Bedroom Sidekick", location = "Bedroom", keys = 3, battery = 90, signal = 97, model = "SKN-386" },
+    },
+    { match = "/v2/sidekicks", ok = true, body = { ["_"] = "sk-root", sk1 = { ["_"] = "k1" } } },
+    {
       match = "/v2/devices",
       ok = true,
       body = { ["_"] = "root-1", fan1 = { ["_"] = "d1" }, shade1 = { ["_"] = "d2" } },
@@ -344,7 +350,7 @@ check("token stored ENCRYPTED", storeEncrypted["bond_token"] == true)
 check("property wiped", props["Local Token"] == "")
 check("connected", TC.BOND_CONNECTED() == true)
 check("Bond Online fired", firedEvents[#firedEvents] == "Bond Online")
-check("Devices count published", props["Devices"] == "2", props["Devices"])
+check("Devices count published (incl. keypad)", props["Devices"] == "3", props["Devices"])
 
 local authed = 0
 for _, r in ipairs(requests) do
@@ -357,6 +363,8 @@ check("authenticated requests carried the token", authed >= 7, authed)
 check("fan binding exists", bindingIdByName("Master Fan") ~= nil)
 check("fan LIGHT binding exists", bindingIdByName("Master Fan Light") ~= nil)
 check("shade binding exists", bindingIdByName("Patio Shade") ~= nil)
+check("keypad binding exists", bindingIdByName("Bedroom Sidekick") ~= nil)
+check("keypad binding class", addedBindings[bindingIdByName("Bedroom Sidekick")].class == "SBOS_BOND_KEYPAD")
 check("fan binding class", addedBindings[bindingIdByName("Master Fan")].class == "SBOS_BOND_FAN")
 check("light binding class", addedBindings[bindingIdByName("Master Fan Light")].class == "SBOS_BOND_LIGHT")
 check("shade binding class", addedBindings[bindingIdByName("Patio Shade")].class == "SBOS_BOND_SHADE")
@@ -365,14 +373,14 @@ local bindingCount = 0
 for _ in pairs(addedBindings) do
   bindingCount = bindingCount + 1
 end
-check("exactly three bindings", bindingCount == 3, bindingCount)
+check("exactly four bindings", bindingCount == 4, bindingCount)
 
 EC.SYNC_DEVICES()
 local bindingCountAfter = 0
 for _ in pairs(addedBindings) do
   bindingCountAfter = bindingCountAfter + 1
 end
-check("re-sync is idempotent", bindingCountAfter == 3, bindingCountAfter)
+check("re-sync is idempotent", bindingCountAfter == 4, bindingCountAfter)
 
 -- ─── [3b] Scenes ─────────────────────────────────────────────────────────────
 
@@ -536,6 +544,33 @@ RFN[bpupBinding](
 )
 statePushes = sentTo(deviceSent, "device", 301, "BOND_STATE")
 check("hash-identical echo stays silent", #statePushes == 0, #statePushes)
+
+-- ─── [6b] Sidekick keystream routing ─────────────────────────────────────────
+
+print("\n[6b] Keystream pushes route to the bound keypad child")
+
+local keypadBinding = bindingIdByName("Bedroom Sidekick")
+boundMap[keypadBinding] = { [401] = true }
+deviceSent = {}
+RFN[bpupBinding](
+  bpupBinding,
+  30007,
+  '{"B":"ZZBL12345","t":"sidekicks/sk1/keystream","s":200,"m":0,"b":{"seq":42,"event":"TAP","key":2}}\n'
+)
+local keyPushes = sentTo(deviceSent, "device", 401, "BOND_KEYSTREAM")
+check("keystream reached the keypad child", #keyPushes == 1, #keyPushes)
+check(
+  "event and key carried",
+  #keyPushes == 1 and keyPushes[1].params.event == "TAP" and keyPushes[1].params.key == "2"
+)
+
+deviceSent = {}
+RFN[bpupBinding](
+  bpupBinding,
+  30007,
+  '{"B":"ZZBL12345","t":"sidekicks/unknown/keystream","s":200,"m":0,"b":{"event":"TAP","key":1}}\n'
+)
+check("unknown sidekick keystream is quietly dropped", #deviceSent == 0, #deviceSent)
 
 -- ─── [7] Failure vocabulary ──────────────────────────────────────────────────
 

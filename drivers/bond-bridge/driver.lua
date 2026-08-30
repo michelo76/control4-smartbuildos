@@ -81,6 +81,7 @@ local FUNCTION_NS = {
   FIREPLACE = "bond_fireplace",
   HEATER = "bond_heater",
   GENERIC = "bond_generic",
+  KEYPAD = "bond_keypad",
 }
 
 --- Child driver file per function, for Auto Configure.
@@ -91,10 +92,11 @@ local PROVISION_FILES = {
   FIREPLACE = "bond-fireplace.c4z",
   HEATER = "bond-heater.c4z",
   GENERIC = "bond-generic.c4z",
+  KEYPAD = "bond-keypad.c4z",
 }
 
 --- Function order for walks that should be deterministic.
-local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC" }
+local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC", "KEYPAD" }
 
 local POLL_TIMER = "BondPoll"
 local KEEPALIVE_TIMER = "BondBpupKeepalive"
@@ -672,6 +674,47 @@ syncDevices = function(onDone)
       end
     end
 
+    --- Sidekick keypads ride the sync as PSEUDO-DEVICES with the KEYPAD
+    --- function — one entry per /v2/sidekicks item that has a `keys` count
+    --- (weather sensors on the same endpoint have none and are skipped).
+    --- Folding them into `devices` means bindings, identity answers,
+    --- provisioning and renames all reuse the device machinery unchanged.
+    --- Optional by design: firmware without Sidekick support 404s and the
+    --- sync carries on.
+    local function fetchSidekicks(scenes)
+      bond:getSidekicks():next(function(sidekicksResponse)
+        local sidekickIds = Bond.idsFromTree(Bond.decodeBody(sidekicksResponse.body))
+        local function fetchSidekick(j)
+          if j > #sidekickIds then
+            finish(scenes)
+            return
+          end
+          local id = sidekickIds[j]
+          bond:getSidekick(id):next(function(sidekickResponse)
+            local doc = Bond.decodeBody(sidekickResponse.body) or {}
+            if tonumber(doc.keys) ~= nil then
+              table.insert(devices, {
+                id = id,
+                name = tostring(doc.name or id),
+                type = "SK",
+                location = tostring(doc.location or ""),
+                actions = {},
+                props = { keys = tonumber(doc.keys), model = doc.model },
+                state = { battery = tonumber(doc.battery), signal = tonumber(doc.signal) },
+                functions = { model.FUNCTIONS.KEYPAD },
+              })
+            end
+            fetchSidekick(j + 1)
+          end, function()
+            fetchSidekick(j + 1)
+          end)
+        end
+        fetchSidekick(1)
+      end, function()
+        finish(scenes)
+      end)
+    end
+
     --- Scenes ride the same sync (the app's scenes, runnable on the Bond).
     --- Optional by design: a Bond without scene support still applies its
     --- devices — a scenes failure must never abort a device sync.
@@ -681,7 +724,7 @@ syncDevices = function(onDone)
         local scenes = {}
         local function fetchScene(j)
           if j > #sceneIds then
-            finish(scenes)
+            fetchSidekicks(scenes)
             return
           end
           local id = sceneIds[j]
@@ -696,7 +739,7 @@ syncDevices = function(onDone)
         end
         fetchScene(1)
       end, function()
-        finish(nil)
+        fetchSidekicks(nil)
       end)
     end
 
@@ -841,6 +884,23 @@ local function handleBpupFrame(line)
   UpdateProperty("Push Status", "Delivering")
   if frame.deviceId ~= nil then
     applyPushedState(frame.deviceId, frame.state)
+    return
+  end
+  -- Sidekick key events: push-only by contract (the HTTP endpoint answers
+  -- 204). Routed to the keypad child bound for that Sidekick; presses on a
+  -- keypad with no bound child are simply nobody's business yet.
+  local sidekickId = tostring(frame.topic or ""):match("^sidekicks/([^/]+)/keystream$")
+  if sidekickId ~= nil and type(frame.body) == "table" then
+    local binding = bindings:getDynamicBinding(FUNCTION_NS.KEYPAD, sidekickId)
+    if binding ~= nil then
+      sendToChild(binding, "BOND_KEYSTREAM", {
+        id = sidekickId,
+        event = tostring(frame.body.event or ""),
+        key = tostring(frame.body.key or ""),
+        hold_ms = tostring(frame.body.hold_ms or ""),
+        seq = tostring(frame.body.seq or ""),
+      })
+    end
   end
 end
 
@@ -1155,6 +1215,24 @@ function EC.TEST_CONNECTION()
   log:trace("EC.TEST_CONNECTION()")
   configureClient()
   testConnection()
+end
+
+--- Opens the Bond's Sidekick learn window so a new keypad pairs by key
+--- press. The new Sidekick shows up on the next sync.
+function EC.LEARN_SIDEKICK()
+  log:trace("EC.LEARN_SIDEKICK()")
+  if not isConfigured() then
+    log:print("Connect to the Bond first")
+    return
+  end
+  bond:openSidekickLearn():next(function()
+    log:print(
+      "Sidekick learn window open for 60s: press any key on the new Sidekick near the Bond, "
+        .. "then run Sync Devices Now and Auto Configure Bond Devices."
+    )
+  end, function(err)
+    log:print("Could not open the learn window: %s", describeFailure(err))
+  end)
 end
 
 function EC.DISCOVER_BONDS()

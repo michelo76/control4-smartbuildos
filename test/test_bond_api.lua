@@ -172,6 +172,20 @@ bond:patchToken(1)
 r = lastRequest()
 check("relock body carries locked=1, no pin", type(r.data) == "table" and r.data.locked == 1 and r.data.pin == nil)
 
+-- ─── sidekicks ────────────────────────────────────────────────────────────────
+
+print("sidekicks")
+requests = {}
+bond:getSidekicks()
+check("sidekicks path", lastRequest().url == "http://192.168.1.50/v2/sidekicks")
+bond:getSidekick("sk1")
+check("sidekick path", lastRequest().url == "http://192.168.1.50/v2/sidekicks/sk1")
+bond:openSidekickLearn()
+r = lastRequest()
+check("learn is a PATCH", r.method == "PATCH")
+check("learn path", r.url == "http://192.168.1.50/v2/sidekicks/_learn")
+check("learn window defaults to 60s", type(r.data) == "table" and r.data.learn_window_ms == 60000)
+
 -- ─── idsFromTree ──────────────────────────────────────────────────────────────
 
 print("idsFromTree")

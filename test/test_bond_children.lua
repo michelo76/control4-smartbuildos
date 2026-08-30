@@ -598,6 +598,68 @@ check(
   #extras >= 1 and tostring(extras[#extras].params.XML):find('value="5"') ~= nil
 )
 
+-- ═══ KEYPAD ═══════════════════════════════════════════════════════════════════
+
+print("\n[keypad] keystream to events, links, and battery bands")
+
+-- Capture events from here on (earlier sections used a no-op stub).
+local firedEvents = {}
+function C4:FireEvent(name)
+  table.insert(firedEvents, name)
+end
+
+loadChild("bond-keypad", childProps({ ["Keys"] = "-", ["Battery"] = "-", ["Signal"] = "-", ["Last Button"] = "-" }))
+
+identify({
+  id = "sk1",
+  fn = "KEYPAD",
+  name = "Bedroom Sidekick",
+  type = "SK",
+  actions = {},
+  props = { keys = 3, model = "SKN-386" },
+  state = { battery = 90, signal = 97 },
+})
+
+check("keys published", props["Keys"] == "3", props["Keys"])
+check("battery band + percent", props["Battery"] == "OK (90%)", props["Battery"])
+check("signal published", props["Signal"] == "97%", props["Signal"])
+
+resetTraffic()
+firedEvents = {}
+EC.BOND_KEYSTREAM({ id = "sk1", event = "TAP", key = "2" })
+check("tap fires the button event", firedEvents[#firedEvents] == "Button 2 - Tap", firedEvents[#firedEvents])
+check("tap clicks the tap link", #proxyNotifies(211, "DO_CLICK") == 1)
+
+resetTraffic()
+firedEvents = {}
+EC.BOND_KEYSTREAM({ id = "sk1", event = "DOUBLE_TAP", key = "3" })
+check("double tap fires its event", firedEvents[#firedEvents] == "Button 3 - Double Tap")
+check("double tap clicks the double tap link", #proxyNotifies(222, "DO_CLICK") == 1)
+
+resetTraffic()
+firedEvents = {}
+EC.BOND_KEYSTREAM({ id = "sk1", event = "HOLD_START", key = "1" })
+check("hold start pushes the hold link", #proxyNotifies(200, "DO_PUSH") == 1)
+EC.BOND_KEYSTREAM({ id = "sk1", event = "HOLD_END", key = "1", hold_ms = "1760" })
+check("hold end releases the hold link", #proxyNotifies(200, "DO_RELEASE") == 1)
+check("both hold events fired", firedEvents[1] == "Button 1 - Hold Start" and firedEvents[2] == "Button 1 - Hold End")
+
+resetTraffic()
+firedEvents = {}
+EC.BOND_KEYSTREAM({ id = "sk1", event = "HOLD", key = "1", hold_ms = "900" })
+check("repeating HOLD updates variables only, no event", #firedEvents == 0 and #proxySent == 0)
+
+EC.BOND_KEYSTREAM({ id = "sk1", event = "TAP" })
+check("keystream without a key is ignored", #firedEvents == 0)
+
+firedEvents = {}
+pushState({ battery = 25 })
+check("battery drop shows the band", props["Battery"] == "Low (25%)", props["Battery"])
+check("battery transition fires Battery Low", firedEvents[#firedEvents] == "Battery Low")
+firedEvents = {}
+pushState({ battery = 8 })
+check("critical band fires Battery Critical", firedEvents[#firedEvents] == "Battery Critical")
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))
