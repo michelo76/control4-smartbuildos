@@ -42,6 +42,10 @@ configured, not programmed.
 
 ## Selecting devices
 
+The **Devices In Selected Mode** property shows a live count for the selected
+mode and points at the two setup paths below; the **Show Device Setup Guide**
+action prints this section's steps to the Lua Output window.
+
 **Capture Current State** is the fast path: set the house exactly how the mode
 should leave it, then run **Capture Current State Into Selected Mode**. The
 driver reads every supported device and reports counts per category plus

@@ -1008,6 +1008,10 @@ saveConfig = function()
     end
     return false
   end
+  -- Every config write funnels through here, so this keeps the live
+  -- "Devices In Selected Mode" summary honest after Programming-tab edits.
+  -- UpdateProperty dedupes, so unchanged paints cost nothing.
+  paintSelectedMode()
   return true
 end
 
@@ -1127,11 +1131,39 @@ local function colorLabel(hex)
   return nil
 end
 
+--- One-line device summary for the Properties tab: the count is live data,
+--- the pointer is the discoverability breadcrumb (device selection lives in
+--- Actions/Programming, not in a property Composer lets us render).
+local function deviceCountSummary(mode)
+  local states, sources = model.effectiveStates(gConfig, mode.id)
+  if not states then
+    return "-"
+  end
+  local own, inherited = 0, 0
+  for deviceKey in pairs(states) do
+    if sources[deviceKey] == mode.id then
+      own = own + 1
+    else
+      inherited = inherited + 1
+    end
+  end
+  if own + inherited == 0 then
+    return "None yet - add via Actions > Capture Current State, or Programming > Include Device In Mode"
+  end
+  local summary = string.format("%d set here", own)
+  if inherited > 0 then
+    summary = summary .. string.format(" + %d inherited", inherited)
+  end
+  return summary .. " - list via Actions > Print Devices In Selected Mode"
+end
+
 paintSelectedMode = function()
   local mode = selectedMode()
   if not mode then
+    UpdateProperty("Devices In Selected Mode", "-")
     return
   end
+  UpdateProperty("Devices In Selected Mode", deviceCountSummary(mode))
   UpdateProperty("Mode Color", colorLabel(mode.color) or "Blue")
   UpdateProperty("Mode Enabled", mode.enabled and "Yes" or "No")
   UpdateProperty("Mode Priority", tostring(mode.priority or 50))
@@ -1686,6 +1718,26 @@ EC.CREATE_MODE = function()
     mode.category,
     mode.name
   )
+end
+
+EC.SHOW_DEVICE_SETUP = function()
+  log:print("How to put devices in a mode (full guide: the Documentation tab):")
+  log:print("")
+  log:print("Fast path — capture the whole house:")
+  log:print("  1. Set every light/shade/thermostat exactly how this mode should leave it.")
+  log:print("  2. Pick the mode in 'Selected Mode' above.")
+  log:print("  3. Run the 'Capture Current State Into Selected Mode' action.")
+  log:print("")
+  log:print("One device at a time — the Programming tab:")
+  log:print("  1. Programming > Actions pane (right side) > select this driver.")
+  log:print("  2. Command 'Include Device In Mode': type the mode name, pick the device,")
+  log:print("     type a setting: off, on, 38%%, closed, open, locked, cool 76, heat 68,")
+  log:print("     speed 2, volume 25, ignore, restore.")
+  log:print("  3. Click the >> execute arrows to run it once (attach nothing to events).")
+  log:print("  Bulk starters: Include All Lights / Include All Shades / Include All Media Rooms.")
+  log:print("")
+  log:print("Review with 'Print Devices In Selected Mode'; preview with 'Dry Run Selected Mode'.")
+  log:print("Re-including a device replaces its setting (delay/criticality are kept).")
 end
 
 EC.DUPLICATE_MODE = function()
