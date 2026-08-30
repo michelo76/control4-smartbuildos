@@ -20,6 +20,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+## v20260830.122926 - 2026-08-30
+
+### Added
+
+- **Mode Composer: device selection is now discoverable from the Properties
+  tab.** A read-only **Devices In Selected Mode** property shows a live count
+  of the selected mode's device entries (own + inherited) and, while the mode
+  is empty, points at the two setup paths (Capture Current State, or the
+  Programming tab's Include Device In Mode command). A **Show Device Setup
+  Guide** action prints the full step-by-step to Lua Output, and the dealer
+  manual's "Selecting devices" section names both surfaces. Composer offers
+  third-party drivers no property-tab device picker, so the property is the
+  breadcrumb to where selection actually lives.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added
