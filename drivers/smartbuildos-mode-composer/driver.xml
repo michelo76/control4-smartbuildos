@@ -1,0 +1,621 @@
+<devicedata>
+  <name>SmartBuildOS Mode Composer</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Mode Composer</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/29/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>TRANSITIONING</name>
+      <type>BOOL</type>
+      <condition_statement>House Is Transitioning</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>transitioning</true_text>
+      <false_text>settled</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>OCCUPIED</name>
+      <type>BOOL</type>
+      <condition_statement>House Is Occupied</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>occupied</true_text>
+      <false_text>not known occupied</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>PRESENCE_MODE_IS</name>
+      <type>STRING</type>
+      <condition_statement>Presence Mode Name</condition_statement>
+      <description>NAME LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>LIFESTYLE_MODE_IS</name>
+      <type>STRING</type>
+      <condition_statement>Lifestyle Mode Name</condition_statement>
+      <description>NAME LOGIC STRING</description>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>2001</id><name>CURRENT_PRESENCE_MODE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2002</id><name>CURRENT_LIFESTYLE_MODE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2003</id><name>PREVIOUS_PRESENCE_MODE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2004</id><name>PREVIOUS_LIFESTYLE_MODE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2005</id><name>TRANSITIONING</name><type>BOOL</type><default>false</default><readonly>true</readonly></variable>
+    <variable><id>2006</id><name>CURRENT_MODE_ID</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2007</id><name>LAST_TRIGGER</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2008</id><name>LAST_TRIGGER_DEVICE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2009</id><name>LAST_TRIGGER_TYPE</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2010</id><name>LAST_ACTIVATION_TIME</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2011</id><name>LAST_ACTIVATION_RESULT</name><type>STRING</type><default></default><readonly>true</readonly></variable>
+    <variable><id>2012</id><name>OCCUPANCY_STATE</name><type>STRING</type><default>UNKNOWN</default><readonly>true</readonly></variable>
+    <variable><id>2013</id><name>WARNING_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Presence Mode Changed</name><description>The active Presence mode (Home/Away/Vacation/...) changed.</description></event>
+    <event><id>2</id><name>Lifestyle Mode Changed</name><description>The active Lifestyle mode (Movie/Party/Sleep/...) changed.</description></event>
+    <event><id>3</id><name>Activation Started</name><description>A mode activation began executing.</description></event>
+    <event><id>4</id><name>Activation Completed</name><description>A mode activation completed successfully.</description></event>
+    <event><id>5</id><name>Activation Failed</name><description>A mode activation failed (critical action failed or plan error).</description></event>
+    <event><id>6</id><name>Activation Blocked</name><description>Preflight blocked a mode activation.</description></event>
+    <event><id>7</id><name>Departure Countdown Started</name><description>A departure countdown began.</description></event>
+    <event><id>8</id><name>Departure Countdown Cancelled</name><description>A departure countdown was cancelled before executing.</description></event>
+    <event><id>9</id><name>Activation Warning</name><description>A mode activation completed but some actions failed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Create Mode</name><command>CREATE_MODE</command></action>
+      <action><name>Duplicate Selected Mode</name><command>DUPLICATE_MODE</command></action>
+      <action><name>Delete Selected Mode</name><command>DELETE_MODE</command></action>
+      <action><name>Activate Selected Mode</name><command>ACTIVATE_SELECTED</command></action>
+      <action><name>Deactivate Lifestyle Mode</name><command>DEACTIVATE_LIFESTYLE</command></action>
+      <action><name>Cancel Transition</name><command>CANCEL_TRANSITION</command></action>
+      <action><name>Capture Current State Into Selected Mode</name><command>CAPTURE_STATE</command></action>
+      <action><name>Dry Run Selected Mode</name><command>DRY_RUN</command></action>
+      <action><name>Test Selected Mode</name><command>TEST_MODE</command></action>
+      <action><name>Run Preflight On Selected Mode</name><command>RUN_PREFLIGHT</command></action>
+      <action><name>Add Keypad Slot</name><command>ADD_KEYPAD_SLOT</command></action>
+      <action><name>Print Modes</name><command>PRINT_MODES</command></action>
+      <action><name>Print Selected Mode Detail</name><command>PRINT_MODE_DETAIL</command></action>
+      <action><name>Print Devices In Selected Mode</name><command>PRINT_MODE_DEVICES</command></action>
+      <action><name>Print History</name><command>PRINT_HISTORY</command></action>
+      <action><name>Print Last Activation Detail</name><command>PRINT_LAST_ACTIVATION</command></action>
+      <action><name>Print Trigger Rules</name><command>PRINT_RULES</command></action>
+      <action><name>Clear Trigger Rules</name><command>CLEAR_RULES</command></action>
+      <action><name>Generate Diagnostic Snapshot</name><command>DIAGNOSTIC_SNAPSHOT</command></action>
+      <action><name>Export Configuration</name><command>EXPORT_CONFIG</command></action>
+      <action><name>Refresh License</name><command>REFRESH_LICENSE</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>Activate Mode</name>
+        <description>Activate mode NAME</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Deactivate Lifestyle Mode</name>
+        <description>Deactivate the current Lifestyle mode and restore captured states</description>
+      </command>
+      <command>
+        <name>Restore Previous Presence Mode</name>
+        <description>Return to the previous Presence mode</description>
+      </command>
+      <command>
+        <name>Restore Previous Lifestyle Mode</name>
+        <description>Return to the previous Lifestyle mode</description>
+      </command>
+      <command>
+        <name>Cancel Transition</name>
+        <description>Cancel a departure countdown in progress</description>
+      </command>
+      <command>
+        <name>Reapply Mode</name>
+        <description>Re-send every device state of mode NAME even if it is already active</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Run Preflight</name>
+        <description>Run preflight checks for mode NAME and report to the Lua output</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Capture Current State</name>
+        <description>Capture the current state of supported devices into mode NAME</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Include Device In Mode</name>
+        <description>In mode NAME set DEVICE to SETTING (examples: off, on, 38%, closed, open, locked, cool 76, heat 68, speed 2, ignore, restore)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>SETTING</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Exclude Device From Mode</name>
+        <description>Remove DEVICE from mode NAME entirely</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Include All Lights</name>
+        <description>Add every light in the project to mode NAME at SETTING (default off)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>SETTING</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Include All Shades</name>
+        <description>Add every shade in the project to mode NAME at SETTING (default closed)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>SETTING</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Include All Media Rooms</name>
+        <description>Add every room to mode NAME as Media Off</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Device Delay</name>
+        <description>In mode NAME delay DEVICE's action by SECONDS after activation</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>SECONDS</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>3600</maximum><default>0</default></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Device Criticality</name>
+        <description>In mode NAME mark DEVICE's action OPTIONAL, NORMAL or CRITICAL</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param>
+            <name>CRITICALITY</name>
+            <type>LIST</type>
+            <items>
+              <item>OPTIONAL</item>
+              <item>NORMAL</item>
+              <item>CRITICAL</item>
+            </items>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Allow Sensitive Action</name>
+        <description>Explicitly allow mode NAME to perform DEVICE's sensitive action (unlock, disarm, garage open). Required before those states will execute.</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Add Preflight Check</name>
+        <description>Before mode NAME activates, check DEVICE is EXPECT; POLICY decides warn/block</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param>
+            <name>EXPECT</name>
+            <type>LIST</type>
+            <items>
+              <item>CLOSED</item>
+              <item>LOCKED</item>
+              <item>READY</item>
+            </items>
+          </param>
+          <param>
+            <name>POLICY</name>
+            <type>LIST</type>
+            <items>
+              <item>WARN</item>
+              <item>BLOCK</item>
+              <item>IGNORE</item>
+            </items>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Configure Return Home Rule</name>
+        <description>When DOOR opens AND PANEL disarms AND MOTION trips (all within 2 minutes) while presence is REQUIRED_MODE, activate TARGET_MODE</description>
+        <params>
+          <param><name>TARGET_MODE</name><type>STRING</type></param>
+          <param><name>REQUIRED_MODE</name><type>STRING</type></param>
+          <param><name>DOOR</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>PANEL</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>MOTION</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Mode Schedule</name>
+        <description>Activate mode NAME at TIME (HH:MM, 24h) on DAYS; optionally only while presence is REQUIRED_MODE</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>TIME</name><type>STRING</type></param>
+          <param>
+            <name>DAYS</name>
+            <type>LIST</type>
+            <items>
+              <item>Every Day</item>
+              <item>Weekdays</item>
+              <item>Weekends</item>
+            </items>
+          </param>
+          <param><name>REQUIRED_MODE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Clear Mode Schedules</name>
+        <description>Remove every schedule from mode NAME</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default>Starting</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>License Status</name>
+        <type>STRING</type>
+        <default>No SmartBuildOS Agent Found</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>License Source</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Subscription Tier</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>SmartBuildOS Company</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Presence Mode</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+        <description>The active Presence mode (Home / Away / Vacation / ...).</description>
+      </property>
+      <property>
+        <name>Lifestyle Mode</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+        <description>The active Lifestyle mode (Movie / Party / Sleep / ...), if any.</description>
+      </property>
+      <property>
+        <name>Selected Mode</name>
+        <type>LIST</type>
+        <items><item>-</item></items>
+        <default>-</default>
+        <readonly>false</readonly>
+        <description>The mode the editing properties and Actions below operate on.</description>
+      </property>
+      <property>
+        <name>New Mode Name</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>false</readonly>
+        <description>Name for Create Mode. Leave blank to use the template's name.</description>
+      </property>
+      <property>
+        <name>New Mode Type</name>
+        <type>LIST</type>
+        <items>
+          <item>Home</item>
+          <item>Away</item>
+          <item>Vacation</item>
+          <item>Sleep</item>
+          <item>Movie</item>
+          <item>Party</item>
+          <item>Morning</item>
+          <item>Night</item>
+          <item>Custom Lifestyle</item>
+          <item>Custom Presence</item>
+        </items>
+        <default>Custom Lifestyle</default>
+        <readonly>false</readonly>
+        <description>Template for Create Mode: suggested icon, color and behavior. Templates never select devices for you.</description>
+      </property>
+      <property>
+        <name>Mode Color</name>
+        <type>LIST</type>
+        <items>
+          <item>Green</item>
+          <item>Blue</item>
+          <item>Deep Blue</item>
+          <item>Purple</item>
+          <item>Amber</item>
+          <item>Magenta</item>
+          <item>Red</item>
+          <item>Orange</item>
+          <item>White</item>
+          <item>Cyan</item>
+        </items>
+        <default>Blue</default>
+        <readonly>false</readonly>
+        <description>The selected mode's color. Keypad LEDs configured to inherit repaint immediately.</description>
+      </property>
+      <property>
+        <name>Mode Enabled</name>
+        <type>LIST</type>
+        <items><item>Yes</item><item>No</item></items>
+        <default>Yes</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Mode Inherits From</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+        <description>Parent mode: this mode receives the parent's device states and overrides only what it sets itself. Same category only; cycles are refused.</description>
+      </property>
+      <property>
+        <name>Mode Priority</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>100</maximum>
+        <default>50</default>
+        <readonly>false</readonly>
+        <description>Automatic triggers (sensors, schedules) can never replace an active mode of HIGHER priority. Manual activation always can.</description>
+      </property>
+      <property>
+        <name>Transition Style</name>
+        <type>LIST</type>
+        <items>
+          <item>Immediate</item>
+          <item>Graceful</item>
+          <item>Sequenced</item>
+        </items>
+        <default>Immediate</default>
+        <readonly>false</readonly>
+        <description>Immediate sends as fast as safely possible. Graceful ramps lights over 3s. Sequenced stages: media, lights, shades, locks, climate, then security.</description>
+      </property>
+      <property>
+        <name>Departure Countdown Seconds</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>600</maximum>
+        <default>0</default>
+        <readonly>false</readonly>
+        <description>Delay between requesting this mode and executing it. LEDs blink during the countdown; another press (or Cancel Transition) cancels.</description>
+      </property>
+      <property>
+        <name>Hold To Confirm Seconds</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>10</maximum>
+        <default>0</default>
+        <readonly>false</readonly>
+        <description>Navigator taps on this mode require deliberate confirmation when set (keypad Hold gestures already are deliberate).</description>
+      </property>
+      <property>
+        <name>Mode Duration Minutes</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>1440</maximum>
+        <default>0</default>
+        <readonly>false</readonly>
+        <description>Lifestyle modes only: automatically exit (and restore captured states) after this long. 0 = never.</description>
+      </property>
+      <property>
+        <name>Selected Keypad Slot</name>
+        <type>LIST</type>
+        <items><item>-</item></items>
+        <default>-</default>
+        <readonly>false</readonly>
+        <description>Keypad slots are connections: bind a keypad button's Button Link to a slot in Connections, then map its gestures below.</description>
+      </property>
+      <property>
+        <name>Slot Tap</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Slot Double Tap</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Slot Triple Tap</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Slot Hold</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+        <description>Hold fires after Hold Seconds. With Long/Very Long also set, the gesture resolves on release to the longest threshold crossed.</description>
+      </property>
+      <property>
+        <name>Slot Long Hold</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Slot Very Long Hold</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Slot LED Follows</name>
+        <type>LIST</type>
+        <items><item>None</item></items>
+        <default>None</default>
+        <readonly>false</readonly>
+        <description>Global Presence Mode turns this button into the HOUSE button: its LED always shows the presence mode's color. A specific mode lights the LED while that mode is active.</description>
+      </property>
+      <property>
+        <name>Security User Code</name>
+        <type>STRING</type>
+        <password>true</password>
+        <default></default>
+        <readonly>false</readonly>
+        <description>Needed only when a mode arms/disarms security. Stored encrypted on the controller; this field clears itself after saving.</description>
+      </property>
+      <property>
+        <name>Advanced Settings</name>
+        <type>LIST</type>
+        <items><item>Hide</item><item>Show</item></items>
+        <default>Hide</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Double Tap Window ms</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>200</minimum>
+        <maximum>1500</maximum>
+        <default>500</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Hold Seconds</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>1</minimum>
+        <maximum>10</maximum>
+        <default>1</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Long Hold Seconds</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>2</minimum>
+        <maximum>20</maximum>
+        <default>3</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Very Long Hold Seconds</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>3</minimum>
+        <maximum>30</maximum>
+        <default>5</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Inter-Command Delay ms</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>500</maximum>
+        <default>50</default>
+        <readonly>false</readonly>
+        <description>Spacing between device commands during activation. Raise on very large projects if the Director struggles.</description>
+      </property>
+      <property>
+        <name>History Size</name>
+        <type>LIST</type>
+        <items><item>100</item><item>250</item><item>500</item></items>
+        <default>100</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Import Configuration</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>false</readonly>
+        <description>Paste an exported Mode Composer JSON here. It is validated and applied atomically; the field clears itself. A bad paste never damages the current configuration.</description>
+      </property>
+      <property>
+        <name>Add Trigger Rule JSON</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>false</readonly>
+        <description>Advanced: paste one rule as JSON (see documentation). Configure Return Home Rule covers the common case without JSON.</description>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+        <readonly>false</readonly>
+      </property>
+    </properties>
+  </config>
+  <proxies></proxies>
+  <connections>
+  </connections>
+</devicedata>

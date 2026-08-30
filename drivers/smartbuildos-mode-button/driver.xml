@@ -1,0 +1,280 @@
+<devicedata>
+  <name>SmartBuildOS Mode Button</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Mode Button</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/29/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <events>
+    <event><id>1</id><name>Pressed</name><description>The mode button was tapped in Navigator.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Mode Manager</name><command>REFRESH_STATE</command></action>
+      <action><name>Print Diagnostics</name><command>PRINT_DIAGNOSTICS</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default>Starting</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Mode</name>
+        <type>LIST</type>
+        <items><item>-</item></items>
+        <default>-</default>
+        <readonly>false</readonly>
+        <description>Which mode this Navigator button shows and activates. The list comes from the Mode Composer manager in this project.</description>
+      </property>
+      <property>
+        <name>Mode Manager</name>
+        <type>STRING</type>
+        <default>Searching...</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Rename With Mode</name>
+        <type>LIST</type>
+        <items><item>Yes</item><item>No</item></items>
+        <default>Yes</default>
+        <readonly>false</readonly>
+        <description>Rename this driver instance to the mode's name so Navigator shows the mode, not "Mode Button". Dealer renames are never overwritten.</description>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+        <readonly>false</readonly>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+        <readonly>false</readonly>
+      </property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Mode Button">uibutton</proxy>
+  </proxies>
+  <capabilities>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+          <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/default_300.png</Icon>
+          <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/default_90.png</Icon>
+          <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/default_70.png</Icon>
+          <state id="home_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/home_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/home_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/home_on_70.png</Icon>
+          </state>
+          <state id="home_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/home_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/home_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/home_off_70.png</Icon>
+          </state>
+          <state id="away_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/away_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/away_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/away_on_70.png</Icon>
+          </state>
+          <state id="away_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/away_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/away_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/away_off_70.png</Icon>
+          </state>
+          <state id="vacation_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/vacation_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/vacation_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/vacation_on_70.png</Icon>
+          </state>
+          <state id="vacation_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/vacation_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/vacation_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/vacation_off_70.png</Icon>
+          </state>
+          <state id="moon_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/moon_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/moon_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/moon_on_70.png</Icon>
+          </state>
+          <state id="moon_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/moon_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/moon_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/moon_off_70.png</Icon>
+          </state>
+          <state id="film_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/film_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/film_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/film_on_70.png</Icon>
+          </state>
+          <state id="film_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/film_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/film_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/film_off_70.png</Icon>
+          </state>
+          <state id="party_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/party_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/party_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/party_on_70.png</Icon>
+          </state>
+          <state id="party_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/party_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/party_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/party_off_70.png</Icon>
+          </state>
+          <state id="sunrise_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/sunrise_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/sunrise_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/sunrise_on_70.png</Icon>
+          </state>
+          <state id="sunrise_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/sunrise_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/sunrise_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/sunrise_off_70.png</Icon>
+          </state>
+          <state id="night_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/night_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/night_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/night_on_70.png</Icon>
+          </state>
+          <state id="night_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/night_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/night_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/night_off_70.png</Icon>
+          </state>
+          <state id="custom_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/custom_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/custom_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/custom_on_70.png</Icon>
+          </state>
+          <state id="custom_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/custom_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/custom_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/custom_off_70.png</Icon>
+          </state>
+          <state id="lock_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/lock_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/lock_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/lock_on_70.png</Icon>
+          </state>
+          <state id="lock_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/lock_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/lock_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/lock_off_70.png</Icon>
+          </state>
+          <state id="shield_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/shield_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/shield_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/shield_on_70.png</Icon>
+          </state>
+          <state id="shield_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/shield_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/shield_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/shield_off_70.png</Icon>
+          </state>
+          <state id="energy_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/energy_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/energy_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/energy_on_70.png</Icon>
+          </state>
+          <state id="energy_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/energy_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/energy_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/energy_off_70.png</Icon>
+          </state>
+          <state id="cleaning_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/cleaning_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/cleaning_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/cleaning_on_70.png</Icon>
+          </state>
+          <state id="cleaning_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/cleaning_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/cleaning_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/cleaning_off_70.png</Icon>
+          </state>
+          <state id="work_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/work_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/work_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/work_on_70.png</Icon>
+          </state>
+          <state id="work_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/work_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/work_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/work_off_70.png</Icon>
+          </state>
+          <state id="dinner_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/dinner_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/dinner_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/dinner_on_70.png</Icon>
+          </state>
+          <state id="dinner_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/dinner_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/dinner_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/dinner_off_70.png</Icon>
+          </state>
+          <state id="guest_on">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/guest_on_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/guest_on_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/guest_on_70.png</Icon>
+          </state>
+          <state id="guest_off">
+            <Icon width="300" height="300">controller://driver/smartbuildos-mode-button/icons/device/guest_off_300.png</Icon>
+            <Icon width="90" height="90">controller://driver/smartbuildos-mode-button/icons/device/guest_off_90.png</Icon>
+            <Icon width="70" height="70">controller://driver/smartbuildos-mode-button/icons/device/guest_off_70.png</Icon>
+          </state>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>
