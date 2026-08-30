@@ -80,6 +80,7 @@
     <documentation file="www/documentation/index.html"></documentation>
     <actions>
       <action><name>Create Mode</name><command>CREATE_MODE</command></action>
+      <action><name>Show Device Setup Guide</name><command>SHOW_DEVICE_SETUP</command></action>
       <action><name>Duplicate Selected Mode</name><command>DUPLICATE_MODE</command></action>
       <action><name>Delete Selected Mode</name><command>DELETE_MODE</command></action>
       <action><name>Activate Selected Mode</name><command>ACTIVATE_SELECTED</command></action>
@@ -341,6 +342,13 @@
         <default>-</default>
         <readonly>false</readonly>
         <description>The mode the editing properties and Actions below operate on.</description>
+      </property>
+      <property>
+        <name>Devices In Selected Mode</name>
+        <type>STRING</type>
+        <default>-</default>
+        <readonly>true</readonly>
+        <description>How many devices this mode controls. Devices are added with Actions &gt; Capture Current State Into Selected Mode, or one at a time from the Programming tab: select this driver in the Actions pane and run Include Device In Mode (device picker + a setting like off, 38%, closed, locked, cool 76). The Documentation tab has the full guide.</description>
       </property>
       <property>
         <name>New Mode Name</name>

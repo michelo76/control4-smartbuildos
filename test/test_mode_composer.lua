@@ -201,6 +201,7 @@ for _, p in ipairs({
   "Departure Countdown Seconds",
   "Hold To Confirm Seconds",
   "Mode Duration Minutes",
+  "Devices In Selected Mode",
   "Slot Tap",
   "Slot Double Tap",
   "Slot Triple Tap",
@@ -262,6 +263,11 @@ for _, m in pairs(gConfig.modes) do
 end
 check("away exists", away ~= nil)
 check("selected", Properties["Selected Mode"] == "Away", Properties["Selected Mode"])
+check(
+  "device summary points at setup paths while empty",
+  (Properties["Devices In Selected Mode"] or ""):find("^None yet") ~= nil,
+  Properties["Devices In Selected Mode"]
+)
 EC.Include_All_Lights({ NAME = "Away", SETTING = "off" })
 EC.Include_All_Shades({ NAME = "Away", SETTING = "closed" })
 EC.Include_Device_In_Mode({ NAME = "Away", DEVICE = 3001, SETTING = "locked" })
@@ -271,6 +277,12 @@ for _ in pairs(away.desired_states) do
   n = n + 1
 end
 check("26 device entries", n == 26, n)
+check(
+  "device summary counts live after Programming-tab edits",
+  (Properties["Devices In Selected Mode"] or ""):find("^26 set here") ~= nil,
+  Properties["Devices In Selected Mode"]
+)
+EC.SHOW_DEVICE_SETUP() -- must not error; prints the guide
 deviceSent = {}
 EC.DRY_RUN()
 check("dry run sent nothing", #deviceSent == 0, #deviceSent)
