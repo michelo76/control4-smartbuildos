@@ -1,0 +1,263 @@
+<devicedata>
+  <name>Bond Heater (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Heater (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Comfort</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_HEATER_ON</name>
+      <type>BOOL</type>
+      <condition_statement>Heater power state</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>On</true_text>
+      <false_text>Off</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Heater On</name><description>The heater turned on.</description></event>
+    <event><id>2</id><name>Heater Off</name><description>The heater turned off.</description></event>
+    <event><id>3</id><name>Heat Level Changed</name><description>The heat level changed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond heater this instance represents - bind the Bond Heater connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Heater connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Heater</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Heat Level</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Timer</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Seconds remaining on the heater's auto-off timer, from the Bond. Heaters with a factory fire-code timer (default_auto_timer_s) restart it on every state change; the driver never overrides that cap.</description>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Turn On</name>
+        <description>Turn the heater on (restores the last heat level)</description>
+      </command>
+      <command>
+        <name>Turn Off</name>
+        <description>Turn the heater off</description>
+      </command>
+      <command>
+        <name>Set Heat</name>
+        <description>Set heat level to LEVEL percent (1-100)</description>
+        <params>
+          <param><name>Level</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Timer</name>
+        <description>Turn the heater off after SECONDS seconds (0 cancels)</description>
+        <params>
+          <param><name>Seconds</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Bond Heater" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">thermostatV2</proxy>
+  </proxies>
+  <!-- Heat-only thermostat with the setpoint IN PERCENT: scale is pinned to
+       Celsius with a 0-100 range so the dial reads as a level, not a
+       temperature (the same trick the commercial Bond heater driver uses).
+       No ambient sensor: current temperature is never reported, so the dial
+       centre shows dashes. -->
+  <capabilities>
+    <has_extras>true</has_extras>
+    <current_temperature_min_c>0</current_temperature_min_c>
+    <current_temperature_max_c>100</current_temperature_max_c>
+    <current_temperature_resolution_c>1</current_temperature_resolution_c>
+    <can_change_scale>false</can_change_scale>
+    <can_heat>true</can_heat>
+    <can_cool>false</can_cool>
+    <can_do_auto>false</can_do_auto>
+    <can_preset>false</can_preset>
+    <can_preset_schedule>false</can_preset_schedule>
+    <has_outdoor_temperature>false</has_outdoor_temperature>
+    <split_setpoints>true</split_setpoints>
+    <setpoint_heat_min_c>0</setpoint_heat_min_c>
+    <setpoint_heat_max_c>100</setpoint_heat_max_c>
+    <setpoint_heat_resolution_c>1</setpoint_heat_resolution_c>
+    <scheduling>false</scheduling>
+    <hvac_modes>Off,Heat</hvac_modes>
+    <hold_modes></hold_modes>
+    <hvac_states>Off,Heat</hvac_states>
+    <can_set_backlight>false</can_set_backlight>
+    <has_time_settings>false</has_time_settings>
+    <has_emergency_heat>false</has_emergency_heat>
+    <can_change_hvac_modes>true</can_change_hvac_modes>
+    <has_vacation_mode>false</has_vacation_mode>
+    <has_fan_mode>false</has_fan_mode>
+    <can_change_fan_modes>false</can_change_fan_modes>
+    <has_remote_sensor>false</has_remote_sensor>
+    <has_humidity>false</has_humidity>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Heater</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>THERMOSTAT</classname></class></classes>
+    </connection>
+    <connection>
+      <id>300</id>
+      <facing>6</facing>
+      <connectionname>Toggle Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>301</id>
+      <facing>6</facing>
+      <connectionname>Heat Up Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>302</id>
+      <facing>6</facing>
+      <connectionname>Heat Down Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>200</id>
+      <facing>6</facing>
+      <connectionname>Relay Control</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>RELAY</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Heater</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_HEATER</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

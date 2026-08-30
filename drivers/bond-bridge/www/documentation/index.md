@@ -43,6 +43,7 @@ derives functions from them:
 | Motorized shade / awning  | Shade child                                           |
 | Fireplace                 | Fireplace child; plus a Light child if it has a light |
 | Light / dimmer            | Light child                                           |
+| Heater with heat levels   | Heater child (thermostat dial, 0-100 = heat level)    |
 | Anything else with on/off | Generic switch child                                  |
 
 ## State updates

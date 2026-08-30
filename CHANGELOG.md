@@ -43,6 +43,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   feedback** that animates Navigator using the Bond's own `course_time` scaled
   by travel distance instead of a hardcoded delay.
 
+- **Bond Heater** (`bond-heater.c4z`, 7th driver in the Bond suite): heaters
+  with adjustable heat levels (Infratech and similar behind a Bridge Pro) as a
+  heat-only thermostat whose dial setpoint IS the heat level 0-100 —
+  Celsius-pinned so the ring reads unitless, ambient left blank because these
+  devices have no sensor. Extras tab carries the auto-off timer in minutes (the
+  factory fire-code cap stays in force). Toggle/heat-up/heat-down button links
+  with LED tracking, relay connection, Turn On/Off + Set Heat + Set Timer
+  programming. HT devices with SetHeat derive HEATER automatically; power-only
+  heaters keep the simpler Bond Switch.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added

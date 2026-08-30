@@ -22,6 +22,7 @@ M.FUNCTIONS = {
   LIGHT = "LIGHT",
   SHADE = "SHADE",
   FIREPLACE = "FIREPLACE",
+  HEATER = "HEATER",
   GENERIC = "GENERIC",
 }
 
@@ -40,6 +41,7 @@ M.BINDING_CLASSES = {
   LIGHT = "SBOS_BOND_LIGHT",
   SHADE = "SBOS_BOND_SHADE",
   FIREPLACE = "SBOS_BOND_FIREPLACE",
+  HEATER = "SBOS_BOND_HEATER",
   GENERIC = "SBOS_BOND_GENERIC",
 }
 
@@ -94,8 +96,16 @@ function M.deriveFunctions(deviceType, actions)
     claimed = true
   end
 
-  -- Anything else that can at least switch power: heaters, bidets, generic
-  -- templates, smart switches. One relay-ish child, no pretending.
+  -- Heaters with an adjustable heat level get the thermostat child (the
+  -- 0-100 dial). An HT whose only vocabulary is power stays GENERIC — a
+  -- thermostat UI over a device that cannot set a level is a lie.
+  if has.SetHeat or has.IncreaseHeat then
+    table.insert(functions, M.FUNCTIONS.HEATER)
+    claimed = true
+  end
+
+  -- Anything else that can at least switch power: on/off heaters, bidets,
+  -- generic templates, smart switches. One relay-ish child, no pretending.
   if not claimed and (has.TurnOn or has.TogglePower) then
     table.insert(functions, M.FUNCTIONS.GENERIC)
   end
@@ -121,6 +131,7 @@ function M.childLabel(name, fn, isPrimary)
     FAN = " Fan",
     SHADE = " Shade",
     FIREPLACE = " Fireplace",
+    HEATER = " Heater",
     GENERIC = " Switch",
   }
   return name .. (suffixes[fn] or "")

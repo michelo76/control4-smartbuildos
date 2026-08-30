@@ -162,6 +162,21 @@ def shade_glyph() -> str:
 </g>"""
 
 
+def heater_glyph() -> str:
+    """Radiant heat: three rising heat waves over a base bar."""
+    waves = "".join(
+        f'<path d="M {x} 66 C {x - 6} 56 {x + 6} 46 {x} 36 C {x - 6} 26 {x + 6} 16 {x} 10"'
+        f' fill="none" stroke="url(#amber)" stroke-width="6" stroke-linecap="round"/>'
+        for x in (34, 50, 66)
+    )
+    return f"""
+<g>
+  {waves}
+  <line x1="24" y1="82" x2="76" y2="82" stroke="{NEUTRAL}" stroke-width="6" stroke-linecap="round"/>
+  <line x1="32" y1="90" x2="68" y2="90" stroke="{NEUTRAL}" stroke-width="6" stroke-linecap="round"/>
+</g>"""
+
+
 def bridge_glyph() -> str:
     return f"""
 <g stroke="{NEUTRAL}" stroke-width="5" fill="none" stroke-linecap="round">
@@ -200,6 +215,7 @@ DEVICE_ICONS = {
     "bond-light": svg(bulb(False)),
     "bond-shade": svg(shade_glyph()),
     "bond-fireplace": svg(flame(0.9, True)),
+    "bond-heater": svg(heater_glyph()),
     "bond-generic": svg(power(False)),
 }
 

@@ -510,6 +510,94 @@ RFP.DO_CLICK(301)
 a = lastAction()
 check("on link click → TurnOn", a ~= nil and a.action == "TurnOn")
 
+-- ═══ HEATER ═══════════════════════════════════════════════════════════════════
+
+print("\n[heater] thermostat dial = heat level, Extras timer, derivation")
+
+local model = require("bond.model")
+local fns = model.deriveFunctions("HT", { "TurnOn", "TurnOff", "TogglePower", "SetHeat" })
+check("HT with SetHeat derives HEATER", #fns == 1 and fns[1] == "HEATER", table.concat(fns, "+"))
+fns = model.deriveFunctions("HT", { "TurnOn", "TurnOff", "TogglePower" })
+check("HT without SetHeat stays GENERIC", #fns == 1 and fns[1] == "GENERIC", table.concat(fns, "+"))
+
+loadChild("bond-heater", childProps({ ["Heater"] = "-", ["Heat Level"] = "-", ["Timer"] = "-" }))
+
+identify({
+  id = "ht1",
+  fn = "HEATER",
+  name = "Patio Heater",
+  type = "HT",
+  actions = { "TurnOn", "TurnOff", "TogglePower", "SetHeat", "IncreaseHeat", "DecreaseHeat", "SetTimer" },
+  props = { default_auto_timer_s = 7200 },
+  state = { power = 1, heat = 60, timer = 0 },
+})
+
+local modes = proxyNotifies(5001, "HVAC_MODE_CHANGED")
+check("mode Heat while on", #modes >= 1 and modes[#modes].params.MODE == "Heat")
+local setpoints = proxyNotifies(5001, "HEAT_SETPOINT_CHANGED")
+check(
+  "setpoint is the heat level, Celsius-pinned",
+  #setpoints >= 1 and setpoints[#setpoints].params.SETPOINT == 60 and setpoints[#setpoints].params.SCALE == "CELSIUS"
+)
+check("relay CLOSED while on", #proxyNotifies(200, "CLOSED") >= 1)
+check("Extras setup announced at identity", #proxyNotifies(5001, "EXTRAS_SETUP_CHANGED") >= 1)
+
+resetTraffic()
+RFP.SET_SETPOINT_HEAT(5001, nil, { SETPOINT = 80 })
+a = lastAction()
+check("dial 80 → SetHeat 80", a ~= nil and a.action == "SetHeat" and a.argument == "80", a and a.argument)
+
+resetTraffic()
+RFP.SET_SETPOINT_HEAT(5001, nil, { SETPOINT = 0 })
+a = lastAction()
+check("dial 0 → TurnOff", a ~= nil and a.action == "TurnOff")
+
+resetTraffic()
+RFP.SET_MODE_HVAC(5001, nil, { MODE = "Off" })
+a = lastAction()
+check("mode Off → TurnOff", a ~= nil and a.action == "TurnOff")
+resetTraffic()
+RFP.SET_MODE_HVAC(5001, nil, { MODE = "Heat" })
+a = lastAction()
+check("mode Heat → TurnOn (restores last level)", a ~= nil and a.action == "TurnOn")
+
+resetTraffic()
+RFP.SET_TIMER_MINUTES(5001, nil, { VALUE = 30 })
+a = lastAction()
+check(
+  "Extras 30 min → SetTimer 1800s",
+  a ~= nil and a.action == "SetTimer" and a.argument == "1800",
+  a and a.argument
+)
+check("Extras command acked with a state notify", #proxyNotifies(5001, "EXTRAS_STATE_CHANGED") >= 1)
+
+resetTraffic()
+RFP.DO_CLICK(301)
+a = lastAction()
+check("heat up link → IncreaseHeat", a ~= nil and a.action == "IncreaseHeat")
+
+resetTraffic()
+pushState({ power = 1, heat = 10 })
+RFP.DO_CLICK(302)
+a = lastAction()
+check("heat down at the floor → TurnOff", a ~= nil and a.action == "TurnOff", a and a.action)
+
+resetTraffic()
+pushState({ power = 0, heat = 60 })
+modes = proxyNotifies(5001, "HVAC_MODE_CHANGED")
+check("power off → mode Off", #modes >= 1 and modes[#modes].params.MODE == "Off")
+check("relay OPENED when off", #proxyNotifies(200, "OPENED") >= 1)
+setpoints = proxyNotifies(5001, "HEAT_SETPOINT_CHANGED")
+check("setpoint keeps the remembered level while off", #setpoints >= 1 and setpoints[#setpoints].params.SETPOINT == 60)
+
+resetTraffic()
+pushState({ power = 0, heat = 60, timer = 300 })
+local extras = proxyNotifies(5001, "EXTRAS_STATE_CHANGED")
+check(
+  "timer state flows to the Extras tab",
+  #extras >= 1 and tostring(extras[#extras].params.XML):find('value="5"') ~= nil
+)
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

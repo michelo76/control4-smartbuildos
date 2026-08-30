@@ -78,6 +78,7 @@ local FUNCTION_NS = {
   LIGHT = "bond_light",
   SHADE = "bond_shade",
   FIREPLACE = "bond_fireplace",
+  HEATER = "bond_heater",
   GENERIC = "bond_generic",
 }
 
@@ -87,11 +88,12 @@ local PROVISION_FILES = {
   LIGHT = "bond-light.c4z",
   SHADE = "bond-shade.c4z",
   FIREPLACE = "bond-fireplace.c4z",
+  HEATER = "bond-heater.c4z",
   GENERIC = "bond-generic.c4z",
 }
 
 --- Function order for walks that should be deterministic.
-local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "GENERIC" }
+local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC" }
 
 local POLL_TIMER = "BondPoll"
 local KEEPALIVE_TIMER = "BondBpupKeepalive"

@@ -26,9 +26,10 @@ baked in from day one, plus the capabilities their architecture can't reach.
 
 ## Their features still ahead of us (build order)
 
-1. **Heater child with thermostat UI** (their Infratech screen) — thermostat
-   proxy where setpoint = SetHeat 1-100 + Extras timer. HT devices currently
-   land on bond-generic.
+1. ~~**Heater child with thermostat UI**~~ ✅ BUILT (`bond-heater`):
+   thermostatV2, heat-only, Celsius-pinned 0-100 setpoint = SetHeat, blank
+   ambient (no invented readings), Extras timer in minutes, relay + button
+   links. HT devices with SetHeat derive HEATER; power-only HT stays GENERIC.
 2. **mDNS auto-discovery** (`_bond._tcp`) — address-less setup; needs the
    SSDP/mDNS surface, hardware to verify.
 3. **Sidekick / keypad support** (`/v2/sidekicks`) — Bond's physical remotes
