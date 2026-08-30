@@ -41,6 +41,7 @@
     <event><id>12</id><name>Data Restored</name><description>Measurements are flowing again.</description></event>
   </events>
   <config>
+    <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html">Documentation</documentation>
     <actions>
       <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>

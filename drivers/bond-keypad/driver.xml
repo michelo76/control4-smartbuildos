@@ -53,6 +53,7 @@
     <event><id>43</id><name>Battery Critical</name><description>NAME battery critical - may fail at any time.</description></event>
   </events>
   <config>
+    <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html">Documentation</documentation>
     <actions>
       <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>

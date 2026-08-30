@@ -35,6 +35,7 @@
     <event><id>2</id><name>Bond Offline</name><description>The Bond stopped answering.</description></event>
   </events>
   <config>
+    <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html">Documentation</documentation>
     <actions>
       <action>
