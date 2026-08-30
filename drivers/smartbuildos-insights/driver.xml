@@ -11,7 +11,7 @@
   <minimum_os_version>3.0.0</minimum_os_version>
   <auto_update>true</auto_update>
   <force_auto_update>false</force_auto_update>
-  <version>1</version>
+  <version/>
 
   <small image_source="c4z">icons/device_sm.png</small>
   <large image_source="c4z">icons/device_lg.png</large>
