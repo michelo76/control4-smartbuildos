@@ -1,0 +1,358 @@
+<devicedata>
+  <name>Bond Fireplace (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Fireplace (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Comfort</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_FIREPLACE_ON</name>
+      <type>BOOL</type>
+      <condition_statement>Fireplace flame state</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>On</true_text>
+      <false_text>Off</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Fireplace On</name><description>The fireplace turned on.</description></event>
+    <event><id>2</id><name>Fireplace Off</name><description>The fireplace turned off.</description></event>
+    <event><id>3</id><name>Flame Changed</name><description>The flame level changed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond fireplace this instance represents - bind the Bond Fireplace connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Fireplace connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Fireplace</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Flame</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Fireplace Fan</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Turn On</name>
+        <description>Turn the fireplace on</description>
+      </command>
+      <command>
+        <name>Turn Off</name>
+        <description>Turn the fireplace off</description>
+      </command>
+      <command>
+        <name>Set Flame</name>
+        <description>Set flame level to LEVEL percent (1-100)</description>
+        <params>
+          <param><name>Level</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Fireplace Fan</name>
+        <description>Set the fireplace fan SPEED percent (0 = off)</description>
+        <params>
+          <param><name>Speed</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Timer</name>
+        <description>Turn the fireplace off after SECONDS seconds (0 cancels)</description>
+        <params>
+          <param><name>Seconds</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Bond Fireplace" image_source="c4z" large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+    <proxy proxybindingid="5002" name="Flame Level" image_source="c4z" large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+    <proxy proxybindingid="5003" name="Flame Up" image_source="c4z" large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+    <proxy proxybindingid="5004" name="Flame Down" image_source="c4z" large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+    <proxy proxybindingid="5005" name="Fireplace Fan" image_source="c4z" large_image="icons/device_lg.png" small_image="icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <capabilities>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/power-off.png</Icon>
+        <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/power-off.png</Icon>
+        <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/power-off.png</Icon>
+        <state id="Off">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/power-off.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/power-off.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/power-off.png</Icon>
+        </state>
+        <state id="On">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/power-on.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/power-on.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/power-on.png</Icon>
+        </state>
+      </display_icons>
+    </navigator_display_option>
+    <navigator_display_option proxybindingid="5002">
+      <display_icons>
+        <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-off.png</Icon>
+        <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-off.png</Icon>
+        <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-off.png</Icon>
+        <state id="Off">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-off.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-off.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-off.png</Icon>
+        </state>
+        <state id="Low">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-low.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-low.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-low.png</Icon>
+        </state>
+        <state id="Medium">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-medium.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-medium.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-medium.png</Icon>
+        </state>
+        <state id="High">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-high.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-high.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-high.png</Icon>
+        </state>
+      </display_icons>
+    </navigator_display_option>
+    <navigator_display_option proxybindingid="5003">
+      <display_icons>
+        <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-up.png</Icon>
+        <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-up.png</Icon>
+        <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-up.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+    <navigator_display_option proxybindingid="5004">
+      <display_icons>
+        <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/flame-down.png</Icon>
+        <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/flame-down.png</Icon>
+        <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/flame-down.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+    <navigator_display_option proxybindingid="5005">
+      <display_icons>
+        <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/fpfan-off.png</Icon>
+        <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/fpfan-off.png</Icon>
+        <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/fpfan-off.png</Icon>
+        <state id="Off">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/fpfan-off.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/fpfan-off.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/fpfan-off.png</Icon>
+        </state>
+        <state id="Low">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/fpfan-low.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/fpfan-low.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/fpfan-low.png</Icon>
+        </state>
+        <state id="Medium">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/fpfan-medium.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/fpfan-medium.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/fpfan-medium.png</Icon>
+        </state>
+        <state id="High">
+          <Icon width="70" height="70">controller://driver/bond-fireplace/icons/70x70/fpfan-high.png</Icon>
+          <Icon width="90" height="90">controller://driver/bond-fireplace/icons/90x90/fpfan-high.png</Icon>
+          <Icon width="300" height="300">controller://driver/bond-fireplace/icons/300x300/fpfan-high.png</Icon>
+        </state>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Fireplace Power</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>UIBUTTON</classname></class></classes>
+    </connection>
+    <connection>
+      <id>5002</id>
+      <facing>6</facing>
+      <connectionname>Flame Level</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>UIBUTTON</classname></class></classes>
+    </connection>
+    <connection>
+      <id>5003</id>
+      <facing>6</facing>
+      <connectionname>Flame Up</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>UIBUTTON</classname></class></classes>
+    </connection>
+    <connection>
+      <id>5004</id>
+      <facing>6</facing>
+      <connectionname>Flame Down</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>UIBUTTON</classname></class></classes>
+    </connection>
+    <connection>
+      <id>5005</id>
+      <facing>6</facing>
+      <connectionname>Fireplace Fan</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>UIBUTTON</classname></class></classes>
+    </connection>
+    <connection>
+      <id>300</id>
+      <facing>6</facing>
+      <connectionname>Toggle Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>301</id>
+      <facing>6</facing>
+      <connectionname>Flame Up Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>302</id>
+      <facing>6</facing>
+      <connectionname>Flame Down Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Fireplace</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_FIREPLACE</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

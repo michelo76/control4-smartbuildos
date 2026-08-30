@@ -1,0 +1,289 @@
+<devicedata>
+  <name>Bond Bridge Gateway (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Bridge Gateway (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <!-- 3.2.0: C4:AddDevice (Auto Configure) is the newest API this driver
+       touches. The children stay within the same floor. -->
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Others</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>Bond connection status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Connected</true_text>
+      <false_text>Disconnected</false_text>
+    </conditional>
+  </conditionals>
+  <!-- Registered again at init (registerGatewayEvents) because XML events
+       only register when an instance is first added. Ids are frozen. -->
+  <events>
+    <event><id>1</id><name>Bond Online</name><description>The Bond started answering again.</description></event>
+    <event><id>2</id><name>Bond Offline</name><description>The Bond stopped answering.</description></event>
+  </events>
+  <config>
+    <documentation file="www/documentation/index.html">Documentation</documentation>
+    <actions>
+      <action>
+        <name>Test Connection</name>
+        <command>TEST_CONNECTION</command>
+      </action>
+      <action>
+        <name>Sync Devices Now</name>
+        <command>SYNC_DEVICES</command>
+      </action>
+      <action>
+        <name>Fetch Token From Bond</name>
+        <command>FETCH_TOKEN</command>
+      </action>
+      <action>
+        <name>Auto Configure Bond Devices</name>
+        <command>AUTO_CONFIGURE_DEVICES</command>
+      </action>
+      <action>
+        <name>Auto Rename Bound Drivers</name>
+        <command>AUTO_RENAME_BOUND_DRIVERS</command>
+      </action>
+      <action>
+        <name>Print Inventory To Log</name>
+        <command>PRINT_INVENTORY</command>
+      </action>
+      <action>
+        <name>Print Scenes To Log</name>
+        <command>PRINT_SCENES</command>
+      </action>
+      <action>
+        <name>Print Device Bindings To Log</name>
+        <command>PRINT_DEVICE_BINDINGS</command>
+      </action>
+      <action>
+        <name>Prune Missing Device Bindings</name>
+        <command>PRUNE_STALE_DEVICES</command>
+      </action>
+      <action>
+        <name>Refresh License</name>
+        <command>REFRESH_LICENSE</command>
+      </action>
+      <action>
+        <name>Forget Token</name>
+        <command>FORGET_TOKEN</command>
+      </action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond</name>
+        <type>LABEL</type>
+        <default>Bond Bridge / Smart by Bond</default>
+      </property>
+      <property>
+        <name>Bond Address</name>
+        <type>STRING</type>
+        <default>192.168.1.50</default>
+        <description>IP or hostname of the Bond Bridge or Smart by Bond device. A bare IP is fine; anything pasted after the host is ignored. The Bond must be reachable from this controller. One driver instance per Bond unit.</description>
+      </property>
+      <property>
+        <name>Local Token</name>
+        <type>STRING</type>
+        <password>true</password>
+        <default/>
+        <description>The Bond's local API token, from the Bond Home app: select the Bond, Settings gear, Advanced, Local Token. Stored encrypted on the controller and cleared from this field once saved - an empty field after pasting means it was accepted. Alternative: power-cycle the Bond and run Fetch Token From Bond within 10 minutes.</description>
+      </property>
+      <property>
+        <name>Bond PIN</name>
+        <type>STRING</type>
+        <password>true</password>
+        <default/>
+        <description>Alternative pairing path: the PIN printed on the Bond unit itself. Stored encrypted, cleared from this field once saved, and deleted after it has unlocked a token. After setting it, run Fetch Token From Bond.</description>
+      </property>
+      <property>
+        <name>Device Poll Interval</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>30s</item>
+          <item>1m</item>
+          <item>2m</item>
+          <item>5m</item>
+          <item>15m</item>
+        </items>
+        <default>1m</default>
+        <description>How often the device list and states are checked over HTTP. Cheap: one request answers whether anything changed at all. Push updates (BPUP) deliver state changes immediately regardless; polling is the safety net. Off disables polling; Test Connection and Sync Devices Now still work.</description>
+      </property>
+      <property>
+        <name>Push Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+        <default>On</default>
+        <description>Subscribes to the Bond's push protocol (BPUP, UDP port 30007) so device state lands immediately - a fan speed changed from the factory remote shows in Navigator without waiting for a poll. Push Status shows whether the subscription is delivering.</description>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+        <description>The build actually running on this instance. If this does not match the newest build after an update, the project is serving a cached copy of the driver.</description>
+      </property>
+      <property>
+        <name>Connection Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not configured - set the Bond Address and Local Token</default>
+      </property>
+      <property>
+        <name>Bond ID</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Model</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Firmware</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Devices</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Scenes</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Bond scenes discovered on this unit (built in the Bond Home app). Run them from programming with the Run Bond Scene command.</description>
+      </property>
+      <property>
+        <name>Push Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Off</default>
+        <description>Whether BPUP push updates are flowing. Delivering means state changes arrive immediately; Waiting means subscribed but nothing heard yet; polling covers either way.</description>
+      </property>
+      <property>
+        <name>Last Sync</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Never</default>
+      </property>
+      <property>
+        <name>License Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>No SmartBuildOS Agent Found</default>
+        <description>This driver's standing with the SmartBuildOS Agent in this project, as one line. Everything keeps working while licensing rolls out.</description>
+      </property>
+      <property>
+        <name>License Source</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>How this driver is licensed: included with the company's SmartBuildOS subscription, or purchased outright (perpetual). Answered by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
+        <name>Subscription Tier</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The SmartBuildOS subscription tier of the company this driver is licensed under, as reported by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
+        <name>SmartBuildOS Company</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The registered SmartBuildOS company this driver is associated with, as reported by the SmartBuildOS Agent.</description>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Run Bond Scene</name>
+        <description>Run Bond scene SCENE (by name or id, as built in the Bond Home app)</description>
+        <params>
+          <param><name>Scene</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Run Bond Action</name>
+        <description>Run Bond action ACTION on device DEVICE with optional ARGUMENT (advanced - argument may be a number or JSON)</description>
+        <params>
+          <param><name>Device</name><type>STRING</type></param>
+          <param><name>Action</name><type>STRING</type></param>
+          <param><name>Argument</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+  </config>
+  <!-- No proxies: fans, lights, shades and fireplaces appear in Navigator
+       through the child drivers, one instance per device FUNCTION (a fan
+       with a light is a fan child plus a light child), attached over this
+       driver's dynamic per-function CONTROL bindings (class BOND_FAN /
+       BOND_LIGHT / BOND_SHADE / BOND_FIREPLACE / BOND_GENERIC, created at
+       sync time and restored in OnDriverInit). -->
+  <proxies/>
+  <connections/>
+</devicedata>

@@ -1,0 +1,220 @@
+<devicedata>
+  <name>Bond Shade (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Shade (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <composer_categories>
+    <category>Motorization</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_SHADE_OPEN</name>
+      <type>BOOL</type>
+      <condition_statement>Shade open state</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Open</true_text>
+      <false_text>Closed</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Opened</name><description>The shade reported open.</description></event>
+    <event><id>2</id><name>Closed</name><description>The shade reported closed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond shade this instance represents - bind the Bond Shade connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Shade connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Position</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>The Bond's own tracking of the shade position. Preset and Hold leave the position unknown until the next full open or close - a property of one-way RF, not of the driver.</description>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Open</name>
+        <description>Open the shade</description>
+      </command>
+      <command>
+        <name>Close</name>
+        <description>Close the shade</description>
+      </command>
+      <command>
+        <name>Stop</name>
+        <description>Stop the shade's motion (Hold)</description>
+      </command>
+      <command>
+        <name>Go To Preset</name>
+        <description>Move the shade to its preset (My/Favorite) position</description>
+      </command>
+    </commands>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Bond Shade" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">blind</proxy>
+  </proxies>
+  <capabilities>
+    <always_send_level>true</always_send_level>
+    <can_stop>true</can_stop>
+    <driver_handles_toggle>false</driver_handles_toggle>
+    <has_level>true</has_level>
+    <level_resolution>1</level_resolution>
+    <level_closed>0</level_closed>
+    <level_open>100</level_open>
+    <level_discrete_control>true</level_discrete_control>
+    <level_unknown>-1</level_unknown>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Shade</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>BLIND</classname></class></classes>
+    </connection>
+    <connection>
+      <id>300</id>
+      <facing>6</facing>
+      <connectionname>Toggle Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>301</id>
+      <facing>6</facing>
+      <connectionname>Shade Up Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>302</id>
+      <facing>6</facing>
+      <connectionname>Shade Down Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>303</id>
+      <facing>6</facing>
+      <connectionname>Shade Stop Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Shade</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_SHADE</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

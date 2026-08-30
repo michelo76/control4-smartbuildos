@@ -20,6 +20,29 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- **Bond driver suite** (new, 6 drivers): `bond-bridge` gateway (one per Bond
+  Bridge / Smart by Bond unit — token letterbox stored encrypted, inventory sync
+  with hash polling, BPUP push updates over UDP, per-function dynamic CONTROL
+  bindings, one-button Auto Configure with rename-guarded naming, SBOS_BOND
+  licensing) plus native-proxy children: `bond-fan` (fan proxy, speed clamping
+  to the device's real max, direction/breeze/timer commands), `bond-light`
+  (light_v2; real dimming only where the device has Brightness), `bond-shade`
+  (blind proxy; position inversion handled, positionless shades drop the slider
+  honestly, Stop = Hold), `bond-fireplace` (five Navigator tiles with a
+  purpose-drawn icon set: power, flame level cycle, flame up/down, fireplace
+  fan), and `bond-generic` (state-iconed toggle tile + relay connection for
+  switches/heaters/bidets). Binding classes are SBOS\_-prefixed so the suite
+  coexists with the official Chowmain-built Bond drivers in the same Drivers
+  folder. Round 2 (from a study of that suite's seven-year changelog,
+  `docs/bond-asks.md`): Bond **scenes** sync with a Run Bond Scene programming
+  command; **PIN pairing** (the PIN printed on the unit unlocks the token
+  endpoint — no app, no power-cycle); keypad **button links** with LED tracking
+  on every child (toggle/up/down/stop per device type); and shade **movement
+  feedback** that animates Navigator using the Bond's own `course_time` scaled
+  by travel distance instead of a hardcoded delay.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added
