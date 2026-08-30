@@ -132,6 +132,7 @@ print("\n[2] The driver's entry points are registered")
 
 for _, name in ipairs({
   "TEST_CONNECTION",
+  "DISCOVER_BONDS",
   "SYNC_DEVICES",
   "FETCH_TOKEN",
   "FORGET_TOKEN",

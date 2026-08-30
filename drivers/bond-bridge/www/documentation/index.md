@@ -20,7 +20,12 @@ the cloud, and nothing needs to be opened on the firewall.
 
 ## Setup
 
-1. Set **Bond Address** to the Bond's IP or hostname. A bare IP is fine.
+1. Watch **Discovered Bonds**: the driver searches the network (mDNS) at startup
+   and lists every Bond it hears as `id @ address`. On a fresh instance the
+   first Bond heard fills in the Bond Address automatically. **Discover Bonds On
+   Network** re-runs the search any time.
+1. Or set **Bond Address** yourself — the Bond's IP or hostname; a bare IP is
+   fine. A configured gateway is never re-pointed by discovery.
 1. Paste the token into **Local Token**. The driver stores it encrypted on the
    controller and clears the field — an empty field after pasting means the
    token was accepted. It never sits in the project file in plain text.

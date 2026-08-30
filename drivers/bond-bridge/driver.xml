@@ -42,6 +42,10 @@
         <command>TEST_CONNECTION</command>
       </action>
       <action>
+        <name>Discover Bonds On Network</name>
+        <command>DISCOVER_BONDS</command>
+      </action>
+      <action>
         <name>Sync Devices Now</name>
         <command>SYNC_DEVICES</command>
       </action>
@@ -100,6 +104,13 @@
         <password>true</password>
         <default/>
         <description>The Bond's local API token, from the Bond Home app: select the Bond, Settings gear, Advanced, Local Token. Stored encrypted on the controller and cleared from this field once saved - an empty field after pasting means it was accepted. Alternative: power-cycle the Bond and run Fetch Token From Bond within 10 minutes.</description>
+      </property>
+      <property>
+        <name>Discovered Bonds</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+        <description>Bonds heard on the network via mDNS, as id @ address. Searched automatically at startup and by the Discover Bonds On Network action. While the Bond Address is still the install default, the first Bond heard fills it in automatically; a configured gateway is never re-pointed.</description>
       </property>
       <property>
         <name>Bond PIN</name>

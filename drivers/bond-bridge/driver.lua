@@ -53,6 +53,7 @@ local bindings = require("lib.bindings")
 local Bond = require("bond.api")
 local model = require("bond.model")
 local Bpup = require("bond.bpup")
+local Mdns = require("bond.mdns")
 --- The SmartBuildOS licensing SDK: this driver registers as SBOS_BOND with
 --- the SmartBuildOS Agent and carries the standardized License Status
 --- property. LEGACY = operate normally until the entitlement backend lists
@@ -98,6 +99,16 @@ local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERI
 local POLL_TIMER = "BondPoll"
 local KEEPALIVE_TIMER = "BondBpupKeepalive"
 local PROVISION_RENAME_TIMER = "BondProvisionRename"
+local DISCOVERY_QUERY_TIMER = "BondDiscoveryQuery"
+local DISCOVERY_STOP_TIMER = "BondDiscoveryStop"
+
+--- How long a discovery session listens. mDNS answers arrive within a
+--- second or two; the window covers a lossy Wi-Fi re-ask.
+local DISCOVERY_WINDOW_SECONDS = 6
+
+--- The Bond Address property's install default, treated as "unset" by the
+--- discovery auto-fill.
+local DEFAULT_ADDRESS = "192.168.1.50"
 
 --- BPUP keep-alives are due every 60s; 50 keeps one lost datagram from
 --- crossing the Bond's 125s client timeout.
@@ -144,6 +155,12 @@ gPushedStateHash = {}
 
 --- The BPUP transport, created at init (needs handlers loaded first).
 gBpup = nil
+
+--- The mDNS resolver, created on first discovery.
+gDiscovery = nil
+
+--- Bonds heard during discovery: bondid -> { ip, port, fw, setup }.
+gDiscovered = {}
 
 --- Forward declarations, defined below in dependency order.
 local pushDeviceStates, syncDevices, testConnection, startPush, stopPush
@@ -859,6 +876,99 @@ stopPush = function()
   UpdateProperty("Push Status", "Off")
 end
 
+-- ─── mDNS discovery ───────────────────────────────────────────────────────────
+--
+-- Every Bond announces `_bond._tcp.local`; a one-shot resolver (QU-bit
+-- unicast replies, src/bond/mdns.lua) finds them so nobody types an IP.
+-- Runs once at startup and on demand; results land in the Discovered Bonds
+-- property, and an UNCONFIGURED gateway auto-fills its address with the
+-- first Bond heard — a configured or connected gateway is never re-pointed.
+
+--- One line per Bond heard, for the property.
+local function describeDiscovered()
+  local ids = {}
+  for bondid in pairs(gDiscovered) do
+    table.insert(ids, bondid)
+  end
+  table.sort(ids)
+  local lines = {}
+  for _, bondid in ipairs(ids) do
+    local device = gDiscovered[bondid]
+    table.insert(
+      lines,
+      string.format("%s @ %s%s", bondid, tostring(device.ip or "?"), device.setup and " (setup mode)" or "")
+    )
+  end
+  return table.concat(lines, "; ")
+end
+
+local function handleDiscoveredDevice(device)
+  if device.ip == nil then
+    return
+  end
+  local known = gDiscovered[device.bondid]
+  if known ~= nil and known.ip == device.ip then
+    return
+  end
+  gDiscovered[device.bondid] = {
+    ip = device.ip,
+    port = device.port,
+    fw = (device.txt or {}).v,
+    setup = (device.txt or {}).d == "1",
+  }
+  UpdateProperty("Discovered Bonds", describeDiscovered())
+  log:print(
+    "Discovered Bond %s at %s%s",
+    device.bondid,
+    device.ip,
+    (device.txt or {}).v and (" (fw " .. device.txt.v .. ")") or ""
+  )
+
+  -- Auto-fill: only while the address is still the install default (or
+  -- empty) and nothing is connected. First Bond heard wins; a second one
+  -- shows up in the property for the dealer to pick deliberately.
+  local address = tostring(Properties["Bond Address"] or "")
+  if not gConnected and (address == "" or address == DEFAULT_ADDRESS) then
+    log:print("Bond Address auto-filled with %s (%s)", device.ip, device.bondid)
+    UpdateProperty("Bond Address", device.ip)
+    configureClient()
+    testConnection()
+    schedulePoll()
+    startPush()
+  end
+end
+
+local function stopDiscovery()
+  CancelTimer(DISCOVERY_QUERY_TIMER)
+  CancelTimer(DISCOVERY_STOP_TIMER)
+  if gDiscovery ~= nil then
+    gDiscovery:stop()
+  end
+end
+
+local function startDiscovery()
+  stopDiscovery()
+  if gDiscovery == nil then
+    gDiscovery = Mdns.new({ onDevice = handleDiscoveredDevice })
+  end
+  if not gDiscovery:start() then
+    UpdateProperty("Discovered Bonds", "unavailable - no free network binding")
+    return
+  end
+  gDiscovery:query()
+  -- mDNS is lossy multicast: re-ask through the window, then close the
+  -- socket — this is a one-shot resolver, not a standing responder.
+  SetTimer(DISCOVERY_QUERY_TIMER, 2 * ONE_SECOND, function()
+    gDiscovery:query()
+  end, true)
+  SetTimer(DISCOVERY_STOP_TIMER, DISCOVERY_WINDOW_SECONDS * ONE_SECOND, function()
+    stopDiscovery()
+    if next(gDiscovered) == nil then
+      UpdateProperty("Discovered Bonds", "none heard - check that the controller and Bond share a network")
+    end
+  end)
+end
+
 -- ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 local function registerGatewayEvents()
@@ -934,12 +1044,18 @@ function OnDriverLateInit()
   else
     setConnected(false, "Not configured - set the Bond Address and Local Token")
   end
+
+  -- One discovery pass at every start: fills the Discovered Bonds property,
+  -- and auto-fills the address on a factory-fresh instance. Cheap (a 6s
+  -- listening window), and a configured gateway is never re-pointed by it.
+  startDiscovery()
 end
 
 function OnDriverDestroyed()
   CancelTimer(POLL_TIMER)
   CancelTimer(PROVISION_RENAME_TIMER)
   stopPush()
+  stopDiscovery()
 end
 
 -- ─── Conditionals ─────────────────────────────────────────────────────────────
@@ -1039,6 +1155,14 @@ function EC.TEST_CONNECTION()
   log:trace("EC.TEST_CONNECTION()")
   configureClient()
   testConnection()
+end
+
+function EC.DISCOVER_BONDS()
+  log:trace("EC.DISCOVER_BONDS()")
+  gDiscovered = {}
+  UpdateProperty("Discovered Bonds", "searching...")
+  log:print("Searching for Bonds on the network (mDNS _bond._tcp, %ds window)...", DISCOVERY_WINDOW_SECONDS)
+  startDiscovery()
 end
 
 function EC.SYNC_DEVICES()

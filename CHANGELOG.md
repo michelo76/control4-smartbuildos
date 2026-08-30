@@ -53,6 +53,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   programming. HT devices with SetHeat derive HEATER automatically; power-only
   heaters keep the simpler Bond Switch.
 
+- **Bond mDNS auto-discovery**: the gateway searches for `_bond._tcp.local`
+  at startup and on demand (Discover Bonds On Network action) with a
+  one-shot RFC 6762 resolver — the QU bit makes Bonds reply unicast straight
+  to the driver's socket, no multicast group membership needed. Every Bond
+  heard lists in the Discovered Bonds property as `id @ address` (with setup
+  mode flagged); a factory-fresh instance auto-fills its Bond Address with
+  the first Bond heard, and a configured gateway is never re-pointed. The
+  DNS wire parser (name compression included) is pure and pinned by its own
+  test suite.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added

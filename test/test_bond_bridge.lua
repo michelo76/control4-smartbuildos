@@ -217,6 +217,7 @@ Properties = {
   ["Devices"] = "-",
   ["Scenes"] = "-",
   ["Bond PIN"] = "",
+  ["Discovered Bonds"] = "-",
   ["Push Status"] = "Off",
   ["Last Sync"] = "Never",
   ["License Status"] = "-",
@@ -598,6 +599,99 @@ check(
   tostring(props["Connection Status"]):find("forgotten") ~= nil,
   props["Connection Status"]
 )
+
+-- ─── [10] mDNS discovery ─────────────────────────────────────────────────────
+
+print("\n[10] Discovery fills the property; only a default address auto-fills")
+
+--- A full (uncompressed) mDNS answer for one Bond: PTR + SRV + A.
+local function mdnsAnswer(bondid, a, b, c, d)
+  local function num16(n)
+    return string.char(math.floor(n / 256), n % 256)
+  end
+  local function num32(n)
+    return num16(math.floor(n / 65536)) .. num16(n % 65536)
+  end
+  local function dnsName(name)
+    local out = {}
+    for lab in name:gmatch("[^%.]+") do
+      table.insert(out, string.char(#lab) .. lab)
+    end
+    return table.concat(out) .. "\0"
+  end
+  local instance = dnsName(bondid .. "._bond._tcp.local")
+  local host = dnsName(bondid .. ".local")
+  local srvData = num16(0) .. num16(0) .. num16(80) .. host
+  return table.concat({
+    num16(0),
+    num16(0x8400),
+    num16(0),
+    num16(3),
+    num16(0),
+    num16(0),
+    dnsName("_bond._tcp.local"),
+    num16(12),
+    num16(1),
+    num32(120),
+    num16(#instance),
+    instance,
+    instance,
+    num16(33),
+    num16(1),
+    num32(120),
+    num16(#srvData),
+    srvData,
+    host,
+    num16(1),
+    num16(1),
+    num32(120),
+    num16(4),
+    string.char(a, b, c, d),
+  })
+end
+
+-- The startup pass already opened the resolver socket; find its binding.
+local discBinding
+for _, call in ipairs(netCalls) do
+  if call.call == "create" and call.host == "224.0.0.251" then
+    discBinding = call.id
+  end
+end
+check("discovery socket opened at startup", discBinding ~= nil and RFN[discBinding] ~= nil)
+
+-- Address is the install default and the token is forgotten → auto-fill.
+routeHappyBond()
+requests = {}
+EC.DISCOVER_BONDS()
+check("action says searching", props["Discovered Bonds"] == "searching...")
+
+RFN[discBinding](discBinding, 5353, mdnsAnswer("ZZBL54321", 10, 0, 0, 9))
+check(
+  "discovered Bond listed",
+  tostring(props["Discovered Bonds"]):find("ZZBL54321 @ 10.0.0.9", 1, true) ~= nil,
+  props["Discovered Bonds"]
+)
+check("default address auto-filled", props["Bond Address"] == "10.0.0.9", props["Bond Address"])
+local probed = false
+for _, r in ipairs(requests) do
+  if r.url == "http://10.0.0.9/v2/sys/version" then
+    probed = true
+  end
+end
+check("auto-fill probed the discovered Bond", probed)
+
+-- Reconnect (token pasted) and hear a DIFFERENT Bond: never re-pointed.
+Properties["Local Token"] = "deadbeef01"
+OnPropertyChanged("Local Token")
+check("reconnected to the discovered Bond", TC.BOND_CONNECTED() == true)
+
+RFN[discBinding](discBinding, 5353, mdnsAnswer("ZZBL99999", 10, 0, 0, 42))
+check(
+  "second Bond listed too",
+  tostring(props["Discovered Bonds"]):find("ZZBL99999 @ 10.0.0.42", 1, true) ~= nil,
+  props["Discovered Bonds"]
+)
+check("a connected gateway is never re-pointed", props["Bond Address"] == "10.0.0.9", props["Bond Address"])
 
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 

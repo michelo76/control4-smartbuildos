@@ -30,8 +30,12 @@ baked in from day one, plus the capabilities their architecture can't reach.
    thermostatV2, heat-only, Celsius-pinned 0-100 setpoint = SetHeat, blank
    ambient (no invented readings), Extras timer in minutes, relay + button
    links. HT devices with SetHeat derive HEATER; power-only HT stays GENERIC.
-2. **mDNS auto-discovery** (`_bond._tcp`) — address-less setup; needs the
-   SSDP/mDNS surface, hardware to verify.
+2. ~~**mDNS auto-discovery**~~ ✅ BUILT (`src/bond/mdns.lua` + gateway):
+   one-shot RFC 6762 resolver for `_bond._tcp.local` with the QU bit
+   (unicast replies reach the net-binding UDP socket — same to-verify
+   transport as BPUP); Discovered Bonds property, Discover action, startup
+   pass, auto-fill of a still-default address, never re-points a
+   configured gateway.
 3. **Sidekick / keypad support** (`/v2/sidekicks`) — Bond's physical remotes
    as C4 keypads.
 4. **Firefly color devices** — Color/ColorTemp features (SetHSV); light_v2
