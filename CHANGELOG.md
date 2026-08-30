@@ -86,6 +86,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sensor goes quiet. The gateway polls the sidekicks tree hash alongside devices
   and routes pushed weather state through the same pipeline as everything else.
 
+- **Bond Color Light** (`bond-color-light.c4z`, 10th driver, OS 3.3.0+): Firefly
+  bulbs and strips as full Control4 color lights — dimmer, color wheel, and
+  white color-temperature picker on a light_v2 proxy. All colorimetry goes
+  through the OS C4:Color\* conversion helpers; the color wheel sends
+  hue+saturation and leaves brightness on the slider (Bond's own
+  recommendation), CCT targets clamp to the device's real Kelvin range or
+  degrade honestly to white on devices without the ColorTemp feature, and white
+  at a known temperature reports back in CCT mode so the picker lands on the
+  right tab. Devices with SetHSV derive the color child automatically; plain
+  lights keep the simpler driver.
+
 ## v20260829.222717 - 2026-08-29
 
 ### Added

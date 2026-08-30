@@ -751,6 +751,129 @@ resetTraffic()
 RFP.GET_SENSOR_VALUE(100)
 check("a consumer's request republishes the value", #proxyNotifies(100, "VALUE_CHANGED") >= 1)
 
+-- ═══ COLOR LIGHT ══════════════════════════════════════════════════════════════
+
+print("\n[color light] xy<->HSV mapping, CCT clamping and fallback")
+
+-- Deterministic conversion stubs — the driver never does colorimetry math
+-- of its own, so the tests pin only that the right helper feeds the right
+-- Bond action.
+function C4:ColorXYtoHSV(x, y)
+  return 120, 80, 100
+end
+function C4:ColorHSVtoXY(h, s, v)
+  return 0.41, 0.42
+end
+function C4:ColorXYtoCCT(x, y)
+  return gTestCct or 3000
+end
+function C4:ColorCCTtoXY(k)
+  return 0.38, 0.39
+end
+
+local model = require("bond.model")
+local fns = model.deriveFunctions("LT", { "TurnLightOn", "TurnLightOff", "ToggleLight", "SetBrightness", "SetHSV" })
+check("SetHSV derives COLOR_LIGHT, not LIGHT", #fns == 1 and fns[1] == "COLOR_LIGHT", table.concat(fns, "+"))
+
+loadChild(
+  "bond-color-light",
+  childProps({
+    ["Light"] = "-",
+    ["Brightness"] = "-",
+    ["Color"] = "-",
+    ["Color Temperature"] = "-",
+  })
+)
+
+firedEvents = {}
+identify({
+  id = "ff1",
+  fn = "COLOR_LIGHT",
+  name = "Patio Firefly",
+  type = "LT",
+  actions = { "TurnLightOn", "TurnLightOff", "ToggleLight", "SetBrightness", "SetHSV", "SetColorTemp" },
+  props = { min_color_temp = 2200, max_color_temp = 6500 },
+  state = { light = 1, brightness = 60, hsv = { h = 30, s = 90, v = 60 } },
+})
+
+check("brightness published", props["Brightness"] == "60%", props["Brightness"])
+check("color property", props["Color"] == "hue 30, saturation 90%", props["Color"])
+local colors = proxyNotifies(5001, "LIGHT_COLOR_CHANGED")
+check("color notified to the proxy in xy", #colors >= 1)
+check(
+  "full-color mode with converted coordinates",
+  #colors >= 1
+    and colors[#colors].params.LIGHT_COLOR_CURRENT_X == 0.41
+    and colors[#colors].params.LIGHT_COLOR_CURRENT_COLOR_MODE == 0
+)
+check("first sight is baseline - no Color Changed event", #firedEvents == 0, firedEvents[1])
+
+resetTraffic()
+RFP.SET_COLOR_TARGET(5001, nil, { LIGHT_COLOR_TARGET_X = 0.2, LIGHT_COLOR_TARGET_Y = 0.6, LIGHT_COLOR_TARGET_MODE = 0 })
+a = lastAction()
+local colorArg = a ~= nil and JSON:decode(a.argument or "") or nil
+check("color wheel → SetHSV", a ~= nil and a.action == "SetHSV")
+check(
+  "h and s only, no brightness",
+  type(colorArg) == "table" and colorArg.h == 120 and colorArg.s == 80 and colorArg.v == nil
+)
+
+resetTraffic()
+gTestCct = 3000
+RFP.SET_COLOR_TARGET(5001, nil, { LIGHT_COLOR_TARGET_X = 0.4, LIGHT_COLOR_TARGET_Y = 0.4, LIGHT_COLOR_TARGET_MODE = 1 })
+a = lastAction()
+check("CCT picker → SetColorTemp", a ~= nil and a.action == "SetColorTemp" and a.argument == "3000", a and a.argument)
+
+resetTraffic()
+gTestCct = 1500
+RFP.SET_COLOR_TARGET(
+  5001,
+  nil,
+  { LIGHT_COLOR_TARGET_X = 0.5, LIGHT_COLOR_TARGET_Y = 0.41, LIGHT_COLOR_TARGET_MODE = 1 }
+)
+a = lastAction()
+check("CCT below the device range clamps to min", a ~= nil and a.argument == "2200", a and a.argument)
+
+resetTraffic()
+firedEvents = {}
+pushState({ light = 1, brightness = 60, hsv = { h = 200, s = 50, v = 60 } })
+check("color transition fires Color Changed", firedEvents[#firedEvents] == "Color Changed")
+
+resetTraffic()
+pushState({ light = 1, brightness = 60, hsv = { h = 0, s = 0, v = 60 }, color_temp = 2700 })
+colors = proxyNotifies(5001, "LIGHT_COLOR_CHANGED")
+check(
+  "white at a known temperature reports CCT mode",
+  #colors >= 1 and colors[#colors].params.LIGHT_COLOR_CURRENT_COLOR_MODE == 1
+)
+
+-- Reload as a Firefly WITHOUT ColorTemp: CCT degrades to white.
+loadChild(
+  "bond-color-light",
+  childProps({ ["Light"] = "-", ["Brightness"] = "-", ["Color"] = "-", ["Color Temperature"] = "-" })
+)
+identify({
+  id = "ff2",
+  fn = "COLOR_LIGHT",
+  name = "Strip",
+  actions = { "TurnLightOn", "TurnLightOff", "ToggleLight", "SetBrightness", "SetHSV" },
+  state = { light = 1, brightness = 100, hsv = { h = 10, s = 10, v = 100 } },
+})
+resetTraffic()
+gTestCct = 4000
+RFP.SET_COLOR_TARGET(
+  5001,
+  nil,
+  { LIGHT_COLOR_TARGET_X = 0.38, LIGHT_COLOR_TARGET_Y = 0.38, LIGHT_COLOR_TARGET_MODE = 1 }
+)
+a = lastAction()
+colorArg = a ~= nil and JSON:decode(a.argument or "") or nil
+check(
+  "CCT without the feature degrades to white HSV",
+  a ~= nil and a.action == "SetHSV" and type(colorArg) == "table" and colorArg.s == 0,
+  a and a.action
+)
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

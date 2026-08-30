@@ -49,8 +49,12 @@ baked in from day one, plus the capabilities their architecture can't reach.
    provider connections so the Breeze is any thermostat's outdoor sensor
    (unavailable on no-data, never stale), sidekicks-tree hash polling +
    BPUP state routing in the gateway.
-4. **Firefly color devices** — Color/ColorTemp features (SetHSV); light_v2
-   color capabilities on a dedicated bond-color-light child.
+4. ~~**Firefly color devices**~~ ✅ BUILT (`bond-color-light`, 10th driver,
+   OS 3.3.0+): light_v2 with color wheel + CCT picker; xy↔HSV↔Kelvin via the
+   C4:Color* helpers only (no home-grown colorimetry); color sends h+s and
+   leaves brightness alone; CCT clamps to the device's real range or
+   degrades to white-HSV without the ColorTemp feature; SetHSV in actions[]
+   derives COLOR_LIGHT over LIGHT automatically.
 5. Per-shade-type Navigator icons (their Curtain-icon fix) — blind proxy
    SET_TYPE from Bond `subtype` (ROLLER/SHEER/AWNING → type enum).
 

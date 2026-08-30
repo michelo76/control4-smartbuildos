@@ -83,6 +83,7 @@ local FUNCTION_NS = {
   GENERIC = "bond_generic",
   KEYPAD = "bond_keypad",
   WEATHER = "bond_weather",
+  COLOR_LIGHT = "bond_color_light",
 }
 
 --- Child driver file per function, for Auto Configure.
@@ -95,10 +96,11 @@ local PROVISION_FILES = {
   GENERIC = "bond-generic.c4z",
   KEYPAD = "bond-keypad.c4z",
   WEATHER = "bond-weather.c4z",
+  COLOR_LIGHT = "bond-color-light.c4z",
 }
 
 --- Function order for walks that should be deterministic.
-local FUNCTION_ORDER = { "FAN", "LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC", "KEYPAD", "WEATHER" }
+local FUNCTION_ORDER = { "FAN", "LIGHT", "COLOR_LIGHT", "SHADE", "FIREPLACE", "HEATER", "GENERIC", "KEYPAD", "WEATHER" }
 
 local POLL_TIMER = "BondPoll"
 local KEEPALIVE_TIMER = "BondBpupKeepalive"

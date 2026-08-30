@@ -24,6 +24,7 @@ M.FUNCTIONS = {
   FIREPLACE = "FIREPLACE",
   HEATER = "HEATER",
   GENERIC = "GENERIC",
+  COLOR_LIGHT = "COLOR_LIGHT",
   -- Not derived from actions[]: assigned by the gateway from the
   -- /v2/sidekicks enumeration (keypads and Breeze weather sensors).
   KEYPAD = "KEYPAD",
@@ -47,6 +48,7 @@ M.BINDING_CLASSES = {
   FIREPLACE = "SBOS_BOND_FIREPLACE",
   HEATER = "SBOS_BOND_HEATER",
   GENERIC = "SBOS_BOND_GENERIC",
+  COLOR_LIGHT = "SBOS_BOND_COLOR_LIGHT",
   KEYPAD = "SBOS_BOND_KEYPAD",
   WEATHER = "SBOS_BOND_WEATHER",
 }
@@ -96,8 +98,13 @@ function M.deriveFunctions(deviceType, actions)
   end
 
   -- The main light rides ALONGSIDE whatever the device otherwise is. A pure
-  -- light device (LT, or a dimmer template) has only this.
-  if has.TurnLightOn or has.ToggleLight then
+  -- light device (LT, or a dimmer template) has only this. Full-color
+  -- devices (Firefly — the Color feature's SetHSV) get the color child
+  -- instead; the plain light child would waste the hardware.
+  if has.SetHSV then
+    table.insert(functions, M.FUNCTIONS.COLOR_LIGHT)
+    claimed = true
+  elseif has.TurnLightOn or has.ToggleLight then
     table.insert(functions, M.FUNCTIONS.LIGHT)
     claimed = true
   end
@@ -134,6 +141,7 @@ function M.childLabel(name, fn, isPrimary)
   end
   local suffixes = {
     LIGHT = " Light",
+    COLOR_LIGHT = " Light",
     FAN = " Fan",
     SHADE = " Shade",
     FIREPLACE = " Fireplace",

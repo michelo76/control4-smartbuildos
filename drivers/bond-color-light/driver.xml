@@ -1,0 +1,234 @@
+<devicedata>
+  <name>Bond Color Light (SBOS)</name>
+  <version/>
+  <manufacturer>Olibra</manufacturer>
+  <model>Bond Color Light (SBOS)</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/30/2026 12:00:00 PM</created>
+  <modified/>
+  <!-- 3.3.0: the C4:Color* conversion helpers this driver's xy<->HSV
+       mapping stands on shipped with OS 3.3.0. -->
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Light</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BOND_COLOR_LIGHT_ON</name>
+      <type>BOOL</type>
+      <condition_statement>Light state</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>On</true_text>
+      <false_text>Off</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Light On</name><description>The light turned on.</description></event>
+    <event><id>2</id><name>Light Off</name><description>The light turned off.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <actions>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Refresh From Gateway</name><command>REFRESH_FROM_GATEWAY</command></action>
+      <action><name>Forget Device</name><command>FORGET_DEVICE</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Bond Device</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound</default>
+        <description>Which Bond color light this instance represents - bind the Bond Color Light connection to the Bond Bridge Gateway.</description>
+      </property>
+      <property>
+        <name>Gateway Link</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not bound - bind the Bond Color Light connection to the Gateway</default>
+      </property>
+      <property>
+        <name>Light</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Color</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Color Temperature</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Brightness</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Last Control</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Set Color</name>
+        <description>Set color to HUE (0-359) and SATURATION (0-100) percent</description>
+        <params>
+          <param><name>Hue</name><type>STRING</type></param>
+          <param><name>Saturation</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Color Temperature</name>
+        <description>Set white color temperature to KELVIN</description>
+        <params>
+          <param><name>Kelvin</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Start Dimmer</name>
+        <description>Start the hold-to-dim cycle (Stop Dimmer ends it)</description>
+      </command>
+      <command>
+        <name>Stop Dimmer</name>
+        <description>Stop an in-progress dim cycle</description>
+      </command>
+    </commands>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Bond Color Light" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">light_v2</proxy>
+  </proxies>
+  <capabilities>
+    <supports_target>true</supports_target>
+    <set_level>true</set_level>
+    <dimmer>true</dimmer>
+    <has_button_events>false</has_button_events>
+    <supports_color>true</supports_color>
+    <supports_color_correlated_temperature>true</supports_color_correlated_temperature>
+    <color_correlated_temperature_min>2000</color_correlated_temperature_min>
+    <color_correlated_temperature_max>7000</color_correlated_temperature_max>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Light</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>LIGHT_V2</classname></class></classes>
+    </connection>
+    <connection>
+      <id>300</id>
+      <facing>6</facing>
+      <connectionname>Toggle Button Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>301</id>
+      <facing>6</facing>
+      <connectionname>Light On Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>302</id>
+      <facing>6</facing>
+      <connectionname>Light Off Link</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>BUTTON_LINK</classname></class></classes>
+    </connection>
+    <connection>
+      <id>1</id>
+      <facing>6</facing>
+      <connectionname>Bond Color Light</connectionname>
+      <type>1</type>
+      <consumer>True</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes>
+        <class>
+          <classname>SBOS_BOND_COLOR_LIGHT</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

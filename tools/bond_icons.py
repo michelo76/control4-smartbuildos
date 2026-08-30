@@ -211,6 +211,19 @@ def weather_glyph() -> str:
 </g>"""
 
 
+def color_bulb_glyph() -> str:
+    """Firefly: the bulb outline with a hue-dot arc inside."""
+    dots = "".join(
+        f'<circle cx="{cx}" cy="{cy}" r="4.5" fill="{color}"/>'
+        for (cx, cy, color) in [
+            (40, 40, "#ef4444"),
+            (50, 35, "#f59e0b"),
+            (60, 40, "#3b82f6"),
+        ]
+    )
+    return bulb(False) + dots
+
+
 def bridge_glyph() -> str:
     return f"""
 <g stroke="{NEUTRAL}" stroke-width="5" fill="none" stroke-linecap="round">
@@ -253,6 +266,7 @@ DEVICE_ICONS = {
     "bond-generic": svg(power(False)),
     "bond-keypad": svg(keypad_glyph()),
     "bond-weather": svg(weather_glyph()),
+    "bond-color-light": svg(color_bulb_glyph()),
 }
 
 
