@@ -1816,14 +1816,37 @@ local function postDriverEvent(sku, severity, category, code, message)
   end)
 end
 
---- Forwards Atmosphere remote settings from the heartbeat response to every
---- installed Atmosphere driver instance. Forwarded, not applied — the
---- Atmosphere driver owns its versioned validation and answers with
---- SBOS_ATMOSPHERE_CONFIG_ACK. Change-gated so a static config does not
+--- Which .c4z files carry which SKU. Remote settings are addressed by SKU
+--- on the platform and delivered to DEVICES here, so the Agent needs the
+--- mapping; a suite's children share the parent's SKU exactly as the store
+--- publish map does. Unknown SKUs are simply not deliverable — an Agent
+--- that predates a driver must never guess at filenames.
+local SKU_FILENAMES = {
+  SBOS_ATMOSPHERE = { "smartbuildos-atmosphere.c4z" },
+  SBOS_MODE_COMPOSER = { "smartbuildos-mode-composer.c4z", "smartbuildos-mode-button.c4z" },
+  SBOS_UNIFI_PROTECT = {
+    "unifi-protect.c4z",
+    "unifi-protect-camera.c4z",
+    "unifi-protect-chime.c4z",
+    "unifi-protect-input.c4z",
+    "unifi-protect-light.c4z",
+    "unifi-protect-sensor.c4z",
+    "unifi-protect-viewport.c4z",
+  },
+}
+
+--- Forwards ONE driver's remote settings from the heartbeat response to
+--- every installed instance of that driver. Forwarded, not applied — the
+--- receiving driver owns its versioned validation and answers with
+--- SBOS_DRIVER_CONFIG_ACK. Change-gated per SKU so a static config does not
 --- re-send on every heartbeat.
-local ATMOS_CONFIG_FWD_KEY = "sbos_atmosphere_config_forwarded"
-local function forwardAtmosphereConfig(cfg)
+local function forwardDriverConfig(cfg, legacySku)
   if type(cfg) ~= "table" or cfg.settings == nil then
+    return
+  end
+  local sku = tostring(cfg.driver_sku or legacySku or "")
+  local filenames = SKU_FILENAMES[sku]
+  if filenames == nil then
     return
   end
   local ok, encoded = pcall(function()
@@ -1832,55 +1855,90 @@ local function forwardAtmosphereConfig(cfg)
   if not ok or type(encoded) ~= "string" then
     return
   end
+  local fingerprintKey = "sbos_driver_config_fwd_" .. sku:lower()
   local fingerprint = tostring(cfg.settings_version or 1) .. "|" .. encoded
-  if fingerprint == persist:get(ATMOS_CONFIG_FWD_KEY, "") then
+  if fingerprint == persist:get(fingerprintKey, "") then
     return
   end
-  local targets = C4:GetDevicesByC4iName("smartbuildos-atmosphere.c4z") or {}
   local sent = 0
-  for id in pairs(targets) do
-    local deviceId = tonumber(id)
-    if deviceId ~= nil then
-      pcall(function()
-        C4:SendToDevice(deviceId, "SBOS_ATMOSPHERE_CONFIG", {
+  for _, filename in ipairs(filenames) do
+    for id in pairs(C4:GetDevicesByC4iName(filename) or {}) do
+      local deviceId = tonumber(id)
+      if deviceId ~= nil then
+        local params = {
+          sku = sku,
           settings = encoded,
           settings_version = tostring(cfg.settings_version or 1),
           requester = tostring(C4:GetDeviceID()),
-        })
-      end)
-      sent = sent + 1
+        }
+        pcall(function()
+          C4:SendToDevice(deviceId, "SBOS_DRIVER_CONFIG", params)
+        end)
+        -- Drivers released before the generic protocol listen for the
+        -- Atmosphere-specific command; harmless for others to ignore.
+        if sku == "SBOS_ATMOSPHERE" then
+          pcall(function()
+            C4:SendToDevice(deviceId, "SBOS_ATMOSPHERE_CONFIG", params)
+          end)
+        end
+        sent = sent + 1
+      end
     end
   end
   if sent > 0 then
-    -- Remember only after a successful send so an Atmosphere driver added
-    -- LATER still receives the current config on the next change... and on
-    -- the next heartbeat after install (fingerprint intentionally includes
-    -- no target list; a fresh install with no config change waits for the
-    -- next config edit or re-pair, documented in SMARTBUILDOS_INTEGRATION).
-    persist:set(ATMOS_CONFIG_FWD_KEY, fingerprint)
-    log:info("Atmosphere settings forwarded to %d instance(s) (v%s)", sent, tostring(cfg.settings_version or 1))
+    -- Remember only after a successful send so a driver added LATER still
+    -- receives the current config on the next change (the fingerprint
+    -- intentionally carries no target list; a fresh install with no config
+    -- change waits for the next edit or re-pair — see
+    -- SMARTBUILDOS_INTEGRATION).
+    persist:set(fingerprintKey, fingerprint)
+    log:info("%s settings forwarded to %d instance(s) (v%s)", sku, sent, tostring(cfg.settings_version or 1))
   end
 end
 
---- The Atmosphere driver's answer to a forwarded config: audit-logged to
---- Driver Cloud so a dealer can see whether a remote change actually landed.
-function EC.SBOS_ATMOSPHERE_CONFIG_ACK(tParams)
+--- The heartbeat's generic block: one entry per driver with remote settings.
+local function forwardDriverConfigs(list)
+  if type(list) ~= "table" then
+    return
+  end
+  for _, cfg in ipairs(list) do
+    forwardDriverConfig(cfg)
+  end
+end
+
+--- A driver's answer to a forwarded config: audit-logged to Driver Cloud so
+--- a dealer can see whether a remote change actually landed.
+local function recordConfigAck(tParams, legacySku)
   tParams = tParams or {}
+  local sku = tostring(tParams.sku or legacySku or "")
+  if sku == "" then
+    return
+  end
   local applied = tostring(tParams.applied) == "true"
   local refused = tonumber(tParams.refused) or 0
   log:info(
-    "Atmosphere config ack: applied=%s refused=%d (schema v%s)",
+    "%s config ack: applied=%s refused=%d (schema v%s)",
+    sku,
     tostring(applied),
     refused,
     tostring(tParams.settings_version)
   )
   postDriverEvent(
-    "SBOS_ATMOSPHERE",
+    sku,
     applied and (refused > 0 and "WARNING" or "INFO") or "ERROR",
     "CONFIGURATION",
     applied and "remote_settings_applied" or "remote_settings_refused",
     string.format("Remote settings v%s: %d field(s) refused", tostring(tParams.settings_version), refused)
   )
+end
+
+function EC.SBOS_DRIVER_CONFIG_ACK(tParams)
+  recordConfigAck(tParams)
+end
+
+--- Back-compat for drivers released before the generic protocol.
+function EC.SBOS_ATMOSPHERE_CONFIG_ACK(tParams)
+  recordConfigAck(tParams, "SBOS_ATMOSPHERE")
 end
 
 --- Atmosphere cloud state mirror: the Atmosphere driver asks us to publish
@@ -1889,34 +1947,54 @@ end
 --- localhost — same-controller, avoids inter-driver message size limits —
 --- and POST it with our bearer auth. Throttled here as the last line of
 --- defense; the driver throttles too.
-local gAtmosLastPush = 0
-function EC.SBOS_ATMOSPHERE_STATE(tParams)
+--- Per-SKU throttle. One shared timestamp would let a chatty driver spend
+--- another driver's budget, so each SKU gets its own window.
+local gStateLastPush = {}
+local STATE_THROTTLE_SECONDS = 45
+
+--- Mirrors ONE driver's UI state to SmartBuildOS.
+---
+--- The driver asks; this does the fetch and the authenticated POST, because
+--- the Agent is where the account credentials live and a dependent driver
+--- must never hold them. The state is read from the asking driver's own LAN
+--- server over LOOPBACK — same controller, so nothing sensitive crosses a
+--- wire and inter-driver message size limits never apply.
+---
+--- tParams: sku, port, path (default /state), app_token, requester, urgent.
+local function mirrorDriverState(tParams, legacy)
   tParams = tParams or {}
+  local sku = tostring(tParams.sku or "")
   local port = tonumber(tParams.port)
   local token = tostring(tParams.app_token or "")
+  local path = tostring(tParams.path or "/state")
   local requester = tonumber(tParams.requester)
-  if port == nil or token == "" then
+  if sku == "" or port == nil or token == "" then
     return
   end
-  if os.time() - gAtmosLastPush < 45 and tostring(tParams.urgent) ~= "true" then
+  if path:sub(1, 1) ~= "/" then
+    path = "/" .. path
+  end
+  local last = gStateLastPush[sku] or 0
+  if os.time() - last < STATE_THROTTLE_SECONDS and tostring(tParams.urgent) ~= "true" then
     return
   end
   local base = tostring(Properties["API URL"] or ""):gsub("/+$", "")
   if base == "" or not isPaired() then
     return
   end
-  http:get(string.format("http://127.0.0.1:%d/state?k=%s", port, token), {}, { timeout = 10 }):next(function(resp)
+  local localUrl = string.format("http://127.0.0.1:%d%s?k=%s", port, path, token)
+  http:get(localUrl, {}, { timeout = 10 }):next(function(resp)
     local ok, state = pcall(function()
       return JSON:decode(resp.body)
     end)
     if not ok or type(state) ~= "table" then
       return
     end
-    gAtmosLastPush = os.time()
+    gStateLastPush[sku] = os.time()
     http
       :post(
-        driverCloudUrl("atmosphere/state"),
-        { state = state, app_token = token },
+        driverCloudUrl("state"),
+        { driver_sku = sku, state = state, app_token = token },
         authHeaders(),
         { timeout = REQUEST_TIMEOUT }
       )
@@ -1925,19 +2003,42 @@ function EC.SBOS_ATMOSPHERE_STATE(tParams)
           return JSON:decode(postResp.body)
         end)
         if okB and type(body) == "table" and body.view_url ~= nil and requester ~= nil then
+          local ack = {
+            sku = sku,
+            view_url = tostring(body.view_url),
+            view_handle = tostring(body.view_handle or ""),
+          }
           pcall(function()
-            C4:SendToDevice(requester, "SBOS_ATMOSPHERE_STATE_ACK", {
-              view_url = tostring(body.view_url),
-              view_handle = tostring(body.view_handle or ""),
-            })
+            C4:SendToDevice(requester, "SBOS_DRIVER_STATE_ACK", ack)
           end)
+          -- A driver that asked with the legacy command is listening for the
+          -- legacy ack name; without this it would mirror successfully and
+          -- still never learn its capability URL.
+          if legacy then
+            pcall(function()
+              C4:SendToDevice(requester, "SBOS_ATMOSPHERE_STATE_ACK", ack)
+            end)
+          end
         end
       end, function(err)
-        log:debug("Atmosphere state push failed: %s", tostring(type(err) == "table" and err.error or err))
+        log:debug("%s state push failed: %s", sku, tostring(type(err) == "table" and err.error or err))
       end)
   end, function()
-    log:debug("Atmosphere state fetch from local relay :%d failed", port)
+    log:debug("%s state fetch from local server :%d%s failed", sku, port, path)
   end)
+end
+
+function EC.SBOS_DRIVER_STATE(tParams)
+  mirrorDriverState(tParams)
+end
+
+--- Back-compat: drivers released before the generic protocol ask with the
+--- Atmosphere-specific command and no sku. Kept so a mixed-version fleet
+--- keeps mirroring during a rollout; remove once no field build sends it.
+function EC.SBOS_ATMOSPHERE_STATE(tParams)
+  tParams = tParams or {}
+  tParams.sku = tParams.sku or "SBOS_ATMOSPHERE"
+  mirrorDriverState(tParams, true)
 end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
@@ -2000,7 +2101,11 @@ local function sendHeartbeat()
       -- Atmosphere remote settings ride the same heartbeat (this driver has
       -- no inbound channel), ABOVE the monitor early-return for the same
       -- reason the site label is.
-      pcall(forwardAtmosphereConfig, body.atmosphere)
+      -- Generic block: one entry per driver with remote settings. The
+      -- legacy `atmosphere` block is still honored so an older platform
+      -- deploy keeps configuring Atmosphere during a rollout.
+      pcall(forwardDriverConfigs, body.driver_config)
+      pcall(forwardDriverConfig, body.atmosphere, "SBOS_ATMOSPHERE")
 
       local monitor = body.monitor
       if type(monitor) ~= "table" then

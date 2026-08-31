@@ -41,6 +41,7 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local mirror = require("sbos.mirror")
 
 local nws = require("atmosphere.nws")
 local normalize = require("atmosphere.normalize")
@@ -174,8 +175,6 @@ gRelayPort = nil -- LAN state relay: listening port, or nil when stopped
 gRelayToken = nil -- minted once, persisted; rides the web_view_url query
 gRelayBuffers = {} -- per-connection request accumulation (chunked POSTs)
 gPublishedUrl = nil -- last URL_CHANGED value, so the tick can heal it
-gCloudView = nil -- { url, handle } from the Agent's cloud-mirror ack
-gCloudLastAsk = 0 -- throttle for asking the Agent to mirror state
 
 -- ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -1324,9 +1323,10 @@ local function desiredWebViewUrl()
       parts[#parts + 1] = "relay=" .. encodeParam(string.format("http://%s:%d", host, gRelayPort))
     end
   end
-  if gCloudView ~= nil and gCloudView.url ~= nil and gCloudView.url ~= "" then
-    parts[#parts + 1] = "cloud=" .. encodeParam(gCloudView.url)
-    parts[#parts + 1] = "cid=" .. encodeParam(gCloudView.handle or "")
+  local view = mirror.view()
+  if view ~= nil and view.url ~= nil and view.url ~= "" then
+    parts[#parts + 1] = "cloud=" .. encodeParam(view.url)
+    parts[#parts + 1] = "cid=" .. encodeParam(view.handle or "")
   end
   if #parts == 0 and base:find("^controller://") ~= nil then
     return base
@@ -1344,22 +1344,10 @@ function askCloudMirror(urgent)
   if gRelayPort == nil then
     return
   end
-  if not urgent and (nowUtc() - gCloudLastAsk) < 60 then
-    return
-  end
-  local agentId = findAgentId()
-  if agentId == nil then
-    return
-  end
-  gCloudLastAsk = nowUtc()
-  pcall(function()
-    C4:SendToDevice(agentId, "SBOS_ATMOSPHERE_STATE", {
-      port = tostring(gRelayPort),
-      app_token = relayToken(),
-      requester = tostring(C4:GetDeviceID()),
-      urgent = urgent and "true" or "false",
-    })
-  end)
+  -- The SDK owns discovery, the protocol and the steady-state throttle;
+  -- the token is minted lazily with the relay, so hand it over each time.
+  mirror.setToken(relayToken())
+  mirror.publish(urgent)
 end
 
 --- Paints the App Data Relay status property so a dealer can see the data
@@ -1391,20 +1379,16 @@ end
 --- read. A change republishes the app URL so the page learns its cloud
 --- pointer. (Defined AFTER publishWebViewUrl on purpose — an EC body that
 --- referenced it earlier would compile as a nil global lookup.)
+function EC.SBOS_DRIVER_STATE_ACK(tParams)
+  mirror.onAck(tParams)
+end
+
+--- Back-compat: an Agent released before the generic protocol answers with
+--- the Atmosphere-specific ack name.
 function EC.SBOS_ATMOSPHERE_STATE_ACK(tParams)
   tParams = tParams or {}
-  local url = tostring(tParams.view_url or "")
-  if url == "" or url:find("^https://") == nil then
-    return
-  end
-  local handle = tostring(tParams.view_handle or "")
-  local changed = gCloudView == nil or gCloudView.url ~= url or gCloudView.handle ~= handle
-  gCloudView = { url = url, handle = handle }
-  persist:set(P_CLOUD_VIEW, gCloudView)
-  if changed then
-    log:info("Cloud state mirror ready (handle %s)", handle)
-    publishWebViewUrl("cloud-ready")
-  end
+  tParams.sku = tParams.sku or "SBOS_ATMOSPHERE"
+  mirror.onAck(tParams)
 end
 
 -- ─── Actions ──────────────────────────────────────────────────────────────────
@@ -1480,29 +1464,18 @@ end
 --- SmartBuildOS remote settings: the Agent forwards a validated-by-schema
 --- settings patch. Same validator as every other path; refusals are logged
 --- AND returned so the Agent can report the ack upstream.
+--- Remote settings from SmartBuildOS. The SDK decodes, guards the SKU and
+--- sends the ack; this driver only owns what "apply" means.
+EC.SBOS_DRIVER_CONFIG = mirror.onConfig(function(patch)
+  return applySettingsPatch(patch, "smartbuildos")
+end)
+
+--- Back-compat: an Agent released before the generic protocol sends the
+--- Atmosphere-specific command with no sku.
 function EC.SBOS_ATMOSPHERE_CONFIG(tParams)
-  local raw = tParams ~= nil and tParams.settings or nil
-  if raw == nil then
-    return
-  end
-  local ok, patch = pcall(function()
-    return JSON:decode(tostring(raw))
-  end)
-  if not ok or type(patch) ~= "table" then
-    log:warn("Remote settings: undecodable payload refused")
-    return
-  end
-  local refused = applySettingsPatch(patch, "smartbuildos")
-  local requester = tonumber(tParams.requester)
-  if requester ~= nil then
-    pcall(function()
-      C4:SendToDevice(requester, "SBOS_ATMOSPHERE_CONFIG_ACK", {
-        applied = tostring(#refused == 0),
-        refused = tostring(#refused),
-        settings_version = tostring(settingsstore.VERSION),
-      })
-    end)
-  end
+  tParams = tParams or {}
+  tParams.sku = tParams.sku or "SBOS_ATMOSPHERE"
+  EC.SBOS_DRIVER_CONFIG(tParams)
 end
 
 function EC.CLEAR_CACHE()
@@ -1776,13 +1749,24 @@ function OnDriverLateInit()
   end
   local storedLocation = persist:get(P_LOCATION)
   gLocation = type(storedLocation) == "table" and storedLocation.lat ~= nil and storedLocation or nil
+  mirror.setup({
+    sku = "SBOS_ATMOSPHERE",
+    port = UI_RELAY_PORT,
+    path = "/state",
+    -- The capability URL is what the page needs; persist it and republish
+    -- the app URL whenever it changes so a reopened page learns it.
+    onView = function(url, handle)
+      persist:set(P_CLOUD_VIEW, { url = url, handle = handle })
+      publishWebViewUrl("cloud-ready")
+    end,
+  })
   local storedCloud = persist:get(P_CLOUD_VIEW)
   if
     type(storedCloud) == "table"
     and type(storedCloud.url) == "string"
     and storedCloud.url:find("^https://") ~= nil
   then
-    gCloudView = { url = storedCloud.url, handle = tostring(storedCloud.handle or "") }
+    mirror.restoreView({ url = storedCloud.url, handle = tostring(storedCloud.handle or "") })
   end
 
   for p, _ in pairs(Properties) do

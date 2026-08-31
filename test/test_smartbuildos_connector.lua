@@ -85,7 +85,8 @@ end
 --- @type table[]
 local getRequests = {}
 --- Response the next GET resolves/rejects with.
-local nextGetResponse = { ok = true, code = 200, body = "", headers = {} }
+local nextGetResponse
+nextGetResponse = { ok = true, code = 200, body = "", headers = {} }
 
 package.preload["lib.http"] = function()
   return {
@@ -2928,6 +2929,105 @@ EC.SBOS_PROTECT_ROSTER({
   payload = JSON:encode({ { kind = "cameras", id = "x", state = "CONNECTED" } }),
 })
 check("an unpaired agent forwards no devices", lastRequestToPlain("/api/driver-cloud/devices") == nil)
+
+print("\n[N] Generic cloud state mirror: any driver, per-SKU")
+reset()
+pair()
+-- The local fetch and the platform POST both ride the faked transport; the
+-- mirror asks for the driver's state on LOOPBACK, then posts it.
+-- The loopback GET returns the driver's state; the POST returns the ack.
+nextGetResponse = { ok = true, code = 200, headers = {}, body = JSON:encode({ v = 1, mode = "RAIN" }) }
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    ok = true,
+    view_url = "https://app.example/api/public/driver/state",
+    view_handle = "SBOS-ABC123",
+  }),
+}
+EC.SBOS_DRIVER_STATE({
+  sku = "SBOS_TEST",
+  port = "47820",
+  path = "/state",
+  app_token = "tok9",
+  requester = "31",
+  urgent = "true",
+})
+-- GETs and POSTs are recorded in separate tables by this harness.
+local localFetch = nil
+local cloudPost = nil
+for _, r in ipairs(getRequests) do
+  if r.url:find("127.0.0.1:47820", 1, true) then
+    localFetch = r
+  end
+end
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    cloudPost = r
+  end
+end
+check("state is fetched from the driver over loopback", localFetch ~= nil, localFetch and localFetch.url)
+check("the local fetch carries the driver's token", localFetch ~= nil and localFetch.url:find("k=tok9", 1, true) ~= nil)
+check("state is posted to the generic route", cloudPost ~= nil)
+check("the post carries the sku", cloudPost ~= nil and (cloudPost.data or {}).driver_sku == "SBOS_TEST")
+check("the post is token-authed", cloudPost ~= nil and (cloudPost.headers or {})["Authorization"] ~= nil)
+
+-- Per-SKU throttle: a second driver must not spend the first one's budget.
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_TEST", port = "47820", app_token = "tok9", requester = "31" })
+local throttled = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    throttled = r
+  end
+end
+check("the same sku is throttled straight after a push", throttled == nil)
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_OTHER", port = "47821", app_token = "tok8", requester = "32" })
+local otherSku = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    otherSku = r
+  end
+end
+check("a DIFFERENT sku has its own throttle window", otherSku ~= nil)
+check("and posts its own sku", otherSku ~= nil and (otherSku.data or {}).driver_sku == "SBOS_OTHER")
+
+-- Unpaired: nothing leaves the controller.
+EC.UNPAIR()
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_FRESH", port = "47822", app_token = "t", requester = "1", urgent = "true" })
+local unpairedPost = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    unpairedPost = r
+  end
+end
+check("an unpaired agent mirrors nothing", unpairedPost == nil)
+
+print("\n[N] Legacy mirror command still works for older drivers")
+reset()
+pair()
+nextGetResponse = { ok = true, code = 200, headers = {}, body = JSON:encode({ v = 1, mode = "CLEAR" }) }
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    ok = true,
+    view_url = "https://app.example/api/public/atmosphere/state",
+    view_handle = "SBOS-OLD111",
+  }),
+}
+EC.SBOS_ATMOSPHERE_STATE({ port = "47815", app_token = "legacytok", requester = "41", urgent = "true" })
+local legacyPost = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    legacyPost = r
+  end
+end
+check("the legacy command mirrors through the generic path", legacyPost ~= nil)
+check("defaulting the sku to Atmosphere", legacyPost ~= nil and (legacyPost.data or {}).driver_sku == "SBOS_ATMOSPHERE")
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
