@@ -131,11 +131,11 @@ local PREDICT_EVENTS = {
 }
 
 --- Compares booleans with first-sight-is-baseline; appends transition events.
-local function diffFlags(prevFlags, nextFlags, eventMap, events, automationOn)
+local function diffFlags(prevFlags, nextFlags, eventMap, events)
 	for key, pair in pairs(eventMap) do
 		local prev = prevFlags and prevFlags[key]
 		local next_ = nextFlags[key] == true
-		if prev ~= nil and prev ~= next_ and automationOn then
+		if prev ~= nil and prev ~= next_ then
 			local name = next_ and pair[1] or pair[2]
 			if type(name) == "string" then
 				events[#events + 1] = name
@@ -148,7 +148,6 @@ function M.step(prev, inputs)
 	local now = inputs.now
 	local t = inputs.thresholds
 	local events = {}
-	local automationOn = inputs.automationEnabled ~= false
 
 	-- Threshold + observed booleans.
 	local prevStates = prev ~= nil and prev.states or nil
@@ -213,22 +212,19 @@ function M.step(prev, inputs)
 	}
 
 	-- ── Transition events ──────────────────────────────────────────────────
-	diffFlags(prev ~= nil and prev.states or nil, nextStates, FLAG_EVENTS, events, automationOn)
+	diffFlags(prev ~= nil and prev.states or nil, nextStates, FLAG_EVENTS, events)
 
 	local prevPred = prev ~= nil and prev.predictions or nil
-	if automationOn then
-		for key, name in pairs(PREDICT_EVENTS) do
-			local was = prevPred and prevPred[key]
-			if was ~= nil and was == false and predictions[key] == true then
-				events[#events + 1] = name
-			end
+	for key, name in pairs(PREDICT_EVENTS) do
+		local was = prevPred and prevPred[key]
+		if was ~= nil and was == false and predictions[key] == true then
+			events[#events + 1] = name
 		end
 	end
 
-	-- Alert events (new + escalations + clears). These fire regardless of the
-	-- automation toggle only for NOTHING — automation off silences everything;
-	-- the variables still update so a UI shows truth.
-	if automationOn then
+	-- Alert events (new + escalations + clears). Weather automation is always
+	-- on (retired toggle, 2026-08-31): events are the product.
+	do
 		for _, a in ipairs(ar.new or {}) do
 			local specific = SPECIFIC_ALERT_EVENTS[a.class]
 			local name = specific ~= nil and specific[a.levelName] or nil
@@ -253,7 +249,7 @@ function M.step(prev, inputs)
 
 	-- Severity transitions.
 	local sevRank = { NORMAL = 0, INFORMATIONAL = 1, ADVISORY = 2, WATCH = 3, WARNING = 4, EMERGENCY = 5 }
-	if prev ~= nil and automationOn then
+	if prev ~= nil then
 		local wasSevere = sevRank[prev.severity or "NORMAL"] >= 4
 		local isSevere = sevRank[severity] >= 4
 		if isSevere and not wasSevere then

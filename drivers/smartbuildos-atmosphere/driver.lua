@@ -847,8 +847,6 @@ function runEngine(reason, alertsResult)
 		alertsFetchedAt = simActive and nowUtc() or gFetched.alerts,
 		apiOk = gFailures.observations < 3 and gFailures.alerts < 3,
 		simulation = simActive,
-		automationEnabled = tostring(Properties["Weather Automation"] or "Enabled") == "Enabled"
-			and gSettings.automation.enabled ~= false,
 	}
 	local snapshot, events = engine.step(gSnapshot, inputs)
 	gSnapshot = snapshot
@@ -1165,14 +1163,6 @@ EC["Start Simulation"] = function(tParams)
 	startSimulation(tParams ~= nil and tParams.SCENARIO or nil)
 end
 
-EC["Enable Weather Automation"] = function()
-	UpdateProperty("Weather Automation", "Enabled")
-end
-
-EC["Disable Weather Automation"] = function()
-	UpdateProperty("Weather Automation", "Disabled")
-end
-
 function EC.PRINT_DIAGNOSTICS()
 	log:print("== SmartBuildOS Atmosphere diagnostics ==")
 	log:print(
@@ -1251,12 +1241,6 @@ end
 function OPC.Longitude()
 	if gInitialized and tostring(Properties["Location Source"]) == "Manual Coordinates" then
 		EC.REDISCOVER_LOCATION()
-	end
-end
-
-function OPC.Weather_Automation()
-	if gInitialized then
-		runEngine("automation-toggle")
 	end
 end
 

@@ -114,7 +114,6 @@ Properties = {
 	["Resolved Location"] = "Not resolved",
 	["Forecast Office"] = "-",
 	["Observation Station"] = "-",
-	["Weather Automation"] = "Enabled",
 	["Licensing"] = "Licensing",
 	["License Status"] = "No SmartBuildOS Agent Found",
 	["License Source"] = "-",

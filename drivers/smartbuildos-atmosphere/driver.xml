@@ -274,16 +274,6 @@
         <default>-</default>
       </property>
       <property>
-        <name>Weather Automation</name>
-        <type>LIST</type>
-        <items>
-          <item>Enabled</item>
-          <item>Disabled</item>
-        </items>
-        <default>Enabled</default>
-        <description>Disabled silences all weather programming events (variables and the app keep updating). Data-health events still fire.</description>
-      </property>
-      <property>
         <name>Licensing</name>
         <type>LABEL</type>
         <default>Licensing</default>
@@ -371,14 +361,6 @@
             </items>
           </param>
         </params>
-      </command>
-      <command>
-        <name>Enable Weather Automation</name>
-        <description>Enable weather automation events on NAME</description>
-      </command>
-      <command>
-        <name>Disable Weather Automation</name>
-        <description>Disable weather automation events on NAME</description>
       </command>
     </commands>
   </config>

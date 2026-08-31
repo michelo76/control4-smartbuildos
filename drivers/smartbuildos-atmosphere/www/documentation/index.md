@@ -83,7 +83,6 @@ Simulation auto-stops after a configurable timeout (default 30 minutes).
 | Location Source | Control4 Project (default) or Manual Coordinates |
 | Resolved Location | What the driver is actually using |
 | Forecast Office / Observation Station | NWS discovery results |
-| Weather Automation | Disabled silences weather events (variables and the app keep updating) |
 | License Status | SmartBuildOS licensing state; driver runs without an Agent |
 
 ## Troubleshooting

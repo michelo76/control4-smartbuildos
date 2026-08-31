@@ -28,7 +28,7 @@ against bounds): freeze 32/34 °F (air temperature — frost forms at air temp, 
 feels-like), heat 90/87 °F and extreme heat 100/96 °F (feels- like), high wind
 25/22 mph, dangerous wind 40/35 mph, gusts 35/30 mph, poor visibility 1/1.5 mi.
 
-**Weather Automation = Disabled** silences all weather/alert/prediction events.
+Weather automation is always on — there is no disable switch by design.
 Variables, conditionals, connections, and the app keep updating, and the four
 data-health events (48–51) still fire — data health *is* the signal, and
 simulation start/end events also always fire.
@@ -180,9 +180,6 @@ Simulation · Print Diagnostics To Log.
   `severe_thunderstorm_warning`, `flood_warning`, `hurricane_warning`).
   Simulated conditions run the identical engine path as live data; auto-stops
   after the configured timeout (default 30 min).
-- **Enable Weather Automation** / **Disable Weather Automation** — flip the
-  Weather Automation property from programming (e.g. silence weather events
-  while a party mode is active).
 
 ## Recipes
 

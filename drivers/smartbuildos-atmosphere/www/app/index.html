@@ -604,7 +604,6 @@ var MOCK = (function () {
       units: { temperature: 'F', wind: 'MPH', pressure: 'INHG', precipitation: 'IN', distance: 'MI' },
       thresholds: { freeze_enter_f: 32, hot_enter_f: 92, extreme_heat_enter_f: 100, high_wind_enter_mph: 25, dangerous_wind_enter_mph: 45, high_gust_enter_mph: 35, rain_probability_pct: 40, heavy_rain_pop_pct: 70, poor_visibility_enter_mi: 1, rain_soon_hours: 2, storm_soon_hours: 3, freeze_lookahead_hours: 12, wind_lookahead_hours: 6 },
       alerts: { sensitivity: 'ADVISORIES_WATCHES_WARNINGS', classes: { TORNADO: true, SEVERE_THUNDERSTORM: true, HURRICANE: true, TROPICAL_STORM: true, FLOOD: true, FLASH_FLOOD: true, WINTER: true, FREEZE: true, EXTREME_HEAT: true, HIGH_WIND: true, DENSE_FOG: true, FIRE_WEATHER: true, COASTAL: true, AIR_QUALITY: false, OTHER: true } },
-      automation: { enabled: true },
       radar: { default_view: 'station', animate: true, overlay_alerts: true },
       display: { theme: 'AUTOMATIC', animation: 'NORMAL', default_screen: 'now' },
       notifications: { push_alerts: true },
@@ -1367,7 +1366,7 @@ function renderDetails() {
 var settingsPane = 'general';
 var SETTINGS_PANES = [
   ['general', 'General'], ['units', 'Units'], ['thresholds', 'Thresholds'],
-  ['alerts', 'Alerts'], ['automation', 'Automation'], ['radarcfg', 'Radar'],
+  ['alerts', 'Alerts'], ['radarcfg', 'Radar'],
   ['display', 'Display'], ['simulation', 'Simulation'], ['license', 'License'],
   ['diagnostics', 'Diagnostics'], ['about', 'About']
 ];
@@ -1626,13 +1625,6 @@ var SETTINGS_RENDER = {
       })(ALERT_CLASSES[i]);
     }
     body.appendChild(c2);
-  },
-  automation: function (body, s) {
-    var c = paneCard('Automation', 'home');
-    c.appendChild(rowToggle('Weather automation', 'Allow this driver to fire weather events and variables for Control4 programming', getPath(s, 'automation.enabled') !== false, function (on) {
-      sendSettingsPatch([{ path: 'automation.enabled', value: on }]);
-    }));
-    body.appendChild(c);
   },
   radarcfg: function (body, s) {
     var c = paneCard('Radar', 'radar');

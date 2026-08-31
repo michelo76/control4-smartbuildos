@@ -62,7 +62,6 @@ function M.defaults()
 		units = { temperature = "F", wind = "MPH", pressure = "INHG", precipitation = "IN", distance = "MI" },
 		thresholds = {}, -- overrides only; effective set = thresholds.effective()
 		alerts = { sensitivity = "ALL", classes = {} }, -- absent class = enabled
-		automation = { enabled = true },
 		radar = {
 			default_view = "station", -- station | conus
 			animate = true,
@@ -149,15 +148,11 @@ function M.validate(patch)
 					end
 				end
 			end
-		elseif key == "automation" and type(value) == "table" then
-			clean.automation = {}
-			if value.enabled ~= nil then
-				if isBool(value.enabled) then
-					clean.automation.enabled = value.enabled
-				else
-					refuse("automation.enabled", "boolean required")
-				end
-			end
+		elseif key == "automation" then
+			-- Retired 2026-08-31 (user directive): weather automation is always
+			-- on. Accepted-and-ignored rather than refused so an older stored
+			-- document or app build never triggers a refusal warning.
+			local _ = value
 		elseif key == "radar" and type(value) == "table" then
 			clean.radar = {}
 			if value.default_view ~= nil then

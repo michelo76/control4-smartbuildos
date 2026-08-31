@@ -114,6 +114,5 @@ alert filters, radar, themes, simulation) lives in the app's Settings screen.
 | Location Source / Latitude / Longitude                                     | The resolution chain above                                                                              |
 | Resolved Location                                                          | What the driver is actually using                                                                       |
 | Forecast Office / Observation Station                                      | NWS discovery results                                                                                   |
-| Weather Automation                                                         | `Disabled` silences weather programming events; variables, the app, and data-health events keep working |
 | License Status / License Source / Subscription Tier / SmartBuildOS Company | Licensing display — see [LICENSING.md](LICENSING.md)                                                    |
 | Log Level / Log Mode                                                       | Standard repo logging controls                                                                          |

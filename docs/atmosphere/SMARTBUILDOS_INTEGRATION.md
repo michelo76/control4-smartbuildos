@@ -52,7 +52,7 @@ platform never dials the controller):
 
 What remote settings can carry is exactly the settings document: units,
 threshold overrides (each bounds-checked — a typo'd `3200` cannot brick a site),
-alert sensitivity + class filters, automation toggle, radar options, display
+alert sensitivity + class filters, radar options, display
 theme/animation/default screen, notification and simulation options.
 
 *Status:* the driver side (steps 2–5) is implemented and tested

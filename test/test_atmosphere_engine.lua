@@ -342,16 +342,6 @@ check("engine api unavailable fires", has(evD4, "Weather API Unavailable"))
 local _, evD5 = step(snapD4, { apiOk = true })
 check("engine api recovered fires", has(evD5, "Weather API Recovered"))
 
--- Automation toggle silences weather events but not data health.
-local snapM1 = select(1, step(nil, { obs = obsWith({ flags = { rain = true } }) }))
-local _, evM2 = step(snapM1, {
-	obs = obsWith({ flags = { rain = false, clear = true } }),
-	automationEnabled = false,
-	obsFetchedAt = NOW - 3600,
-})
-check("engine automation off silences rain", not has(evM2, "Rain Stopped"))
-check("engine automation off keeps data health", has(evM2, "Weather Data Stale"))
-
 -- Simulation transitions.
 local snapSim, evSim = step(snapD1, { simulation = true, obs = obsWith({ flags = { thunder = true, rain = true } }) })
 check("engine simulation started fires", has(evSim, "Simulation Started"))
