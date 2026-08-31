@@ -117,4 +117,41 @@ function M.solarState(lat, lon, now, localOffset)
   return state
 end
 
+-- ─── Moon ─────────────────────────────────────────────────────────────────────
+
+--- Mean synodic month (days) and a reference new moon: 2000-01-06 18:14 UTC.
+--- The mean-cycle approximation drifts under ±1 day from true lunations —
+--- fine for a phase display, useless for eclipse math (and labeled so).
+local SYNODIC_DAYS = 29.530588853
+local NEW_MOON_EPOCH = 947182440
+
+local MOON_NAMES = {
+  "New Moon",
+  "Waxing Crescent",
+  "First Quarter",
+  "Waxing Gibbous",
+  "Full Moon",
+  "Waning Gibbous",
+  "Last Quarter",
+  "Waning Crescent",
+}
+
+--- Moon phase at a UTC epoch. Returns { phase = 0..1 (0 = new, 0.5 = full),
+--- name = one of the eight common names, illumination = 0..100 percent } or
+--- nil for a non-numeric epoch.
+function M.moonPhase(epoch)
+  epoch = tonumber(epoch)
+  if epoch == nil then
+    return nil
+  end
+  local phase = ((epoch - NEW_MOON_EPOCH) / (SYNODIC_DAYS * 86400)) % 1
+  local idx = math.floor(phase * 8 + 0.5) % 8
+  local illumination = (1 - math.cos(2 * math.pi * phase)) / 2 * 100
+  return {
+    phase = phase,
+    name = MOON_NAMES[idx + 1],
+    illumination = math.floor(illumination + 0.5),
+  }
+end
+
 return M

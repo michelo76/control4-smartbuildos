@@ -160,6 +160,12 @@
     <event><id>56</id><name>Rain Expected Within 6 Hours</name><description>Hourly forecast shows rain within 6 hours.</description></event>
     <event><id>57</id><name>Simulation Started</name><description>Simulation mode engaged - events are simulated.</description></event>
     <event><id>58</id><name>Simulation Ended</name><description>Simulation mode ended - live data resumed.</description></event>
+    <event><id>59</id><name>Sunset Approaching</name><description>Sunset is within 30 minutes.</description></event>
+    <event><id>60</id><name>Sunrise Approaching</name><description>Sunrise is within 30 minutes.</description></event>
+    <event><id>61</id><name>Barometer Falling Rapidly</name><description>Barometric pressure fell at least 0.10 inHg over 3 hours.</description></event>
+    <event><id>62</id><name>Irrigation Skip Recommended</name><description>Rain expected or falling - skipping irrigation is recommended.</description></event>
+    <event><id>63</id><name>Irrigation Skip Cleared</name><description>The irrigation-skip recommendation ended.</description></event>
+    <event><id>64</id><name>Shade Protection Recommended</name><description>Wind conditions endanger extended shades/awnings.</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"/>

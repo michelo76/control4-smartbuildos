@@ -47,6 +47,9 @@ local normalize = require("atmosphere.normalize")
 local engine = require("atmosphere.engine")
 local walerts = require("atmosphere.alerts")
 local solar = require("atmosphere.solar")
+local gridcalc = require("atmosphere.gridcalc")
+local trend = require("atmosphere.trend")
+local recommend = require("atmosphere.recommend")
 local scheduler = require("atmosphere.scheduler")
 local simulator = require("atmosphere.simulator")
 local settingsstore = require("atmosphere.settingsstore")
@@ -73,6 +76,8 @@ local P_HOURLY = "atmos_hourly"
 local P_ALERTS = "atmos_alerts"
 local P_FETCHED = "atmos_fetched"
 local P_LOCATION = "atmos_location"
+local P_GRID = "atmos_grid"
+local P_HISTORY = "atmos_history"
 
 -- Timer ids.
 local OBS_TIMER = "atmos-obs"
@@ -129,6 +134,13 @@ local VARIABLES = {
   { "API_STATUS", "Unknown", "STRING" },
   { "LICENSE_STATUS", "", "STRING" },
   { "SIMULATION_ACTIVE", "false", "BOOL" },
+  { "SNOWFALL_NEXT_24H_IN", "", "STRING" },
+  { "RAIN_TOTAL_NEXT_24H_IN", "", "STRING" },
+  { "THUNDER_PROBABILITY_12H", "", "STRING" },
+  { "PRESSURE_TREND", "", "STRING" },
+  { "MOON_PHASE", "", "STRING" },
+  { "IRRIGATION_SKIP_RECOMMENDED", "false", "BOOL" },
+  { "SHADE_PROTECT_RECOMMENDED", "false", "BOOL" },
 }
 
 -- ─── State ────────────────────────────────────────────────────────────────────
@@ -144,6 +156,8 @@ gObs = nil -- last normalized observation
 gDaily = {} -- normalized daily periods
 gHourly = {} -- normalized hourly periods
 gAlertSet = {} -- active raw set { [id] = alert } (post-reconcile)
+gGrid = { snowfall = {}, qpf = {}, thunder = {}, apparentTemp = {} } -- normalized grid-layer samples
+gHistory = {} -- observation ring buffer { t, tempF, pressureInHg }, 24 h / 300 max
 gFetched = { obs = nil, forecast = nil, alerts = nil, points = nil }
 gFailures = { observations = 0, forecast = 0, alerts = 0, points = 0 }
 gSim = nil -- { scenario, startedAt, data = { obs, alerts } }
@@ -293,6 +307,13 @@ end
 local scheduleFetch -- fwd decl
 runEngine = nil -- global fwd decl (assigned below; engine tick calls it)
 
+--- One history sample per observation poll (real data only — simulation
+--- never touches the ring buffer). trend.append prunes by age and count.
+local function recordObservation(obs)
+  gHistory = trend.append(gHistory, { t = nowUtc(), tempF = obs.tempF, pressureInHg = obs.pressureInHg }, nowUtc())
+  persist:set(P_HISTORY, gHistory)
+end
+
 local function chooseStation(index)
   index = index or 1
   local candidate = gStations[index]
@@ -323,6 +344,7 @@ local function chooseStation(index)
       gFetched.obs = nowUtc()
       diagOk("observations")
       gFailures.observations = 0
+      recordObservation(obs)
       runEngine("observation")
     end
   end)
@@ -353,6 +375,7 @@ local function fetchObservations()
         gFetched.obs = nowUtc()
         diagOk("observations", math.floor((os.clock() - started) * 1000))
         gFailures.observations = 0
+        recordObservation(obs)
         runEngine("observation")
       else
         diagFail("observations", { error = "unparseable observation" })
@@ -368,7 +391,7 @@ local function fetchForecast()
     scheduleFetch("forecast")
     return
   end
-  local pending = 2
+  local pending = 3
   local anyFailure = false
   local function done()
     pending = pending - 1
@@ -402,6 +425,25 @@ local function fetchForecast()
     else
       gHourly = normalize.periods(props.periods)
       persist:set(P_HOURLY, gHourly)
+    end
+    done()
+  end)
+  -- Grid layers ride the forecast cadence but are supplementary: a grid-only
+  -- failure keeps last-good samples and is tracked under its own diag class
+  -- WITHOUT poisoning core forecast freshness (predictions from the healthy
+  -- daily/hourly fetch must not go stale because one extra endpoint 500s).
+  nws.gridData(gPoints.forecastGridDataUrl, function(props, err)
+    if props == nil then
+      diagFail("grid", err)
+    else
+      gGrid = {
+        snowfall = normalize.gridLayer(props.snowfallAmount),
+        qpf = normalize.gridLayer(props.quantitativePrecipitation),
+        thunder = normalize.gridLayer(props.probabilityOfThunder),
+        apparentTemp = normalize.gridLayer(props.apparentTemperature),
+      }
+      persist:set(P_GRID, gGrid)
+      diagOk("grid")
     end
     done()
   end)
@@ -631,6 +673,22 @@ local function publishVariables(snapshot)
   setVariable("LICENSE_STATUS", license.status())
   setVariable("SIMULATION_ACTIVE", snapshot.simulation and "true" or "false")
 
+  -- Grid-layer intelligence + trend + moon. Empty string = no data (a
+  -- missing layer never reads as zero precipitation).
+  local now = nowUtc()
+  local snowIn = gridcalc.snowfallNext24In(gGrid.snowfall, now)
+  local rainIn = gridcalc.rainNext24In(gGrid.qpf, now)
+  local thunderPct = gridcalc.peakThunderPct12h(gGrid.thunder, now)
+  setVariable("SNOWFALL_NEXT_24H_IN", snowIn ~= nil and tostring(units.round(snowIn, 2)) or "")
+  setVariable("RAIN_TOTAL_NEXT_24H_IN", rainIn ~= nil and tostring(units.round(rainIn, 2)) or "")
+  setVariable("THUNDER_PROBABILITY_12H", thunderPct ~= nil and tostring(units.round(thunderPct)) or "")
+  setVariable("PRESSURE_TREND", trend.pressureTrend(gHistory, now) or "")
+  local moon = solar.moonPhase(now)
+  setVariable("MOON_PHASE", moon ~= nil and moon.name or "")
+  local x = snapshot.extraFlags or {}
+  setVariable("IRRIGATION_SKIP_RECOMMENDED", x.irrigation_skip and "true" or "false")
+  setVariable("SHADE_PROTECT_RECOMMENDED", x.shade_protect and "true" or "false")
+
   setConditional("ATMOSPHERE_RAINING", s.is_raining)
   setConditional("ATMOSPHERE_SNOWING", s.is_snowing)
   setConditional("ATMOSPHERE_STORMING", s.is_storming)
@@ -705,6 +763,12 @@ local function buildDiagnostics()
         last_failure = gDiag.lastFailure.points,
         error = gDiag.lastError.points,
       },
+      grid = {
+        last_success = gDiag.lastSuccess.grid,
+        last_failure = gDiag.lastFailure.grid,
+        http_code = gDiag.lastHttpCode.grid,
+        error = gDiag.lastError.grid,
+      },
     },
     office = gPoints ~= nil and gPoints.office or nil,
     grid = gPoints ~= nil and string.format("%d,%d", gPoints.gridX, gPoints.gridY) or nil,
@@ -723,12 +787,19 @@ local function buildDiagnostics()
 end
 
 local function buildUiState()
+  -- Moon rides the solar block; it needs no location, so it survives an
+  -- unresolved-location state where the sun math cannot run.
+  local sol = currentSolar() or {}
+  sol.moon = solar.moonPhase(nowUtc())
+  local trendName = trend.pressureTrend(gHistory, nowUtc())
   return uistate.build({
     snapshot = gSnapshot or {},
     daily = gDaily,
     hourly = gHourly,
     settings = gSettings,
-    solar = currentSolar(),
+    solar = sol,
+    history = trend.downsample(gHistory, 48),
+    trends = { pressure = trendName },
     location = {
       label = gLocation ~= nil and gLocation.label or nil,
       lat = gLocation ~= nil and gLocation.lat or nil,
@@ -841,6 +912,40 @@ function runEngine(reason, alertsResult)
     end
   end
 
+  -- Extra flags: solar timing, barometric trend, recommendations. Computed
+  -- here (driver-side, from the same facts the variables publish) and diffed
+  -- through the engine's transition gate. highWindExpected reads the PREVIOUS
+  -- snapshot's prediction — at most one engine tick (1 minute) behind, and
+  -- the shade recommendation still asserts immediately on observed wind/gust.
+  local sol = currentSolar()
+  local trendNow = nowUtc()
+  local trendName, trendDelta = trend.pressureTrend(gHistory, trendNow)
+  local rainNext24In = gridcalc.rainNext24In(gGrid.qpf, trendNow)
+  local popMax24h = nil
+  for _, hp in ipairs(gHourly) do
+    if hp.pop ~= nil and hp.startT < trendNow + 24 * 3600 and hp.endT > trendNow then
+      if popMax24h == nil or hp.pop > popMax24h then
+        popMax24h = hp.pop
+      end
+    end
+  end
+  local prevPredictions = gSnapshot ~= nil and gSnapshot.predictions or {}
+  local extraFlags = {
+    sunset_soon = sol ~= nil and sol.minutesToSunset ~= nil and sol.minutesToSunset <= 30 or false,
+    sunrise_soon = sol ~= nil and sol.minutesToSunrise ~= nil and sol.minutesToSunrise <= 30 or false,
+    barometer_falling_fast = trendName == "FALLING" and trendDelta ~= nil and trendDelta <= -trend.RAPID_FALL_INHG,
+    irrigation_skip = recommend.irrigationSkip({
+      rainNext24In = rainNext24In,
+      popMax24h = popMax24h,
+      isRaining = obs ~= nil and obs.flags ~= nil and obs.flags.rain == true,
+    }),
+    shade_protect = recommend.shadeProtect({
+      windMph = obs ~= nil and obs.windMph or nil,
+      gustMph = obs ~= nil and obs.gustMph or nil,
+      highWindExpected = prevPredictions.high_wind_expected == true,
+    }),
+  }
+
   local inputs = {
     obs = obs,
     hourly = gHourly,
@@ -853,12 +958,14 @@ function runEngine(reason, alertsResult)
     alertsFetchedAt = simActive and nowUtc() or gFetched.alerts,
     apiOk = gFailures.observations < 3 and gFailures.alerts < 3,
     simulation = simActive,
+    extraFlags = extraFlags,
   }
   local snapshot, events = engine.step(gSnapshot, inputs)
   gSnapshot = snapshot
   persist:set(P_SNAPSHOT, {
     states = snapshot.states,
     predictions = snapshot.predictions,
+    extraFlags = snapshot.extraFlags,
     mode = snapshot.mode,
     severity = snapshot.severity,
     dataStale = snapshot.dataStale,
@@ -1378,6 +1485,8 @@ function EC.CLEAR_CACHE()
   persist:delete(P_DAILY)
   persist:delete(P_HOURLY)
   persist:delete(P_ALERTS)
+  persist:delete(P_GRID)
+  persist:delete(P_HISTORY)
   gPoints = nil
   gStation = nil
   gStations = {}
@@ -1385,6 +1494,8 @@ function EC.CLEAR_CACHE()
   gDaily = {}
   gHourly = {}
   gAlertSet = {}
+  gGrid = { snowfall = {}, qpf = {}, thunder = {}, apparentTemp = {} }
+  gHistory = {}
   gSnapshot = nil
   gFetched = { obs = nil, forecast = nil, alerts = nil, points = nil }
   log:print("Cached weather cleared")
@@ -1608,6 +1719,20 @@ function OnDriverLateInit()
   end
   gDaily = freshList(P_DAILY)
   gHourly = freshList(P_HOURLY)
+  gHistory = freshList(P_HISTORY)
+  gGrid = { snowfall = {}, qpf = {}, thunder = {}, apparentTemp = {} }
+  local storedGrid = persist:get(P_GRID)
+  if type(storedGrid) == "table" then
+    for layer in pairs(gGrid) do
+      if type(storedGrid[layer]) == "table" then
+        local fresh = {}
+        for _, s in ipairs(storedGrid[layer]) do
+          fresh[#fresh + 1] = s
+        end
+        gGrid[layer] = fresh
+      end
+    end
+  end
   gAlertSet = {}
   local storedAlerts = persist:get(P_ALERTS)
   if type(storedAlerts) == "table" then

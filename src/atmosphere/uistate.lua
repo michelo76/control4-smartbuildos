@@ -59,7 +59,9 @@ end
 
 --- Builds the full UI document.
 --- ctx = { snapshot, daily, hourly, settings, location, solar, diagnostics,
----         license, now }
+---         license, now, history, trends }
+--- history: driver-downsampled observation samples { t, tempF, pressureInHg }
+--- trends: { pressure = "RISING"|"FALLING"|"STEADY" } (absent keys = no data)
 function M.build(ctx)
   local snap = ctx.snapshot or {}
   local settings = ctx.settings
@@ -139,6 +141,17 @@ function M.build(ctx)
       rank = a.severityRank,
     }
   end
+  -- Observation history for sparklines: unit-converted like everything
+  -- else so the page stays dumb; nil readings stay nil.
+  local historyOut = {}
+  for _, h in ipairs(ctx.history or {}) do
+    historyOut[#historyOut + 1] = {
+      t = h.t,
+      temp = convTemp(h.tempF, u.temperature),
+      pressure = convPressure(h.pressureInHg, u.pressure),
+    }
+  end
+
   table.sort(alertsOut, function(x, y)
     if (x.rank or 0) ~= (y.rank or 0) then
       return (x.rank or 0) > (y.rank or 0)
@@ -166,6 +179,8 @@ function M.build(ctx)
     daily = daily,
     alerts = alertsOut,
     alert_count = snap.activeAlertCount or #alertsOut,
+    history = historyOut,
+    trends = ctx.trends,
     solar = ctx.solar,
     location = ctx.location,
     settings = settings,

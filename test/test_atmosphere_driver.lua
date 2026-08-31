@@ -341,12 +341,64 @@ local alertBody = {
   },
 }
 
+--- Gridpoint layers: QPF totals 12.7 mm (0.5 in) inside 24 h; snowfall
+--- 25.4 mm (1 in) inside 24 h plus a sample beyond the window that must NOT
+--- count; probabilityOfThunder peaks at 80 only after the 12 h window (the
+--- third interval starts at +13 h so a second-boundary tick during the test
+--- cannot drag it into range).
+local function isoInterval(startDelta, durationIso)
+  return isoNow(startDelta) .. "/" .. durationIso
+end
+
+local gridBody = {
+  properties = {
+    snowfallAmount = {
+      uom = "wmoUnit:mm",
+      values = {
+        { validTime = isoInterval(0, "PT6H"), value = 25.4 },
+        { validTime = isoInterval(30 * 3600, "PT6H"), value = 50.8 },
+      },
+    },
+    quantitativePrecipitation = {
+      uom = "wmoUnit:mm",
+      values = {
+        { validTime = isoInterval(0, "PT6H"), value = 5.08 },
+        { validTime = isoInterval(6 * 3600, "PT6H"), value = 7.62 },
+      },
+    },
+    probabilityOfThunder = {
+      uom = "wmoUnit:percent",
+      values = {
+        { validTime = isoInterval(0, "PT6H"), value = 10 },
+        { validTime = isoInterval(6 * 3600, "PT6H"), value = 55 },
+        { validTime = isoInterval(13 * 3600, "PT6H"), value = 80 },
+      },
+    },
+    apparentTemperature = {
+      uom = "wmoUnit:degC",
+      values = { { validTime = isoInterval(0, "PT6H"), value = 35 } },
+    },
+  },
+}
+
+-- Route patterns share prefixes (the bare gridpoint URL is a substring of
+-- the forecast/stations URLs) — the fake's longest-match rule needs each
+-- pattern spelled long enough to win on its own URL.
 routes["/points/26.1224,-80.1373"] = pointsBody
-routes["/stations"] = stationsBody
+routes["gridpoints/MFL/110,50/stations"] = stationsBody
 routes["stations/KFLL/observations/latest"] = observationBody
-routes["forecast/hourly"] = hourlyBody
-routes["110,50/forecast"] = dailyBody
+routes["gridpoints/MFL/110,50/forecast/hourly"] = hourlyBody
+routes["gridpoints/MFL/110,50/forecast"] = dailyBody
+routes["gridpoints/MFL/110,50"] = gridBody
 routes["alerts/active?zone=FLZ173"] = alertBody
+
+-- Seed 24h observation history so the barometric trend has a real window on
+-- first start: two samples inside the 3-hour window, rising toward the
+-- fixture observation's 101800 Pa (30.06 inHg) -> delta +0.16 = RISING.
+persistStore["atmos_history"] = {
+  { t = os.time() - 170 * 60, tempF = 80.0, pressureInHg = 29.90 },
+  { t = os.time() - 95 * 60, tempF = 81.0, pressureInHg = 29.95 },
+}
 
 -- ─── Load the driver ──────────────────────────────────────────────────────────
 
@@ -407,6 +459,36 @@ check("data not stale", variables["DATA_STALE"] == "false")
 check("api online", variables["API_STATUS"] == "Online")
 check("sunrise variable set", variables["SUNRISE"] ~= nil and variables["SUNRISE"]:find(":") ~= nil)
 
+-- ─── Grid layers, trend, moon, recommendations ────────────────────────────────
+
+check("snowfall next 24h from grid (in)", variables["SNOWFALL_NEXT_24H_IN"] == "1", variables["SNOWFALL_NEXT_24H_IN"])
+check(
+  "rain total next 24h from grid (in)",
+  variables["RAIN_TOTAL_NEXT_24H_IN"] == "0.5",
+  variables["RAIN_TOTAL_NEXT_24H_IN"]
+)
+check(
+  "thunder peak next 12h from grid",
+  variables["THUNDER_PROBABILITY_12H"] == "55",
+  variables["THUNDER_PROBABILITY_12H"]
+)
+check("pressure trend RISING from history", variables["PRESSURE_TREND"] == "RISING", variables["PRESSURE_TREND"])
+local moonNames = {
+  ["New Moon"] = true,
+  ["Waxing Crescent"] = true,
+  ["First Quarter"] = true,
+  ["Waxing Gibbous"] = true,
+  ["Full Moon"] = true,
+  ["Waning Gibbous"] = true,
+  ["Last Quarter"] = true,
+  ["Waning Crescent"] = true,
+}
+check("moon phase variable is a phase name", moonNames[variables["MOON_PHASE"]] == true, variables["MOON_PHASE"])
+check("irrigation skip recommended (rain expected)", variables["IRRIGATION_SKIP_RECOMMENDED"] == "true")
+check("irrigation skip fired as a transition event", firedEvent("Irrigation Skip Recommended"))
+check("shade protect stays false in light wind", variables["SHADE_PROTECT_RECOMMENDED"] == "false")
+check("history persisted with the new sample", #persistStore.atmos_history == 3)
+
 check("svr warning event fired", firedEvent("Severe Thunderstorm Warning"))
 check("generic warning event fired", firedEvent("New Weather Warning"))
 check("no rain-started on baseline", not firedEvent("Rain Started"))
@@ -460,6 +542,28 @@ if okDecode and type(uiDoc) == "table" then
   check("ui license present", uiDoc.license ~= nil and uiDoc.license.status == "LEGACY")
   check("ui not simulation", uiDoc.simulation == false)
   check("ui no secrets: no token keys", stateJson:find("token") == nil and stateJson:find("secret") == nil)
+  check(
+    "ui history present and bounded",
+    type(uiDoc.history) == "table" and #uiDoc.history >= 3 and #uiDoc.history <= 48,
+    type(uiDoc.history) == "table" and #uiDoc.history or "missing"
+  )
+  check(
+    "ui history entries carry t/temp/pressure",
+    type(uiDoc.history) == "table"
+      and #uiDoc.history > 0
+      and uiDoc.history[#uiDoc.history].t ~= nil
+      and uiDoc.history[#uiDoc.history].temp == 86
+      and uiDoc.history[#uiDoc.history].pressure == 30.06
+  )
+  check("ui pressure trend in trends block", uiDoc.trends ~= nil and uiDoc.trends.pressure == "RISING")
+  check(
+    "ui moon rides the solar block",
+    uiDoc.solar ~= nil
+      and type(uiDoc.solar.moon) == "table"
+      and type(uiDoc.solar.moon.name) == "string"
+      and uiDoc.solar.moon.illumination >= 0
+      and uiDoc.solar.moon.illumination <= 100
+  )
 end
 
 -- ─── Settings patches ─────────────────────────────────────────────────────────

@@ -85,6 +85,12 @@ M.EVENTS = {
   { 56, "Rain Expected Within 6 Hours", "Hourly forecast shows rain within 6 hours." },
   { 57, "Simulation Started", "Simulation mode engaged — events are simulated." },
   { 58, "Simulation Ended", "Simulation mode ended — live data resumed." },
+  { 59, "Sunset Approaching", "Sunset is within 30 minutes." },
+  { 60, "Sunrise Approaching", "Sunrise is within 30 minutes." },
+  { 61, "Barometer Falling Rapidly", "Barometric pressure fell at least 0.10 inHg over 3 hours." },
+  { 62, "Irrigation Skip Recommended", "Rain expected or falling — skipping irrigation is recommended." },
+  { 63, "Irrigation Skip Cleared", "The irrigation-skip recommendation ended." },
+  { 64, "Shade Protection Recommended", "Wind conditions endanger extended shades/awnings." },
 }
 
 --- (class, level) -> specific alert event name. Everything else falls back
@@ -115,6 +121,18 @@ local FLAG_EVENTS = {
   is_high_wind = { "High Wind Started", "High Wind Ended" },
   is_dangerous_wind = { "Dangerous Wind Started", "Dangerous Wind Ended" },
   is_high_gust = { "High Gust Detected", false },
+}
+
+--- Driver-computed extra flags (solar timing, barometric trend,
+--- recommendations) ride inputs.extraFlags and diff through the same
+--- transition gate as every other boolean. Same shape as FLAG_EVENTS;
+--- `false` = silent in that direction.
+M.EXTRA_FLAG_EVENTS = {
+  sunset_soon = { "Sunset Approaching", false },
+  sunrise_soon = { "Sunrise Approaching", false },
+  barometer_falling_fast = { "Barometer Falling Rapidly", false },
+  irrigation_skip = { "Irrigation Skip Recommended", "Irrigation Skip Cleared" },
+  shade_protect = { "Shade Protection Recommended", false },
 }
 
 local PREDICT_EVENTS = {
@@ -186,9 +204,18 @@ function M.step(prev, inputs)
   local mode = wstate.mode(inputs.obs, nextStates, active)
   local severity = wstate.severity(nextStates, active)
 
+  -- Extra flags: adopt the caller's set when provided; a tick without one
+  -- carries the previous set forward so an omission never reads as "all
+  -- cleared" (missing data is not evidence).
+  local extraFlags = inputs.extraFlags
+  if extraFlags == nil and prev ~= nil then
+    extraFlags = prev.extraFlags
+  end
+
   local snapshot = {
     obs = inputs.obs,
     states = nextStates,
+    extraFlags = extraFlags,
     predictions = predictions,
     active = active,
     mode = mode,
@@ -213,6 +240,10 @@ function M.step(prev, inputs)
 
   -- ── Transition events ──────────────────────────────────────────────────
   diffFlags(prev ~= nil and prev.states or nil, nextStates, FLAG_EVENTS, events)
+
+  if inputs.extraFlags ~= nil then
+    diffFlags(prev ~= nil and prev.extraFlags or nil, inputs.extraFlags, M.EXTRA_FLAG_EVENTS, events)
+  end
 
   local prevPred = prev ~= nil and prev.predictions or nil
   for key, name in pairs(PREDICT_EVENTS) do
