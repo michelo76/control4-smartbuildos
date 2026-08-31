@@ -338,15 +338,18 @@ input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent)
    (host bar + iOS home indicator ≈ 84px) so it stays tappable. Wide
    viewports (T3/T4 panels, >=521px) keep the field-verified full-width bar. */
 @media (max-width: 520px) {
+  /* NOTE: the C4 mobile webview reports env(safe-area-inset-bottom)
+     INCLUDING the app's own bottom bar (~78px), so the inset alone
+     clears the host chrome — add only a small visual gap. */
   #nav {
     left: 10px; right: 10px;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
     padding: 6px 8px;
     border: 1px solid var(--hairline);
     border-radius: 24px;
     box-shadow: 0 12px 34px rgba(0,0,0,.45);
   }
-  .screen { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 176px); }
+  .screen { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 88px); }
   .nav-badge { border-color: transparent; }
 }
 .nav-item {
@@ -385,6 +388,7 @@ input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent)
 'use strict';
 
 /* ================= utilities ================= */
+var APP_BUILD = 'b4'; /* bump on every field-shipped change to index.html */
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, text) {
   var n = document.createElement(tag);
@@ -696,6 +700,29 @@ function relayHost() {
 function channelDown() {
   return relayBase !== null && relayFails >= 3 && !c4Delivered;
 }
+/* One line describing where data is (or should be) coming from.
+   Shown on the waiting screen and in Diagnostics. Host:port only —
+   the token must never appear here. */
+function channelStatusText() {
+  var s;
+  if (state !== null) {
+    if (relayMode) s = 'LAN relay (' + relayHost() + ')';
+    else if (c4Delivered) s = 'Navigator JS API';
+    else if (mockMode) s = 'Embedded mock';
+    else s = 'connected';
+  } else if (mockMode) {
+    s = 'Loading embedded mock…';
+  } else if (!relayProbed) {
+    s = 'Trying Navigator API…';
+  } else if (relayBase === null) {
+    s = 'No relay address received from driver';
+  } else if (relayFails === 0) {
+    s = 'Trying LAN relay (' + relayHost() + ')…';
+  } else {
+    s = 'LAN relay unreachable (attempt ' + relayFails + ')';
+  }
+  return s + ' · ' + APP_BUILD;
+}
 function relayRequest(method, path, body, cb) {
   var url = relayBase + path + '?k=' + encodeURIComponent(relayToken || '');
   var xhr = new XMLHttpRequest();
@@ -936,7 +963,15 @@ function buildBanners(container) {
 function renderNow() {
   var root = $('screen-now');
   clear(root);
-  if (!state) { root.appendChild(el('div', 'all-clear', 'Waiting for weather data…')); return; }
+  if (!state) {
+    var waitBox = el('div', 'all-clear');
+    waitBox.appendChild(el('div', 't', 'Waiting for weather data…'));
+    var chanLine = el('div', 's', channelStatusText());
+    chanLine.id = 'chanStatus';
+    waitBox.appendChild(chanLine);
+    root.appendChild(waitBox);
+    return;
+  }
   buildBanners(root);
 
   var cur = state.current || {};
@@ -1857,7 +1892,7 @@ var SETTINGS_RENDER = {
     line('Office', diag.office); line('Grid', diag.grid); line('Station', diag.station);
     line('Zone', diag.zone); line('Radar', diag.radar_station); line('Time zone', diag.time_zone);
     tree.appendChild(el('div', 'diag-group', 'Data channel'));
-    line('Source', relayMode ? 'LAN relay (' + relayHost() + ')' : (c4Delivered ? 'Navigator JS API' : (mockMode && state ? 'Embedded mock' : 'none yet')));
+    line('Source', channelStatusText());
     var api = diag.api || {};
     var comps = ['observations', 'forecast', 'alerts', 'points'];
     for (var i = 0; i < comps.length; i++) {
@@ -2334,6 +2369,8 @@ if (relayBase !== null && !mockMode) {
 }
 window.setInterval(function () {
   updateClock();
+  var chan = $('chanStatus');
+  if (chan) chan.textContent = channelStatusText();
   if (activeScreen === 'now' && state) {
     var arc = document.querySelector('.sun-arc');
     if (arc) positionSunDot(arc, state.solar || {});
