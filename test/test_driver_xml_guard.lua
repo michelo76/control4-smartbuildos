@@ -56,10 +56,7 @@ for _, driver in ipairs(drivers) do
     local xml = xmlFile:read("*a")
     xmlFile:close()
 
-    check(
-      driver.name .. ": <script> element loads driver.lua",
-      xml:find('<script%s+file="driver%.lua"') ~= nil
-    )
+    check(driver.name .. ": <script> element loads driver.lua", xml:find('<script%s+file="driver%.lua"') ~= nil)
 
     local luaFile = io.open(driver.dir .. "/driver.lua", "r")
     check(driver.name .. ": driver.lua exists", luaFile ~= nil)
