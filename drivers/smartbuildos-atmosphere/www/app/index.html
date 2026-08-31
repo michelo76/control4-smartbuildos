@@ -329,8 +329,25 @@ input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent)
 #nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
   display: flex; justify-content: center; gap: 2px;
-  padding: 7px 10px 9px; background: var(--nav-bg);
+  padding: 7px 10px calc(9px + env(safe-area-inset-bottom, 0px));
+  background: var(--nav-bg);
   border-top: 1px solid var(--hairline);
+}
+/* Phone-sized viewports: the Control4 mobile app draws its own persistent
+   bottom bar OVER the WebView. Float our nav as a pill above that chrome
+   (host bar + iOS home indicator ≈ 84px) so it stays tappable. Wide
+   viewports (T3/T4 panels, >=521px) keep the field-verified full-width bar. */
+@media (max-width: 520px) {
+  #nav {
+    left: 10px; right: 10px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+    padding: 6px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 24px;
+    box-shadow: 0 12px 34px rgba(0,0,0,.45);
+  }
+  .screen { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 176px); }
+  .nav-badge { border-color: transparent; }
 }
 .nav-item {
   flex: 1; max-width: 108px; display: flex; flex-direction: column; align-items: center; gap: 3px;
