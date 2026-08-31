@@ -14,17 +14,17 @@
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
-	if ok then
-		pass = pass + 1
-		print(string.format("  ok   %s", name))
-	else
-		fail = fail + 1
-		print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-	end
+  if ok then
+    pass = pass + 1
+    print(string.format("  ok   %s", name))
+  else
+    fail = fail + 1
+    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
+  end
 end
 
 local function near(a, b, eps)
-	return a ~= nil and b ~= nil and math.abs(a - b) <= (eps or 0.01)
+  return a ~= nil and b ~= nil and math.abs(a - b) <= (eps or 0.01)
 end
 
 local units = require("atmosphere.units")
@@ -105,26 +105,26 @@ check("conditionFlags clear", normalize.conditionFlags("Sunny").clear == true)
 -- ─── normalize: observation (the six-nulls-is-normal case) ────────────────────
 
 local obs = normalize.observation({
-	timestamp = "2026-08-31T14:52:00+00:00",
-	station = "https://api.weather.gov/stations/KDCA",
-	textDescription = "Clear",
-	temperature = { value = 24.4, unitCode = "wmoUnit:degC", qualityControl = "V" },
-	dewpoint = { value = 10.0, qualityControl = "V" },
-	windSpeed = { value = 11.16, unitCode = "wmoUnit:km_h-1", qualityControl = "V" },
-	windDirection = { value = 180, qualityControl = "V" },
-	barometricPressure = { value = 101690, unitCode = "wmoUnit:Pa", qualityControl = "V" },
-	visibility = { value = 16090, unitCode = "wmoUnit:m", qualityControl = "C" },
-	relativeHumidity = { value = 40.5, qualityControl = "V" },
-	-- The six nulls, exactly as measured live:
-	windGust = { value = nil, qualityControl = "Z" },
-	seaLevelPressure = { value = nil, qualityControl = "Z" },
-	maxTemperatureLast24Hours = { value = nil },
-	minTemperatureLast24Hours = { value = nil },
-	precipitationLast3Hours = { value = nil, qualityControl = "Z" },
-	windChill = { value = nil, qualityControl = "Z" },
-	heatIndex = { value = nil, qualityControl = "V" },
-	cloudLayers = { { base = { value = nil }, amount = "CLR" } },
-	presentWeather = {},
+  timestamp = "2026-08-31T14:52:00+00:00",
+  station = "https://api.weather.gov/stations/KDCA",
+  textDescription = "Clear",
+  temperature = { value = 24.4, unitCode = "wmoUnit:degC", qualityControl = "V" },
+  dewpoint = { value = 10.0, qualityControl = "V" },
+  windSpeed = { value = 11.16, unitCode = "wmoUnit:km_h-1", qualityControl = "V" },
+  windDirection = { value = 180, qualityControl = "V" },
+  barometricPressure = { value = 101690, unitCode = "wmoUnit:Pa", qualityControl = "V" },
+  visibility = { value = 16090, unitCode = "wmoUnit:m", qualityControl = "C" },
+  relativeHumidity = { value = 40.5, qualityControl = "V" },
+  -- The six nulls, exactly as measured live:
+  windGust = { value = nil, qualityControl = "Z" },
+  seaLevelPressure = { value = nil, qualityControl = "Z" },
+  maxTemperatureLast24Hours = { value = nil },
+  minTemperatureLast24Hours = { value = nil },
+  precipitationLast3Hours = { value = nil, qualityControl = "Z" },
+  windChill = { value = nil, qualityControl = "Z" },
+  heatIndex = { value = nil, qualityControl = "V" },
+  cloudLayers = { { base = { value = nil }, amount = "CLR" } },
+  presentWeather = {},
 })
 check("observation parses", obs ~= nil)
 check("observation tempC", obs ~= nil and near(obs.tempC, 24.4))
@@ -141,29 +141,29 @@ check("observation no timestamp is nil", normalize.observation({ textDescription
 check("observation non-table is nil", normalize.observation("garbage") == nil)
 
 local hotObs = normalize.observation({
-	timestamp = "2026-08-31T14:52:00+00:00",
-	temperature = { value = 35 },
-	heatIndex = { value = 41 },
+  timestamp = "2026-08-31T14:52:00+00:00",
+  temperature = { value = 35 },
+  heatIndex = { value = 41 },
 })
 check("observation feels-like prefers heat index", hotObs ~= nil and near(hotObs.feelsLikeC, 41))
 
 -- ─── normalize: forecast periods ──────────────────────────────────────────────
 
 local period = normalize.period({
-	number = 1,
-	name = "Today",
-	startTime = "2026-08-31T06:00:00-04:00",
-	endTime = "2026-08-31T18:00:00-04:00",
-	isDaytime = true,
-	temperature = 90,
-	temperatureUnit = "F",
-	probabilityOfPrecipitation = { value = 40 },
-	dewpoint = { value = 18.3, unitCode = "wmoUnit:degC" },
-	relativeHumidity = { value = 65 },
-	windSpeed = "5 to 10 mph",
-	windDirection = "SW",
-	shortForecast = "Chance Showers And Thunderstorms",
-	detailedForecast = "A chance of showers and thunderstorms after noon.",
+  number = 1,
+  name = "Today",
+  startTime = "2026-08-31T06:00:00-04:00",
+  endTime = "2026-08-31T18:00:00-04:00",
+  isDaytime = true,
+  temperature = 90,
+  temperatureUnit = "F",
+  probabilityOfPrecipitation = { value = 40 },
+  dewpoint = { value = 18.3, unitCode = "wmoUnit:degC" },
+  relativeHumidity = { value = 65 },
+  windSpeed = "5 to 10 mph",
+  windDirection = "SW",
+  shortForecast = "Chance Showers And Thunderstorms",
+  detailedForecast = "A chance of showers and thunderstorms after noon.",
 })
 check("period parses", period ~= nil)
 check("period tempF bare number", period ~= nil and period.tempF == 90)
@@ -172,57 +172,57 @@ check("period pop", period ~= nil and period.pop == 40)
 check("period wind range", period ~= nil and period.windMphLo == 5 and period.windMphHi == 10)
 check("period thunder flag", period ~= nil and period.flags.thunder == true)
 check("period null pop stays nil", normalize.period({
-	startTime = "2026-08-31T06:00:00-04:00",
-	endTime = "2026-08-31T18:00:00-04:00",
-	probabilityOfPrecipitation = { value = nil },
+  startTime = "2026-08-31T06:00:00-04:00",
+  endTime = "2026-08-31T18:00:00-04:00",
+  probabilityOfPrecipitation = { value = nil },
 }).pop == nil)
 check(
-	"period celsius unit honored",
-	near(
-		normalize.period({
-			startTime = "2026-08-31T06:00:00-04:00",
-			endTime = "2026-08-31T18:00:00-04:00",
-			temperature = 30,
-			temperatureUnit = "C",
-		}).tempF,
-		86
-	)
+  "period celsius unit honored",
+  near(
+    normalize.period({
+      startTime = "2026-08-31T06:00:00-04:00",
+      endTime = "2026-08-31T18:00:00-04:00",
+      temperature = 30,
+      temperatureUnit = "C",
+    }).tempF,
+    86
+  )
 )
 check("periods drops garbage entries", #normalize.periods({
-	{ startTime = "bad" },
-	{
-		startTime = "2026-08-31T06:00:00-04:00",
-		endTime = "2026-08-31T18:00:00-04:00",
-	},
+  { startTime = "bad" },
+  {
+    startTime = "2026-08-31T06:00:00-04:00",
+    endTime = "2026-08-31T18:00:00-04:00",
+  },
 }) == 1)
 check("periods non-table is empty", #normalize.periods(nil) == 0)
 
 -- ─── normalize: grid layers + points ──────────────────────────────────────────
 
 local layer = normalize.gridLayer({
-	uom = "wmoUnit:percent",
-	values = {
-		{ validTime = "2026-08-31T00:00:00+00:00/PT6H", value = 20 },
-		{ validTime = "2026-08-31T06:00:00+00:00/PT1H", value = nil },
-		{ validTime = "garbage", value = 50 },
-	},
+  uom = "wmoUnit:percent",
+  values = {
+    { validTime = "2026-08-31T00:00:00+00:00/PT6H", value = 20 },
+    { validTime = "2026-08-31T06:00:00+00:00/PT1H", value = nil },
+    { validTime = "garbage", value = 50 },
+  },
 })
 check("gridLayer expands valid entries only", #layer == 1)
 check("gridLayer duration", layer[1] ~= nil and layer[1].duration == 21600)
 
 local pts = normalize.points({
-	gridId = "LWX",
-	gridX = 97,
-	gridY = 71,
-	forecast = "https://api.weather.gov/gridpoints/LWX/97,71/forecast",
-	forecastHourly = "https://api.weather.gov/gridpoints/LWX/97,71/forecast/hourly",
-	forecastGridData = "https://api.weather.gov/gridpoints/LWX/97,71",
-	observationStations = "https://api.weather.gov/gridpoints/LWX/97,71/stations",
-	forecastZone = "https://api.weather.gov/zones/forecast/DCZ001",
-	county = "https://api.weather.gov/zones/county/DCC001",
-	fireWeatherZone = "https://api.weather.gov/zones/fire/DCZ001",
-	timeZone = "America/New_York",
-	radarStation = "KLWX",
+  gridId = "LWX",
+  gridX = 97,
+  gridY = 71,
+  forecast = "https://api.weather.gov/gridpoints/LWX/97,71/forecast",
+  forecastHourly = "https://api.weather.gov/gridpoints/LWX/97,71/forecast/hourly",
+  forecastGridData = "https://api.weather.gov/gridpoints/LWX/97,71",
+  observationStations = "https://api.weather.gov/gridpoints/LWX/97,71/stations",
+  forecastZone = "https://api.weather.gov/zones/forecast/DCZ001",
+  county = "https://api.weather.gov/zones/county/DCC001",
+  fireWeatherZone = "https://api.weather.gov/zones/fire/DCZ001",
+  timeZone = "America/New_York",
+  radarStation = "KLWX",
 })
 check("points parses", pts ~= nil)
 check("points office", pts ~= nil and pts.office == "LWX")
@@ -238,13 +238,13 @@ local equinoxNoonUtc = 1767225600 + 78 * 86400 + 43200
 local dc = solar.sunTimes(38.8895, -77.0353, equinoxNoonUtc)
 check("solar equinox parses", dc ~= nil)
 if dc ~= nil then
-	local dayLen = (dc.sunset - dc.sunrise) / 3600
-	check("solar equinox day length ~12h", dayLen > 11.9 and dayLen < 12.4, string.format("%.2f h", dayLen))
-	check("solar ordering", dc.sunrise < dc.solarNoon and dc.solarNoon < dc.sunset)
-	check(
-		"solar equinox sunrise plausible (10-12 UTC)",
-		dc.sunrise % 86400 > 10 * 3600 and dc.sunrise % 86400 < 12 * 3600
-	)
+  local dayLen = (dc.sunset - dc.sunrise) / 3600
+  check("solar equinox day length ~12h", dayLen > 11.9 and dayLen < 12.4, string.format("%.2f h", dayLen))
+  check("solar ordering", dc.sunrise < dc.solarNoon and dc.solarNoon < dc.sunset)
+  check(
+    "solar equinox sunrise plausible (10-12 UTC)",
+    dc.sunrise % 86400 > 10 * 3600 and dc.sunrise % 86400 < 12 * 3600
+  )
 end
 
 -- Midsummer above the arctic circle: no sunrise/sunset.
@@ -257,19 +257,19 @@ check("solarState daytime at local afternoon", stateAtNoonLocal ~= nil and state
 local stateAtMidnight = solar.solarState(38.8895, -77.0353, equinoxNoonUtc - 8 * 3600, -4 * 3600)
 check("solarState night before dawn", stateAtMidnight ~= nil and stateAtMidnight.isDaytime == false)
 check(
-	"solarState minutesToSunrise positive at night",
-	stateAtMidnight ~= nil and (stateAtMidnight.minutesToSunrise or -1) > 0
+  "solarState minutesToSunrise positive at night",
+  stateAtMidnight ~= nil and (stateAtMidnight.minutesToSunrise or -1) > 0
 )
 if stateAtNoonLocal ~= nil then
-	check(
-		"solarState next sunrise is tomorrow after dawn",
-		stateAtNoonLocal.nextSunrise ~= nil and stateAtNoonLocal.nextSunrise > stateAtNoonLocal.sunrise
-	)
+  check(
+    "solarState next sunrise is tomorrow after dawn",
+    stateAtNoonLocal.nextSunrise ~= nil and stateAtNoonLocal.nextSunrise > stateAtNoonLocal.sunrise
+  )
 end
 
 -- ─── result ───────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
-	os.exit(1)
+  os.exit(1)
 end

@@ -16,13 +16,13 @@
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
-	if ok then
-		pass = pass + 1
-		print(string.format("  ok   %s", name))
-	else
-		fail = fail + 1
-		print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-	end
+  if ok then
+    pass = pass + 1
+    print(string.format("  ok   %s", name))
+  else
+    fail = fail + 1
+    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
+  end
 end
 
 local settingsstore = require("atmosphere.settingsstore")
@@ -33,11 +33,11 @@ local simulator = require("atmosphere.simulator")
 -- ─── settings validation ──────────────────────────────────────────────────────
 
 local clean, refused = settingsstore.validate({
-	units = { temperature = "c", wind = "WARP" },
-	thresholds = { high_wind_enter_mph = 30, freeze_enter_f = -500 },
-	alerts = { sensitivity = "WARNINGS_ONLY", classes = { TORNADO = false, BOGUS = true } },
-	display = { theme = "OLED", animation = "sideways" },
-	junk_key = 1,
+  units = { temperature = "c", wind = "WARP" },
+  thresholds = { high_wind_enter_mph = 30, freeze_enter_f = -500 },
+  alerts = { sensitivity = "WARNINGS_ONLY", classes = { TORNADO = false, BOGUS = true } },
+  display = { theme = "OLED", animation = "sideways" },
+  junk_key = 1,
 })
 check("valid unit accepted (case-folded)", clean.units.temperature == "C")
 check("invalid unit refused", clean.units.wind == nil)
@@ -50,22 +50,22 @@ check("theme accepted", clean.display.theme == "OLED")
 check("bad animation refused", clean.display.animation == nil)
 check("refusals carry paths", #refused == 5, tostring(#refused))
 check(
-	"each refusal has path and reason",
-	(function()
-		for _, r in ipairs(refused) do
-			if type(r.path) ~= "string" or type(r.reason) ~= "string" then
-				return false
-			end
-		end
-		return true
-	end)()
+  "each refusal has path and reason",
+  (function()
+    for _, r in ipairs(refused) do
+      if type(r.path) ~= "string" or type(r.reason) ~= "string" then
+        return false
+      end
+    end
+    return true
+  end)()
 )
 check(
-	"non-table patch refused whole",
-	(function()
-		local c, r = settingsstore.validate("garbage")
-		return next(c) == nil and #r == 1
-	end)()
+  "non-table patch refused whole",
+  (function()
+    local c, r = settingsstore.validate("garbage")
+    return next(c) == nil and #r == 1
+  end)()
 )
 
 -- merge keeps unrelated branches
@@ -90,65 +90,65 @@ check("effectiveThresholds applies override", settingsstore.effectiveThresholds(
 -- ─── uistate ──────────────────────────────────────────────────────────────────
 
 local snap = {
-	mode = "RAIN",
-	severity = "ADVISORY",
-	simulation = false,
-	dataStale = false,
-	obsStale = false,
-	forecastStale = false,
-	alertsStale = false,
-	apiOk = true,
-	activeAlertCount = 1,
-	obs = {
-		tempF = 68,
-		feelsLikeF = 66.2,
-		dewpointF = 60,
-		humidity = 77.4,
-		windMph = 10,
-		gustMph = nil,
-		windCompass = "NE",
-		windDeg = 45,
-		pressureInHg = 29.92,
-		visibilityMi = 5,
-		cloudCover = 90,
-		textDescription = "Rain",
-		station = "KFLL",
-		timestamp = 1767225600,
-	},
-	states = { is_raining = true },
-	predictions = { rain_soon = true },
-	active = {
-		a1 = {
-			id = "a1",
-			event = "Flood Advisory",
-			severity = "Minor",
-			severityRank = 1,
-			levelName = "ADVISORY",
-			class = "FLOOD",
-		},
-		a2 = {
-			id = "a2",
-			event = "Flood Warning",
-			severity = "Severe",
-			severityRank = 3,
-			levelName = "WARNING",
-			class = "FLOOD",
-		},
-	},
+  mode = "RAIN",
+  severity = "ADVISORY",
+  simulation = false,
+  dataStale = false,
+  obsStale = false,
+  forecastStale = false,
+  alertsStale = false,
+  apiOk = true,
+  activeAlertCount = 1,
+  obs = {
+    tempF = 68,
+    feelsLikeF = 66.2,
+    dewpointF = 60,
+    humidity = 77.4,
+    windMph = 10,
+    gustMph = nil,
+    windCompass = "NE",
+    windDeg = 45,
+    pressureInHg = 29.92,
+    visibilityMi = 5,
+    cloudCover = 90,
+    textDescription = "Rain",
+    station = "KFLL",
+    timestamp = 1767225600,
+  },
+  states = { is_raining = true },
+  predictions = { rain_soon = true },
+  active = {
+    a1 = {
+      id = "a1",
+      event = "Flood Advisory",
+      severity = "Minor",
+      severityRank = 1,
+      levelName = "ADVISORY",
+      class = "FLOOD",
+    },
+    a2 = {
+      id = "a2",
+      event = "Flood Warning",
+      severity = "Severe",
+      severityRank = 3,
+      levelName = "WARNING",
+      class = "FLOOD",
+    },
+  },
 }
 local metricSettings = settingsstore.merge(settingsstore.defaults(), {
-	units = { temperature = "C", wind = "KMH", pressure = "HPA", distance = "KM" },
+  units = { temperature = "C", wind = "KMH", pressure = "HPA", distance = "KM" },
 })
 local ui = uistate.build({
-	snapshot = snap,
-	daily = {},
-	hourly = {},
-	settings = metricSettings,
-	solar = { isDaytime = true },
-	location = { label = "Test", radar_station = "KAMX" },
-	diagnostics = {},
-	license = { status = "LEGACY" },
-	now = 1767225600,
+  snapshot = snap,
+  daily = {},
+  hourly = {},
+  settings = metricSettings,
+  solar = { isDaytime = true },
+  location = { label = "Test", radar_station = "KAMX" },
+  diagnostics = {},
+  license = { status = "LEGACY" },
+  now = 1767225600,
 })
 check("ui temp converted to C", ui.current.temp == 20)
 check("ui wind converted to KMH", ui.current.wind == 16.1)
@@ -175,13 +175,13 @@ check("jitter varies by seed", scheduler.jitter("a", 1000) ~= scheduler.jitter("
 -- ─── simulator ────────────────────────────────────────────────────────────────
 
 for _, name in ipairs(simulator.NAMES) do
-	local built = simulator.build(name, 1767225600)
-	check("scenario builds: " .. name, built ~= nil and (built.obs ~= nil or #(built.alerts or {}) > 0))
+  local built = simulator.build(name, 1767225600)
+  check("scenario builds: " .. name, built ~= nil and (built.obs ~= nil or #(built.alerts or {}) > 0))
 end
 local tor = simulator.build("tornado_warning", 1767225600)
 check(
-	"simulated tornado is a real normalized alert",
-	tor.alerts[1].class == "TORNADO" and tor.alerts[1].levelName == "WARNING"
+  "simulated tornado is a real normalized alert",
+  tor.alerts[1].class == "TORNADO" and tor.alerts[1].levelName == "WARNING"
 )
 check("simulated alerts marked simulated in text", tor.alerts[1].headline:find("SIMULATED", 1, true) ~= nil)
 check("unknown scenario is nil", simulator.build("sharknado", 0) == nil)
@@ -191,5 +191,5 @@ check("scenario name normalization", simulator.build("Tornado Warning", 17672256
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
-	os.exit(1)
+  os.exit(1)
 end

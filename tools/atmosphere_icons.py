@@ -52,7 +52,10 @@ SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
 def render(size: int, out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     cairosvg.svg2png(
-        bytestring=SVG.encode(), write_to=str(out), output_width=size, output_height=size
+        bytestring=SVG.encode(),
+        write_to=str(out),
+        output_width=size,
+        output_height=size,
     )
     print(f"  {out.relative_to(ROOT)} ({size}px)")
 

@@ -15,13 +15,13 @@
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
-	if ok then
-		pass = pass + 1
-		print(string.format("  ok   %s", name))
-	else
-		fail = fail + 1
-		print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
-	end
+  if ok then
+    pass = pass + 1
+    print(string.format("  ok   %s", name))
+  else
+    fail = fail + 1
+    print(string.format("  FAIL %s%s", name, detail and ("  -> " .. tostring(detail)) or ""))
+  end
 end
 
 local thresholds = require("atmosphere.thresholds")
@@ -34,31 +34,31 @@ local T = thresholds.effective({})
 local NOW = 1767225600 -- 2026-01-01T00:00:00Z
 
 local function has(events, name)
-	for _, e in ipairs(events) do
-		if e == name then
-			return true
-		end
-	end
-	return false
+  for _, e in ipairs(events) do
+    if e == name then
+      return true
+    end
+  end
+  return false
 end
 
 local function obsWith(over)
-	local o = {
-		timestamp = NOW,
-		tempC = 20,
-		tempF = 68,
-		feelsLikeF = 68,
-		windMph = 5,
-		gustMph = nil,
-		visibilityMi = 10,
-		humidity = 50,
-		cloudCover = 10,
-		flags = { rain = false, snow = false, thunder = false, fog = false, ice = false, clear = true, cloudy = false },
-	}
-	for k, v in pairs(over or {}) do
-		o[k] = v
-	end
-	return o
+  local o = {
+    timestamp = NOW,
+    tempC = 20,
+    tempF = 68,
+    feelsLikeF = 68,
+    windMph = 5,
+    gustMph = nil,
+    visibilityMi = 10,
+    humidity = 50,
+    cloudCover = 10,
+    flags = { rain = false, snow = false, thunder = false, fog = false, ice = false, clear = true, cloudy = false },
+  }
+  for k, v in pairs(over or {}) do
+    o[k] = v
+  end
+  return o
 end
 
 -- ─── thresholds: hysteresis ───────────────────────────────────────────────────
@@ -84,8 +84,8 @@ local s4 = thresholds.evaluate(s1, nilWindObs, T)
 check("evaluate nil wind keeps state", s4.is_high_wind == true)
 check("evaluate freeze low-side", thresholds.evaluate({}, obsWith({ tempF = 30 }), T).is_freezing == true)
 check(
-	"evaluate heat uses feels-like",
-	thresholds.evaluate({}, obsWith({ tempF = 85, feelsLikeF = 92 }), T).is_hot == true
+  "evaluate heat uses feels-like",
+  thresholds.evaluate({}, obsWith({ tempF = 85, feelsLikeF = 92 }), T).is_hot == true
 )
 check("evaluate nil obs is inert", thresholds.evaluate(s1, nil, T).is_high_wind == true)
 
@@ -98,32 +98,32 @@ check("effective refuses out-of-bounds + unknown", #refused == 2)
 -- ─── alerts: lifecycle ────────────────────────────────────────────────────────
 
 local function capAlert(over)
-	local a = {
-		id = "urn:oid:2.49.0.1.840.0.abc.001.1",
-		event = "Severe Thunderstorm Warning",
-		severity = "Severe",
-		certainty = "Observed",
-		urgency = "Immediate",
-		status = "Actual",
-		messageType = "Alert",
-		effective = "2026-01-01T00:00:00+00:00",
-		onset = "2026-01-01T00:00:00+00:00",
-		expires = "2026-01-01T03:00:00+00:00",
-		ends = "2026-01-01T03:00:00+00:00",
-		senderName = "NWS Miami FL",
-		areaDesc = "Broward County",
-		description = "A severe thunderstorm was located...",
-		instruction = "Move to an interior room...",
-		response = "Shelter",
-	}
-	for k, v in pairs(over or {}) do
-		a[k] = v
-	end
-	return normalize_alert(a)
+  local a = {
+    id = "urn:oid:2.49.0.1.840.0.abc.001.1",
+    event = "Severe Thunderstorm Warning",
+    severity = "Severe",
+    certainty = "Observed",
+    urgency = "Immediate",
+    status = "Actual",
+    messageType = "Alert",
+    effective = "2026-01-01T00:00:00+00:00",
+    onset = "2026-01-01T00:00:00+00:00",
+    expires = "2026-01-01T03:00:00+00:00",
+    ends = "2026-01-01T03:00:00+00:00",
+    senderName = "NWS Miami FL",
+    areaDesc = "Broward County",
+    description = "A severe thunderstorm was located...",
+    instruction = "Move to an interior room...",
+    response = "Shelter",
+  }
+  for k, v in pairs(over or {}) do
+    a[k] = v
+  end
+  return normalize_alert(a)
 end
 
 function normalize_alert(raw)
-	return walerts.normalize(raw)
+  return walerts.normalize(raw)
 end
 
 check("classify tornado", walerts.classify("Tornado Warning") == "TORNADO")
@@ -145,11 +145,11 @@ local r2 = walerts.reconcile(r1.active, { a1 }, NOW + 60)
 check("reconcile same alert repolled: no events", #r2.new == 0 and #r2.updated == 0 and #r2.canceled == 0)
 
 local a2 = capAlert({
-	id = "urn:oid:2.49.0.1.840.0.def.002.1",
-	event = "Tornado Warning",
-	severity = "Extreme",
-	messageType = "Update",
-	references = { { ["@id"] = a1.id } },
+  id = "urn:oid:2.49.0.1.840.0.def.002.1",
+  event = "Tornado Warning",
+  severity = "Extreme",
+  messageType = "Update",
+  references = { { ["@id"] = a1.id } },
 })
 local r3 = walerts.reconcile(r2.active, { a2 }, NOW + 120)
 check("reconcile update supersedes", r3.active[a1.id] == nil and r3.active[a2.id] ~= nil)
@@ -168,13 +168,13 @@ check("reconcile failed poll still expires by clock", #r6.expired == 1 and r6.ac
 
 check("admitted default", walerts.admitted(a1, {}) == true)
 check(
-	"admitted sensitivity excludes watch",
-	walerts.admitted(capAlert({ event = "Flood Watch" }), { sensitivity = "WARNINGS_ONLY" }) == false
+  "admitted sensitivity excludes watch",
+  walerts.admitted(capAlert({ event = "Flood Watch" }), { sensitivity = "WARNINGS_ONLY" }) == false
 )
 check("admitted class disable", walerts.admitted(a1, { classes = { SEVERE_THUNDERSTORM = false } }) == false)
 check(
-	"admitted unknown class defaults on",
-	walerts.admitted(capAlert({ event = "Dust Storm Warning" }), { classes = {} }) == true
+  "admitted unknown class defaults on",
+  walerts.admitted(capAlert({ event = "Dust Storm Warning" }), { classes = {} }) == true
 )
 check("admitted rejects Test status", walerts.admitted(capAlert({ status = "Test" }), {}) == false)
 check("admitted OFF admits nothing", walerts.admitted(a1, { sensitivity = "OFF" }) == false)
@@ -185,24 +185,24 @@ check("mostImportant picks tornado", walerts.mostImportant(r3.active).id == a2.i
 -- ─── predictions ──────────────────────────────────────────────────────────────
 
 local function hourlyAt(offsetH, over)
-	local p = {
-		startT = NOW + offsetH * 3600,
-		endT = NOW + (offsetH + 1) * 3600,
-		isDaytime = true,
-		tempF = 60,
-		pop = 10,
-		windMphLo = 5,
-		windMphHi = 8,
-		flags = { rain = false, snow = false, thunder = false, fog = false, ice = false, clear = true, cloudy = false },
-	}
-	for k, v in pairs(over or {}) do
-		p[k] = v
-	end
-	return p
+  local p = {
+    startT = NOW + offsetH * 3600,
+    endT = NOW + (offsetH + 1) * 3600,
+    isDaytime = true,
+    tempF = 60,
+    pop = 10,
+    windMphLo = 5,
+    windMphHi = 8,
+    flags = { rain = false, snow = false, thunder = false, fog = false, ice = false, clear = true, cloudy = false },
+  }
+  for k, v in pairs(over or {}) do
+    p[k] = v
+  end
+  return p
 end
 
 local hourlyRain2h =
-	{ hourlyAt(0), hourlyAt(1), hourlyAt(2, { pop = 60, flags = { rain = true } }), hourlyAt(8, { pop = 80 }) }
+  { hourlyAt(0), hourlyAt(1), hourlyAt(2, { pop = 60, flags = { rain = true } }), hourlyAt(8, { pop = 80 }) }
 local pr = predict.evaluate(hourlyRain2h, {}, T, NOW, 0)
 check("predict rain in 3h window", pr.rain_expected_3h == true)
 check("predict rain NOT in 1h window", pr.rain_expected_1h == false)
@@ -221,8 +221,8 @@ check("predict severe alert active", prAlert.severe_alert_active == true)
 check("predict dangerous weather from warning", prAlert.dangerous_weather_approaching == true)
 local freezeWatch = capAlert({ id = "x1", event = "Freeze Watch", severity = "Moderate" })
 check(
-	"predict freeze from alert with no forecast",
-	predict.evaluate({}, { x1 = freezeWatch }, T, NOW, 0).freeze_expected_tonight == true
+  "predict freeze from alert with no forecast",
+  predict.evaluate({}, { x1 = freezeWatch }, T, NOW, 0).freeze_expected_tonight == true
 )
 
 -- ─── mode + severity ──────────────────────────────────────────────────────────
@@ -232,20 +232,19 @@ check("mode cloudy from cover", wstate.mode(obsWith({ cloudCover = 80 }), {}, {}
 check("mode partly cloudy", wstate.mode(obsWith({ cloudCover = 40 }), {}, {}) == "PARTLY_CLOUDY")
 check("mode rain", wstate.mode(obsWith({ flags = { rain = true } }), {}, {}) == "RAIN")
 check(
-	"mode thunderstorm beats rain",
-	wstate.mode(obsWith({ flags = { rain = true, thunder = true } }), {}, {}) == "THUNDERSTORM"
+  "mode thunderstorm beats rain",
+  wstate.mode(obsWith({ flags = { rain = true, thunder = true } }), {}, {}) == "THUNDERSTORM"
 )
 check(
-	"mode ice from freezing rain",
-	wstate.mode(obsWith({ flags = { rain = true } }), { is_freezing = true }, {}) == "ICE"
+  "mode ice from freezing rain",
+  wstate.mode(obsWith({ flags = { rain = true } }), { is_freezing = true }, {}) == "ICE"
 )
 check("mode snow", wstate.mode(obsWith({ flags = { snow = true } }), {}, {}) == "SNOW")
 check("mode high wind", wstate.mode(obsWith({}), { is_high_wind = true }, {}) == "HIGH_WIND")
 check("mode unknown without obs", wstate.mode(nil, {}, {}) == "UNKNOWN")
 check(
-	"mode hurricane forced by warning",
-	wstate.mode(obsWith({}), {}, { [1] = capAlert({ event = "Hurricane Warning", severity = "Extreme" }) })
-		== "HURRICANE"
+  "mode hurricane forced by warning",
+  wstate.mode(obsWith({}), {}, { [1] = capAlert({ event = "Hurricane Warning", severity = "Extreme" }) }) == "HURRICANE"
 )
 check("mode severe storm on tornado warning", wstate.mode(obsWith({}), {}, { [1] = a2 }) == "SEVERE_STORM")
 
@@ -253,30 +252,30 @@ check("severity normal", wstate.severity({}, {}) == "NORMAL")
 check("severity emergency on extreme warning", wstate.severity({}, tornadoActive) == "EMERGENCY")
 check("severity warning on severe warning", wstate.severity({}, { [a1.id] = a1 }) == "WARNING")
 check(
-	"severity watch",
-	wstate.severity({}, { w = capAlert({ event = "Flood Watch", severity = "Moderate" }) }) == "WATCH"
+  "severity watch",
+  wstate.severity({}, { w = capAlert({ event = "Flood Watch", severity = "Moderate" }) }) == "WATCH"
 )
 check("severity informational on local extreme", wstate.severity({ is_extreme_heat = true }, {}) == "INFORMATIONAL")
 
 -- ─── engine: transition-only events ───────────────────────────────────────────
 
 local function step(prev, over)
-	local inputs = {
-		obs = obsWith({}),
-		hourly = {},
-		alertsResult = nil,
-		thresholds = T,
-		now = NOW,
-		localOffset = 0,
-		obsFetchedAt = NOW,
-		forecastFetchedAt = NOW,
-		alertsFetchedAt = NOW,
-		apiOk = true,
-	}
-	for k, v in pairs(over or {}) do
-		inputs[k] = v
-	end
-	return engine.step(prev, inputs)
+  local inputs = {
+    obs = obsWith({}),
+    hourly = {},
+    alertsResult = nil,
+    thresholds = T,
+    now = NOW,
+    localOffset = 0,
+    obsFetchedAt = NOW,
+    forecastFetchedAt = NOW,
+    alertsFetchedAt = NOW,
+    apiOk = true,
+  }
+  for k, v in pairs(over or {}) do
+    inputs[k] = v
+  end
+  return engine.step(prev, inputs)
 end
 
 -- First sight is baseline: raining at first step fires nothing.
@@ -303,8 +302,8 @@ check("engine high wind ended", has(evW4, "High Wind Ended"))
 local snapP1 = select(1, step(nil, {}))
 local _, evP2 = step(snapP1, { hourly = hourlyRain2h })
 check(
-	"engine rain-expected events fire on rise",
-	has(evP2, "Rain Expected Within 3 Hours") and has(evP2, "Rain Expected Soon")
+  "engine rain-expected events fire on rise",
+  has(evP2, "Rain Expected Within 3 Hours") and has(evP2, "Rain Expected Soon")
 )
 
 -- Stale forecast suppresses forecast predictions.
@@ -353,28 +352,28 @@ check("engine simulation ended fires", has(evSim2, "Simulation Ended"))
 -- Event table sanity: unique ids, unique names.
 local ids, names, dup = {}, {}, false
 for _, e in ipairs(engine.EVENTS) do
-	if ids[e[1]] or names[e[2]] then
-		dup = true
-	end
-	ids[e[1]] = true
-	names[e[2]] = true
+  if ids[e[1]] or names[e[2]] then
+    dup = true
+  end
+  ids[e[1]] = true
+  names[e[2]] = true
 end
 check("engine event ids and names unique", not dup)
 check(
-	"engine event map names all registered",
-	(function()
-		for _, e in ipairs({ "Rain Started", "Tornado Warning", "Weather Data Stale", "Simulation Started" }) do
-			if not names[e] then
-				return false
-			end
-		end
-		return true
-	end)()
+  "engine event map names all registered",
+  (function()
+    for _, e in ipairs({ "Rain Started", "Tornado Warning", "Weather Data Stale", "Simulation Started" }) do
+      if not names[e] then
+        return false
+      end
+    end
+    return true
+  end)()
 )
 
 -- ─── result ───────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
-	os.exit(1)
+  os.exit(1)
 end

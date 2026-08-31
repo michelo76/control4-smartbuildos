@@ -79,20 +79,16 @@ check(
 -- (3) No external script/style loading.
 local lower = html:lower()
 check("no <script src=...>", lower:find("<script%s+[^>]*src%s*=") == nil)
-check('no <link ... href="http', lower:find('<link[^>]*href%s*=%s*["\']http') == nil)
+check('no <link ... href="http', lower:find("<link[^>]*href%s*=%s*[\"']http") == nil)
 
 -- (4) CSP meta tag present.
 check(
   "CSP meta tag present",
-  html:find('http%-equiv="Content%-Security%-Policy"') ~= nil
-    and html:find("default%-src 'none'") ~= nil
+  html:find('http%-equiv="Content%-Security%-Policy"') ~= nil and html:find("default%-src 'none'") ~= nil
 )
 
 -- (5) Size budget: the whole app must stay under 300 KB.
-check(
-  string.format("file under 300KB (actual: %.1f KB)", #html / 1024),
-  #html < 300 * 1024
-)
+check(string.format("file under 300KB (actual: %.1f KB)", #html / 1024), #html < 300 * 1024)
 
 -- (6) Full driver command vocabulary present.
 for _, cmd in ipairs({ "ATMOS_GET_STATE", "ATMOS_SET_SETTINGS", "ATMOS_REFRESH", "ATMOS_SIMULATE" }) do
