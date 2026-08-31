@@ -108,6 +108,8 @@ Properties = {
   ["Active Alerts"] = "-",
   ["Simulation"] = "Off",
   ["Location"] = "Location",
+  ["App Relay Address"] = "Auto",
+  ["App Data Relay"] = "Starting",
   ["Location Source"] = "Control4 Project",
   ["Latitude"] = "",
   ["Longitude"] = "",
@@ -160,8 +162,30 @@ function C4:SetConditionalState(name, value)
   conditionals[name] = value == true
 end
 function C4:GetDevices()
-  return {} -- no SmartBuildOS Agent in this project
+  -- No SmartBuildOS Agent; one controller device for relay-host discovery.
+  return { [7] = { deviceName = "EA-5", driverFileName = "control4_ea5.c4z" } }
 end
+-- The controller answers the FLAT api with nothing and the nested-shape api
+-- with the addr buried two levels deep — the field-measured worst case.
+function C4:GetNetworkBindingsByDevice()
+  return {}
+end
+function C4:GetBindingsByDevice()
+  return {
+    bindings = { { bindingid = 5001, boundconsumers = {}, info = { addr = "192.168.7.20", status = "online" } } },
+  }
+end
+local serverCreated = nil
+local serverSent = {}
+function C4:CreateServer(port, _, _, identifier)
+  serverCreated = { port = port, identifier = identifier }
+  return true
+end
+function C4:ServerSend(handle, data)
+  serverSent[#serverSent + 1] = { handle = handle, data = data }
+end
+function C4:ServerCloseClient() end
+function C4:DestroyServer() end
 function C4:GetProjectItems()
   return [[<locations><location><latitude>26.1224</latitude><longitude>-80.1373</longitude><country_code>US</country_code><zipcode>33301</zipcode><city_name>Fort Lauderdale</city_name><timezone>America/New_York</timezone></location></locations>]]
 end
@@ -394,11 +418,25 @@ local tempSend = lastProxySend(100, "VALUE_CHANGED")
 check("temperature VALUE_CHANGED published", tempSend ~= nil and tempSend.params.FAHRENHEIT == "86.0")
 local humSend = lastProxySend(101, "VALUE_CHANGED")
 check("humidity VALUE_CHANGED published", humSend ~= nil and tostring(humSend.params.VALUE) == "70")
+-- The relay chain: server created, host discovered through the NESTED
+-- bindings shape via the second API, URL carries relay + token.
+check("relay server created on 47815", serverCreated ~= nil and serverCreated.port == 47815)
 local urlSend = lastProxySend(5001, "URL_CHANGED")
 check(
-  "webview URL published",
-  urlSend ~= nil and urlSend.params.url == "controller://driver/smartbuildos-atmosphere/app/index.html"
+  "webview URL carries relay host from nested bindings",
+  urlSend ~= nil and urlSend.params.url:find("relay=http%3A%2F%2F192.168.7.20%3A47815", 1, true) ~= nil,
+  urlSend ~= nil and urlSend.params.url or "no URL_CHANGED"
 )
+check("webview URL carries a token", urlSend ~= nil and urlSend.params.url:find("&k=%w+") ~= nil)
+check("relay status property painted", Properties["App Data Relay"]:find("192.168.7.20", 1, true) ~= nil)
+local relayToken = urlSend ~= nil and urlSend.params.url:match("&k=(%w+)") or ""
+serverSent = {}
+OnServerDataIn(11, "GET /state?k=" .. relayToken .. " HTTP/1.1\r\n\r\n", nil, nil, "atmosphere-ui-relay")
+check("relay serves state over LAN", #serverSent == 1 and serverSent[1].data:find('"mode"', 1, true) ~= nil)
+check("relay state carries current temp", #serverSent == 1 and serverSent[1].data:find("86", 1, true) ~= nil)
+serverSent = {}
+OnServerDataIn(12, "GET /state?k=wrongtoken HTTP/1.1\r\n\r\n", nil, nil, "atmosphere-ui-relay")
+check("relay refuses bad token", #serverSent == 1 and serverSent[1].data:find("403 Forbidden", 1, true) ~= nil)
 
 check("Active Alerts property", Properties["Active Alerts"]:find("Severe Thunderstorm Warning", 1, true) ~= nil)
 check("Weather Status shows temp", Properties["Weather Status"]:find("86.0", 1, true) ~= nil)

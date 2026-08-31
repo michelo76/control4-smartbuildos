@@ -993,9 +993,39 @@ UIR.suppressDebug = { ATMOS_GET_STATE = true }
 -- token ride the web_view_url query — the one channel that provably reaches
 -- the page. src/atmosphere/uirelay.lua owns parsing/routing (pure, tested).
 
---- The controller's LAN address (Protect-measured discovery: a control4_*
---- device's non-loopback IPv4 network binding).
+--- Finds the first non-loopback IPv4 anywhere in a Director bindings
+--- answer. Director's shape VARIES BY PROJECT/OS (field-measured: sometimes
+--- flat `networkbindings`, sometimes nested under a `bindings` array) — so
+--- this walks the whole structure, depth-bounded and cycle-guarded, instead
+--- of trusting any one documented layout.
+local function findAddrDeep(node, depth, seen)
+  if type(node) ~= "table" or depth > 6 or seen[node] then
+    return nil
+  end
+  seen[node] = true
+  local addr = tostring(node.addr or "")
+  if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
+    return addr
+  end
+  for _, child in pairs(node) do
+    if type(child) == "table" then
+      local found = findAddrDeep(child, depth + 1, seen)
+      if found ~= nil then
+        return found
+      end
+    end
+  end
+  return nil
+end
+
+--- The controller's LAN address. Order: the App Relay Address property
+--- (dealer override, Protect-proven escape hatch), then discovery — every
+--- control4_* device's bindings via BOTH APIs, deep-walked.
 local function relayHost()
+  local configured = tostring(Properties["App Relay Address"] or ""):gsub("%s+", "")
+  if configured ~= "" and configured:lower() ~= "auto" then
+    return configured
+  end
   local ok, devices = pcall(function()
     return C4:GetDevices({})
   end)
@@ -1006,14 +1036,14 @@ local function relayHost()
     local id = tonumber(rawId)
     local file = tostring((type(device) == "table" and device.driverFileName) or "")
     if id ~= nil and file:find("^control4_") ~= nil then
-      local okB, raw = pcall(function()
-        return C4:GetNetworkBindingsByDevice(id)
-      end)
-      if okB and type(raw) == "table" then
-        for _, binding in ipairs(raw.networkbindings or {}) do
-          local addr = tostring(binding.addr or "")
-          if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
-            return addr
+      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
+        local okB, raw = pcall(function()
+          return C4[api](C4, id)
+        end)
+        if okB and type(raw) == "table" then
+          local found = findAddrDeep(raw, 0, {})
+          if found ~= nil then
+            return found
           end
         end
       end
@@ -1145,11 +1175,29 @@ local function desiredWebViewUrl()
   return string.format("%s?relay=http%%3A%%2F%%2F%s%%3A%d&k=%s", base, host, gRelayPort, relayToken())
 end
 
+--- Paints the App Data Relay status property so a dealer can see the data
+--- plane's health without the Lua window.
+local function paintRelayStatus()
+  local line
+  if gRelayPort == nil then
+    line = string.format("Not listening - port %d unavailable", UI_RELAY_PORT)
+  else
+    local host = relayHost()
+    if host == "" then
+      line = string.format("Listening :%d - controller address UNKNOWN, set App Relay Address", gRelayPort)
+    else
+      line = string.format("Listening :%d - serving http://%s:%d to the app", gRelayPort, host, gRelayPort)
+    end
+  end
+  UpdateProperty("App Data Relay", line)
+end
+
 local function publishWebViewUrl(reason)
   local url = desiredWebViewUrl()
   C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", { url = url })
   gPublishedUrl = url
-  log:debug("WebView URL published (%s): %s", tostring(reason), url)
+  paintRelayStatus()
+  log:debug("WebView URL published (%s): %s", tostring(reason), url:gsub("k=[%w]+", "k=[token]"))
 end
 
 -- ─── Actions ──────────────────────────────────────────────────────────────────
@@ -1329,6 +1377,11 @@ end
 function EC.PRINT_DIAGNOSTICS()
   log:print("== SmartBuildOS Atmosphere diagnostics ==")
   log:print(
+    "  app relay: %s | published URL: %s",
+    gRelayPort ~= nil and string.format("listening :%d host '%s'", gRelayPort, relayHost()) or "NOT LISTENING",
+    tostring(gPublishedUrl):gsub("k=[%w]+", "k=[token]")
+  )
+  log:print(
     "  location: %s",
     gLocation ~= nil
         and string.format("%s (%.4f, %.4f) via %s", gLocation.label, gLocation.lat, gLocation.lon, gLocation.source)
@@ -1398,6 +1451,12 @@ end
 function OPC.Longitude()
   if gInitialized and tostring(Properties["Location Source"]) == "Manual Coordinates" then
     EC.REDISCOVER_LOCATION()
+  end
+end
+
+function OPC.App_Relay_Address()
+  if gInitialized then
+    publishWebViewUrl("relay-address-changed")
   end
 end
 

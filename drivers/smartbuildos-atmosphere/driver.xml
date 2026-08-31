@@ -274,6 +274,18 @@
         <default>-</default>
       </property>
       <property>
+        <name>App Relay Address</name>
+        <type>STRING</type>
+        <default>Auto</default>
+        <description>The controller's LAN IP, served to the weather app for its data connection. Auto discovers it from the project; set an address manually if App Data Relay reports the controller address as unknown.</description>
+      </property>
+      <property>
+        <name>App Data Relay</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
         <name>Licensing</name>
         <type>LABEL</type>
         <default>Licensing</default>
