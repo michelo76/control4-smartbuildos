@@ -1,0 +1,434 @@
+<devicedata>
+  <name>SmartBuildOS Atmosphere</name>
+  <version/>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Atmosphere Weather Intelligence</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>08/31/2026 12:00:00 PM</created>
+  <modified/>
+  <!-- 3.2.0 pins Navigator's WebView engine at Gecko 96+ (the Chrome-30 era
+       is OS <= 3.1.2) and covers the WebView JS API (3.1.3+). -->
+  <minimum_os_version>3.2.0</minimum_os_version>
+  <small image_source="c4z">www/icons/device_sm.png</small>
+  <large image_source="c4z">www/icons/device_lg.png</large>
+  <composer_categories>
+    <category>Sensors</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>ATMOSPHERE_RAINING</name>
+      <type>BOOL</type>
+      <condition_statement>Raining</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Raining</true_text>
+      <false_text>Dry</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>ATMOSPHERE_SNOWING</name>
+      <type>BOOL</type>
+      <condition_statement>Snowing</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Snowing</true_text>
+      <false_text>Not snowing</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>ATMOSPHERE_STORMING</name>
+      <type>BOOL</type>
+      <condition_statement>Thunderstorm</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Thunderstorm</true_text>
+      <false_text>No thunderstorm</false_text>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>ATMOSPHERE_FREEZING</name>
+      <type>BOOL</type>
+      <condition_statement>Freezing</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Freezing</true_text>
+      <false_text>Above freezing</false_text>
+    </conditional>
+    <conditional>
+      <id>5</id>
+      <name>ATMOSPHERE_HIGH_WIND</name>
+      <type>BOOL</type>
+      <condition_statement>High wind</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>High wind</true_text>
+      <false_text>Calm</false_text>
+    </conditional>
+    <conditional>
+      <id>6</id>
+      <name>ATMOSPHERE_ALERT_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Weather alert active</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Alert active</true_text>
+      <false_text>No alerts</false_text>
+    </conditional>
+    <conditional>
+      <id>7</id>
+      <name>ATMOSPHERE_DATA_STALE</name>
+      <type>BOOL</type>
+      <condition_statement>Weather data stale</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Stale</true_text>
+      <false_text>Fresh</false_text>
+    </conditional>
+    <conditional>
+      <id>8</id>
+      <name>ATMOSPHERE_DAYTIME</name>
+      <type>BOOL</type>
+      <condition_statement>Daytime</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Day</true_text>
+      <false_text>Night</false_text>
+    </conditional>
+    <conditional>
+      <id>9</id>
+      <name>ATMOSPHERE_SIMULATION</name>
+      <type>BOOL</type>
+      <condition_statement>Simulation mode</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Simulating</true_text>
+      <false_text>Live data</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Rain Started</name><description>Rain began at the property.</description></event>
+    <event><id>2</id><name>Rain Stopped</name><description>Rain ended at the property.</description></event>
+    <event><id>3</id><name>Rain Expected Soon</name><description>Rain is expected within the configured lookahead.</description></event>
+    <event><id>4</id><name>Rain Expected Within 1 Hour</name><description>Hourly forecast shows rain within 1 hour.</description></event>
+    <event><id>5</id><name>Rain Expected Within 3 Hours</name><description>Hourly forecast shows rain within 3 hours.</description></event>
+    <event><id>6</id><name>Heavy Rain Expected</name><description>High rain probability within the lookahead.</description></event>
+    <event><id>7</id><name>Snow Started</name><description>Snow began at the property.</description></event>
+    <event><id>8</id><name>Snow Stopped</name><description>Snow ended at the property.</description></event>
+    <event><id>9</id><name>Snow Expected</name><description>Snow appears in the forecast lookahead.</description></event>
+    <event><id>10</id><name>High Wind Started</name><description>Sustained wind crossed the high-wind threshold.</description></event>
+    <event><id>11</id><name>High Wind Ended</name><description>Sustained wind fell below the high-wind exit threshold.</description></event>
+    <event><id>12</id><name>Dangerous Wind Started</name><description>Sustained wind crossed the dangerous-wind threshold.</description></event>
+    <event><id>13</id><name>Dangerous Wind Ended</name><description>Sustained wind fell below the dangerous-wind exit threshold.</description></event>
+    <event><id>14</id><name>High Gust Detected</name><description>A wind gust crossed the gust threshold.</description></event>
+    <event><id>15</id><name>High Wind Expected</name><description>High wind appears in the forecast lookahead.</description></event>
+    <event><id>16</id><name>Freeze Conditions Started</name><description>Temperature at or below the freeze threshold.</description></event>
+    <event><id>17</id><name>Freeze Conditions Ended</name><description>Temperature recovered above the freeze exit threshold.</description></event>
+    <event><id>18</id><name>Freeze Expected</name><description>Freezing temperatures expected tonight.</description></event>
+    <event><id>19</id><name>Extreme Heat Started</name><description>Feels-like crossed the extreme-heat threshold.</description></event>
+    <event><id>20</id><name>Extreme Heat Ended</name><description>Feels-like recovered below the extreme-heat exit threshold.</description></event>
+    <event><id>21</id><name>Extreme Heat Expected</name><description>Extreme heat expected within 24 hours.</description></event>
+    <event><id>22</id><name>Thunderstorm Started</name><description>A thunderstorm is occurring at the property.</description></event>
+    <event><id>23</id><name>Thunderstorm Ended</name><description>The thunderstorm ended.</description></event>
+    <event><id>24</id><name>Thunderstorm Expected</name><description>Thunderstorms appear in the forecast lookahead.</description></event>
+    <event><id>25</id><name>Severe Weather Detected</name><description>Severity reached WARNING or EMERGENCY.</description></event>
+    <event><id>26</id><name>Severe Weather Ended</name><description>Severity returned below WARNING.</description></event>
+    <event><id>27</id><name>New Weather Advisory</name><description>A weather advisory was issued for this location.</description></event>
+    <event><id>28</id><name>New Weather Watch</name><description>A weather watch was issued for this location.</description></event>
+    <event><id>29</id><name>New Weather Warning</name><description>A weather warning was issued for this location.</description></event>
+    <event><id>30</id><name>Alert Escalated</name><description>An active alert escalated in level or severity.</description></event>
+    <event><id>31</id><name>Alert Cleared</name><description>An active alert was cleared or expired.</description></event>
+    <event><id>32</id><name>Tornado Watch</name><description>A tornado watch is in effect.</description></event>
+    <event><id>33</id><name>Tornado Warning</name><description>A TORNADO WARNING is in effect.</description></event>
+    <event><id>34</id><name>Severe Thunderstorm Watch</name><description>A severe thunderstorm watch is in effect.</description></event>
+    <event><id>35</id><name>Severe Thunderstorm Warning</name><description>A severe thunderstorm warning is in effect.</description></event>
+    <event><id>36</id><name>Flood Watch</name><description>A flood watch is in effect.</description></event>
+    <event><id>37</id><name>Flood Warning</name><description>A flood warning is in effect.</description></event>
+    <event><id>38</id><name>Flash Flood Warning</name><description>A FLASH FLOOD WARNING is in effect.</description></event>
+    <event><id>39</id><name>Hurricane Watch</name><description>A hurricane watch is in effect.</description></event>
+    <event><id>40</id><name>Hurricane Warning</name><description>A HURRICANE WARNING is in effect.</description></event>
+    <event><id>41</id><name>Tropical Storm Watch</name><description>A tropical storm watch is in effect.</description></event>
+    <event><id>42</id><name>Tropical Storm Warning</name><description>A tropical storm warning is in effect.</description></event>
+    <event><id>43</id><name>Winter Storm Watch</name><description>A winter storm watch is in effect.</description></event>
+    <event><id>44</id><name>Winter Storm Warning</name><description>A winter storm warning is in effect.</description></event>
+    <event><id>45</id><name>Freeze Warning</name><description>A freeze/frost warning is in effect.</description></event>
+    <event><id>46</id><name>Extreme Heat Warning</name><description>An extreme heat warning is in effect.</description></event>
+    <event><id>47</id><name>High Wind Warning</name><description>A high wind warning is in effect.</description></event>
+    <event><id>48</id><name>Weather Data Stale</name><description>Weather data exceeded its freshness threshold.</description></event>
+    <event><id>49</id><name>Weather Data Restored</name><description>Fresh weather data is flowing again.</description></event>
+    <event><id>50</id><name>Weather API Unavailable</name><description>The weather service stopped answering.</description></event>
+    <event><id>51</id><name>Weather API Recovered</name><description>The weather service recovered.</description></event>
+    <event><id>52</id><name>Fog Started</name><description>Fog/low visibility set in.</description></event>
+    <event><id>53</id><name>Fog Cleared</name><description>Fog/low visibility cleared.</description></event>
+    <event><id>54</id><name>Ice Conditions Started</name><description>Freezing precipitation / ice conditions began.</description></event>
+    <event><id>55</id><name>Ice Conditions Ended</name><description>Ice conditions ended.</description></event>
+    <event><id>56</id><name>Rain Expected Within 6 Hours</name><description>Hourly forecast shows rain within 6 hours.</description></event>
+    <event><id>57</id><name>Simulation Started</name><description>Simulation mode engaged - events are simulated.</description></event>
+    <event><id>58</id><name>Simulation Ended</name><description>Simulation mode ended - live data resumed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html">Documentation</documentation>
+    <actions>
+      <action><name>Refresh Weather</name><command>REFRESH_WEATHER</command></action>
+      <action><name>Refresh Forecast</name><command>REFRESH_FORECAST</command></action>
+      <action><name>Refresh Alerts</name><command>REFRESH_ALERTS</command></action>
+      <action><name>Refresh All</name><command>REFRESH_ALL</command></action>
+      <action><name>Rediscover Location</name><command>REDISCOVER_LOCATION</command></action>
+      <action><name>Test Weather API</name><command>TEST_WEATHER_API</command></action>
+      <action><name>Test Alerts API</name><command>TEST_ALERTS_API</command></action>
+      <action><name>Test SmartBuildOS Licensing</name><command>TEST_LICENSING</command></action>
+      <action><name>Refresh License</name><command>REFRESH_LICENSE</command></action>
+      <action><name>Clear Cached Weather</name><command>CLEAR_CACHE</command></action>
+      <action><name>Reinitialize Weather Services</name><command>REINITIALIZE</command></action>
+      <action><name>Stop Simulation</name><command>STOP_SIMULATION</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+    </actions>
+    <properties>
+      <property>
+        <name>Status</name>
+        <type>LABEL</type>
+        <default>Status</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Starting</default>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>unknown</default>
+      </property>
+      <property>
+        <name>Weather Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Waiting for first update</default>
+      </property>
+      <property>
+        <name>Data Freshness</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Active Alerts</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Simulation</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Off</default>
+      </property>
+      <property>
+        <name>Location</name>
+        <type>LABEL</type>
+        <default>Location</default>
+      </property>
+      <property>
+        <name>Location Source</name>
+        <type>LIST</type>
+        <items>
+          <item>Control4 Project</item>
+          <item>Manual Coordinates</item>
+        </items>
+        <default>Control4 Project</default>
+        <description>Where the property's coordinates come from. Control4 Project reads the project location from Director; Manual Coordinates uses the Latitude/Longitude properties below. When paired with SmartBuildOS, the property location can be applied from the Settings app.</description>
+      </property>
+      <property>
+        <name>Latitude</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Manual latitude (decimal degrees). Used only when Location Source is Manual Coordinates.</description>
+      </property>
+      <property>
+        <name>Longitude</name>
+        <type>STRING</type>
+        <default></default>
+        <description>Manual longitude (decimal degrees). Used only when Location Source is Manual Coordinates.</description>
+      </property>
+      <property>
+        <name>Resolved Location</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>Not resolved</default>
+      </property>
+      <property>
+        <name>Forecast Office</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Observation Station</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Weather Automation</name>
+        <type>LIST</type>
+        <items>
+          <item>Enabled</item>
+          <item>Disabled</item>
+        </items>
+        <default>Enabled</default>
+        <description>Disabled silences all weather programming events (variables and the app keep updating). Data-health events still fire.</description>
+      </property>
+      <property>
+        <name>Licensing</name>
+        <type>LABEL</type>
+        <default>Licensing</default>
+      </property>
+      <property>
+        <name>License Status</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>No SmartBuildOS Agent Found</default>
+      </property>
+      <property>
+        <name>License Source</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Subscription Tier</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>SmartBuildOS Company</name>
+        <type>STRING</type>
+        <readonly>true</readonly>
+        <default>-</default>
+      </property>
+      <property>
+        <name>Logging</name>
+        <type>LABEL</type>
+        <default>Logging</default>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+        <default>3 - Info</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+        <default>Off</default>
+      </property>
+    </properties>
+    <commands>
+      <command>
+        <name>Start Simulation</name>
+        <description>Simulate SCENARIO weather on NAME</description>
+        <params>
+          <param>
+            <name>SCENARIO</name>
+            <type>LIST</type>
+            <items>
+              <item>clear</item>
+              <item>cloudy</item>
+              <item>rain</item>
+              <item>heavy_rain</item>
+              <item>thunderstorm</item>
+              <item>high_wind</item>
+              <item>dangerous_wind</item>
+              <item>freeze</item>
+              <item>extreme_heat</item>
+              <item>snow</item>
+              <item>fog</item>
+              <item>tornado_watch</item>
+              <item>tornado_warning</item>
+              <item>severe_thunderstorm_warning</item>
+              <item>flood_warning</item>
+              <item>hurricane_warning</item>
+            </items>
+          </param>
+        </params>
+      </command>
+      <command>
+        <name>Enable Weather Automation</name>
+        <description>Enable weather automation events on NAME</description>
+      </command>
+      <command>
+        <name>Disable Weather Automation</name>
+        <description>Disable weather automation events on NAME</description>
+      </command>
+    </commands>
+  </config>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-atmosphere/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-atmosphere/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-atmosphere/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-atmosphere/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-atmosphere/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-atmosphere/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <proxies>
+    <proxy proxybindingid="5001" name="Atmosphere" primary="True" image_source="c4z"
+           large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+    <connection>
+      <id>100</id>
+      <facing>6</facing>
+      <connectionname>Outdoor Temperature</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>TEMPERATURE_VALUE</classname></class></classes>
+    </connection>
+    <connection>
+      <id>101</id>
+      <facing>6</facing>
+      <connectionname>Outdoor Humidity</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>True</linelevel>
+      <classes><class><classname>HUMIDITY_VALUE</classname></class></classes>
+    </connection>
+  </connections>
+</devicedata>
