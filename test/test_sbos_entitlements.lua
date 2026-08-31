@@ -225,6 +225,13 @@ local function signedAssertion(overrides)
   return a
 end
 
+-- A server stamp that reads as "now": refreshes that are not exercising the
+-- clock-skew path must never drift past the 48h skew threshold as this file
+-- ages, or they steal the once-per-boot transition section [18] asserts on.
+local function isoNow()
+  return os.date("!%Y-%m-%dT%H:%M:%S.000Z")
+end
+
 local function reset()
   for key in pairs(store) do
     store[key] = nil
@@ -365,7 +372,7 @@ nextResponse = {
   body = JSON:encode({
     assertions = { good, forged },
     support_id = "SBOS-A1B2C3",
-    checked_at = "2026-08-29T05:00:00.000Z",
+    checked_at = isoNow(),
     revalidate_after_hours = 24,
     offline_cache_days = 7,
   }),
@@ -416,7 +423,7 @@ nextResponse = {
   body = JSON:encode({
     assertions = { signedAssertion() },
     support_id = "SBOS-A1B2C3",
-    checked_at = "2026-08-29T05:00:00.000Z",
+    checked_at = isoNow(),
     revalidate_after_hours = 24,
     offline_cache_days = 7,
   }),
@@ -644,7 +651,7 @@ nextResponse = {
   body = JSON:encode({
     assertions = { signedAssertion() },
     support_id = "SBOS-A1B2C3",
-    checked_at = "2026-08-29T05:00:00.000Z",
+    checked_at = isoNow(),
     revalidate_after_hours = 24,
     offline_cache_days = 7,
   }),
@@ -715,7 +722,7 @@ nextResponse = {
   body = JSON:encode({
     assertions = { signedAssertion() },
     support_id = "SBOS-A1B2C3",
-    checked_at = "2026-08-29T05:00:00.000Z",
+    checked_at = isoNow(),
     revalidate_after_hours = 24,
     offline_cache_days = 7,
     subscription_tier = "Enterprise",
