@@ -61,6 +61,7 @@ local HUMIDITY_BINDING = 101
 local UI_RELAY_PORT = 47815
 local UI_RELAY_ID = "atmosphere-ui-relay"
 local P_RELAY_TOKEN = "atmos_relay_token"
+local P_CLOUD_VIEW = "atmos_cloud_view"
 
 -- Persist keys (plain; nothing here is a secret).
 local P_POINTS = "atmos_points"
@@ -159,6 +160,8 @@ gRelayPort = nil -- LAN state relay: listening port, or nil when stopped
 gRelayToken = nil -- minted once, persisted; rides the web_view_url query
 gRelayBuffers = {} -- per-connection request accumulation (chunked POSTs)
 gPublishedUrl = nil -- last URL_CHANGED value, so the tick can heal it
+gCloudView = nil -- { url, handle } from the Agent's cloud-mirror ack
+gCloudLastAsk = 0 -- throttle for asking the Agent to mirror state
 
 -- ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -869,6 +872,13 @@ function runEngine(reason, alertsResult)
   if not snapshot.simulation then
     forwardHealthEvents(events)
   end
+  -- Cloud state mirror: ask the Agent to republish our state (it fetches
+  -- from our relay on localhost and POSTs with its bearer auth).
+  -- askCloudMirror is a GLOBAL assigned in the relay section below —
+  -- defined by the time any engine run happens (LateInit onward).
+  if askCloudMirror ~= nil then
+    askCloudMirror(#events > 0)
+  end
   publishVariables(snapshot)
   publishProperties(snapshot)
   publishValueConnections(snapshot)
@@ -1160,19 +1170,62 @@ local function stopUiRelay()
   gRelayBuffers = {}
 end
 
---- The app URL, carrying the relay endpoint + token when available. The
---- page reads location.search; if the relay is absent it stays on the JS
---- API channels alone.
+--- Percent-encodes a URL for safe transport inside a query value.
+local function encodeParam(s)
+  return tostring(s):gsub("[^%w%-%._~]", function(ch)
+    return string.format("%%%02X", ch:byte())
+  end)
+end
+
+--- The app URL, carrying every data-plane pointer the page can use:
+--- ?relay= (LAN endpoint), &cloud= + &cid= (off-LAN mirror), &k= (token,
+--- shared by both). The page reads location.search; with no params it
+--- stays on the JS API channels alone.
 local function desiredWebViewUrl()
   local base = "controller://driver/smartbuildos-atmosphere/app/index.html"
+  local parts = {}
+  if gRelayPort ~= nil then
+    local host = relayHost()
+    if host ~= "" then
+      parts[#parts + 1] = "relay=" .. encodeParam(string.format("http://%s:%d", host, gRelayPort))
+    end
+  end
+  if gCloudView ~= nil and gCloudView.url ~= nil and gCloudView.url ~= "" then
+    parts[#parts + 1] = "cloud=" .. encodeParam(gCloudView.url)
+    parts[#parts + 1] = "cid=" .. encodeParam(gCloudView.handle or "")
+  end
+  if #parts == 0 then
+    return base
+  end
+  parts[#parts + 1] = "k=" .. relayToken()
+  return base .. "?" .. table.concat(parts, "&")
+end
+
+--- Asks the Agent to mirror our UI state to the SmartBuildOS cloud so the
+--- app works off-LAN. Throttled to 60s; a transition (events fired) goes
+--- immediately so the remote app never shows a stale warning picture.
+--- Global on purpose: called from runEngine, which is defined earlier in
+--- the file than this section's locals.
+function askCloudMirror(urgent)
   if gRelayPort == nil then
-    return base
+    return
   end
-  local host = relayHost()
-  if host == "" then
-    return base
+  if not urgent and (nowUtc() - gCloudLastAsk) < 60 then
+    return
   end
-  return string.format("%s?relay=http%%3A%%2F%%2F%s%%3A%d&k=%s", base, host, gRelayPort, relayToken())
+  local agentId = findAgentId()
+  if agentId == nil then
+    return
+  end
+  gCloudLastAsk = nowUtc()
+  pcall(function()
+    C4:SendToDevice(agentId, "SBOS_ATMOSPHERE_STATE", {
+      port = tostring(gRelayPort),
+      app_token = relayToken(),
+      requester = tostring(C4:GetDeviceID()),
+      urgent = urgent and "true" or "false",
+    })
+  end)
 end
 
 --- Paints the App Data Relay status property so a dealer can see the data
@@ -1198,6 +1251,26 @@ local function publishWebViewUrl(reason)
   gPublishedUrl = url
   paintRelayStatus()
   log:debug("WebView URL published (%s): %s", tostring(reason), url:gsub("k=[%w]+", "k=[token]"))
+end
+
+--- The Agent's answer to askCloudMirror: where the mirrored state can be
+--- read. A change republishes the app URL so the page learns its cloud
+--- pointer. (Defined AFTER publishWebViewUrl on purpose — an EC body that
+--- referenced it earlier would compile as a nil global lookup.)
+function EC.SBOS_ATMOSPHERE_STATE_ACK(tParams)
+  tParams = tParams or {}
+  local url = tostring(tParams.view_url or "")
+  if url == "" or url:find("^https://") == nil then
+    return
+  end
+  local handle = tostring(tParams.view_handle or "")
+  local changed = gCloudView == nil or gCloudView.url ~= url or gCloudView.handle ~= handle
+  gCloudView = { url = url, handle = handle }
+  persist:set(P_CLOUD_VIEW, gCloudView)
+  if changed then
+    log:info("Cloud state mirror ready (handle %s)", handle)
+    publishWebViewUrl("cloud-ready")
+  end
 end
 
 -- ─── Actions ──────────────────────────────────────────────────────────────────
@@ -1551,6 +1624,14 @@ function OnDriverLateInit()
   end
   local storedLocation = persist:get(P_LOCATION)
   gLocation = type(storedLocation) == "table" and storedLocation.lat ~= nil and storedLocation or nil
+  local storedCloud = persist:get(P_CLOUD_VIEW)
+  if
+    type(storedCloud) == "table"
+    and type(storedCloud.url) == "string"
+    and storedCloud.url:find("^https://") ~= nil
+  then
+    gCloudView = { url = storedCloud.url, handle = tostring(storedCloud.handle or "") }
+  end
 
   for p, _ in pairs(Properties) do
     pcall(OnPropertyChanged, p)

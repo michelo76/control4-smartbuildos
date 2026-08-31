@@ -1883,6 +1883,63 @@ function EC.SBOS_ATMOSPHERE_CONFIG_ACK(tParams)
   )
 end
 
+--- Atmosphere cloud state mirror: the Atmosphere driver asks us to publish
+--- its UI state (so its app works off-LAN, where the LAN relay is
+--- unreachable). We fetch the state from the driver's OWN relay on
+--- localhost — same-controller, avoids inter-driver message size limits —
+--- and POST it with our bearer auth. Throttled here as the last line of
+--- defense; the driver throttles too.
+local gAtmosLastPush = 0
+function EC.SBOS_ATMOSPHERE_STATE(tParams)
+  tParams = tParams or {}
+  local port = tonumber(tParams.port)
+  local token = tostring(tParams.app_token or "")
+  local requester = tonumber(tParams.requester)
+  if port == nil or token == "" then
+    return
+  end
+  if os.time() - gAtmosLastPush < 45 and tostring(tParams.urgent) ~= "true" then
+    return
+  end
+  local base = tostring(Properties["API URL"] or ""):gsub("/+$", "")
+  if base == "" or not isPaired() then
+    return
+  end
+  http:get(string.format("http://127.0.0.1:%d/state?k=%s", port, token), {}, { timeout = 10 }):next(function(resp)
+    local ok, state = pcall(function()
+      return JSON:decode(resp.body)
+    end)
+    if not ok or type(state) ~= "table" then
+      return
+    end
+    gAtmosLastPush = os.time()
+    http
+      :post(
+        driverCloudUrl("atmosphere/state"),
+        { state = state, app_token = token },
+        authHeaders(),
+        { timeout = REQUEST_TIMEOUT }
+      )
+      :next(function(postResp)
+        local okB, body = pcall(function()
+          return JSON:decode(postResp.body)
+        end)
+        if okB and type(body) == "table" and body.view_url ~= nil and requester ~= nil then
+          pcall(function()
+            C4:SendToDevice(requester, "SBOS_ATMOSPHERE_STATE_ACK", {
+              view_url = tostring(body.view_url),
+              view_handle = tostring(body.view_handle or ""),
+            })
+          end)
+        end
+      end, function(err)
+        log:debug("Atmosphere state push failed: %s", tostring(type(err) == "table" and err.error or err))
+      end)
+  end, function()
+    log:debug("Atmosphere state fetch from local relay :%d failed", port)
+  end)
+end
+
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
   send(
