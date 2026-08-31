@@ -16,30 +16,44 @@ local function comparison(a, b)
   return result
 end
 
-check("later calendar day is newer", comparison("08312026", "08302026.99") == 1)
-check("first same-day update is newer than the base", comparison("08302026.1", "08302026") == 1)
-check("multi-digit update numbers compare numerically", comparison("08302026.10", "08302026.9") == 1)
-check("v-prefixed date is accepted", comparison("v08302026.5", "08302026.5") == 0)
-check("dated releases supersede the brief X.Y scheme", comparison("08302026", "1.0") == 1)
-check("X.Y releases still supersede legacy timestamps", comparison("1.0", "20260830.123456") == 1)
-check("three-digit legacy majors remain readable", comparison("123.4", "99.9") == 1)
-check("dated releases supersede legacy timestamps", comparison("08302026", "20260830.235959") == 1)
+check("later calendar day is newer", comparison("20260831.1", "20260830.99") == 1)
+check("the day's second build is newer than its first", comparison("20260830.2", "20260830.1") == 1)
+check("multi-digit update numbers compare numerically", comparison("20260830.10", "20260830.9") == 1)
+check("v-prefixed date is accepted", comparison("v20260830.5", "20260830.5") == 0)
+check("dated releases supersede legacy timestamps", comparison("20260830.1", "20260830.235959") == 1)
 check("legacy timestamps still compare internally", comparison("20260830.123457", "20260830.123456") == 1)
-local parsed, err = version.parse("02302026")
+
+-- The suffix-width cap. Under YYYYMMDD a legacy stamp is a syntactically
+-- perfect date-plus-revision, so only the digit count keeps the two schemes
+-- apart. If these regress, every legacy build is promoted to a current one and
+-- outranks real .N releases forever.
+local parsed, err = version.parse("20260830.122926")
+check("six-digit suffix stays a legacy timestamp", parsed ~= nil and parsed.kind == "legacy", err)
+parsed, err = version.parse("20260830.1229")
+check("four-digit suffix stays a legacy HHMM timestamp", parsed ~= nil and parsed.kind == "legacy", err)
+parsed, err = version.parse("20260830.999")
+check("three-digit suffix is a current build number", parsed ~= nil and parsed.kind == "current", err)
+check("a current build outranks a same-day legacy stamp", version.isNewer("20260830.1", "20260830.122926"))
+
+parsed, err = version.parse("20260830")
+check("the bare date form is rejected", parsed == nil and err ~= nil, err)
+parsed, err = version.parse("20260230.1")
 check("invalid calendar dates are rejected", parsed == nil and err ~= nil, err)
-parsed, err = version.parse("08302026.01")
+parsed, err = version.parse("20260830.01")
 check("zero-padded update suffixes are rejected", parsed == nil and err ~= nil, err)
-parsed, err = version.parse("08302026.0")
+parsed, err = version.parse("20260830.0")
 check("zero update suffix is rejected", parsed == nil and err ~= nil, err)
+parsed, err = version.parse("1.0")
+check("the retired X.Y scheme is no longer parsed", parsed == nil and err ~= nil, err)
 parsed, err = version.parse("banana")
 check("invalid versions are rejected", parsed == nil and err ~= nil, err)
 
--- Field regression 2026-08-31: a bench MMDDYYYY stamp must never outrank a
--- LATER-dated store release — the kind-rank rule bricked store updates on
--- any controller that ever saw a bench build.
-check("later legacy beats earlier bench stamp", version.isNewer("20260831.133204", "08302026.2"))
-check("earlier bench does not beat later legacy", not version.isNewer("08302026.2", "20260831.133204"))
-check("same-day scheme flip is an upgrade", version.isNewer("08312026.1", "20260831.235959"))
+-- Field regression 2026-08-31: an earlier dated build must never outrank a
+-- LATER-dated release — the kind-rank rule bricked store updates on any
+-- controller that had ever seen a bench build.
+check("later legacy beats earlier dated build", version.isNewer("20260831.133204", "20260830.2"))
+check("earlier dated build does not beat later legacy", not version.isNewer("20260830.2", "20260831.133204"))
+check("same-day scheme flip is an upgrade", version.isNewer("20260831.1", "20260831.235959"))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
