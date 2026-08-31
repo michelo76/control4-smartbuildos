@@ -62,7 +62,54 @@ code path via the WebView verb). The Agent-side forwarding and the platform-side
 the Agent has no `SBOS_ATMOSPHERE_CONFIG` handling yet and the platform
 migration has not been written.
 
-### 4. Notifications (planned)
+### 4. Cloud state mirror (app data off-LAN)
+
+Off the LAN the Navigator app has no data: the JS API is dead on real Navigators
+(field-measured) and the LAN relay is unreachable. Pairing adds the fix — the
+driver's UI state is mirrored to SmartBuildOS and the app reads it back as a
+read-only channel. End to end:
+
+1. **Driver → Agent (local ask).** On every engine run the driver calls
+   `SendToDevice(agent, "SBOS_ATMOSPHERE_STATE", { port, app_token, requester, urgent })`.
+   Steady state is throttled to 60 s driver-side (plus a 45 s last-line throttle
+   in the Agent); a transition (events fired) sets `urgent` and goes
+   immediately, so the remote app never shows a stale warning picture.
+1. **Agent → driver relay (localhost fetch).** The Agent GETs
+   `http://127.0.0.1:<port>/state?k=<token>` — the driver's *own* LAN relay,
+   same controller, which avoids inter-driver message size limits. The token
+   never leaves localhost except inside TLS (next step).
+1. **Agent → platform (bearer POST).** The Agent POSTs `{ state, app_token }` to
+   `/api/driver-cloud/atmosphere/state` with its existing controller bearer
+   auth. The platform validates (state must be a JSON object ≤ 96 KB;
+   `app_token` 16–64 alphanumeric chars, or absent to keep the stored hash),
+   then upserts one `driver_atmosphere_state` row per controller —
+   company/controller identity comes off the authenticated row, never the body.
+   **Only the token's SHA-256 hash is stored.**
+1. **Ack back down.** The platform answers with `view_url` (the public
+   capability endpoint) and `view_handle` (the controller's `SBOS-XXXXXX`
+   support id); the Agent forwards them as `SBOS_ATMOSPHERE_STATE_ACK`, and the
+   driver adds `cloud=` + `cid=` to the app URL alongside the LAN relay pointer.
+1. **Public capability read.** The app GETs `view_url?c=<support id>&k=<token>`
+   with no session — the URL pair is the whole credential, same shape as the
+   calendar capability URLs. The read compares the presented token's hash in
+   constant time, answers a uniform 404 for *every* failure (malformed params,
+   unknown support id, no stored hash, wrong token — the endpoint cannot be used
+   to probe which support ids exist), refuses mirrors older than **24 h** (a
+   mirror nobody updated in a day is itself the stale artifact — serving it as
+   current would be fabrication), and dies with the pairing: **revoking the
+   controller kills the capability** (revocation sets `revoked_at`, the row is
+   kept, the read 404s). Open CORS + `Cache-Control: no-store`; rate-limited.
+
+The app treats the mirror as strictly read-only (settings disabled, writes
+dropped) and climbs back to the JS API / LAN relay every 5 minutes.
+
+*Status:* driver and Agent sides are implemented and tested in this repo;
+platform sides (routes + `driver_atmosphere_state` table) are implemented in the
+smartbuildos repo on the `codex/atmosphere-cloud-mirror` branch. **The
+end-to-end path has not yet had a field pass** — no real controller has mirrored
+state to production and had the app read it back.
+
+### 5. Notifications (planned)
 
 Weather alert push through the platform's `dispatchNotification` (`control4`
 channel): customer kinds (`weather.alert_warning`, `weather.freeze_expected`, …)
@@ -77,5 +124,7 @@ reserves the toggle.
   (`authenticateController` on the platform), never from message bodies.
 - The driver trusts the Agent's channel for remote settings but still validates
   every field — the schema is the contract, not the sender.
-- No platform credentials exist in this driver; the only secrets on the
-  controller are the Agent's own (unchanged model).
+- No platform credentials exist in this driver; the only platform secrets on the
+  controller are the Agent's own (unchanged model). The driver's one credential
+  is its self-minted app relay token — see [SECURITY.md](SECURITY.md) for its
+  threat model; the platform stores only its hash.

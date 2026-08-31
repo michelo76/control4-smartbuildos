@@ -13,7 +13,8 @@ weather app with radar, forecasts, alerts, and animated conditions.
 - A US location (NWS covers the United States and its territories). Outside
   coverage the driver says so plainly instead of guessing.
 - Internet access from the controller to `api.weather.gov` and
-  `radar.weather.gov`. No API key, no account, no per-call cost.
+  `radar.weather.gov` (the interactive radar also uses
+  `mapservices.weather.noaa.gov`). No API key, no account, no per-call cost.
 - Optional: the SmartBuildOS Agent driver for licensing, remote settings, fleet
   status, and push notifications. Weather automation works without it.
 
@@ -30,8 +31,28 @@ weather app with radar, forecasts, alerts, and animated conditions.
    detailed configuration (units, thresholds, alert filters, radar, themes,
    simulation) lives in the app's **Settings** screen — Composer properties stay
    minimal on purpose.
+1. Check **App Data Relay**: it should read "Listening :47815 - serving
+   http://\<controller-ip>:47815 to the app". If it reports the controller
+   address as unknown (or the app's waiting screen says "No relay address
+   received"), set **App Relay Address** to the controller's LAN IP, then close
+   and reopen the tile.
 1. Optionally bind **Outdoor Temperature** / **Outdoor Humidity** to a
    thermostat: Atmosphere becomes the project's outdoor sensor.
+
+## The app's data connection
+
+The app gets its data over three channels, automatically: the Navigator API, the
+driver's LAN relay on controller port 47815 (the working channel on real
+Navigators — keep it reachable from touchscreens and phones on the LAN), and,
+when the SmartBuildOS Agent is paired, a read-only cloud mirror for use away
+from home (viewing works on cellular; settings changes need the home network).
+The app's waiting screen names the channel it is trying if data does not arrive.
+
+The RADAR screen offers two modes: **Interactive** (pan, span presets from city
+to region, animation, official warning polygons, hurricane cones when a storm's
+cone touches the view) and **Classic** (NWS RIDGE station/national loops).
+Interactive falls back to Classic by itself if the NOAA map services are
+unavailable.
 
 ## Programming
 
@@ -75,15 +96,17 @@ configurable timeout (default 30 minutes).
 
 ## Properties
 
-| Property                              | Meaning                                                    |
-| ------------------------------------- | ---------------------------------------------------------- |
-| Weather Status                        | Current temp + condition; flags SIMULATION and STALE       |
-| Data Freshness                        | Age of the last observation                                |
-| Active Alerts                         | Count and highest active alert                             |
-| Location Source                       | Control4 Project (default) or Manual Coordinates           |
-| Resolved Location                     | What the driver is actually using                          |
-| Forecast Office / Observation Station | NWS discovery results                                      |
-| License Status                        | SmartBuildOS licensing state; driver runs without an Agent |
+| Property                              | Meaning                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Weather Status                        | Current temp + condition; flags SIMULATION and STALE                                       |
+| Data Freshness                        | Age of the last observation                                                                |
+| Active Alerts                         | Count and highest active alert                                                             |
+| Location Source                       | Control4 Project (default) or Manual Coordinates                                           |
+| Resolved Location                     | What the driver is actually using                                                          |
+| Forecast Office / Observation Station | NWS discovery results                                                                      |
+| App Relay Address                     | Auto-discovered controller LAN IP for the app's data feed; set manually if discovery fails |
+| App Data Relay                        | Live status of the app's data connection                                                   |
+| License Status                        | SmartBuildOS licensing state; driver runs without an Agent                                 |
 
 ## Troubleshooting
 

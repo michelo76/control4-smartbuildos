@@ -1,7 +1,7 @@
 # Atmosphere — Control4 Programming Reference
 
-Everything Composer programming can see: 58 events, 44 variables, 9
-conditionals, 13 actions, 3 programming commands. Sources of truth:
+Everything Composer programming can see: 64 events, 50 variables, 9
+conditionals, 20 actions, 1 programming command. Sources of truth:
 `drivers/smartbuildos-atmosphere/driver.xml` (events/conditionals/actions/
 commands, ids frozen forever once shipped) and `driver.lua` (variables,
 add-order frozen).
@@ -33,7 +33,7 @@ Variables, conditionals, connections, and the app keep updating, and the four
 data-health events (48–51) still fire — data health *is* the signal, and
 simulation start/end events also always fire.
 
-## Events (58, grouped by family)
+## Events (64, grouped by family)
 
 IDs are frozen forever (Composer programming binds them); the list is
 append-only.
@@ -125,7 +125,25 @@ events below fire *in addition to* the generic level event.
 | ------- | ------------------------------------- |
 | 57 / 58 | Simulation Started / Simulation Ended |
 
-## Variables (44)
+### Solar timing, barometer, recommendations (59–64)
+
+| ID      | Event                                                                 |
+| ------- | --------------------------------------------------------------------- |
+| 59 / 60 | Sunset Approaching / Sunrise Approaching (within 30 minutes)          |
+| 61      | Barometer Falling Rapidly (≥ 0.10 inHg fall over 3 h)                 |
+| 62 / 63 | Irrigation Skip Recommended / Irrigation Skip Cleared                 |
+| 64      | Shade Protection Recommended (wind endangers extended shades/awnings) |
+
+These ride the same transition gate as every other event (first sight is
+baseline; a tick with missing inputs carries the previous flags forward —
+missing data never reads as "all cleared"). Only the irrigation pair announces
+in both directions; 59/60/61/64 fire on assert and clear silently. The
+recommendation logic (`src/atmosphere/recommend.lua`): irrigation skip when rain
+is falling, ≥ 0.25 in is expected in 24 h (gridpoint QPF), or peak PoP ≥ 60%;
+shade protect when sustained wind ≥ 25 mph, gusts ≥ 30 mph, or high wind is
+expected. Thresholds are defaults, not yet installer-tunable.
+
+## Variables (50)
 
 String numbers are formatted with one decimal; **blank means "not reported",
 never zero**.
@@ -158,6 +176,22 @@ Solar: `SUNRISE`, `SUNSET` (local HH:MM), `MINUTES_TO_SUNRISE`,
 Health: `LAST_WEATHER_UPDATE`, `DATA_AGE_SECONDS`, `API_STATUS`
 (Online/Unavailable), `LICENSE_STATUS`.
 
+Grid-layer intelligence (from the NWS gridpoint forecast, fetched on the
+forecast cadence; **blank means the layer carried no data for the window, never
+zero**): `SNOWFALL_NEXT_24H_IN`, `RAIN_TOTAL_NEXT_24H_IN` (duration-weighted
+accumulation sums, inches), `THUNDER_PROBABILITY_12H` (peak percent). A
+grid-only fetch failure keeps last-good samples and never marks the core
+forecast stale.
+
+Trend and moon: `PRESSURE_TREND` (RISING / FALLING / STEADY from a 3-h
+observation window; blank until ≥ 2 pressure samples span ≥ 90 min —
+insufficient evidence is never "STEADY"), `MOON_PHASE` (eight common names from
+mean-cycle math; a phase display, not an almanac).
+
+Recommendations (booleans): `IRRIGATION_SKIP_RECOMMENDED`,
+`SHADE_PROTECT_RECOMMENDED` — the same flags behind events 62–64, for
+IF-condition checks at decision time.
+
 ## Conditionals (9)
 
 For WHEN/IF logic without variable comparisons: `ATMOSPHERE_RAINING`,
@@ -165,14 +199,16 @@ For WHEN/IF logic without variable comparisons: `ATMOSPHERE_RAINING`,
 `ATMOSPHERE_HIGH_WIND`, `ATMOSPHERE_ALERT_ACTIVE`, `ATMOSPHERE_DATA_STALE`,
 `ATMOSPHERE_DAYTIME`, `ATMOSPHERE_SIMULATION`.
 
-## Actions (Composer Actions tab, 13)
+## Actions (Composer Actions tab, 20)
 
 Refresh Weather / Refresh Forecast / Refresh Alerts / Refresh All · Rediscover
 Location · Test Weather API · Test Alerts API · Test SmartBuildOS Licensing ·
 Refresh License · Clear Cached Weather · Reinitialize Weather Services · Stop
-Simulation · Print Diagnostics To Log.
+Simulation · Print Diagnostics To Log · Open Weather App / Open Current Weather
+/ Open Forecast / Open Radar / Open Alerts / Open Settings / Open Diagnostics
+(deep-link the Navigator app to a screen from programming).
 
-## Programming commands (device commands)
+## Programming command (device command)
 
 - **Start Simulation** — `SCENARIO` from a 16-item list (`clear`, `cloudy`,
   `rain`, `heavy_rain`, `thunderstorm`, `high_wind`, `dangerous_wind`, `freeze`,
@@ -240,3 +276,33 @@ projector off at the end of the current session. WHEN `Severe Weather Detected`
 `MINUTES_TO_SUNSET` are computed locally (NOAA solar math — works offline). Use
 them for conditionals in weather programming ("close shades on high wind only
 during the day") without touching Scheduler entries.
+
+**12. Sunset lighting scene** WHEN `Sunset Approaching` (30 minutes out) → run
+the evening lighting scene, drop west-facing shades, switch landscape lighting
+to its dusk program. WHEN `Sunrise Approaching` → the reverse. These fire from
+the same local solar math as recipe 11, so they work with the internet down —
+and unlike a Scheduler entry, they live next to the rest of the weather
+programming.
+
+**13. Irrigation skip, wired** The curated version of recipe 1. WHEN
+`Irrigation Skip Recommended` → set the irrigation hold. WHEN
+`Irrigation Skip Cleared` → release it. Or condition at watering time on
+`IRRIGATION_SKIP_RECOMMENDED` = `true`. The flag asserts on rain falling, ≥ 0.25
+in expected in 24 h (gridpoint QPF — actual amounts, not just PoP), or peak PoP
+≥ 60%, and it clears itself: no delay timers to hand-tune.
+
+**14. Shade protect, wired** The curated version of recipe 2. WHEN
+`Shade Protection Recommended` → retract awnings, raise exterior shades. It
+asserts on sustained wind ≥ 25 mph, gusts ≥ 30 mph, *or* forecast high wind — so
+shades can come in before the front arrives, not after the first gust hits them.
+There is no "cleared" event by design; restore on `High Wind Ended` or a timer,
+when you know the hardware is safe.
+
+## Properties for the app data plane
+
+Two Composer properties back the Navigator app's LAN data channel (see
+[WEBVIEW.md](WEBVIEW.md)): **App Relay Address** (`Auto` = discover the
+controller's LAN IP from the project; set an IP manually when discovery fails)
+and the read-only **App Data Relay** status line ("Listening :47815 — serving
+http://… to the app", or what is wrong). They exist for troubleshooting, not
+programming — no events or variables hang off them.
