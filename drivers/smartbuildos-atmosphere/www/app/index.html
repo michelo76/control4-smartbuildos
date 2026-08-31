@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http:; img-src https://radar.weather.gov data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http: https:; img-src https://radar.weather.gov https://mapservices.weather.noaa.gov data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Atmosphere</title>
 <style>
@@ -235,6 +235,38 @@ svg { display: block; }
   color: var(--dim); font-size: 13px; background: rgba(5,8,13,.85); text-align: center; padding: 20px;
 }
 .radar-shell.err .radar-err { display: flex; }
+/* interactive radar */
+.istage {
+  position: relative; overflow: hidden; background: #05080d;
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.istage.dragging { cursor: grabbing; }
+.ilayers { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+.ilayer {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  opacity: 0; transition: opacity .35s ease; pointer-events: none;
+}
+.ilayer.on { opacity: 1; }
+.ilayer.ibounds { filter: invert(1) opacity(.55); }
+.ilayer.iframe { transition: opacity .2s ease; visibility: hidden; }
+.ilayer.iframe.show { visibility: visible; }
+.iload {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--dim); font-size: 12.5px; letter-spacing: .06em;
+  background: rgba(5,8,13,.35); pointer-events: none;
+  transition: opacity .4s ease;
+}
+.iload.off { opacity: 0; }
+.ichip {
+  position: absolute; left: 10px; bottom: 10px; z-index: 3;
+  background: rgba(150,24,34,.85); color: #fff; border: 1px solid rgba(255,120,120,.4);
+  border-radius: 999px; padding: 4px 11px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+}
+.iattr {
+  position: absolute; right: 8px; bottom: 6px; z-index: 3;
+  font-size: 9px; color: rgba(255,255,255,.45); letter-spacing: .04em; pointer-events: none;
+}
 
 /* ---------- ALERTS ---------- */
 .alert-card { border-radius: 18px; padding: 16px 18px; border: 1px solid; color: #fff; }
@@ -310,6 +342,9 @@ svg { display: block; }
   padding: 6px 8px; font-size: 13px; text-align: right; outline: none; font-variant-numeric: tabular-nums;
 }
 input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent); height: 22px; }
+.settings-body button:disabled, .settings-body input:disabled, .settings-body select:disabled {
+  opacity: .45; pointer-events: none;
+}
 .refused-box { background: rgba(180,60,40,.22); border: 1px solid rgba(255,140,110,.35); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; }
 .refused-box b { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: .06em; }
 .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
@@ -388,7 +423,7 @@ input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent)
 'use strict';
 
 /* ================= utilities ================= */
-var APP_BUILD = 'b4'; /* bump on every field-shipped change to index.html */
+var APP_BUILD = 'b7'; /* bump on every field-shipped change to index.html */
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, text) {
   var n = document.createElement(tag);
@@ -666,24 +701,37 @@ function queryParam(name) {
   } catch (e) {}
   return null;
 }
-/* LAN relay fallback (in memory only — never persisted) */
+/* LAN relay + cloud mirror fallbacks (in memory only — never persisted).
+   Channel priority: C4 JS API → LAN relay → SmartBuildOS cloud mirror.
+   The cloud mirror is read-only; the same `k` token authorizes both. */
 var relayBase = null, relayToken = null;
+var cloudBase = null, cloudCid = null;
 (function () {
   var r = queryParam('relay');
   /* accept only absolute http(s) origins; strip any trailing slash */
   if (isStr(r) && r.indexOf('http') === 0 && r.indexOf(':' + '//') > 0) {
     relayBase = r.replace(/\/+$/, '');
-    relayToken = queryParam('k') || '';
   }
+  var c = queryParam('cloud');
+  if (isStr(c) && c.indexOf('http') === 0 && c.indexOf(':' + '//') > 0) {
+    cloudBase = c;
+    cloudCid = queryParam('cid') || '';
+  }
+  if (relayBase !== null || cloudBase !== null) relayToken = queryParam('k') || '';
 })();
 var relayMode = false;      /* true once the relay has successfully served state */
 var relayProbed = false;    /* the 4 s C4-silence probe has fired at least once */
 var relayFails = 0;         /* consecutive relay failures */
+var cloudMode = false;      /* true while the cloud mirror is the live channel */
+var cloudFails = 0;         /* consecutive cloud-mirror failures */
+var cloudBusy = false;      /* a cloud request is in flight */
+var lastCloudPollMs = 0;    /* last cloud fetch (60 s cadence — mirror updates ~60 s) */
+var lastUpgradeMs = 0;      /* last attempt to climb back to a richer channel */
 var c4Delivered = false;    /* a state document arrived via the C4 JS API */
 var lastStateAtMs = null;   /* wall clock of last applied state, any channel */
 
 var mockMode = /[?&]mock=1/.test(window.location.search) ||
-  (typeof window.C4 === 'undefined' && relayBase === null);
+  (typeof window.C4 === 'undefined' && relayBase === null && cloudBase === null);
 
 function logRedacted(msg) {
   try {
@@ -698,7 +746,11 @@ function relayHost() {
   return s.split('/')[0];
 }
 function channelDown() {
-  return relayBase !== null && relayFails >= 3 && !c4Delivered;
+  if (c4Delivered) return false;
+  if (relayBase === null && cloudBase === null) return false;
+  var relayDead = relayBase === null || relayFails >= 3;
+  var cloudDead = cloudBase === null || cloudFails >= 3;
+  return relayDead && cloudDead;
 }
 /* One line describing where data is (or should be) coming from.
    Shown on the waiting screen and in Diagnostics. Host:port only —
@@ -706,7 +758,8 @@ function channelDown() {
 function channelStatusText() {
   var s;
   if (state !== null) {
-    if (relayMode) s = 'LAN relay (' + relayHost() + ')';
+    if (cloudMode) s = 'SmartBuildOS cloud';
+    else if (relayMode) s = 'LAN relay (' + relayHost() + ')';
     else if (c4Delivered) s = 'Navigator JS API';
     else if (mockMode) s = 'Embedded mock';
     else s = 'connected';
@@ -714,14 +767,65 @@ function channelStatusText() {
     s = 'Loading embedded mock…';
   } else if (!relayProbed) {
     s = 'Trying Navigator API…';
-  } else if (relayBase === null) {
+  } else if (relayBase === null && cloudBase === null) {
     s = 'No relay address received from driver';
-  } else if (relayFails === 0) {
+  } else if (relayBase !== null && relayFails === 0) {
     s = 'Trying LAN relay (' + relayHost() + ')…';
+  } else if (relayBase !== null && relayFails < 2) {
+    s = 'LAN relay unreachable (attempt ' + relayFails + ')';
+  } else if (cloudBase !== null) {
+    s = cloudFails === 0 ? 'Trying SmartBuildOS cloud…' : 'Cloud mirror unreachable (attempt ' + cloudFails + ')';
   } else {
     s = 'LAN relay unreachable (attempt ' + relayFails + ')';
   }
   return s + ' · ' + APP_BUILD;
+}
+/* Read-only cloud-mirror channel. GET <cloud>?c=<cid>&k=<token>, 15 s
+   timeout, 60 s poll cadence — the mirror updates ~60 s upstream. */
+function cloudGetState() {
+  if (cloudBase === null || cloudBusy) return;
+  cloudBusy = true;
+  lastCloudPollMs = Date.now();
+  var url = cloudBase + (cloudBase.indexOf('?') >= 0 ? '&' : '?') +
+    'c=' + encodeURIComponent(cloudCid || '') + '&k=' + encodeURIComponent(relayToken || '');
+  var xhr = new XMLHttpRequest();
+  var done = false;
+  function fail(why) {
+    if (done) return;
+    done = true;
+    cloudBusy = false;
+    cloudFails += 1;
+    logRedacted('[atmosphere] cloud mirror failed: ' + why);
+    if (channelDown()) renderActive();
+  }
+  try {
+    xhr.open('GET', url, true);
+    xhr.timeout = 15000;
+    xhr.onload = function () {
+      if (done) return;
+      if (xhr.status < 200 || xhr.status >= 300) { fail('HTTP ' + xhr.status); return; }
+      var doc = null;
+      try { doc = JSON.parse(xhr.responseText); } catch (e) {}
+      if (doc && typeof doc === 'object' && (doc.mode !== undefined || doc.current !== undefined || doc.v !== undefined)) {
+        done = true;
+        cloudBusy = false;
+        cloudFails = 0;
+        if (!c4Delivered && !relayMode) cloudMode = true;
+        applyState(doc, 'cloud');
+      } else {
+        fail('unexpected payload');
+      }
+    };
+    xhr.onerror = function () { fail('network error'); };
+    xhr.ontimeout = function () { fail('timeout'); };
+    xhr.send(null);
+  } catch (e2) { fail(e2 && e2.message ? e2.message : 'request error'); }
+}
+/* While parked on the cloud mirror, periodically try to climb back to
+   the richer channels (C4 JS API, then LAN relay). */
+function tryBetterChannels() {
+  sendCommand('ATMOS_GET_STATE', {}, null); /* cloudMode leaves this on the C4 path */
+  if (relayBase !== null) relayGetState();
 }
 function relayRequest(method, path, body, cb) {
   var url = relayBase + path + '?k=' + encodeURIComponent(relayToken || '');
@@ -732,6 +836,8 @@ function relayRequest(method, path, body, cb) {
     done = true;
     relayFails += 1;
     logRedacted('[atmosphere] relay ' + path + ' failed: ' + why);
+    /* Two consecutive relay failures: fall through to the cloud mirror. */
+    if (relayFails >= 2 && !c4Delivered && !relayMode && !cloudMode && cloudBase !== null) cloudGetState();
     if (channelDown()) renderActive(); /* surface the stale/waiting treatment */
     if (cb) { try { cb(why, null); } catch (e) {} }
   }
@@ -762,7 +868,7 @@ function relayGetState() {
     try {
       var doc = JSON.parse(text);
       if (doc && typeof doc === 'object' && (doc.mode !== undefined || doc.current !== undefined || doc.v !== undefined)) {
-        relayMode = true;
+        if (!c4Delivered) relayMode = true; /* relay outranks cloud, never C4 */
         applyState(doc, 'relay');
       }
     } catch (e) {
@@ -845,6 +951,9 @@ function relaySend(name, params, cb) {
 function sendCommand(name, params, cb) {
   params = params || {};
   if (mockMode) { mockDispatch(name, params, cb); return; }
+  /* Cloud mirror is read-only: drop writes; reads fall through to the
+     C4 path (used by tryBetterChannels to probe for a richer channel). */
+  if (cloudMode && name !== 'ATMOS_GET_STATE') { if (cb) { try { cb(null); } catch (e0) {} } return; }
   if (relayMode) { relaySend(name, params, cb); return; }
   var ret;
   var sent = false;
@@ -862,10 +971,14 @@ function sendCommand(name, params, cb) {
 function requestState() {
   if (mockMode) { sendCommand('ATMOS_GET_STATE', {}, null); return; }
   if (relayMode) { relayGetState(); return; }
+  if (cloudMode) { cloudGetState(); return; } /* event-driven refresh (visibility) */
   sendCommand('ATMOS_GET_STATE', {}, null);
-  /* After the initial 4 s probe, keep offering the relay a chance on every
-     poll while the C4 channel stays silent. */
-  if (relayBase !== null && relayProbed && !c4Delivered) relayGetState();
+  /* After the initial 4 s probe, keep offering the fallbacks a chance on
+     every poll while the C4 channel stays silent. */
+  if (relayProbed && !c4Delivered) {
+    if (relayBase !== null) relayGetState();
+    if (cloudBase !== null && (relayBase === null || relayFails >= 2)) cloudGetState();
+  }
 }
 
 /* ================= state ================= */
@@ -880,7 +993,10 @@ function applyState(doc, src) {
   if (!doc || typeof doc !== 'object') return;
   state = doc;
   lastStateAtMs = Date.now();
-  if (src === 'c4') c4Delivered = true;
+  var wasReadOnly = cloudMode;
+  if (src === 'c4') { c4Delivered = true; relayMode = false; cloudMode = false; }
+  else if (src === 'relay') { cloudMode = false; }
+  if (wasReadOnly !== cloudMode && activeScreen === 'settings') lastSettingsJson = ''; /* re-enable controls */
   try { applyTheme(); } catch (e0) {}
   try { Scene.setWeather(); } catch (e1) {}
   try { updateNavBadge(); } catch (e2) {}
@@ -1272,8 +1388,185 @@ function shortDayName(name) {
 }
 
 /* ================= RADAR ================= */
-var radar = { view: null, playing: null, zoom: 1, bust: 0, lastLoad: null, retryTimer: null };
+var radar = { view: null, playing: null, bust: 0, lastLoad: null, retryTimer: null };
 var RADAR_BASE = 'https://radar.weather.gov/ridge/standard/';
+
+/* ---- Tier-2 interactive radar (NOAA mapservices; live-verified spec) ---- */
+var NOAA_MS = 'https://mapservices.weather.noaa.gov';
+var IR_RADAR_SVC = NOAA_MS + '/eventdriven/rest/services/radar/radar_base_reflectivity_time/ImageServer';
+var IR_WWA_SVC = NOAA_MS + '/eventdriven/rest/services/WWA/watch_warn_adv/MapServer/export';
+var IR_REF_SVC = NOAA_MS + '/static/rest/services/nws_reference_maps/nws_reference_map/MapServer/export';
+var IR_NHC_SVC = NOAA_MS + '/tropical/rest/services/tropical/NHC_tropical_weather/MapServer';
+var IR_SPANS = [[60, 'City'], [150, 'County'], [400, 'State'], [900, 'Region']];
+/* Storm slots AT1-AT5, EP1-EP5, CP1-CP5: slot i (0-based) has
+   cone 4+26i+4, track 4+26i+3, points 4+26i+2 (AT1 cone=8, EP1 cone=138). */
+var IR_TROP_SLOTS = (function () {
+  var out = [], basins = ['AT', 'EP', 'CP'];
+  for (var g = 0; g < 3; g++) {
+    for (var n = 1; n <= 5; n++) {
+      var i = g * 5 + (n - 1);
+      out.push({ name: basins[g] + n, cone: 4 + 26 * i + 4, track: 4 + 26 * i + 3, points: 4 + 26 * i + 2 });
+    }
+  }
+  return out;
+})();
+var iradar = {
+  mode: 'interactive',   /* 'interactive' (default) | 'classic' */
+  failed: false,         /* interactive collapsed -> classic with a note */
+  spanKm: 150,
+  center: null,          /* {lat, lon}; null = follow the property */
+  times: [],             /* ascending ms epochs of real frames */
+  timesAt: 0,            /* when the catalog was fetched */
+  frameIdx: 0,
+  playing: null,
+  errCount: 0,
+  warnBust: 0,
+  tropCache: {},         /* bbox -> {at, active:[slots], pending} (30 min TTL) */
+  lastBbox: null,
+  catalogBusy: false,
+  dragCommitTimer: null
+};
+
+function getJson(url, timeoutMs, cb) {
+  var xhr = new XMLHttpRequest();
+  var done = false;
+  function fin(err, doc) { if (done) return; done = true; cb(err, doc); }
+  try {
+    xhr.open('GET', url, true);
+    xhr.timeout = timeoutMs;
+    xhr.onload = function () {
+      if (xhr.status < 200 || xhr.status >= 300) { fin('HTTP ' + xhr.status, null); return; }
+      var doc = null;
+      try { doc = JSON.parse(xhr.responseText); } catch (e) {}
+      fin(doc === null ? 'malformed JSON' : null, doc);
+    };
+    xhr.onerror = function () { fin('network error', null); };
+    xhr.ontimeout = function () { fin('timeout', null); };
+    xhr.send(null);
+  } catch (e2) { fin('request error', null); }
+}
+function irCenter() {
+  if (iradar.center) return iradar.center;
+  var lat = num(getPath(state, 'location.lat')), lon = num(getPath(state, 'location.lon'));
+  if (lat === null || lon === null) return null;
+  return { lat: lat, lon: lon };
+}
+/* EPSG:4326 aspect-correct bbox shared by every layer so pixels align. */
+function irSpans(W, H) {
+  var c = irCenter();
+  var latSpan = iradar.spanKm / 110.574;
+  var lonSpan = latSpan * (W / H) / Math.cos(c.lat * Math.PI / 180);
+  return { latSpan: latSpan, lonSpan: lonSpan };
+}
+function irBbox(W, H) {
+  var c = irCenter();
+  var s = irSpans(W, H);
+  return (c.lon - s.lonSpan / 2) + ',' + (c.lat - s.latSpan / 2) + ',' +
+         (c.lon + s.lonSpan / 2) + ',' + (c.lat + s.latSpan / 2);
+}
+function irCommon(bbox, W, H) {
+  return 'bbox=' + bbox + '&bboxSR=4326&imageSR=4326&size=' + W + ',' + H;
+}
+function irBoundariesUrl(bbox, W, H) {
+  return IR_REF_SVC + '?' + irCommon(bbox, W, H) + '&layers=show:2,3&format=png32&transparent=true&f=image';
+}
+/* NEVER pass wall-clock time (blank PNG); omit time entirely for latest. */
+function irFrameUrl(bbox, W, H, t) {
+  return IR_RADAR_SVC + '/exportImage?' + irCommon(bbox, W, H) +
+    '&format=png&transparent=true&f=image' + (t ? '&time=' + t : '');
+}
+function irWarnUrl(bbox, W, H) {
+  return IR_WWA_SVC + '?' + irCommon(bbox, W, H) +
+    '&layers=show:0,1&layerDefs=%7B%221%22%3A%22sig%20IN%20(%27W%27%2C%27A%27)%22%7D' +
+    '&format=png32&transparent=true&f=image&_=' + iradar.warnBust;
+}
+function irTropicalUrl(bbox, W, H, slot) {
+  return IR_NHC_SVC + '/export?' + irCommon(bbox, W, H) +
+    '&layers=show:' + slot.points + ',' + slot.track + ',' + slot.cone +
+    '&format=png32&transparent=true&f=image';
+}
+function irCatalogUrl() {
+  var c = irCenter();
+  return IR_RADAR_SVC + '/query?geometry=' + c.lon + ',' + c.lat +
+    '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects' +
+    '&where=1%3D1&outFields=idp_validtime&returnGeometry=false' +
+    '&orderByFields=idp_validtime%20DESC&resultRecordCount=6&f=json';
+}
+function irFail(reason) {
+  if (iradar.failed) return;
+  iradar.failed = true;
+  logRedacted('[atmosphere] interactive radar unavailable (' + reason + ') — falling back to classic');
+  if (activeScreen === 'radar') renderRadar();
+}
+function irImgError() {
+  iradar.errCount += 1;
+  if (iradar.errCount >= 3) irFail('imagery errors');
+}
+/* Enumerate REAL frame times (frame URLs are immutable per timestamp). */
+function irLoadCatalog(onDone) {
+  if (iradar.catalogBusy || !irCenter()) return;
+  iradar.catalogBusy = true;
+  getJson(irCatalogUrl(), 15000, function (err, doc) {
+    iradar.catalogBusy = false;
+    if (err) { irFail('catalog: ' + err); return; }
+    var times = [];
+    var feats = (doc && doc.features) || [];
+    for (var i = 0; i < feats.length; i++) {
+      var t = num(feats[i] && feats[i].attributes && feats[i].attributes.idp_validtime);
+      if (t !== null) times.push(t);
+    }
+    times.sort(function (a, b) { return a - b; });
+    if (times.length === 0) { irFail('catalog empty'); return; }
+    var changed = JSON.stringify(times) !== JSON.stringify(iradar.times);
+    iradar.times = times;
+    iradar.timesAt = Date.now();
+    if (onDone) onDone(changed);
+  });
+}
+/* Probe the 15 NHC slots VIEW-LOCALLY: a slot counts as active only when
+   its cone intersects the given bbox (esriGeometryEnvelope filter), so a
+   Florida view never shows a Pacific storm. Cached per bbox for 30 min. */
+function irTropActive(bbox) {
+  var entry = iradar.tropCache[bbox];
+  return entry ? entry.active : [];
+}
+function irProbeTropical(bbox) {
+  if (!isStr(bbox)) return;
+  var entry = iradar.tropCache[bbox];
+  if (entry && (entry.pending || Date.now() - entry.at < 1800000)) return;
+  var prevActive = entry ? entry.active : [];
+  entry = { at: Date.now(), active: prevActive, pending: true };
+  iradar.tropCache[bbox] = entry;
+  var geom = '&geometry=' + bbox + '&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects';
+  var active = [], pending = IR_TROP_SLOTS.length;
+  for (var i = 0; i < IR_TROP_SLOTS.length; i++) {
+    (function (slot) {
+      getJson(IR_NHC_SVC + '/' + slot.cone + '/query?where=1%3D1' + geom + '&returnCountOnly=true&f=json', 15000, function (err, doc) {
+        if (!err && doc && num(doc.count) !== null && doc.count > 0) active.push(slot);
+        pending -= 1;
+        if (pending === 0) {
+          entry.pending = false;
+          entry.at = Date.now();
+          var sig = function (list) {
+            var names = [];
+            for (var s = 0; s < list.length; s++) names.push(list[s].name);
+            names.sort();
+            return names.join(',');
+          };
+          var changed = sig(active) !== sig(prevActive);
+          entry.active = active;
+          /* bound the cache (pan can mint many bboxes) */
+          var keys = Object.keys(iradar.tropCache);
+          if (keys.length > 24) {
+            keys.sort(function (a, b) { return iradar.tropCache[a].at - iradar.tropCache[b].at; });
+            for (var d = 0; d < keys.length - 24; d++) delete iradar.tropCache[keys[d]];
+          }
+          if (changed && activeScreen === 'radar' && iradar.mode === 'interactive' && !iradar.failed && iradar.lastBbox === bbox) renderRadar();
+        }
+      });
+    })(IR_TROP_SLOTS[i]);
+  }
+}
 
 function radarStation() {
   var s = String(getPath(state, 'location.radar_station') || '');
@@ -1284,21 +1577,49 @@ function radarUrl() {
   var anim = radar.playing ? '_loop.gif' : '_0.gif';
   return RADAR_BASE + st + anim + (radar.bust ? '?t=' + radar.bust : '');
 }
+function tb(label, icon, on, fn) {
+  var b = el('button', 'tbtn' + (on ? ' on' : ''));
+  if (icon) b.appendChild(iconNode(icon));
+  b.appendChild(document.createTextNode(label));
+  b.addEventListener('click', fn);
+  return b;
+}
+function modeButtons(bar) {
+  bar.appendChild(tb('Interactive', null, iradar.mode === 'interactive' && !iradar.failed, function () {
+    if (iradar.failed) { iradar.failed = false; iradar.errCount = 0; } /* manual retry */
+    iradar.mode = 'interactive';
+    renderRadar();
+  }));
+  bar.appendChild(tb('Classic', null, iradar.mode === 'classic' || iradar.failed, function () {
+    iradar.mode = 'classic';
+    renderRadar();
+  }));
+}
 function renderRadar() {
   var root = $('screen-radar');
   clear(root);
   var head = el('div', 'screen-head');
   head.appendChild(el('div', 'screen-title', 'Radar'));
+  var interactive = iradar.mode === 'interactive' && !iradar.failed && irCenter() !== null;
   var st = radarStation();
-  head.appendChild(el('div', 'screen-sub', st ? 'Station ' + st + ' · NWS RIDGE' : 'National composite · NWS RIDGE'));
+  head.appendChild(el('div', 'screen-sub', interactive
+    ? String(getPath(state, 'location.label') || 'Local area') + ' · NOAA live radar'
+    : (st ? 'Station ' + st + ' · NWS RIDGE' : 'National composite · NWS RIDGE')));
   root.appendChild(head);
+  if (interactive) { renderInteractiveRadar(root); return; }
+  if (iradar.mode === 'interactive' && iradar.failed) {
+    root.appendChild(el('div', 'radar-note', 'Interactive radar is unavailable right now — showing the classic view.'));
+  }
+  renderClassicRadar(root);
+}
+function renderClassicRadar(root) {
   if (radar.view === null) radar.view = String(getPath(state, 'settings.radar.default_view') || 'station').toLowerCase() === 'conus' ? 'conus' : 'station';
   if (radar.playing === null) radar.playing = getPath(state, 'settings.radar.animate') !== false;
 
   var shell = el('div', 'radar-shell');
   var pan = el('div', 'radar-pan');
   var img = document.createElement('img');
-  img.className = 'radar-img' + (radar.zoom === 1.5 ? ' z15' : radar.zoom === 2 ? ' z20' : '');
+  img.className = 'radar-img';
   img.alt = 'Weather radar';
   img.src = radarUrl();
   img.addEventListener('load', function () {
@@ -1327,28 +1648,184 @@ function renderRadar() {
   root.appendChild(shell);
 
   var bar = el('div', 'radar-toolbar');
-  function tb(label, icon, on, fn) {
-    var b = el('button', 'tbtn' + (on ? ' on' : ''));
-    if (icon) b.appendChild(iconNode(icon));
-    b.appendChild(document.createTextNode(label));
-    b.addEventListener('click', fn);
-    return b;
-  }
+  modeButtons(bar);
   bar.appendChild(tb(radar.playing ? 'Pause' : 'Play', radar.playing ? 'pause' : 'play', radar.playing, function () {
     radar.playing = !radar.playing; renderRadar();
   }));
   bar.appendChild(tb('Station', null, radar.view === 'station', function () { radar.view = 'station'; renderRadar(); }));
   bar.appendChild(tb('National', null, radar.view === 'conus', function () { radar.view = 'conus'; renderRadar(); }));
-  bar.appendChild(tb('1x', null, radar.zoom === 1, function () { radar.zoom = 1; renderRadar(); }));
-  bar.appendChild(tb('1.5x', null, radar.zoom === 1.5, function () { radar.zoom = 1.5; renderRadar(); }));
-  bar.appendChild(tb('2x', null, radar.zoom === 2, function () { radar.zoom = 2; renderRadar(); }));
   bar.appendChild(tb('Refresh', 'refresh', false, function () { radar.bust = Date.now(); renderRadar(); }));
   var stamp = el('span', 'radar-stamp', radar.lastLoad ? 'Updated ' + fmtClock(new Date(radar.lastLoad)) : 'Loading…');
   stamp.id = 'radarStamp';
   bar.appendChild(stamp);
   root.appendChild(bar);
-  root.appendChild(el('div', 'radar-note', 'Active warning polygons are drawn directly on the imagery by the National Weather Service. Drag to pan when zoomed. Imagery courtesy of NWS RIDGE.'));
+  root.appendChild(el('div', 'radar-note', 'Active warning polygons are drawn directly on the imagery by the National Weather Service. Imagery courtesy of NWS RIDGE.'));
 }
+
+/* Interactive radar: stacked <img> layers over one shared bbox.
+   dark ground -> boundaries -> radar frames -> warnings -> tropical cone. */
+function renderInteractiveRadar(root) {
+  if (iradar.playing === null) iradar.playing = getPath(state, 'settings.radar.animate') !== false;
+  var shell = el('div', 'radar-shell');
+  var stage = el('div', 'istage');
+  var layers = el('div', 'ilayers');
+  stage.appendChild(layers);
+  shell.appendChild(stage);
+  root.appendChild(shell);
+
+  /* size at the container's pixel size (cap 1200x900) */
+  var W = Math.min(1200, Math.max(320, stage.clientWidth || root.clientWidth || 800));
+  var H = Math.min(900, Math.round(W * 0.72), Math.max(280, Math.round(window.innerHeight * 0.58)));
+  stage.style.height = H + 'px';
+  var bbox = irBbox(W, H);
+
+  function mkLayer(src, cls) {
+    var img = document.createElement('img');
+    img.className = 'ilayer' + (cls ? ' ' + cls : '');
+    img.alt = '';
+    img.draggable = false;
+    img.addEventListener('load', function () { img.className += ' on'; });
+    img.addEventListener('error', irImgError);
+    img.src = src;
+    layers.appendChild(img);
+    return img;
+  }
+
+  mkLayer(irBoundariesUrl(bbox, W, H), 'ibounds');
+
+  /* frames: real catalog times when known, else single "latest" frame */
+  var loading = el('div', 'iload', 'Loading radar…');
+  function anyFrameLoaded() { loading.className = 'iload off'; }
+  if (iradar.times.length > 0) {
+    for (var i = 0; i < iradar.times.length; i++) {
+      var f = mkLayer(irFrameUrl(bbox, W, H, iradar.times[i]), 'iframe' + (i === iradar.times.length - 1 ? ' show' : ''));
+      f.setAttribute('data-t', String(iradar.times[i]));
+      f.addEventListener('load', anyFrameLoaded);
+    }
+    iradar.frameIdx = iradar.times.length - 1;
+  } else {
+    var latest = mkLayer(irFrameUrl(bbox, W, H, null), 'iframe show');
+    latest.addEventListener('load', anyFrameLoaded);
+  }
+
+  if (getPath(state, 'settings.radar.overlay_alerts') !== false) {
+    if (!iradar.warnBust) iradar.warnBust = Date.now();
+    var warn = mkLayer(irWarnUrl(bbox, W, H), '');
+    warn.id = 'iWarn';
+  }
+  iradar.lastBbox = bbox;
+  var trop = irTropActive(bbox); /* view-local: cone intersects THIS bbox */
+  for (var tI = 0; tI < trop.length; tI++) mkLayer(irTropicalUrl(bbox, W, H, trop[tI]), '');
+  if (trop.length > 0) {
+    var names = [];
+    for (var tN = 0; tN < trop.length; tN++) names.push(trop[tN].name);
+    stage.appendChild(el('div', 'ichip', 'Tropical: ' + names.join(', ')));
+  }
+  stage.appendChild(el('div', 'iattr', 'NOAA / NWS'));
+  stage.appendChild(loading);
+
+  /* drag to pan: live transform, recenter+reload on release (300 ms debounce) */
+  var drag = null;
+  stage.addEventListener('pointerdown', function (e) {
+    drag = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
+    stage.className = 'istage dragging';
+    if (iradar.dragCommitTimer) { window.clearTimeout(iradar.dragCommitTimer); iradar.dragCommitTimer = null; }
+    try { stage.setPointerCapture(e.pointerId); } catch (e2) {}
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.dx = e.clientX - drag.x;
+    drag.dy = e.clientY - drag.y;
+    layers.style.transform = 'translate(' + drag.dx + 'px,' + drag.dy + 'px)';
+  });
+  function endDrag() {
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    stage.className = 'istage';
+    if (Math.abs(d.dx) < 4 && Math.abs(d.dy) < 4) { layers.style.transform = ''; return; }
+    var s = irSpans(W, H);
+    var c = irCenter();
+    iradar.center = {
+      lat: Math.max(-85, Math.min(85, c.lat + d.dy * (s.latSpan / H))),
+      lon: c.lon - d.dx * (s.lonSpan / W)
+    };
+    iradar.dragCommitTimer = window.setTimeout(function () {
+      iradar.dragCommitTimer = null;
+      iradar.times = []; /* new view; re-enumerate frames for the new center */
+      if (activeScreen === 'radar') { renderRadar(); irLoadCatalog(onCatalog); }
+    }, 300);
+  }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  /* toolbar */
+  var bar = el('div', 'radar-toolbar');
+  modeButtons(bar);
+  bar.appendChild(tb(iradar.playing ? 'Pause' : 'Play', iradar.playing ? 'pause' : 'play', iradar.playing, function () {
+    iradar.playing = !iradar.playing;
+    renderRadar();
+  }));
+  for (var sp = 0; sp < IR_SPANS.length; sp++) {
+    (function (km, label) {
+      bar.appendChild(tb(label, null, iradar.spanKm === km, function () {
+        iradar.spanKm = km;
+        renderRadar();
+      }));
+    })(IR_SPANS[sp][0], IR_SPANS[sp][1]);
+  }
+  bar.appendChild(tb('Home', 'home', false, function () {
+    iradar.center = null;
+    iradar.times = [];
+    renderRadar();
+    irLoadCatalog(onCatalog);
+  }));
+  var newest = iradar.times.length > 0 ? iradar.times[iradar.times.length - 1] : null;
+  var stampEl = el('span', 'radar-stamp', newest !== null ? 'Updated ' + fmtClock(new Date(newest)) : 'Loading frames…');
+  stampEl.id = 'iStamp';
+  bar.appendChild(stampEl);
+  root.appendChild(bar);
+  root.appendChild(el('div', 'radar-note', 'Base reflectivity with official NWS warning polygons. Drag to pan, Home recenters on the property. Times shown in local time.'));
+
+  /* bootstrap: enumerate real frame times + view-local tropical probe
+     (no-ops when the 30-min per-bbox cache entry is still fresh) */
+  if (iradar.times.length === 0 || Date.now() - iradar.timesAt > 300000) irLoadCatalog(onCatalog);
+  irProbeTropical(bbox);
+}
+function onCatalog(changed) {
+  if (changed && activeScreen === 'radar' && iradar.mode === 'interactive' && !iradar.failed) renderRadar();
+}
+
+/* interactive-radar tickers (guards keep them inert off-screen) */
+window.setInterval(function () { /* animation ~500 ms/frame */
+  if (activeScreen !== 'radar' || iradar.mode !== 'interactive' || iradar.failed || !iradar.playing) return;
+  var frames = document.querySelectorAll('.iframe');
+  if (frames.length < 2) return;
+  var next = (iradar.frameIdx + 1) % frames.length;
+  if (frames[next].className.indexOf(' on') < 0) return; /* wait for preload */
+  for (var i = 0; i < frames.length; i++) {
+    frames[i].className = frames[i].className.replace(' show', '');
+  }
+  frames[next].className += ' show';
+  iradar.frameIdx = next;
+}, 500);
+window.setInterval(function () { /* warnings refresh every 2 min */
+  if (activeScreen !== 'radar' || iradar.mode !== 'interactive' || iradar.failed) return;
+  var warn = $('iWarn');
+  if (warn) {
+    iradar.warnBust = Date.now();
+    warn.src = warn.src.replace(/&_=\d+$/, '&_=' + iradar.warnBust);
+  }
+}, 120000);
+window.setInterval(function () { /* catalog re-query every 5 min */
+  if (activeScreen !== 'radar' || iradar.mode !== 'interactive' || iradar.failed) return;
+  irLoadCatalog(onCatalog);
+}, 300000);
+window.setInterval(function () { /* tropical re-probe every 30 min while open */
+  if (activeScreen !== 'radar' || iradar.mode !== 'interactive' || iradar.failed) return;
+  if (iradar.lastBbox) irProbeTropical(iradar.lastBbox); /* self-guards on the 30-min cache */
+}, 60000);
 
 /* ================= ALERTS ================= */
 function alertSeverityClass(a) {
@@ -1553,6 +2030,7 @@ var pickedScenario = 'thunderstorm';
 function sendSettingsPatch(paths) {
   /* paths: array of {path, value}. Optimistic, revert refused. */
   if (!state) return;
+  if (cloudMode) return; /* cloud mirror is read-only */
   if (!state.settings || typeof state.settings !== 'object') state.settings = {};
   var snapshot = JSON.parse(JSON.stringify(state.settings));
   var patch = {};
@@ -1675,9 +2153,12 @@ function renderSettings(force) {
   var root = $('screen-settings');
   var s = (state && state.settings) || {};
   var json = JSON.stringify(s);
-  if (!force && root.firstChild && json === lastSettingsJson && root.getAttribute('data-pane') === settingsPane) return;
+  var roFlag = cloudMode ? '1' : '0';
+  if (!force && root.firstChild && json === lastSettingsJson &&
+      root.getAttribute('data-pane') === settingsPane && root.getAttribute('data-ro') === roFlag) return;
   lastSettingsJson = json;
   root.setAttribute('data-pane', settingsPane);
+  root.setAttribute('data-ro', roFlag);
   clear(root);
   var head = el('div', 'screen-head');
   head.appendChild(el('div', 'screen-title', 'Settings'));
@@ -1712,6 +2193,20 @@ function renderSettings(force) {
 
   var fn = SETTINGS_RENDER[settingsPane];
   if (fn) fn(body, s);
+
+  /* Cloud mirror = read-only: disable every control and say why. */
+  if (cloudMode) {
+    var note = el('div', 'banner banner-sim');
+    note.style.marginBottom = '0';
+    note.appendChild(iconNode('info'));
+    var nbox = el('div');
+    nbox.appendChild(el('div', 'b-title', 'READ-ONLY'));
+    nbox.appendChild(el('div', 'b-sub', 'Connected via SmartBuildOS cloud — control available on the home network'));
+    note.appendChild(nbox);
+    body.insertBefore(note, body.firstChild);
+    var ctls = body.querySelectorAll('input, select, button');
+    for (var ci = 0; ci < ctls.length; ci++) ctls[ci].disabled = true;
+  }
 }
 
 var SETTINGS_RENDER = {
@@ -2358,13 +2853,28 @@ var initialScreen = 'now';
 try { initialScreen = window.localStorage.getItem('atmos.screen') || 'now'; } catch (e) {}
 showScreen(SCREENS_BY_ID[initialScreen] ? initialScreen : 'now', false);
 requestState();
-window.setInterval(requestState, 30000);
-/* Relay fallback probe: if the Navigator JS API has delivered nothing
-   within 4 s of load and relay params were provided, try the LAN relay. */
-if (relayBase !== null && !mockMode) {
+window.setInterval(function () {
+  if (cloudMode && !mockMode) {
+    var nowMs = Date.now();
+    /* every 5 min, try to climb back to C4 / LAN relay */
+    if (nowMs - lastUpgradeMs >= 300000) { lastUpgradeMs = nowMs; tryBetterChannels(); }
+    /* 60 s cloud cadence (interval ticks every 30 s) */
+    if (nowMs - lastCloudPollMs >= 55000) cloudGetState();
+    return;
+  }
+  requestState();
+}, 30000);
+/* Fallback probe: if the Navigator JS API has delivered nothing within
+   4 s of load, try the LAN relay, or the cloud mirror when no relay
+   address was provided. */
+if ((relayBase !== null || cloudBase !== null) && !mockMode) {
   window.setTimeout(function () {
     relayProbed = true;
-    if (!c4Delivered) relayGetState();
+    lastUpgradeMs = Date.now();
+    if (!c4Delivered) {
+      if (relayBase !== null) relayGetState();
+      else cloudGetState();
+    }
   }, 4000);
 }
 window.setInterval(function () {

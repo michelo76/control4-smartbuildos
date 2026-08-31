@@ -49,31 +49,35 @@ if html == nil then
   os.exit(1)
 end
 
--- (2) Every http(s):// occurrence must point at radar.weather.gov.
+-- (2) Every http(s):// occurrence must point at an allowlisted NOAA host:
+--     RIDGE2 GIFs (classic radar) and mapservices (interactive radar layers).
+local ALLOWED_URLS = {
+  ["https://radar.weather.gov"] = true,
+  ["https://mapservices.weather.noaa.gov"] = true,
+}
 local badUrls = {}
 for url in html:gmatch("https?://[%w%.%-]+") do
-  if url ~= "https://radar.weather.gov" then
+  if not ALLOWED_URLS[url] then
     table.insert(badUrls, url)
   end
 end
-check(
-  "no external URLs besides https://radar.weather.gov",
-  #badUrls == 0,
-  #badUrls > 0 and table.concat(badUrls, ", ") or nil
-)
+check("no external URLs besides the NOAA allowlist", #badUrls == 0, #badUrls > 0 and table.concat(badUrls, ", ") or nil)
 
--- Belt-and-braces: any bare protocol occurrence must be the radar host.
-local protoCount, radarCount = 0, 0
+-- Belt-and-braces: any bare protocol occurrence must be an allowlisted host.
+local protoCount, allowedCount = 0, 0
 for _ in html:gmatch("https?://") do
   protoCount = protoCount + 1
 end
 for _ in html:gmatch("https://radar%.weather%.gov") do
-  radarCount = radarCount + 1
+  allowedCount = allowedCount + 1
+end
+for _ in html:gmatch("https://mapservices%.weather%.noaa%.gov") do
+  allowedCount = allowedCount + 1
 end
 check(
-  "every protocol occurrence is the radar host",
-  protoCount == radarCount,
-  string.format("%d protocol refs, %d radar refs", protoCount, radarCount)
+  "every protocol occurrence is an allowlisted host",
+  protoCount == allowedCount,
+  string.format("%d protocol refs, %d allowlisted refs", protoCount, allowedCount)
 )
 
 -- (3) No external script/style loading.
