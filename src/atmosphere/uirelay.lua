@@ -80,6 +80,18 @@ function M.route(req, token, provider)
   if req.path == "/ping" and req.method == "GET" then
     return json("200 OK", '{"ok":true,"service":"atmosphere"}')
   end
+  -- The app itself, served same-origin so its data calls ride whatever
+  -- transport delivered the page — including Control4's remote webview
+  -- proxy (field precedent: a LAN router page whose AJAX works remotely).
+  -- Tokenless: the page ships in every .c4z and contains no secrets; the
+  -- API routes below stay token-gated.
+  if req.path == "/app" and req.method == "GET" then
+    local ok, html = pcall(provider.appHtml)
+    if not ok or type(html) ~= "string" or html == "" then
+      return json("503 Service Unavailable", '{"ok":false,"error":"app not loadable"}')
+    end
+    return { status = "200 OK", contentType = "text/html; charset=utf-8", body = html }
+  end
   if token == nil or token == "" or req.query.k ~= token then
     return json("403 Forbidden", '{"ok":false,"error":"bad token"}')
   end

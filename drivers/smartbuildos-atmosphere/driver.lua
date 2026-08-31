@@ -1191,7 +1191,25 @@ local function relayToken()
   return token
 end
 
+--- The app HTML, read once from our own c4z (www/ ships inside it). A
+--- failed read is survivable: the URL falls back to controller:// serving.
+gAppHtml = nil
+local function appHtml()
+  if gAppHtml ~= nil then
+    return gAppHtml
+  end
+  local ok, html = pcall(function()
+    C4:FileSetDir("C4Z_ROOT", "smartbuildos-atmosphere")
+    return FileRead("www/app/index.html")
+  end)
+  if ok and type(html) == "string" and #html > 1024 then
+    gAppHtml = html
+  end
+  return gAppHtml
+end
+
 local relayProvider = {
+  appHtml = appHtml,
   state = function()
     return JSON:encode(buildUiState())
   end,
@@ -1289,10 +1307,19 @@ end
 --- shared by both). The page reads location.search; with no params it
 --- stays on the JS API channels alone.
 local function desiredWebViewUrl()
-  local base = "controller://driver/smartbuildos-atmosphere/app/index.html"
   local parts = {}
-  if gRelayPort ~= nil then
-    local host = relayHost()
+  local host = gRelayPort ~= nil and relayHost() or ""
+  -- PREFERRED SHAPE: the app served same-origin FROM the relay
+  -- (http://<controller>:47815/app). Field precedent: Control4's mobile
+  -- app proxies a LAN web view's own origin — page AND its AJAX — through
+  -- the Director connection when remote (measured by the user's router
+  -- web view working on cellular). Same-origin serving therefore makes
+  -- reads AND writes work everywhere the page itself loads.
+  local base
+  if host ~= "" and appHtml() ~= nil then
+    base = string.format("http://%s:%d/app", host, gRelayPort)
+  else
+    base = "controller://driver/smartbuildos-atmosphere/app/index.html"
     if host ~= "" then
       parts[#parts + 1] = "relay=" .. encodeParam(string.format("http://%s:%d", host, gRelayPort))
     end
@@ -1301,7 +1328,7 @@ local function desiredWebViewUrl()
     parts[#parts + 1] = "cloud=" .. encodeParam(gCloudView.url)
     parts[#parts + 1] = "cid=" .. encodeParam(gCloudView.handle or "")
   end
-  if #parts == 0 then
+  if #parts == 0 and base:find("^controller://") ~= nil then
     return base
   end
   parts[#parts + 1] = "k=" .. relayToken()

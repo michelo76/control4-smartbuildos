@@ -175,6 +175,23 @@ function C4:GetBindingsByDevice()
     bindings = { { bindingid = 5001, boundconsumers = {}, info = { addr = "192.168.7.20", status = "online" } } },
   }
 end
+-- The app HTML the driver reads from its own c4z (>1KB or it is refused).
+local FAKE_APP_HTML = "<title>Atmosphere</title>" .. string.rep("<!-- app -->", 120)
+function C4:FileSetDir() end
+function C4:FileExists(path)
+  return path == "www/app/index.html"
+end
+function C4:FileOpen(path)
+  return path == "www/app/index.html" and 7 or -1
+end
+function C4:FileGetSize(handle)
+  return handle == 7 and #FAKE_APP_HTML or 0
+end
+function C4:FileSetPos() end
+function C4:FileRead(handle)
+  return handle == 7 and FAKE_APP_HTML or ""
+end
+function C4:FileClose() end
 local serverCreated = nil
 local serverSent = {}
 function C4:CreateServer(port, _, _, identifier)
@@ -505,13 +522,21 @@ check("humidity VALUE_CHANGED published", humSend ~= nil and tostring(humSend.pa
 check("relay server created on 47815", serverCreated ~= nil and serverCreated.port == 47815)
 local urlSend = lastProxySend(5001, "URL_CHANGED")
 check(
-  "webview URL carries relay host from nested bindings",
-  urlSend ~= nil and urlSend.params.url:find("relay=http%3A%2F%2F192.168.7.20%3A47815", 1, true) ~= nil,
+  "webview URL is the same-origin relay app (host from nested bindings)",
+  urlSend ~= nil and urlSend.params.url:find("http://192.168.7.20:47815/app?", 1, true) == 1,
   urlSend ~= nil and urlSend.params.url or "no URL_CHANGED"
 )
-check("webview URL carries a token", urlSend ~= nil and urlSend.params.url:find("&k=%w+") ~= nil)
+check("webview URL carries a token", urlSend ~= nil and urlSend.params.url:find("k=%w+") ~= nil)
+serverSent = {}
+OnServerDataIn(10, "GET /app HTTP/1.1\r\n\r\n", nil, nil, "atmosphere-ui-relay")
+check(
+  "relay serves the app HTML tokenless",
+  #serverSent == 1
+    and serverSent[1].data:find("text/html", 1, true) ~= nil
+    and serverSent[1].data:find("<title>Atmosphere</title>", 1, true) ~= nil
+)
 check("relay status property painted", Properties["App Data Relay"]:find("192.168.7.20", 1, true) ~= nil)
-local relayToken = urlSend ~= nil and urlSend.params.url:match("&k=(%w+)") or ""
+local relayToken = urlSend ~= nil and urlSend.params.url:match("[?&]k=(%w+)") or ""
 serverSent = {}
 OnServerDataIn(11, "GET /state?k=" .. relayToken .. " HTTP/1.1\r\n\r\n", nil, nil, "atmosphere-ui-relay")
 check("relay serves state over LAN", #serverSent == 1 and serverSent[1].data:find('"mode"', 1, true) ~= nil)

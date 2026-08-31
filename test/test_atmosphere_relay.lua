@@ -91,6 +91,18 @@ local function go(raw)
 end
 
 check("ping needs no token", go("GET /ping HTTP/1.1\r\n\r\n").status == "200 OK")
+provider.appHtml = function()
+  return "<title>App</title>" .. string.rep("x", 40)
+end
+local appResp = go("GET /app HTTP/1.1\r\n\r\n")
+check(
+  "app served tokenless as html",
+  appResp.status == "200 OK" and appResp.contentType:find("text/html", 1, true) ~= nil
+)
+provider.appHtml = function()
+  return nil
+end
+check("app unavailable is 503", go("GET /app HTTP/1.1\r\n\r\n").status == "503 Service Unavailable")
 check("preflight OPTIONS is 204 without token", go("OPTIONS /settings HTTP/1.1\r\n\r\n").status == "204 No Content")
 check(
   "preflight headers rendered",

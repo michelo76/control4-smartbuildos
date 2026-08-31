@@ -423,7 +423,7 @@ input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent)
 'use strict';
 
 /* ================= utilities ================= */
-var APP_BUILD = 'b7'; /* bump on every field-shipped change to index.html */
+var APP_BUILD = 'b8'; /* bump on every field-shipped change to index.html */
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, text) {
   var n = document.createElement(tag);
@@ -705,12 +705,26 @@ function queryParam(name) {
    Channel priority: C4 JS API → LAN relay → SmartBuildOS cloud mirror.
    The cloud mirror is read-only; the same `k` token authorizes both. */
 var relayBase = null, relayToken = null;
+var relaySameOrigin = false; /* relayBase derived from our own origin (driver serves the page) */
 var cloudBase = null, cloudCid = null;
 (function () {
   var r = queryParam('relay');
   /* accept only absolute http(s) origins; strip any trailing slash */
   if (isStr(r) && r.indexOf('http') === 0 && r.indexOf(':' + '//') > 0) {
     relayBase = r.replace(/\/+$/, '');
+  } else if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    /* Served same-origin by the driver's own relay (web_view_url points
+       at <controller>:47815/app) — /state, /settings, /refresh, /simulate
+       live on this origin, so Control4's remote webview proxy can carry
+       both the page AND its data when the user is away. Writes stay
+       enabled; the cloud mirror below remains the read-only fallback. */
+    try {
+      var o = String(window.location.origin || '');
+      if (o.indexOf('http') === 0 && o.indexOf(':' + '//') > 0) {
+        relayBase = o.replace(/\/+$/, '');
+        relaySameOrigin = true;
+      }
+    } catch (e0) {}
   }
   var c = queryParam('cloud');
   if (isStr(c) && c.indexOf('http') === 0 && c.indexOf(':' + '//') > 0) {
@@ -745,6 +759,9 @@ function relayHost() {
   var s = relayBase.slice(relayBase.indexOf(':' + '//') + 3);
   return s.split('/')[0];
 }
+function relayLabel() {
+  return relaySameOrigin ? 'Controller (same-origin)' : 'LAN relay (' + relayHost() + ')';
+}
 function channelDown() {
   if (c4Delivered) return false;
   if (relayBase === null && cloudBase === null) return false;
@@ -759,7 +776,7 @@ function channelStatusText() {
   var s;
   if (state !== null) {
     if (cloudMode) s = 'SmartBuildOS cloud';
-    else if (relayMode) s = 'LAN relay (' + relayHost() + ')';
+    else if (relayMode) s = relayLabel();
     else if (c4Delivered) s = 'Navigator JS API';
     else if (mockMode) s = 'Embedded mock';
     else s = 'connected';
@@ -770,13 +787,13 @@ function channelStatusText() {
   } else if (relayBase === null && cloudBase === null) {
     s = 'No relay address received from driver';
   } else if (relayBase !== null && relayFails === 0) {
-    s = 'Trying LAN relay (' + relayHost() + ')…';
+    s = 'Trying ' + relayLabel() + '…';
   } else if (relayBase !== null && relayFails < 2) {
-    s = 'LAN relay unreachable (attempt ' + relayFails + ')';
+    s = (relaySameOrigin ? 'Controller (same-origin)' : 'LAN relay') + ' unreachable (attempt ' + relayFails + ')';
   } else if (cloudBase !== null) {
     s = cloudFails === 0 ? 'Trying SmartBuildOS cloud…' : 'Cloud mirror unreachable (attempt ' + cloudFails + ')';
   } else {
-    s = 'LAN relay unreachable (attempt ' + relayFails + ')';
+    s = (relaySameOrigin ? 'Controller (same-origin)' : 'LAN relay') + ' unreachable (attempt ' + relayFails + ')';
   }
   return s + ' · ' + APP_BUILD;
 }
