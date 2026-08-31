@@ -165,6 +165,13 @@
     <script file="driver.lua" jit="1"/>
     <documentation file="www/documentation/index.html">Documentation</documentation>
     <actions>
+      <action><name>Open Weather App</name><command>OPEN_WEATHER_APP</command></action>
+      <action><name>Open Current Weather</name><command>OPEN_CURRENT_WEATHER</command></action>
+      <action><name>Open Forecast</name><command>OPEN_FORECAST</command></action>
+      <action><name>Open Radar</name><command>OPEN_RADAR</command></action>
+      <action><name>Open Alerts</name><command>OPEN_ALERTS</command></action>
+      <action><name>Open Settings</name><command>OPEN_SETTINGS</command></action>
+      <action><name>Open Diagnostics</name><command>OPEN_DIAGNOSTICS</command></action>
       <action><name>Refresh Weather</name><command>REFRESH_WEATHER</command></action>
       <action><name>Refresh Forecast</name><command>REFRESH_FORECAST</command></action>
       <action><name>Refresh Alerts</name><command>REFRESH_ALERTS</command></action>

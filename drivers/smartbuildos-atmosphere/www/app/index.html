@@ -1,0 +1,2205 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://radar.weather.gov data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Atmosphere</title>
+<style>
+/* ============================================================
+   SmartBuildOS Atmosphere — Navigator WebView
+   Single-file app. Dark-first. Gecko 96 safe (no :has(), no
+   container queries, no backdrop-filter reliance).
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+
+:root, html[data-theme="dark"] {
+  --bg0: #0a0f17; --bg1: #101a29;
+  --text: #eef2f7;
+  --dim: rgba(238,242,247,.64);
+  --faint: rgba(238,242,247,.40);
+  --card: rgba(255,255,255,.055);
+  --card-solid: rgba(22,30,43,.72);
+  --card-brd: rgba(255,255,255,.085);
+  --chip: rgba(255,255,255,.075);
+  --chip-brd: rgba(255,255,255,.10);
+  --accent: #8ab8ff;
+  --accent-soft: rgba(138,184,255,.16);
+  --nav-bg: rgba(8,11,17,.90);
+  --hairline: rgba(255,255,255,.07);
+  --track: rgba(255,255,255,.14);
+  --input-bg: rgba(255,255,255,.06);
+  --shadow: 0 8px 28px rgba(0,0,0,.35);
+  --pop: #6aa9ff;
+  --ok: #46c98c; --warn: #ffb224; --bad: #e5484d;
+}
+html[data-theme="light"] {
+  --bg0: #e8eef5; --bg1: #f4f7fa;
+  --text: #16202c;
+  --dim: rgba(22,32,44,.66);
+  --faint: rgba(22,32,44,.42);
+  --card: rgba(255,255,255,.62);
+  --card-solid: rgba(255,255,255,.86);
+  --card-brd: rgba(20,32,48,.09);
+  --chip: rgba(18,30,46,.06);
+  --chip-brd: rgba(18,30,46,.10);
+  --accent: #2b6cd4;
+  --accent-soft: rgba(43,108,212,.12);
+  --nav-bg: rgba(248,250,252,.92);
+  --hairline: rgba(18,30,46,.09);
+  --track: rgba(18,30,46,.16);
+  --input-bg: rgba(18,30,46,.05);
+  --shadow: 0 8px 24px rgba(30,45,66,.12);
+  --pop: #2b6cd4;
+}
+html[data-theme="oled"] {
+  --bg0: #000000; --bg1: #000000;
+  --card: rgba(255,255,255,.065);
+  --card-solid: rgba(14,14,16,.9);
+  --nav-bg: rgba(0,0,0,.92);
+}
+html[data-theme="control4"] {
+  --bg0: #191b1e; --bg1: #202327;
+  --card: rgba(255,255,255,.05);
+  --card-solid: rgba(32,35,39,.85);
+  --accent: #aab4c0;
+  --accent-soft: rgba(170,180,192,.14);
+  --nav-bg: rgba(20,22,25,.94);
+  --pop: #93a3b5;
+}
+html[data-theme="ambient"] {
+  /* JS sets --bg0/--bg1/--accent per weather mode */
+  --bg0: #0a0f17; --bg1: #101a29;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: linear-gradient(180deg, var(--bg0), var(--bg1));
+  color: var(--text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, select { font: inherit; color: var(--text); }
+svg { display: block; }
+
+#bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+
+#mockBadge {
+  position: fixed; top: 10px; right: 12px; z-index: 40;
+  font-size: 9px; font-weight: 600; letter-spacing: .18em;
+  color: var(--faint); border: 1px solid var(--hairline);
+  padding: 3px 8px; border-radius: 999px; background: var(--card);
+}
+
+#appRoot { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; }
+#screens { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+
+.screen {
+  display: none;
+  padding: 22px clamp(16px, 4vw, 44px) 104px;
+  max-width: 1060px; margin: 0 auto;
+  animation: fadeUp .32s ease;
+}
+.screen.active { display: block; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.screen-head { margin: 4px 2px 18px; }
+.screen-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.screen-sub { font-size: 13px; color: var(--dim); margin-top: 3px; }
+
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.card {
+  background: var(--card); border: 1px solid var(--card-brd);
+  border-radius: 18px; padding: 18px 20px;
+}
+.sec-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.sec-label svg { width: 13px; height: 13px; opacity: .8; }
+
+/* ---------- banners ---------- */
+.banner {
+  display: flex; align-items: center; gap: 12px;
+  border-radius: 16px; padding: 13px 16px; margin-bottom: 14px;
+  font-size: 13.5px; line-height: 1.35; border: 1px solid transparent;
+}
+.banner svg { width: 18px; height: 18px; flex: none; }
+.banner .b-title { font-weight: 600; }
+.banner .b-sub { color: inherit; opacity: .8; font-size: 12.5px; margin-top: 1px; }
+.banner-alert { cursor: pointer; color: #fff; }
+.banner-sev-EMERGENCY, .banner-sev-WARNING { background: rgba(180,32,42,.82); border-color: rgba(255,120,120,.35); }
+.banner-sev-WATCH { background: rgba(196,98,16,.82); border-color: rgba(255,180,90,.35); }
+.banner-sev-ADVISORY { background: rgba(160,120,14,.80); border-color: rgba(255,210,110,.32); }
+.banner-sev-INFORMATIONAL, .banner-sev-NORMAL { background: rgba(38,84,150,.72); border-color: rgba(140,180,255,.3); }
+.banner-stale { background: rgba(120,90,20,.4); border-color: rgba(255,190,90,.25); color: var(--text); }
+.banner-sim { background: var(--accent-soft); border-color: var(--chip-brd); color: var(--text); }
+.banner-sim .b-title { letter-spacing: .1em; font-size: 11.5px; }
+
+/* ---------- NOW ---------- */
+.hero { text-align: center; padding: clamp(8px, 3vh, 34px) 0 8px; }
+.hero-loc { font-size: 17px; font-weight: 600; letter-spacing: .02em; }
+.hero-clock { font-size: 12.5px; color: var(--dim); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.hero-temp { font-size: clamp(84px, 15vw, 138px); font-weight: 200; line-height: 1.02; letter-spacing: -.03em; margin: 6px 0 0; }
+.hero-cond { font-size: 17px; color: var(--dim); font-weight: 500; margin-top: 2px; }
+.hero-meta { font-size: 14px; color: var(--dim); margin-top: 6px; display: flex; gap: 16px; justify-content: center; }
+.hero-meta b { color: var(--text); font-weight: 600; }
+
+.chip-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 22px 0 6px; }
+.chip {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--chip); border: 1px solid var(--chip-brd);
+  border-radius: 999px; padding: 9px 15px; font-size: 13.5px;
+}
+.chip svg { width: 15px; height: 15px; opacity: .75; }
+.chip b { font-weight: 600; }
+.chip .u { color: var(--faint); font-size: 11px; margin-left: 1px; }
+
+.now-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+@media (max-width: 640px) { .now-grid { grid-template-columns: 1fr; } }
+.sun-track { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.sun-cell { text-align: center; }
+.sun-cell .t { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sun-cell .l { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin-top: 2px; }
+.sun-arc { flex: 1; height: 44px; }
+.kv-mini { display: flex; justify-content: space-between; font-size: 13.5px; padding: 5px 0; }
+.kv-mini .k { color: var(--dim); }
+.kv-mini .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------- HOURLY ---------- */
+.hscroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-bottom: 4px; }
+.hour-strip { display: flex; }
+.hour-cell {
+  width: 62px; flex: none; text-align: center; padding: 10px 0 6px;
+  border-radius: 14px;
+}
+.hour-cell.now-cell { background: var(--chip); }
+.hour-cell .h-time { font-size: 11.5px; color: var(--dim); font-weight: 500; }
+.hour-cell .h-icon { width: 24px; height: 24px; margin: 8px auto 6px; }
+.hour-cell .h-icon svg { width: 24px; height: 24px; }
+.hour-cell .h-temp { font-size: 15px; font-weight: 600; }
+.hour-cell .h-pop { font-size: 10.5px; color: var(--pop); margin-top: 3px; min-height: 13px; font-weight: 600; }
+.hour-cell .h-wind { font-size: 10px; color: var(--faint); margin-top: 2px; }
+.hour-chart { display: block; margin-top: 4px; }
+
+/* ---------- FORECAST ---------- */
+.day-row { border-bottom: 1px solid var(--hairline); }
+.day-row:last-child { border-bottom: none; }
+.day-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 4px; text-align: left; border-radius: 12px;
+}
+.day-head .d-name { width: 92px; flex: none; font-size: 14.5px; font-weight: 600; }
+.day-head .d-icon { width: 26px; height: 26px; flex: none; }
+.day-head .d-icon svg { width: 26px; height: 26px; }
+.day-head .d-pop { width: 46px; flex: none; font-size: 11.5px; color: var(--pop); font-weight: 600; text-align: center; }
+.day-head .d-short { flex: 1; font-size: 12.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.day-head .d-temps { flex: none; display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
+.day-head .d-lo { color: var(--faint); font-size: 14.5px; width: 34px; text-align: right; }
+.day-head .d-hi { font-weight: 600; font-size: 14.5px; width: 34px; text-align: right; }
+.day-head .d-bar { width: 72px; height: 4px; border-radius: 2px; background: var(--track); position: relative; overflow: hidden; }
+.day-head .d-bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: linear-gradient(90deg, #5fa6ff, #ffb46b); }
+.day-detail { display: none; padding: 2px 8px 16px 108px; font-size: 13px; line-height: 1.55; color: var(--dim); }
+.day-row.open .day-detail { display: block; }
+.day-detail b { color: var(--text); font-weight: 600; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 12px; }
+@media (max-width: 640px) {
+  .day-head .d-short { display: none; }
+  .day-head .d-bar { width: 44px; }
+  .day-detail { padding-left: 8px; }
+}
+
+/* ---------- RADAR ---------- */
+.radar-shell { border-radius: 18px; overflow: hidden; border: 1px solid var(--card-brd); background: #05080d; position: relative; }
+.radar-pan { overflow: auto; max-height: 62vh; scrollbar-width: thin; }
+.radar-img { display: block; width: 100%; height: auto; transform-origin: 0 0; }
+.radar-img.z15 { width: 150%; }
+.radar-img.z20 { width: 200%; }
+.radar-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.tbtn {
+  background: var(--chip); border: 1px solid var(--chip-brd); border-radius: 999px;
+  padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--dim);
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.tbtn svg { width: 13px; height: 13px; }
+.tbtn.on { color: var(--text); background: var(--accent-soft); border-color: var(--accent); }
+.radar-note { font-size: 11.5px; color: var(--faint); margin-top: 10px; line-height: 1.5; }
+.radar-stamp { font-size: 11.5px; color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.radar-err {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none;
+  align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+  color: var(--dim); font-size: 13px; background: rgba(5,8,13,.85); text-align: center; padding: 20px;
+}
+.radar-shell.err .radar-err { display: flex; }
+
+/* ---------- ALERTS ---------- */
+.alert-card { border-radius: 18px; padding: 16px 18px; border: 1px solid; color: #fff; }
+.alert-extreme { background: rgba(150,24,34,.68); border-color: rgba(255,110,110,.4); }
+.alert-severe { background: rgba(170,84,12,.62); border-color: rgba(255,170,90,.4); }
+.alert-moderate { background: rgba(150,110,10,.55); border-color: rgba(255,205,100,.4); }
+.alert-minor { background: rgba(30,74,138,.58); border-color: rgba(130,175,255,.4); }
+.alert-top { display: flex; align-items: flex-start; gap: 10px; }
+.alert-top svg { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.alert-event { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.alert-head { font-size: 13px; opacity: .92; margin-top: 5px; line-height: 1.45; }
+.alert-meta { font-size: 12px; opacity: .78; margin-top: 9px; line-height: 1.5; }
+.alert-body { display: none; margin-top: 12px; border-top: 1px solid rgba(255,255,255,.22); padding-top: 12px; }
+.alert-card.open .alert-body { display: block; }
+.alert-body h4 { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; opacity: .75; margin: 10px 0 4px; }
+.alert-body p { font-size: 12.5px; line-height: 1.55; opacity: .95; white-space: pre-wrap; }
+.alert-more { margin-top: 10px; font-size: 12px; font-weight: 600; opacity: .85; padding: 4px 0; }
+.all-clear { text-align: center; padding: 60px 20px; color: var(--dim); }
+.all-clear svg { width: 44px; height: 44px; margin: 0 auto 14px; color: var(--ok); }
+.all-clear .t { font-size: 16px; font-weight: 600; color: var(--text); }
+.all-clear .s { font-size: 13px; margin-top: 5px; }
+
+/* ---------- DETAILS ---------- */
+.det-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.det-tile { background: var(--card); border: 1px solid var(--card-brd); border-radius: 16px; padding: 14px 16px; }
+.det-tile .l { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 6px; }
+.det-tile .l svg { width: 12px; height: 12px; }
+.det-tile .v { font-size: 21px; font-weight: 600; margin-top: 7px; font-variant-numeric: tabular-nums; }
+.det-tile .v .u { font-size: 12px; color: var(--dim); font-weight: 500; margin-left: 2px; }
+.det-tile .s { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
+.det-tile.wide { grid-column: 1 / -1; }
+.compass { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.compass .rose { width: 44px; height: 44px; flex: none; }
+.dot-ok, .dot-bad, .dot-warn { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+.dot-ok { background: var(--ok); } .dot-bad { background: var(--bad); } .dot-warn { background: var(--warn); }
+
+/* ---------- SETTINGS ---------- */
+.settings-wrap { display: flex; gap: 18px; align-items: flex-start; }
+.settings-rail { flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
+.rail-btn {
+  text-align: left; padding: 9px 13px; border-radius: 11px; font-size: 13.5px;
+  color: var(--dim); font-weight: 500; white-space: nowrap;
+}
+.rail-btn.active { background: var(--chip); color: var(--text); font-weight: 600; }
+.settings-body { flex: 1; min-width: 0; }
+@media (max-width: 760px) {
+  .settings-wrap { flex-direction: column; }
+  .settings-rail { width: 100%; flex-direction: row; overflow-x: auto; scrollbar-width: none; position: static; padding-bottom: 4px; }
+}
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--hairline); }
+.set-row:last-child { border-bottom: none; }
+.set-row .sl { font-size: 14px; min-width: 0; }
+.set-row .sl .sd { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+.set-select, .set-text {
+  background: var(--input-bg); border: 1px solid var(--chip-brd); border-radius: 10px;
+  padding: 8px 10px; font-size: 13.5px; max-width: 210px; outline: none;
+}
+.set-select option { color: #16202c; background: #f4f7fa; }
+.set-text { width: 190px; }
+.toggle {
+  flex: none; width: 46px; height: 27px; border-radius: 999px; background: var(--track);
+  position: relative; transition: background .18s ease; border: none;
+}
+.toggle i { position: absolute; top: 3px; left: 3px; width: 21px; height: 21px; border-radius: 50%; background: #fff; transition: transform .18s ease; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.toggle.on { background: var(--accent); }
+.toggle.on i { transform: translateX(19px); }
+.slider-row { display: block; padding: 12px 0; border-bottom: 1px solid var(--hairline); }
+.slider-row:last-child { border-bottom: none; }
+.slider-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.slider-top .sl { font-size: 13.5px; }
+.slider-num {
+  width: 78px; background: var(--input-bg); border: 1px solid var(--chip-brd); border-radius: 9px;
+  padding: 6px 8px; font-size: 13px; text-align: right; outline: none; font-variant-numeric: tabular-nums;
+}
+input[type="range"] { width: 100%; margin-top: 10px; accent-color: var(--accent); height: 22px; }
+.refused-box { background: rgba(180,60,40,.22); border: 1px solid rgba(255,140,110,.35); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; }
+.refused-box b { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: .06em; }
+.btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.btn {
+  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--text);
+  border-radius: 12px; padding: 10px 18px; font-size: 13.5px; font-weight: 600;
+}
+.btn.secondary { background: var(--chip); border-color: var(--chip-brd); color: var(--dim); }
+.diag-tree { font-size: 12.5px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.diag-k { color: var(--faint); }
+.diag-v { color: var(--text); font-weight: 500; }
+.diag-group { margin: 6px 0 2px; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.about-name { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.about-sub { color: var(--dim); font-size: 13px; margin-top: 4px; line-height: 1.6; }
+
+/* ---------- NAV ---------- */
+#nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  display: flex; justify-content: center; gap: 2px;
+  padding: 7px 10px 9px; background: var(--nav-bg);
+  border-top: 1px solid var(--hairline);
+}
+.nav-item {
+  flex: 1; max-width: 108px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 2px 5px; border-radius: 13px; color: var(--faint); position: relative;
+}
+.nav-item svg { width: 20px; height: 20px; }
+.nav-item .lbl { font-size: 9px; font-weight: 600; letter-spacing: .1em; }
+.nav-item.active { color: var(--text); background: var(--chip); }
+.nav-badge {
+  position: absolute; top: 3px; left: calc(50% + 6px);
+  min-width: 16px; height: 16px; border-radius: 8px; background: var(--bad); color: #fff;
+  font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; border: 1.5px solid var(--nav-bg);
+}
+@media (max-width: 480px) { .nav-item .lbl { font-size: 8px; letter-spacing: .05em; } }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="mockBadge" hidden>MOCK DATA</div>
+<div id="appRoot">
+  <div id="screens">
+    <section class="screen" id="screen-now"></section>
+    <section class="screen" id="screen-hourly"></section>
+    <section class="screen" id="screen-forecast"></section>
+    <section class="screen" id="screen-radar"></section>
+    <section class="screen" id="screen-alerts"></section>
+    <section class="screen" id="screen-details"></section>
+    <section class="screen" id="screen-settings"></section>
+  </div>
+  <nav id="nav"></nav>
+</div>
+<script>
+(function () {
+'use strict';
+
+/* ================= utilities ================= */
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+function num(v) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  v = Number(v);
+  return isFinite(v) ? v : null;
+}
+function isStr(v) { return typeof v === 'string' && v.length > 0; }
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function fmtTemp(v) { var n = num(v); return n === null ? '--' : Math.round(n) + '°'; }
+function fmtNum(v, dp) { var n = num(v); return n === null ? '--' : (dp ? n.toFixed(dp) : String(Math.round(n))); }
+function fmtClock(d) {
+  try { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+  catch (e) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+}
+function fmtEpochTime(ep) { var n = num(ep); return n === null ? '--' : fmtClock(new Date(n * 1000)); }
+function fmtEpochDT(ep) {
+  var n = num(ep); if (n === null) return '--';
+  var d = new Date(n * 1000);
+  try { return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + fmtClock(d); }
+  catch (e) { return d.toString(); }
+}
+function fmtRelMin(ep) {
+  var n = num(ep); if (n === null) return '--';
+  var mins = Math.max(0, Math.round((Date.now() / 1000 - n) / 60));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  var h = Math.floor(mins / 60);
+  return h + (h === 1 ? ' hr ' : ' hrs ') + (mins % 60) + ' min ago';
+}
+function deepMerge(dst, src) {
+  if (!dst || typeof dst !== 'object') return src;
+  for (var k in src) {
+    if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+    var v = src[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object' && !Array.isArray(dst[k])) {
+      deepMerge(dst[k], v);
+    } else {
+      dst[k] = v;
+    }
+  }
+  return dst;
+}
+function getPath(obj, path) {
+  var parts = String(path).split('.');
+  var cur = obj;
+  for (var i = 0; i < parts.length; i++) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[parts[i]];
+  }
+  return cur;
+}
+function setPath(obj, path, value) {
+  var parts = String(path).split('.');
+  var cur = obj;
+  for (var i = 0; i < parts.length - 1; i++) {
+    if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+function unitLabel(kind) {
+  var u = (state && state.units) || {};
+  var map = {
+    temperature: { F: '°F', C: '°C' },
+    wind: { MPH: 'mph', KPH: 'km/h', KTS: 'kn', MS: 'm/s' },
+    pressure: { INHG: 'inHg', MB: 'mb', HPA: 'hPa' },
+    precipitation: { IN: 'in', MM: 'mm' },
+    distance: { MI: 'mi', KM: 'km' }
+  };
+  var v = u[kind];
+  return (map[kind] && map[kind][v]) || (map[kind] && Object.keys(map[kind]).length ? map[kind][Object.keys(map[kind])[0]] : '');
+}
+
+/* ================= inline SVG icon set =================
+   Static literal constants only — the ONE sanctioned use of
+   innerHTML for icon glyphs. No xmlns needed for inline SVG
+   in an HTML document (and the guard test bans http(s) URLs). */
+var S0 = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">';
+var SUN_CORE = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.3M12 19.2v2.3M4.3 4.3l1.6 1.6M18.1 18.1l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.3 19.7l1.6-1.6M18.1 5.9l1.6-1.6"/>';
+var CLOUD_P = 'M18 10.5h-1.1A6.4 6.4 0 1 0 9.5 18H18a3.75 3.75 0 0 0 0-7.5z';
+var ICONS = {
+  sun: S0 + SUN_CORE + '</svg>',
+  moon: S0 + '<path d="M20.4 14.2A8.2 8.2 0 1 1 9.8 3.6a6.6 6.6 0 0 0 10.6 10.6z"/></svg>',
+  partlyDay: S0 + '<g transform="translate(2.2 -1.6) scale(.62)"><circle cx="12" cy="12" r="4.2"/><path d="M12 4.2v-2M12 21.8v-1M4.3 4.3l1.4 1.4M19.7 12h2M2.3 12h2M18.3 5.7l1.4-1.4"/></g><path d="M15.5 20.5H8a3.4 3.4 0 0 1-.6-6.75 4.9 4.9 0 0 1 9.4-1.1h.2a3.3 3.3 0 0 1-1.5 7.85z" fill="var(--bg-icon, none)"/></svg>',
+  partlyNight: S0 + '<g transform="translate(11.5 1) scale(.44)"><path d="M20.4 14.2A8.2 8.2 0 1 1 9.8 3.6a6.6 6.6 0 0 0 10.6 10.6z"/></g><path d="M14.5 20.5H7a3.4 3.4 0 0 1-.6-6.75 4.9 4.9 0 0 1 9.4-1.1h.2a3.3 3.3 0 0 1-1.5 7.85z"/></svg>',
+  cloud: S0 + '<path d="' + CLOUD_P + '"/></svg>',
+  rain: S0 + '<g transform="translate(0 -2.4)"><path d="' + CLOUD_P + '"/></g><path d="M8.6 18.4l-.8 2.4M12.4 18.4l-.8 2.4M16.2 18.4l-.8 2.4"/></svg>',
+  heavyRain: S0 + '<g transform="translate(0 -2.6)"><path d="' + CLOUD_P + '"/></g><path d="M7.4 18l-.9 2.6M10.6 18l-.9 2.6M13.8 18l-.9 2.6M17 18l-.9 2.6"/></svg>',
+  thunder: S0 + '<g transform="translate(0 -2.4)"><path d="' + CLOUD_P + '"/></g><path d="M12.6 15.5l-2.3 3.4h3l-2 3.6" stroke-width="1.9"/></svg>',
+  snow: S0 + '<g transform="translate(0 -2.6)"><path d="' + CLOUD_P + '"/></g><path d="M8.6 18.6v.01M12 20v.01M15.4 18.6v.01M10.2 21v.01M13.8 21.2v.01" stroke-width="2.3"/></svg>',
+  fog: S0 + '<g transform="translate(0 -3.4)"><path d="' + CLOUD_P + '"/></g><path d="M6 17.6h12M7.5 20.4h9"/></svg>',
+  wind: S0 + '<path d="M3.5 8.5h9.3a2.6 2.6 0 1 0-2.5-3.3M3.5 12.5h14.8a2.7 2.7 0 1 1-2.6 3.4M3.5 16.5h6.8a2.3 2.3 0 1 1-2.2 2.9"/></svg>',
+  ice: S0 + '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M12 3l-2 2.2M12 3l2 2.2M12 21l-2-2.2M12 21l2-2.2M4.2 7.5l3 .1M4.2 16.5l3-.1M19.8 7.5l-3 .1M19.8 16.5l-3-.1"/></svg>',
+  drop: S0 + '<path d="M12 3.5s6 6.6 6 10.7a6 6 0 0 1-12 0C6 10.1 12 3.5 12 3.5z"/></svg>',
+  eye: S0 + '<path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>',
+  gauge: S0 + '<path d="M5 19a9 9 0 1 1 14 0"/><path d="M12 13.5l3.5-4"/><circle cx="12" cy="14" r="1.1"/></svg>',
+  alertTri: S0 + '<path d="M10.3 4.1 2.6 17.4a1.9 1.9 0 0 0 1.7 2.9h15.4a1.9 1.9 0 0 0 1.7-2.9L13.7 4.1a1.9 1.9 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><path d="M12 16.6v.01" stroke-width="2.3"/></svg>',
+  shield: S0 + '<path d="M12 2.8 4.8 5.5v5.6c0 4.6 3 8.4 7.2 9.9 4.2-1.5 7.2-5.3 7.2-9.9V5.5z"/><path d="M8.8 11.8l2.3 2.3 4.2-4.4"/></svg>',
+  clock: S0 + '<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.1 1.9"/></svg>',
+  calendar: S0 + '<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 9.8h17M8 2.8v4M16 2.8v4"/></svg>',
+  radar: S0 + '<circle cx="12" cy="12" r="8.8"/><circle cx="12" cy="12" r="4.6"/><path d="M12 12l5.9-6.5"/><circle cx="12" cy="12" r=".8" fill="currentColor"/></svg>',
+  grid: S0 + '<rect x="3.6" y="3.6" width="7" height="7" rx="1.8"/><rect x="13.4" y="3.6" width="7" height="7" rx="1.8"/><rect x="3.6" y="13.4" width="7" height="7" rx="1.8"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.8"/></svg>',
+  sliders: S0 + '<path d="M5 21v-6M5 11V3M12 21v-9M12 8V3M19 21v-4M19 13V3"/><path d="M2.5 15h5M9.5 8h5M16.5 17h5"/></svg>',
+  home: S0 + '<path d="M3.5 10.8 12 3.8l8.5 7"/><path d="M5.5 9.3V20h13V9.3"/></svg>',
+  sunrise: S0 + '<path d="M12 9V3.5M9 6l3-2.9L15 6M3 17h3M18 17h3M6.7 12.7 5.3 11.3M17.3 12.7l1.4-1.4"/><path d="M7 17a5 5 0 0 1 10 0"/><path d="M2.8 20.5h18.4"/></svg>',
+  sunset: S0 + '<path d="M12 3.5V9M9 6.4l3 2.9 3-2.9M3 17h3M18 17h3M6.7 12.7 5.3 11.3M17.3 12.7l1.4-1.4"/><path d="M7 17a5 5 0 0 1 10 0"/><path d="M2.8 20.5h18.4"/></svg>',
+  refresh: S0 + '<path d="M20 12a8 8 0 1 1-2.4-5.7M20 3.8v4h-4"/></svg>',
+  play: S0 + '<path d="M8 5.5v13l10-6.5z"/></svg>',
+  pause: S0 + '<path d="M8.5 5.5v13M15.5 5.5v13"/></svg>',
+  compass: S0 + '<circle cx="12" cy="12" r="9"/><path d="M12 3.8v1.8M12 18.4v1.8M3.8 12h1.8M18.4 12h1.8"/><path class="needle" d="M12 6.6l2.4 6.4-2.4 4.4-2.4-4.4z" fill="currentColor" stroke="none"/></svg>',
+  check: S0 + '<path d="M4.5 12.5l5 5 10-11"/></svg>',
+  info: S0 + '<circle cx="12" cy="12" r="8.8"/><path d="M12 11v5.4"/><path d="M12 7.6v.01" stroke-width="2.3"/></svg>'
+};
+function setIcon(node, key) {
+  var svg = ICONS[key] || ICONS.cloud;
+  node.innerHTML = svg; /* literal constant only */
+  return node;
+}
+function iconNode(key, cls) { return setIcon(el('span', cls), key); }
+
+/* icon key from mode / period flags */
+function iconForMode(mode, isDay) {
+  switch (mode) {
+    case 'CLEAR': return isDay ? 'sun' : 'moon';
+    case 'PARTLY_CLOUDY': return isDay ? 'partlyDay' : 'partlyNight';
+    case 'CLOUDY': return 'cloud';
+    case 'FOG': return 'fog';
+    case 'RAIN': return 'rain';
+    case 'HEAVY_RAIN': return 'heavyRain';
+    case 'THUNDERSTORM': case 'SEVERE_STORM': case 'TROPICAL': case 'HURRICANE': return 'thunder';
+    case 'SNOW': return 'snow';
+    case 'ICE': case 'FREEZE': return 'ice';
+    case 'HIGH_WIND': return 'wind';
+    case 'EXTREME_HEAT': return 'sun';
+    default: return isDay ? 'partlyDay' : 'partlyNight';
+  }
+}
+function iconForPeriod(p) {
+  if (!p) return 'cloud';
+  var f = p.flags || {};
+  var isDay = p.is_day !== false;
+  if (f.thunder) return 'thunder';
+  if (f.snow) return 'snow';
+  if (f.ice) return 'ice';
+  if (f.rain) return (num(p.pop) !== null && p.pop >= 70) ? 'heavyRain' : 'rain';
+  if (f.fog) return 'fog';
+  if (f.clear) return isDay ? 'sun' : 'moon';
+  if (f.cloudy) return 'cloud';
+  var s = String(p.short || '').toLowerCase();
+  if (s.indexOf('partly') >= 0 || s.indexOf('mostly sunny') >= 0 || s.indexOf('mostly clear') >= 0) return isDay ? 'partlyDay' : 'partlyNight';
+  if (s.indexOf('sunny') >= 0 || s.indexOf('clear') >= 0) return isDay ? 'sun' : 'moon';
+  if (s.indexOf('wind') >= 0 || s.indexOf('breezy') >= 0) return 'wind';
+  return 'cloud';
+}
+
+/* ================= mock state (dev mode) ================= */
+var MOCK = (function () {
+  var nowEp = Math.floor(Date.now() / 1000);
+  var hourStart = nowEp - (nowEp % 3600);
+  var hourly = [];
+  var shapes = ['Partly Sunny', 'Mostly Sunny', 'Partly Cloudy', 'Scattered Showers', 'Chance T-storms'];
+  for (var i = 0; i < 48; i++) {
+    var st = hourStart + i * 3600;
+    var hod = new Date(st * 1000).getHours();
+    var day = hod >= 7 && hod < 20;
+    var base = 78 + 9 * Math.sin((hod - 9) / 24 * 2 * Math.PI * 1.9);
+    var pop = (hod >= 14 && hod <= 19) ? 45 + (i % 3) * 10 : (hod >= 20 || hod < 6 ? 10 : 18);
+    var storm = pop >= 55;
+    hourly.push({
+      start: st, end: st + 3600, is_day: day,
+      temp: Math.round(base + (i > 24 ? -2 : 0)),
+      pop: Math.round(pop),
+      wind_lo: 6 + (i % 4), wind_hi: 9 + (i % 5), wind_dir: ['E', 'ESE', 'SE'][i % 3],
+      short: storm ? 'Chance T-storms' : shapes[(hod + i) % 3],
+      flags: { rain: pop >= 40, snow: false, thunder: storm, fog: false, ice: false, clear: pop < 20 && day, cloudy: pop >= 20 && pop < 40 }
+    });
+  }
+  var daily = [];
+  var names = ['Today', 'Tonight', 'Monday', 'Monday Night', 'Tuesday', 'Tuesday Night', 'Wednesday', 'Wednesday Night', 'Thursday', 'Thursday Night', 'Friday', 'Friday Night', 'Saturday', 'Saturday Night'];
+  var his = [88, null, 89, null, 87, null, 90, null, 91, null, 88, null, 86, null];
+  var los = [null, 78, null, 79, null, 77, null, 78, null, 79, null, 78, null, 76];
+  for (var d = 0; d < 14; d++) {
+    var isDay = d % 2 === 0;
+    var wet = d >= 4 && d <= 7;
+    daily.push({
+      start: hourStart + d * 43200, end: hourStart + (d + 1) * 43200,
+      is_day: isDay, name: names[d],
+      temp: isDay ? his[d] : los[d],
+      pop: wet ? 60 : (isDay ? 20 : 15),
+      wind_lo: 7, wind_hi: 12, wind_dir: 'ESE',
+      short: wet ? (isDay ? 'Scattered T-storms' : 'Showers Likely') : (isDay ? 'Partly Sunny' : 'Partly Cloudy'),
+      detail: wet
+        ? 'Showers and thunderstorms likely, mainly after 2pm. Some storms could be strong, with gusty winds and heavy downpours. Partly sunny otherwise, with a high near ' + (isDay ? his[d] : 88) + '. East-southeast wind 7 to 12 mph, with gusts as high as 20 mph. Chance of precipitation is 60%. New rainfall amounts between a quarter and half of an inch possible.'
+        : 'Partly ' + (isDay ? 'sunny' : 'cloudy') + ', with a ' + (isDay ? 'high near ' + his[d] : 'low around ' + los[d]) + '. East wind around 9 mph. Sea breeze developing in the afternoon along the coast.',
+      flags: { rain: wet, snow: false, thunder: wet && isDay, fog: false, ice: false, clear: false, cloudy: !wet }
+    });
+  }
+  var sunrise = hourStart - (new Date(hourStart * 1000).getHours() * 3600) + 6.9 * 3600;
+  var sunset = sunrise + 12.8 * 3600;
+  if (sunset < nowEp) { sunrise += 86400; sunset += 86400; }
+  return {
+    v: 1, now: nowEp, mode: 'PARTLY_CLOUDY', severity: 'WARNING', simulation: false,
+    stale: { any: false, observations: false, forecast: false, alerts: false, api_ok: true },
+    current: {
+      temp: 85, feels_like: 94.3, dewpoint: 75.2, humidity: 71, wind: 9.2, gust: 16.1,
+      wind_dir: 'E', wind_deg: 90, pressure: 30.06, visibility: 10, cloud_cover: 44,
+      condition: 'Partly Cloudy', station: 'KFLL — Fort Lauderdale/Hollywood Intl', observed_at: nowEp - 14 * 60
+    },
+    states: { is_raining: false, is_snowing: false, is_storming: false, is_foggy: false, is_icy: false, is_freezing: false, is_cold: false, is_hot: true, is_extreme_heat: false, is_high_wind: false, is_dangerous_wind: false, is_high_gust: false, is_poor_visibility: false },
+    predictions: { rain_expected_1h: false, rain_expected_3h: true, rain_expected_6h: true, rain_soon: false, heavy_rain_expected: false, storm_expected: true, snow_expected: false, high_wind_expected: false, freeze_expected_tonight: false, extreme_heat_expected: false, dangerous_weather_approaching: false, severe_alert_active: true },
+    hourly: hourly, daily: daily,
+    alerts: [{
+      id: 'urn:oid:2.49.0.1.840.0.mock.severe.tstorm', event: 'Severe Thunderstorm Warning',
+      headline: 'Severe Thunderstorm Warning issued for Broward County until 7:45 PM EDT',
+      severity: 'Severe', urgency: 'Immediate', certainty: 'Observed', level: 'WARNING', class: 'SEVERE_THUNDERSTORM',
+      onset: nowEp - 20 * 60, ends: nowEp + 65 * 60, expires: nowEp + 65 * 60,
+      area: 'Broward County, FL; Eastern Miami-Dade County, FL',
+      description: 'At 612 PM EDT, a severe thunderstorm was located near Plantation, moving east at 15 mph.\n\nHAZARD... 60 mph wind gusts and quarter size hail.\n\nSOURCE... Radar indicated.\n\nIMPACT... Hail damage to vehicles is expected. Expect wind damage to roofs, siding, and trees.',
+      instruction: 'For your protection move to an interior room on the lowest floor of a building. Torrential rainfall is occurring with this storm and may lead to flash flooding. Do not drive your vehicle through flooded roadways.',
+      sender: 'NWS Miami FL', rank: 3
+    }],
+    alert_count: 1,
+    solar: { sunrise: sunrise, sunset: sunset, isDaytime: nowEp >= sunrise && nowEp < sunset, minutesToSunrise: nowEp < sunrise ? Math.round((sunrise - nowEp) / 60) : null, minutesToSunset: nowEp < sunset && nowEp >= sunrise ? Math.round((sunset - nowEp) / 60) : null },
+    location: { label: 'Fort Lauderdale', lat: 26.12, lon: -80.14, source: 'project', radar_station: 'KAMX', office: 'MFL', time_zone: 'America/New_York' },
+    settings: {
+      version: 1, display_name: '',
+      units: { temperature: 'F', wind: 'MPH', pressure: 'INHG', precipitation: 'IN', distance: 'MI' },
+      thresholds: { freeze_enter_f: 32, hot_enter_f: 92, extreme_heat_enter_f: 100, high_wind_enter_mph: 25, dangerous_wind_enter_mph: 45, high_gust_enter_mph: 35, rain_probability_pct: 40, heavy_rain_pop_pct: 70, poor_visibility_enter_mi: 1, rain_soon_hours: 2, storm_soon_hours: 3, freeze_lookahead_hours: 12, wind_lookahead_hours: 6 },
+      alerts: { sensitivity: 'ADVISORIES_WATCHES_WARNINGS', classes: { TORNADO: true, SEVERE_THUNDERSTORM: true, HURRICANE: true, TROPICAL_STORM: true, FLOOD: true, FLASH_FLOOD: true, WINTER: true, FREEZE: true, EXTREME_HEAT: true, HIGH_WIND: true, DENSE_FOG: true, FIRE_WEATHER: true, COASTAL: true, AIR_QUALITY: false, OTHER: true } },
+      automation: { enabled: true },
+      radar: { default_view: 'station', animate: true, overlay_alerts: true },
+      display: { theme: 'AUTOMATIC', animation: 'NORMAL', default_screen: 'now' },
+      notifications: { push_alerts: true },
+      simulation: { timeout_minutes: 30 }
+    },
+    units: { temperature: 'F', wind: 'MPH', pressure: 'INHG', precipitation: 'IN', distance: 'MI' },
+    diagnostics: {
+      api: {
+        observations: { last_success: nowEp - 260, last_failure: null, http_code: 200, error: null, failures: 0 },
+        forecast: { last_success: nowEp - 840, last_failure: null, http_code: 200, error: null, failures: 0 },
+        alerts: { last_success: nowEp - 45, last_failure: null, http_code: 200, error: null, failures: 0 },
+        points: { last_success: nowEp - 86000, last_failure: null, http_code: 200, error: null, failures: 0 }
+      },
+      office: 'MFL', grid: '110,50', station: 'KFLL', zone: 'FLZ173', radar_station: 'KAMX',
+      time_zone: 'America/New_York', polling: { observations: 300, forecast: 900, alerts: 60 },
+      driver_version: '20260831.1', agent: 'SmartBuildOS Agent not detected — legacy standalone mode'
+    },
+    license: { status: 'LEGACY', label: 'No SmartBuildOS Agent Found', operational: true }
+  };
+})();
+
+var MOCK_SCENARIO_MODES = {
+  clear: 'CLEAR', cloudy: 'CLOUDY', rain: 'RAIN', heavy_rain: 'HEAVY_RAIN',
+  thunderstorm: 'THUNDERSTORM', high_wind: 'HIGH_WIND', dangerous_wind: 'HIGH_WIND',
+  freeze: 'FREEZE', extreme_heat: 'EXTREME_HEAT', snow: 'SNOW', fog: 'FOG',
+  tornado_watch: 'SEVERE_STORM', tornado_warning: 'SEVERE_STORM',
+  severe_thunderstorm_warning: 'SEVERE_STORM', flood_warning: 'HEAVY_RAIN', hurricane_warning: 'HURRICANE'
+};
+
+/* ================= driver bridge ================= */
+var mockMode = (typeof window.C4 === 'undefined') || /[?&]mock=1/.test(window.location.search);
+var pendingAcks = []; /* {cb, t} — no correlation ids exist on this channel */
+
+function handleParsed(doc, directCb) {
+  if (!doc || typeof doc !== 'object') return;
+  if (doc.mode !== undefined || doc.current !== undefined || doc.v !== undefined) {
+    applyState(doc);
+    return;
+  }
+  if (doc.ok !== undefined) {
+    if (directCb) { try { directCb(doc); } catch (e) {} return; }
+    var cutoff = Date.now() - 10000;
+    while (pendingAcks.length && pendingAcks[0].t < cutoff) pendingAcks.shift();
+    var p = pendingAcks.shift();
+    if (p && p.cb) { try { p.cb(doc); } catch (e2) {} }
+  }
+}
+function handleAny(resp, directCb) {
+  try {
+    if (typeof resp === 'string') { handleParsed(JSON.parse(resp), directCb); }
+    else if (resp && typeof resp === 'object') { handleParsed(resp, directCb); }
+  } catch (e) { /* malformed reply — ignore */ }
+}
+window.onDataToUi = function (response) { handleAny(response, null); };
+try {
+  if (window.C4 && typeof window.C4.subscribeToDataToUi === 'function') window.C4.subscribeToDataToUi();
+} catch (e) {}
+
+function mockDispatch(name, params, cb) {
+  var reply = { ok: true };
+  if (name === 'ATMOS_GET_STATE') {
+    MOCK.now = Math.floor(Date.now() / 1000);
+    window.setTimeout(function () { applyState(JSON.parse(JSON.stringify(MOCK))); }, 30);
+    return;
+  }
+  if (name === 'ATMOS_SET_SETTINGS') {
+    try {
+      var patch = JSON.parse(params.SETTINGS || '{}');
+      deepMerge(MOCK.settings, patch);
+      if (patch.units) deepMerge(MOCK.units, patch.units);
+      reply = { ok: true, refused: [] };
+    } catch (e) { reply = { ok: false, refused: [] }; }
+  } else if (name === 'ATMOS_SIMULATE') {
+    var sc = String(params.SCENARIO || '');
+    if (sc === '') { MOCK.simulation = false; MOCK.mode = 'PARTLY_CLOUDY'; }
+    else { MOCK.simulation = true; MOCK.mode = MOCK_SCENARIO_MODES[sc] || 'UNKNOWN'; MOCK.sim_scenario = sc; }
+  }
+  if (cb) window.setTimeout(function () { cb(reply); }, 60);
+  window.setTimeout(function () { requestState(); }, 120);
+}
+
+function sendCommand(name, params, cb) {
+  params = params || {};
+  if (mockMode) { mockDispatch(name, params, cb); return; }
+  var ret;
+  var sent = false;
+  try { ret = window.C4.sendCommand(name, params, true, true); sent = true; }
+  catch (e1) {
+    try { ret = window.C4.sendCommand(name, params); sent = true; }
+    catch (e2) { sent = false; }
+  }
+  if (!sent) { if (cb) { try { cb(null); } catch (e3) {} } return; }
+  if (typeof ret === 'string' && ret.length > 0) { handleAny(ret, cb); return; }
+  if (ret && typeof ret === 'object') { handleAny(ret, cb); return; }
+  /* async or fire-and-forget: reply may arrive via onDataToUi, or never */
+  if (cb) pendingAcks.push({ cb: cb, t: Date.now() });
+}
+function requestState() { sendCommand('ATMOS_GET_STATE', {}, null); }
+
+/* ================= state ================= */
+var state = null;
+var activeScreen = null;
+var userNavigated = false;
+var appliedDefaultScreen = false;
+var lastSettingsJson = '';
+var refusedWarnings = [];
+
+function applyState(doc) {
+  if (!doc || typeof doc !== 'object') return;
+  state = doc;
+  try { applyTheme(); } catch (e0) {}
+  try { Scene.setWeather(); } catch (e1) {}
+  try { updateNavBadge(); } catch (e2) {}
+  /* honor configured default screen once, if the user hasn't chosen */
+  if (!appliedDefaultScreen && !userNavigated) {
+    appliedDefaultScreen = true;
+    var saved = null;
+    try { saved = window.localStorage.getItem('atmos.screen'); } catch (e3) {}
+    if (!saved) {
+      var def = String(getPath(doc, 'settings.display.default_screen') || '').toLowerCase();
+      if (SCREENS_BY_ID[def] && def !== activeScreen) { showScreen(def, false); return; }
+    }
+  }
+  renderActive();
+}
+
+function mergedDays() {
+  var out = [];
+  var daily = (state && state.daily) || [];
+  var i = 0;
+  while (i < daily.length && out.length < 7) {
+    var p = daily[i];
+    if (!p) { i++; continue; }
+    if (p.is_day === false) {
+      out.push({ name: p.name || 'Tonight', hi: null, lo: num(p.temp), pop: num(p.pop), icon: iconForPeriod(p), short: p.short, day: null, night: p, wind: p });
+      i++;
+    } else {
+      var night = daily[i + 1] && daily[i + 1].is_day === false ? daily[i + 1] : null;
+      out.push({
+        name: p.name || '—', hi: num(p.temp), lo: night ? num(night.temp) : null,
+        pop: Math.max(num(p.pop) || 0, night ? (num(night.pop) || 0) : 0),
+        icon: iconForPeriod(p), short: p.short, day: p, night: night, wind: p
+      });
+      i += night ? 2 : 1;
+    }
+  }
+  return out;
+}
+
+/* ================= banners (shared) ================= */
+function buildBanners(container) {
+  if (!state) return;
+  if (state.simulation) {
+    var scen = state.sim_scenario ? String(state.sim_scenario) : String(state.mode || '');
+    var sim = el('div', 'banner banner-sim');
+    sim.appendChild(iconNode('info'));
+    var sbox = el('div');
+    sbox.appendChild(el('div', 'b-title', 'SIMULATION MODE'));
+    sbox.appendChild(el('div', 'b-sub', 'Scenario: ' + scen + ' — automation is running against simulated weather'));
+    sim.appendChild(sbox);
+    container.appendChild(sim);
+  }
+  if (state.stale && state.stale.any) {
+    var obsAt = getPath(state, 'current.observed_at') || state.now;
+    var stale = el('div', 'banner banner-stale');
+    stale.appendChild(iconNode('clock'));
+    var stbox = el('div');
+    stbox.appendChild(el('div', 'b-title', 'Weather data is stale'));
+    stbox.appendChild(el('div', 'b-sub', 'Last updated ' + fmtRelMin(obsAt)));
+    stale.appendChild(stbox);
+    container.appendChild(stale);
+  }
+  var alerts = state.alerts || [];
+  if (alerts.length > 0) {
+    var top = alerts[0];
+    var sev = String(state.severity || top.level || 'WARNING');
+    var b = el('button', 'banner banner-alert banner-sev-' + sev.replace(/[^A-Z]/g, ''));
+    b.appendChild(iconNode('alertTri'));
+    var box = el('div');
+    box.appendChild(el('div', 'b-title', String(top.event || 'Weather Alert') + (alerts.length > 1 ? ' +' + (alerts.length - 1) + ' more' : '')));
+    if (isStr(top.headline)) box.appendChild(el('div', 'b-sub', top.headline));
+    b.appendChild(box);
+    b.addEventListener('click', function () { showScreen('alerts', true); });
+    container.appendChild(b);
+  }
+}
+
+/* ================= NOW ================= */
+function renderNow() {
+  var root = $('screen-now');
+  clear(root);
+  if (!state) { root.appendChild(el('div', 'all-clear', 'Waiting for weather data…')); return; }
+  buildBanners(root);
+
+  var cur = state.current || {};
+  var days = mergedDays();
+  var today = days[0] || {};
+
+  var hero = el('div', 'hero');
+  hero.appendChild(el('div', 'hero-loc', String(getPath(state, 'location.label') || 'Current Location')));
+  var clockEl = el('div', 'hero-clock', '');
+  clockEl.id = 'liveClock';
+  hero.appendChild(clockEl);
+  hero.appendChild(el('div', 'hero-temp', fmtTemp(cur.temp)));
+  hero.appendChild(el('div', 'hero-cond', String(cur.condition || String(state.mode || '').replace(/_/g, ' ').toLowerCase())));
+  var meta = el('div', 'hero-meta');
+  var hiSp = el('span'); hiSp.appendChild(document.createTextNode('H '));
+  hiSp.appendChild(el('b', null, fmtTemp(today.hi)));
+  var loSp = el('span'); loSp.appendChild(document.createTextNode('L '));
+  loSp.appendChild(el('b', null, fmtTemp(today.lo)));
+  var flSp = el('span'); flSp.appendChild(document.createTextNode('Feels like '));
+  flSp.appendChild(el('b', null, fmtTemp(cur.feels_like)));
+  meta.appendChild(hiSp); meta.appendChild(loSp); meta.appendChild(flSp);
+  hero.appendChild(meta);
+  root.appendChild(hero);
+
+  /* chips */
+  var chips = el('div', 'chip-row');
+  var firstHour = (state.hourly && state.hourly[0]) || {};
+  function chip(icon, label, value, unit) {
+    var c = el('div', 'chip');
+    c.appendChild(iconNode(icon));
+    c.appendChild(document.createTextNode(label + ' '));
+    c.appendChild(el('b', null, value));
+    if (unit) c.appendChild(el('span', 'u', unit));
+    return c;
+  }
+  chips.appendChild(chip('drop', 'Precip', fmtNum(firstHour.pop) + '%'));
+  var windTxt = fmtNum(cur.wind) + (isStr(cur.wind_dir) ? ' ' + cur.wind_dir : '');
+  chips.appendChild(chip('wind', 'Wind', windTxt, unitLabel('wind')));
+  chips.appendChild(chip('gauge', 'Humidity', fmtNum(cur.humidity) + '%'));
+  chips.appendChild(chip('eye', 'Visibility', fmtNum(cur.visibility), unitLabel('distance')));
+  root.appendChild(chips);
+
+  /* grid: sun card + conditions card */
+  var grid = el('div', 'now-grid');
+  var sunCard = el('div', 'card');
+  var sl = el('div', 'sec-label'); sl.appendChild(iconNode('sunrise')); sl.appendChild(document.createTextNode('Daylight'));
+  sunCard.appendChild(sl);
+  var track = el('div', 'sun-track');
+  var c1 = el('div', 'sun-cell');
+  c1.appendChild(el('div', 't', fmtEpochTime(getPath(state, 'solar.sunrise'))));
+  c1.appendChild(el('div', 'l', 'Sunrise'));
+  var arcWrap = el('div', 'sun-arc');
+  arcWrap.innerHTML = '<svg viewBox="0 0 200 44" fill="none" preserveAspectRatio="none" style="width:100%;height:100%"><path d="M6 40 C 50 -8, 150 -8, 194 40" stroke="var(--track)" stroke-width="2" stroke-dasharray="3 5"/><circle id="sunDot" cx="100" cy="8" r="5" fill="var(--accent)"/></svg>';
+  var c2 = el('div', 'sun-cell');
+  c2.appendChild(el('div', 't', fmtEpochTime(getPath(state, 'solar.sunset'))));
+  c2.appendChild(el('div', 'l', 'Sunset'));
+  track.appendChild(c1); track.appendChild(arcWrap); track.appendChild(c2);
+  sunCard.appendChild(track);
+  var solar = state.solar || {};
+  var sunNote = '';
+  if (num(solar.minutesToSunset) !== null) sunNote = 'Sunset in ' + minsWords(solar.minutesToSunset);
+  else if (num(solar.minutesToSunrise) !== null) sunNote = 'Sunrise in ' + minsWords(solar.minutesToSunrise);
+  if (sunNote) {
+    var sn = el('div', null, sunNote);
+    sn.style.cssText = 'text-align:center;font-size:12px;color:var(--dim);margin-top:8px;';
+    sunCard.appendChild(sn);
+  }
+  positionSunDot(arcWrap, solar);
+  grid.appendChild(sunCard);
+
+  var condCard = el('div', 'card');
+  var cl = el('div', 'sec-label'); cl.appendChild(iconNode('gauge')); cl.appendChild(document.createTextNode('Conditions'));
+  condCard.appendChild(cl);
+  function kv(k, v) {
+    var r = el('div', 'kv-mini');
+    r.appendChild(el('span', 'k', k));
+    r.appendChild(el('span', 'v', v));
+    return r;
+  }
+  condCard.appendChild(kv('Dew point', fmtTemp(cur.dewpoint)));
+  condCard.appendChild(kv('Pressure', fmtNum(cur.pressure, 2) + ' ' + unitLabel('pressure')));
+  condCard.appendChild(kv('Cloud cover', fmtNum(cur.cloud_cover) + '%'));
+  condCard.appendChild(kv('Gusts', num(cur.gust) !== null ? fmtNum(cur.gust) + ' ' + unitLabel('wind') : '—'));
+  condCard.appendChild(kv('Observed', fmtRelMin(cur.observed_at)));
+  grid.appendChild(condCard);
+  root.appendChild(grid);
+  updateClock();
+}
+function minsWords(m) {
+  m = Math.max(0, Math.round(m));
+  if (m < 60) return m + ' min';
+  return Math.floor(m / 60) + ' hr ' + (m % 60) + ' min';
+}
+function positionSunDot(wrap, solar) {
+  try {
+    var sr = num(solar.sunrise), ss = num(solar.sunset);
+    var dot = wrap.querySelector('#sunDot');
+    if (!dot) return;
+    if (sr === null || ss === null || ss <= sr) { dot.setAttribute('opacity', '0'); return; }
+    var t = (Date.now() / 1000 - sr) / (ss - sr);
+    if (t < 0 || t > 1) { dot.setAttribute('opacity', '0.25'); t = t < 0 ? 0 : 1; }
+    /* bezier M6 40 C 50 -8, 150 -8, 194 40 */
+    var mt = 1 - t;
+    var x = mt * mt * mt * 6 + 3 * mt * mt * t * 50 + 3 * mt * t * t * 150 + t * t * t * 194;
+    var y = mt * mt * mt * 40 + 3 * mt * mt * t * -8 + 3 * mt * t * t * -8 + t * t * t * 40;
+    dot.setAttribute('cx', String(Math.round(x * 10) / 10));
+    dot.setAttribute('cy', String(Math.round(y * 10) / 10));
+  } catch (e) {}
+}
+function updateClock() {
+  var c = $('liveClock');
+  if (!c) return;
+  var d = new Date();
+  var dateStr;
+  try { dateStr = d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); }
+  catch (e) { dateStr = d.toDateString(); }
+  c.textContent = dateStr + '  ·  ' + fmtClock(d);
+}
+
+/* ================= HOURLY ================= */
+function renderHourly() {
+  var root = $('screen-hourly');
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', 'Next 48 Hours'));
+  head.appendChild(el('div', 'screen-sub', 'Hour-by-hour forecast'));
+  root.appendChild(head);
+  if (!state) return;
+  buildBanners(root);
+
+  var hours = (state.hourly || []).slice(0, 48);
+  var card = el('div', 'card');
+  card.style.padding = '14px 10px 10px';
+  if (hours.length === 0) {
+    card.appendChild(el('div', 'screen-sub', 'Hourly forecast unavailable.'));
+    root.appendChild(card);
+    return;
+  }
+  var CELL = 62;
+  var scroller = el('div', 'hscroll');
+  var inner = el('div');
+  inner.style.width = (hours.length * CELL) + 'px';
+  var strip = el('div', 'hour-strip');
+  for (var i = 0; i < hours.length; i++) {
+    var h = hours[i] || {};
+    var cell = el('div', 'hour-cell' + (i === 0 ? ' now-cell' : ''));
+    var label = i === 0 ? 'Now' : hourLabel(h.start);
+    cell.appendChild(el('div', 'h-time', label));
+    cell.appendChild(setIcon(el('div', 'h-icon'), iconForPeriod(h)));
+    cell.appendChild(el('div', 'h-temp', fmtTemp(h.temp)));
+    cell.appendChild(el('div', 'h-pop', num(h.pop) !== null && h.pop >= 10 ? Math.round(h.pop) + '%' : ''));
+    cell.appendChild(el('div', 'h-wind', num(h.wind_hi) !== null ? Math.round(h.wind_hi) + (isStr(h.wind_dir) ? ' ' + h.wind_dir : '') : ''));
+    if (isStr(h.short)) cell.title = h.short;
+    strip.appendChild(cell);
+  }
+  inner.appendChild(strip);
+  inner.appendChild(buildHourlyChart(hours, CELL));
+  scroller.appendChild(inner);
+  card.appendChild(scroller);
+  root.appendChild(card);
+}
+function hourLabel(ep) {
+  var n = num(ep); if (n === null) return '--';
+  var d = new Date(n * 1000);
+  var h = d.getHours();
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return h12 + ampm;
+}
+/* Plain SVG temperature curve + pop bars. Only sanitized numbers are
+   interpolated into markup (num() coercion) — never state strings. */
+function buildHourlyChart(hours, cellW) {
+  var wrap = el('div', 'hour-chart');
+  var n = hours.length;
+  var W = n * cellW, H = 150;
+  var padTop = 22, curveBot = 96, barTop = 108, barBot = 142;
+  var temps = [], pops = [];
+  var tMin = Infinity, tMax = -Infinity;
+  for (var i = 0; i < n; i++) {
+    var t = num(hours[i] && hours[i].temp);
+    var p = num(hours[i] && hours[i].pop) || 0;
+    temps.push(t); pops.push(Math.max(0, Math.min(100, p)));
+    if (t !== null) { if (t < tMin) tMin = t; if (t > tMax) tMax = t; }
+  }
+  if (!isFinite(tMin)) { tMin = 0; tMax = 1; }
+  if (tMax - tMin < 4) { var mid = (tMax + tMin) / 2; tMin = mid - 2; tMax = mid + 2; }
+  function tx(i) { return Math.round((i * cellW + cellW / 2) * 10) / 10; }
+  function ty(t) { return Math.round((padTop + (tMax - t) / (tMax - tMin) * (curveBot - padTop)) * 10) / 10; }
+  var path = '', area = '';
+  var started = false;
+  for (var j = 0; j < n; j++) {
+    if (temps[j] === null) continue;
+    var X = tx(j), Y = ty(temps[j]);
+    if (!started) { path += 'M' + X + ' ' + Y; area += 'M' + X + ' ' + (curveBot + 4) + ' L' + X + ' ' + Y; started = true; }
+    else { path += ' L' + X + ' ' + Y; area += ' L' + X + ' ' + Y; }
+  }
+  if (started) area += ' L' + tx(n - 1) + ' ' + (curveBot + 4) + ' Z';
+  var bars = '';
+  for (var k = 0; k < n; k++) {
+    if (pops[k] < 3) continue;
+    var bh = Math.max(2, pops[k] / 100 * (barBot - barTop));
+    bars += '<rect x="' + (tx(k) - 7) + '" y="' + (barBot - bh) + '" width="14" height="' + bh + '" rx="3" fill="var(--pop)" opacity="0.5"/>';
+  }
+  var labels = '';
+  for (var m = 0; m < n; m++) {
+    if (temps[m] === null) continue;
+    if (m % 4 !== 0) continue;
+    labels += '<text x="' + tx(m) + '" y="' + (ty(temps[m]) - 9) + '" text-anchor="middle" font-size="11" font-weight="600" fill="var(--dim)" font-family="inherit">' + Math.round(temps[m]) + '°</text>';
+  }
+  wrap.innerHTML =
+    '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" fill="none">' +
+    '<path d="' + area + '" fill="var(--accent)" opacity="0.10"/>' +
+    '<path d="' + path + '" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+    labels + bars +
+    '<text x="6" y="' + (barBot - 2) + '" font-size="9.5" fill="var(--faint)" font-family="inherit">PRECIP %</text>' +
+    '</svg>';
+  return wrap;
+}
+
+/* ================= FORECAST ================= */
+function renderForecast() {
+  var root = $('screen-forecast');
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', '7-Day Forecast'));
+  head.appendChild(el('div', 'screen-sub', String(getPath(state, 'location.label') || '')));
+  root.appendChild(head);
+  if (!state) return;
+  buildBanners(root);
+
+  var days = mergedDays();
+  var card = el('div', 'card');
+  card.style.padding = '6px 18px';
+  if (days.length === 0) {
+    card.style.padding = '18px';
+    card.appendChild(el('div', 'screen-sub', 'Daily forecast unavailable.'));
+    root.appendChild(card);
+    return;
+  }
+  /* range for the hi/lo bars */
+  var lo = Infinity, hi = -Infinity;
+  for (var i = 0; i < days.length; i++) {
+    if (days[i].lo !== null && days[i].lo < lo) lo = days[i].lo;
+    if (days[i].hi !== null && days[i].hi > hi) hi = days[i].hi;
+    if (days[i].hi !== null && days[i].hi < lo) lo = days[i].hi;
+    if (days[i].lo !== null && days[i].lo > hi) hi = days[i].lo;
+  }
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  if (hi - lo < 6) hi = lo + 6;
+
+  for (var d = 0; d < days.length; d++) {
+    (function (day, idx) {
+      var row = el('div', 'day-row');
+      var head2 = el('button', 'day-head');
+      head2.appendChild(el('div', 'd-name', idx === 0 ? (day.day ? 'Today' : String(day.name)) : shortDayName(day.name)));
+      head2.appendChild(setIcon(el('div', 'd-icon'), day.icon));
+      head2.appendChild(el('div', 'd-pop', day.pop !== null && day.pop >= 10 ? Math.round(day.pop) + '%' : ''));
+      head2.appendChild(el('div', 'd-short', String(day.short || '')));
+      var temps = el('div', 'd-temps');
+      temps.appendChild(el('span', 'd-lo', fmtTemp(day.lo)));
+      var bar = el('div', 'd-bar');
+      var fill = el('i');
+      var a = day.lo !== null ? day.lo : lo, b = day.hi !== null ? day.hi : hi;
+      var l = Math.max(0, Math.min(100, (a - lo) / (hi - lo) * 100));
+      var r = Math.max(0, Math.min(100, (b - lo) / (hi - lo) * 100));
+      if (r < l) { var tmp = l; l = r; r = tmp; }
+      fill.style.left = l + '%';
+      fill.style.width = Math.max(6, r - l) + '%';
+      bar.appendChild(fill);
+      temps.appendChild(bar);
+      temps.appendChild(el('span', 'd-hi', fmtTemp(day.hi)));
+      head2.appendChild(temps);
+      row.appendChild(head2);
+      var det = el('div', 'day-detail');
+      if (day.day && isStr(day.day.detail)) {
+        det.appendChild(el('b', null, String(day.day.name || 'Day')));
+        det.appendChild(el('div', null, day.day.detail));
+      }
+      if (day.night && isStr(day.night.detail)) {
+        det.appendChild(el('b', null, String(day.night.name || 'Night')));
+        det.appendChild(el('div', null, day.night.detail));
+      }
+      if (!det.firstChild) det.appendChild(el('div', null, String(day.short || 'No detailed forecast available.')));
+      row.appendChild(det);
+      head2.addEventListener('click', function () {
+        if (row.className.indexOf('open') >= 0) row.className = 'day-row';
+        else row.className = 'day-row open';
+      });
+      card.appendChild(row);
+    })(days[d], d);
+  }
+  root.appendChild(card);
+}
+function shortDayName(name) {
+  var s = String(name || '');
+  var map = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
+  return map[s] || s;
+}
+
+/* ================= RADAR ================= */
+var radar = { view: null, playing: null, zoom: 1, bust: 0, lastLoad: null, retryTimer: null };
+var RADAR_BASE = 'https://radar.weather.gov/ridge/standard/';
+
+function radarStation() {
+  var s = String(getPath(state, 'location.radar_station') || '');
+  return /^[A-Z0-9]{3,4}$/.test(s) ? s : null;
+}
+function radarUrl() {
+  var st = radar.view === 'conus' ? 'CONUS' : (radarStation() || 'CONUS');
+  var anim = radar.playing ? '_loop.gif' : '_0.gif';
+  return RADAR_BASE + st + anim + (radar.bust ? '?t=' + radar.bust : '');
+}
+function renderRadar() {
+  var root = $('screen-radar');
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', 'Radar'));
+  var st = radarStation();
+  head.appendChild(el('div', 'screen-sub', st ? 'Station ' + st + ' · NWS RIDGE' : 'National composite · NWS RIDGE'));
+  root.appendChild(head);
+  if (radar.view === null) radar.view = String(getPath(state, 'settings.radar.default_view') || 'station').toLowerCase() === 'conus' ? 'conus' : 'station';
+  if (radar.playing === null) radar.playing = getPath(state, 'settings.radar.animate') !== false;
+
+  var shell = el('div', 'radar-shell');
+  var pan = el('div', 'radar-pan');
+  var img = document.createElement('img');
+  img.className = 'radar-img' + (radar.zoom === 1.5 ? ' z15' : radar.zoom === 2 ? ' z20' : '');
+  img.alt = 'Weather radar';
+  img.src = radarUrl();
+  img.addEventListener('load', function () {
+    radar.lastLoad = Date.now();
+    shell.className = 'radar-shell';
+    var stamp = $('radarStamp');
+    if (stamp) stamp.textContent = 'Updated ' + fmtClock(new Date());
+  });
+  img.addEventListener('error', function () {
+    shell.className = 'radar-shell err';
+    if (radar.retryTimer) window.clearTimeout(radar.retryTimer);
+    radar.retryTimer = window.setTimeout(function () {
+      if (activeScreen === 'radar') { radar.bust = Date.now(); renderRadar(); }
+    }, 20000);
+  });
+  pan.appendChild(img);
+  shell.appendChild(pan);
+  var errBox = el('div', 'radar-err');
+  errBox.appendChild(iconNode('radar'));
+  errBox.appendChild(el('div', null, 'Radar imagery is unavailable right now.'));
+  errBox.appendChild(el('div', null, 'Retrying automatically…'));
+  var retryBtn = el('button', 'tbtn', 'Retry now');
+  retryBtn.addEventListener('click', function () { radar.bust = Date.now(); renderRadar(); });
+  errBox.appendChild(retryBtn);
+  shell.appendChild(errBox);
+  root.appendChild(shell);
+
+  var bar = el('div', 'radar-toolbar');
+  function tb(label, icon, on, fn) {
+    var b = el('button', 'tbtn' + (on ? ' on' : ''));
+    if (icon) b.appendChild(iconNode(icon));
+    b.appendChild(document.createTextNode(label));
+    b.addEventListener('click', fn);
+    return b;
+  }
+  bar.appendChild(tb(radar.playing ? 'Pause' : 'Play', radar.playing ? 'pause' : 'play', radar.playing, function () {
+    radar.playing = !radar.playing; renderRadar();
+  }));
+  bar.appendChild(tb('Station', null, radar.view === 'station', function () { radar.view = 'station'; renderRadar(); }));
+  bar.appendChild(tb('National', null, radar.view === 'conus', function () { radar.view = 'conus'; renderRadar(); }));
+  bar.appendChild(tb('1x', null, radar.zoom === 1, function () { radar.zoom = 1; renderRadar(); }));
+  bar.appendChild(tb('1.5x', null, radar.zoom === 1.5, function () { radar.zoom = 1.5; renderRadar(); }));
+  bar.appendChild(tb('2x', null, radar.zoom === 2, function () { radar.zoom = 2; renderRadar(); }));
+  bar.appendChild(tb('Refresh', 'refresh', false, function () { radar.bust = Date.now(); renderRadar(); }));
+  var stamp = el('span', 'radar-stamp', radar.lastLoad ? 'Updated ' + fmtClock(new Date(radar.lastLoad)) : 'Loading…');
+  stamp.id = 'radarStamp';
+  bar.appendChild(stamp);
+  root.appendChild(bar);
+  root.appendChild(el('div', 'radar-note', 'Active warning polygons are drawn directly on the imagery by the National Weather Service. Drag to pan when zoomed. Imagery courtesy of NWS RIDGE.'));
+}
+
+/* ================= ALERTS ================= */
+function alertSeverityClass(a) {
+  var sev = String(a.severity || '').toLowerCase();
+  var lvl = String(a.level || '').toUpperCase();
+  if (sev === 'extreme' || lvl === 'EMERGENCY') return 'alert-extreme';
+  if (sev === 'severe' || lvl === 'WARNING') return 'alert-severe';
+  if (sev === 'moderate' || lvl === 'WATCH' || lvl === 'ADVISORY') return 'alert-moderate';
+  return 'alert-minor';
+}
+function renderAlerts() {
+  var root = $('screen-alerts');
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', 'Alerts'));
+  head.appendChild(el('div', 'screen-sub', String(getPath(state, 'location.label') || '')));
+  root.appendChild(head);
+  if (!state) return;
+  if (state.simulation || (state.stale && state.stale.any)) {
+    var bwrap = el('div');
+    var save = state.alerts; state.alerts = []; /* only sim/stale banners here */
+    buildBanners(bwrap); state.alerts = save;
+    root.appendChild(bwrap);
+  }
+  var alerts = state.alerts || [];
+  if (alerts.length === 0) {
+    var ac = el('div', 'all-clear');
+    ac.appendChild(iconNode('shield'));
+    ac.appendChild(el('div', 't', 'All clear'));
+    ac.appendChild(el('div', 's', 'No active weather alerts for this location.'));
+    root.appendChild(ac);
+    return;
+  }
+  var stack = el('div', 'stack');
+  for (var i = 0; i < alerts.length; i++) {
+    (function (a) {
+      var card = el('div', 'alert-card ' + alertSeverityClass(a));
+      var top = el('div', 'alert-top');
+      top.appendChild(iconNode('alertTri'));
+      var box = el('div');
+      box.style.minWidth = '0';
+      box.appendChild(el('div', 'alert-event', String(a.event || 'Weather Alert')));
+      if (isStr(a.headline)) box.appendChild(el('div', 'alert-head', a.headline));
+      var metaParts = [];
+      if (isStr(a.area)) metaParts.push(a.area);
+      var when = [];
+      if (num(a.onset) !== null) when.push('From ' + fmtEpochDT(a.onset));
+      if (num(a.ends) !== null) when.push('until ' + fmtEpochDT(a.ends));
+      else if (num(a.expires) !== null) when.push('expires ' + fmtEpochDT(a.expires));
+      if (when.length) metaParts.push(when.join(' '));
+      if (isStr(a.sender)) metaParts.push(a.sender);
+      var metaBox = el('div', 'alert-meta');
+      for (var m = 0; m < metaParts.length; m++) metaBox.appendChild(el('div', null, metaParts[m]));
+      box.appendChild(metaBox);
+      top.appendChild(box);
+      card.appendChild(top);
+      var body = el('div', 'alert-body');
+      if (isStr(a.description)) {
+        body.appendChild(el('h4', null, 'Details'));
+        body.appendChild(el('p', null, a.description));
+      }
+      if (isStr(a.instruction)) {
+        body.appendChild(el('h4', null, 'Instructions'));
+        body.appendChild(el('p', null, a.instruction));
+      }
+      card.appendChild(body);
+      if (body.firstChild) {
+        var more = el('button', 'alert-more', 'Show details');
+        more.addEventListener('click', function () {
+          var open = card.className.indexOf(' open') >= 0;
+          card.className = 'alert-card ' + alertSeverityClass(a) + (open ? '' : ' open');
+          more.textContent = open ? 'Show details' : 'Hide details';
+        });
+        card.appendChild(more);
+      }
+      stack.appendChild(card);
+    })(alerts[i]);
+  }
+  root.appendChild(stack);
+}
+
+/* ================= DETAILS ================= */
+function freshnessDot(staleFlag) { return el('span', staleFlag ? 'dot-warn' : 'dot-ok'); }
+function renderDetails() {
+  var root = $('screen-details');
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', 'Details'));
+  head.appendChild(el('div', 'screen-sub', 'Advanced readings & data health'));
+  root.appendChild(head);
+  if (!state) return;
+  var cur = state.current || {};
+  var diag = state.diagnostics || {};
+  var stale = state.stale || {};
+  var grid = el('div', 'det-grid');
+
+  function tile(icon, label, value, unit, sub) {
+    var t = el('div', 'det-tile');
+    var l = el('div', 'l');
+    if (icon) l.appendChild(iconNode(icon));
+    l.appendChild(document.createTextNode(label));
+    t.appendChild(l);
+    var v = el('div', 'v', value);
+    if (unit) v.appendChild(el('span', 'u', unit));
+    t.appendChild(v);
+    if (sub) t.appendChild(el('div', 's', sub));
+    grid.appendChild(t);
+    return t;
+  }
+  tile('drop', 'Humidity', fmtNum(cur.humidity) + '%', null, 'Dew point ' + fmtTemp(cur.dewpoint));
+  tile('gauge', 'Pressure', fmtNum(cur.pressure, 2), ' ' + unitLabel('pressure'), null);
+  tile('eye', 'Visibility', fmtNum(cur.visibility), ' ' + unitLabel('distance'), stale.observations ? 'From stale observation' : null);
+  tile('cloud', 'Cloud cover', fmtNum(cur.cloud_cover) + '%', null, String(cur.condition || ''));
+
+  /* wind tile with compass */
+  var wt = el('div', 'det-tile');
+  var wl = el('div', 'l'); wl.appendChild(iconNode('wind')); wl.appendChild(document.createTextNode('Wind'));
+  wt.appendChild(wl);
+  var comp = el('div', 'compass');
+  var rose = setIcon(el('div', 'rose'), 'compass');
+  var deg = num(cur.wind_deg);
+  try {
+    var needle = rose.querySelector('.needle');
+    if (needle && deg !== null) needle.setAttribute('transform', 'rotate(' + ((deg + 180) % 360) + ' 12 12)');
+    else if (needle && deg === null) needle.setAttribute('opacity', '0.25');
+  } catch (e) {}
+  comp.appendChild(rose);
+  var wbox = el('div');
+  var wv = el('div', 'v');
+  wv.style.marginTop = '0';
+  wv.appendChild(document.createTextNode(fmtNum(cur.wind)));
+  wv.appendChild(el('span', 'u', ' ' + unitLabel('wind') + (isStr(cur.wind_dir) ? ' ' + cur.wind_dir : '')));
+  wbox.appendChild(wv);
+  wbox.appendChild(el('div', 's', num(cur.gust) !== null ? 'Gusting ' + fmtNum(cur.gust) + ' ' + unitLabel('wind') : 'No gusts reported'));
+  comp.appendChild(wbox);
+  wt.appendChild(comp);
+  grid.appendChild(wt);
+
+  tile('home', 'Station', '', null, null);
+  grid.lastChild.removeChild(grid.lastChild.childNodes[1]); /* drop empty value */
+  grid.lastChild.appendChild(el('div', 'v', String(diag.station || '—')));
+  grid.lastChild.lastChild.style.fontSize = '16px';
+  grid.lastChild.appendChild(el('div', 's', String(cur.station || '')));
+
+  tile('clock', 'Observed', fmtEpochTime(cur.observed_at), null, fmtRelMin(cur.observed_at));
+  tile('grid', 'Forecast office', String(diag.office || getPath(state, 'location.office') || '—'), null, 'Grid ' + String(diag.grid || '—') + ' · Zone ' + String(diag.zone || '—'));
+
+  /* freshness (wide) */
+  var fresh = el('div', 'det-tile wide');
+  var fl = el('div', 'l'); fl.appendChild(iconNode('refresh')); fl.appendChild(document.createTextNode('Data freshness'));
+  fresh.appendChild(fl);
+  var frow = el('div');
+  frow.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:10px;';
+  var api = diag.api || {};
+  function fItem(name, staleFlag, comp2) {
+    var it = el('div');
+    it.style.fontSize = '12.5px';
+    it.appendChild(freshnessDot(!!staleFlag));
+    it.appendChild(document.createTextNode(name + ' — '));
+    var d2 = api[comp2] || {};
+    var txt;
+    if (num(d2.last_success) !== null) txt = fmtRelMin(d2.last_success);
+    else txt = staleFlag ? 'stale' : 'ok';
+    var span = el('span', null, txt);
+    span.style.color = 'var(--dim)';
+    it.appendChild(span);
+    if (d2.error) {
+      var er = el('span', null, ' · ' + String(d2.error));
+      er.style.color = 'var(--bad)';
+      it.appendChild(er);
+    }
+    frow.appendChild(it);
+  }
+  fItem('Observations', stale.observations, 'observations');
+  fItem('Forecast', stale.forecast, 'forecast');
+  fItem('Alerts', stale.alerts, 'alerts');
+  var apiIt = el('div');
+  apiIt.style.fontSize = '12.5px';
+  apiIt.appendChild(el('span', stale.api_ok === false ? 'dot-bad' : 'dot-ok'));
+  apiIt.appendChild(document.createTextNode('API — '));
+  var apiTxt = el('span', null, stale.api_ok === false ? 'unreachable' : 'reachable');
+  apiTxt.style.color = 'var(--dim)';
+  apiIt.appendChild(apiTxt);
+  frow.appendChild(apiIt);
+  fresh.appendChild(frow);
+  grid.appendChild(fresh);
+  root.appendChild(grid);
+}
+
+/* ================= SETTINGS ================= */
+var settingsPane = 'general';
+var SETTINGS_PANES = [
+  ['general', 'General'], ['units', 'Units'], ['thresholds', 'Thresholds'],
+  ['alerts', 'Alerts'], ['automation', 'Automation'], ['radarcfg', 'Radar'],
+  ['display', 'Display'], ['simulation', 'Simulation'], ['license', 'License'],
+  ['diagnostics', 'Diagnostics'], ['about', 'About']
+];
+var ALERT_CLASSES = ['TORNADO', 'SEVERE_THUNDERSTORM', 'HURRICANE', 'TROPICAL_STORM', 'FLOOD', 'FLASH_FLOOD', 'WINTER', 'FREEZE', 'EXTREME_HEAT', 'HIGH_WIND', 'DENSE_FOG', 'FIRE_WEATHER', 'COASTAL', 'AIR_QUALITY', 'OTHER'];
+var SCENARIOS = ['clear', 'cloudy', 'rain', 'heavy_rain', 'thunderstorm', 'high_wind', 'dangerous_wind', 'freeze', 'extreme_heat', 'snow', 'fog', 'tornado_watch', 'tornado_warning', 'severe_thunderstorm_warning', 'flood_warning', 'hurricane_warning'];
+var pickedScenario = 'thunderstorm';
+
+function sendSettingsPatch(paths) {
+  /* paths: array of {path, value}. Optimistic, revert refused. */
+  if (!state) return;
+  if (!state.settings || typeof state.settings !== 'object') state.settings = {};
+  var snapshot = JSON.parse(JSON.stringify(state.settings));
+  var patch = {};
+  for (var i = 0; i < paths.length; i++) {
+    setPath(patch, paths[i].path, paths[i].value);
+    setPath(state.settings, paths[i].path, paths[i].value);
+    if (paths[i].path.indexOf('units.') === 0 && state.units) {
+      /* keep the "what the numbers are" mirror plausible until next poll */
+    }
+  }
+  lastSettingsJson = JSON.stringify(state.settings);
+  try { applyTheme(); Scene.setWeather(); } catch (e0) {}
+  sendCommand('ATMOS_SET_SETTINGS', { SETTINGS: JSON.stringify(patch) }, function (resp) {
+    if (!resp) return; /* no ack channel — trust optimistic value */
+    var refused = (resp && resp.refused) || [];
+    if (refused.length > 0) {
+      refusedWarnings = [];
+      for (var r = 0; r < refused.length; r++) {
+        var p = String(refused[r].path || '');
+        var prev = getPath(snapshot, p);
+        if (p) setPath(state.settings, p, prev);
+        refusedWarnings.push({ path: p, reason: String(refused[r].reason || 'refused by driver') });
+      }
+      lastSettingsJson = JSON.stringify(state.settings);
+      if (activeScreen === 'settings') renderSettings(true);
+      try { applyTheme(); Scene.setWeather(); } catch (e1) {}
+    }
+  });
+  window.setTimeout(function () { requestState(); }, 900);
+}
+
+/* --- control builders --- */
+function rowToggle(label, desc, value, onChange) {
+  var row = el('div', 'set-row');
+  var l = el('div', 'sl', label);
+  if (desc) l.appendChild(el('div', 'sd', desc));
+  row.appendChild(l);
+  var t = el('button', 'toggle' + (value ? ' on' : ''));
+  t.setAttribute('role', 'switch');
+  t.setAttribute('aria-checked', value ? 'true' : 'false');
+  t.appendChild(el('i'));
+  t.addEventListener('click', function () {
+    var on = t.className.indexOf(' on') < 0;
+    t.className = 'toggle' + (on ? ' on' : '');
+    t.setAttribute('aria-checked', on ? 'true' : 'false');
+    onChange(on);
+  });
+  row.appendChild(t);
+  return row;
+}
+function rowSelect(label, desc, options, value, onChange) {
+  var row = el('div', 'set-row');
+  var l = el('div', 'sl', label);
+  if (desc) l.appendChild(el('div', 'sd', desc));
+  row.appendChild(l);
+  var sel = el('select', 'set-select');
+  for (var i = 0; i < options.length; i++) {
+    var o = el('option', null, options[i][1]);
+    o.value = options[i][0];
+    if (options[i][0] === value) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener('change', function () { onChange(sel.value); });
+  row.appendChild(sel);
+  return row;
+}
+function rowText(label, desc, value, placeholder, onCommit) {
+  var row = el('div', 'set-row');
+  var l = el('div', 'sl', label);
+  if (desc) l.appendChild(el('div', 'sd', desc));
+  row.appendChild(l);
+  var inp = el('input', 'set-text');
+  inp.type = 'text';
+  inp.value = value === null || value === undefined ? '' : String(value);
+  if (placeholder) inp.placeholder = placeholder;
+  inp.addEventListener('change', function () { onCommit(inp.value); });
+  inp.addEventListener('blur', function () { onCommit(inp.value); });
+  row.appendChild(inp);
+  return row;
+}
+function rowSlider(label, min, max, step, value, unit, path) {
+  var row = el('div', 'slider-row');
+  var top = el('div', 'slider-top');
+  top.appendChild(el('div', 'sl', label + (unit ? ' (' + unit + ')' : '')));
+  var numIn = el('input', 'slider-num');
+  numIn.type = 'number';
+  numIn.min = String(min); numIn.max = String(max); numIn.step = String(step);
+  var v = num(value);
+  numIn.value = v === null ? '' : String(v);
+  top.appendChild(numIn);
+  row.appendChild(top);
+  var range = document.createElement('input');
+  range.type = 'range';
+  range.min = String(min); range.max = String(max); range.step = String(step);
+  range.value = v === null ? String(min) : String(v);
+  row.appendChild(range);
+  function commit(raw) {
+    var n = num(raw);
+    if (n === null) return;
+    n = Math.max(min, Math.min(max, n));
+    numIn.value = String(n);
+    range.value = String(n);
+    sendSettingsPatch([{ path: path, value: n }]);
+  }
+  range.addEventListener('input', function () { numIn.value = range.value; });
+  range.addEventListener('change', function () { commit(range.value); });
+  numIn.addEventListener('change', function () { commit(numIn.value); });
+  return row;
+}
+function paneCard(title, icon) {
+  var c = el('div', 'card');
+  var l = el('div', 'sec-label');
+  if (icon) l.appendChild(iconNode(icon));
+  l.appendChild(document.createTextNode(title));
+  c.appendChild(l);
+  return c;
+}
+
+function renderSettings(force) {
+  var root = $('screen-settings');
+  var s = (state && state.settings) || {};
+  var json = JSON.stringify(s);
+  if (!force && root.firstChild && json === lastSettingsJson && root.getAttribute('data-pane') === settingsPane) return;
+  lastSettingsJson = json;
+  root.setAttribute('data-pane', settingsPane);
+  clear(root);
+  var head = el('div', 'screen-head');
+  head.appendChild(el('div', 'screen-title', 'Settings'));
+  root.appendChild(head);
+
+  var wrap = el('div', 'settings-wrap');
+  var rail = el('div', 'settings-rail');
+  for (var i = 0; i < SETTINGS_PANES.length; i++) {
+    (function (id, label) {
+      var b = el('button', 'rail-btn' + (settingsPane === id ? ' active' : ''), label);
+      b.addEventListener('click', function () { settingsPane = id; renderSettings(true); });
+      rail.appendChild(b);
+    })(SETTINGS_PANES[i][0], SETTINGS_PANES[i][1]);
+  }
+  wrap.appendChild(rail);
+  var body = el('div', 'settings-body stack');
+  wrap.appendChild(body);
+  root.appendChild(wrap);
+
+  if (refusedWarnings.length > 0) {
+    var rb = el('div', 'refused-box');
+    rb.appendChild(el('b', null, 'Some changes were refused by the driver'));
+    for (var r = 0; r < refusedWarnings.length; r++) {
+      rb.appendChild(el('div', null, refusedWarnings[r].path + ' — ' + refusedWarnings[r].reason));
+    }
+    var dis = el('button', 'alert-more', 'Dismiss');
+    dis.style.color = 'var(--text)';
+    dis.addEventListener('click', function () { refusedWarnings = []; renderSettings(true); });
+    rb.appendChild(dis);
+    body.appendChild(rb);
+  }
+
+  var fn = SETTINGS_RENDER[settingsPane];
+  if (fn) fn(body, s);
+}
+
+var SETTINGS_RENDER = {
+  general: function (body, s) {
+    var c = paneCard('General', 'sliders');
+    c.appendChild(rowText('Display name', 'Shown in Navigator and notifications', s.display_name, String(getPath(state, 'location.label') || 'Atmosphere'), function (v) {
+      sendSettingsPatch([{ path: 'display_name', value: v }]);
+    }));
+    c.appendChild(rowSelect('Default screen', 'Screen shown when the app opens', [
+      ['now', 'Now'], ['hourly', 'Hourly'], ['forecast', 'Forecast'], ['radar', 'Radar'], ['alerts', 'Alerts'], ['details', 'Details']
+    ], String(getPath(s, 'display.default_screen') || 'now'), function (v) {
+      sendSettingsPatch([{ path: 'display.default_screen', value: v }]);
+    }));
+    body.appendChild(c);
+  },
+  units: function (body, s) {
+    var u = s.units || {};
+    var c = paneCard('Units', 'gauge');
+    function unitRow(label, key, opts) {
+      c.appendChild(rowSelect(label, null, opts, String(u[key] || opts[0][0]), function (v) {
+        sendSettingsPatch([{ path: 'units.' + key, value: v }]);
+      }));
+    }
+    unitRow('Temperature', 'temperature', [['F', 'Fahrenheit (°F)'], ['C', 'Celsius (°C)']]);
+    unitRow('Wind speed', 'wind', [['MPH', 'Miles per hour'], ['KPH', 'Kilometers per hour'], ['KTS', 'Knots'], ['MS', 'Meters per second']]);
+    unitRow('Pressure', 'pressure', [['INHG', 'Inches of mercury'], ['MB', 'Millibars'], ['HPA', 'Hectopascals']]);
+    unitRow('Precipitation', 'precipitation', [['IN', 'Inches'], ['MM', 'Millimeters']]);
+    unitRow('Distance', 'distance', [['MI', 'Miles'], ['KM', 'Kilometers']]);
+    body.appendChild(c);
+  },
+  thresholds: function (body, s) {
+    var t = s.thresholds || {};
+    function grp(title, defs) {
+      var c = paneCard(title, 'sliders');
+      for (var i = 0; i < defs.length; i++) {
+        var d = defs[i];
+        c.appendChild(rowSlider(d[0], d[2], d[3], d[4], t[d[1]] !== undefined ? t[d[1]] : d[5], d[6], 'thresholds.' + d[1]));
+      }
+      body.appendChild(c);
+    }
+    grp('Temperature', [
+      ['Freeze below', 'freeze_enter_f', 0, 45, 1, 32, '°F'],
+      ['Hot above', 'hot_enter_f', 75, 110, 1, 92, '°F'],
+      ['Extreme heat above', 'extreme_heat_enter_f', 90, 125, 1, 100, '°F']
+    ]);
+    grp('Wind', [
+      ['High wind above', 'high_wind_enter_mph', 10, 60, 1, 25, 'mph'],
+      ['Dangerous wind above', 'dangerous_wind_enter_mph', 30, 90, 1, 45, 'mph'],
+      ['High gust above', 'high_gust_enter_mph', 15, 80, 1, 35, 'mph']
+    ]);
+    grp('Rain', [
+      ['Rain likely at', 'rain_probability_pct', 10, 90, 5, 40, '% chance'],
+      ['Heavy rain at', 'heavy_rain_pop_pct', 40, 100, 5, 70, '% chance']
+    ]);
+    grp('Visibility', [
+      ['Poor visibility below', 'poor_visibility_enter_mi', 0.25, 5, 0.25, 1, 'mi']
+    ]);
+    grp('Lookahead windows', [
+      ['Rain soon window', 'rain_soon_hours', 1, 6, 1, 2, 'hours'],
+      ['Storm soon window', 'storm_soon_hours', 1, 12, 1, 3, 'hours'],
+      ['Freeze lookahead', 'freeze_lookahead_hours', 4, 24, 1, 12, 'hours'],
+      ['Wind lookahead', 'wind_lookahead_hours', 1, 24, 1, 6, 'hours']
+    ]);
+  },
+  alerts: function (body, s) {
+    var a = s.alerts || {};
+    var c = paneCard('Alert sensitivity', 'alertTri');
+    c.appendChild(rowSelect('Respond to', 'Which alert levels drive automation and banners', [
+      ['ALL', 'Everything (incl. statements)'],
+      ['ADVISORIES_WATCHES_WARNINGS', 'Advisories, watches & warnings'],
+      ['WATCHES_WARNINGS', 'Watches & warnings'],
+      ['WARNINGS_ONLY', 'Warnings only'],
+      ['OFF', 'Off']
+    ], String(a.sensitivity || 'ADVISORIES_WATCHES_WARNINGS'), function (v) {
+      sendSettingsPatch([{ path: 'alerts.sensitivity', value: v }]);
+    }));
+    body.appendChild(c);
+    var c2 = paneCard('Alert classes', 'shield');
+    var classes = a.classes || {};
+    for (var i = 0; i < ALERT_CLASSES.length; i++) {
+      (function (cls) {
+        var label = cls.replace(/_/g, ' ').toLowerCase();
+        label = label.charAt(0).toUpperCase() + label.slice(1);
+        c2.appendChild(rowToggle(label, null, classes[cls] !== false, function (on) {
+          sendSettingsPatch([{ path: 'alerts.classes.' + cls, value: on }]);
+        }));
+      })(ALERT_CLASSES[i]);
+    }
+    body.appendChild(c2);
+  },
+  automation: function (body, s) {
+    var c = paneCard('Automation', 'home');
+    c.appendChild(rowToggle('Weather automation', 'Allow this driver to fire weather events and variables for Control4 programming', getPath(s, 'automation.enabled') !== false, function (on) {
+      sendSettingsPatch([{ path: 'automation.enabled', value: on }]);
+    }));
+    body.appendChild(c);
+  },
+  radarcfg: function (body, s) {
+    var c = paneCard('Radar', 'radar');
+    c.appendChild(rowSelect('Default view', null, [['station', 'Local station'], ['conus', 'National (CONUS)']],
+      String(getPath(s, 'radar.default_view') || 'station'), function (v) {
+        sendSettingsPatch([{ path: 'radar.default_view', value: v }]);
+        radar.view = v === 'conus' ? 'conus' : 'station';
+      }));
+    c.appendChild(rowToggle('Animate loop', 'Show the animated radar loop by default', getPath(s, 'radar.animate') !== false, function (on) {
+      sendSettingsPatch([{ path: 'radar.animate', value: on }]);
+      radar.playing = on;
+    }));
+    c.appendChild(rowToggle('Warning overlays', 'NWS draws active warning polygons on the imagery', getPath(s, 'radar.overlay_alerts') !== false, function (on) {
+      sendSettingsPatch([{ path: 'radar.overlay_alerts', value: on }]);
+    }));
+    body.appendChild(c);
+  },
+  display: function (body, s) {
+    var c = paneCard('Display', 'sun');
+    c.appendChild(rowSelect('Theme', null, [
+      ['AUTOMATIC', 'Automatic (day / night)'], ['LIGHT', 'Light'], ['DARK', 'Dark'],
+      ['OLED', 'OLED black'], ['CONTROL4', 'Control4 neutral'], ['AMBIENT', 'Ambient (weather-tinted)']
+    ], String(getPath(s, 'display.theme') || 'AUTOMATIC'), function (v) {
+      sendSettingsPatch([{ path: 'display.theme', value: v }]);
+    }));
+    c.appendChild(rowSelect('Animation', 'Animated weather backgrounds', [
+      ['OFF', 'Off'], ['SUBTLE', 'Subtle'], ['NORMAL', 'Normal'], ['CINEMATIC', 'Cinematic']
+    ], String(getPath(s, 'display.animation') || 'NORMAL'), function (v) {
+      sendSettingsPatch([{ path: 'display.animation', value: v }]);
+    }));
+    body.appendChild(c);
+  },
+  simulation: function (body, s) {
+    var c = paneCard('Weather simulation', 'play');
+    var d = el('div', 'screen-sub', 'Drive the whole system with a simulated scenario to test lighting, shades and audio programming. Simulation auto-stops after ' + fmtNum(getPath(s, 'simulation.timeout_minutes') || 30) + ' minutes.');
+    d.style.marginBottom = '8px';
+    c.appendChild(d);
+    var opts = [];
+    for (var i = 0; i < SCENARIOS.length; i++) {
+      var nm = SCENARIOS[i].replace(/_/g, ' ');
+      opts.push([SCENARIOS[i], nm.charAt(0).toUpperCase() + nm.slice(1)]);
+    }
+    c.appendChild(rowSelect('Scenario', null, opts, pickedScenario, function (v) { pickedScenario = v; }));
+    var btns = el('div', 'btn-row');
+    var start = el('button', 'btn', state && state.simulation ? 'Switch scenario' : 'Start simulation');
+    start.addEventListener('click', function () {
+      sendCommand('ATMOS_SIMULATE', { SCENARIO: pickedScenario }, null);
+      window.setTimeout(requestState, 600);
+    });
+    btns.appendChild(start);
+    var stop = el('button', 'btn secondary', 'Stop simulation');
+    stop.addEventListener('click', function () {
+      sendCommand('ATMOS_SIMULATE', { SCENARIO: '' }, null);
+      window.setTimeout(requestState, 600);
+    });
+    btns.appendChild(stop);
+    c.appendChild(btns);
+    if (state && state.simulation) {
+      var on = el('div', 'banner banner-sim');
+      on.style.marginTop = '14px';
+      on.appendChild(iconNode('info'));
+      on.appendChild(el('div', 'b-title', 'Simulation is running'));
+      c.appendChild(on);
+    }
+    body.appendChild(c);
+  },
+  license: function (body) {
+    var lic = (state && state.license) || {};
+    var c = paneCard('License', 'shield');
+    var n = el('div', 'about-name', String(lic.label || 'Unknown'));
+    c.appendChild(n);
+    var sub = el('div', 'about-sub', 'Status: ' + String(lic.status || '—') + (lic.operational === false ? ' · NOT OPERATIONAL' : ' · Operational'));
+    c.appendChild(sub);
+    var agent = getPath(state, 'diagnostics.agent');
+    if (isStr(agent)) c.appendChild(el('div', 'about-sub', agent));
+    body.appendChild(c);
+  },
+  diagnostics: function (body) {
+    var diag = (state && state.diagnostics) || {};
+    var c = paneCard('Diagnostics', 'gauge');
+    var tree = el('div', 'diag-tree');
+    function line(k, v) {
+      var d = el('div');
+      d.appendChild(el('span', 'diag-k', k + ':  '));
+      d.appendChild(el('span', 'diag-v', v === null || v === undefined ? '—' : String(v)));
+      tree.appendChild(d);
+    }
+    tree.appendChild(el('div', 'diag-group', 'Location'));
+    line('Office', diag.office); line('Grid', diag.grid); line('Station', diag.station);
+    line('Zone', diag.zone); line('Radar', diag.radar_station); line('Time zone', diag.time_zone);
+    var api = diag.api || {};
+    var comps = ['observations', 'forecast', 'alerts', 'points'];
+    for (var i = 0; i < comps.length; i++) {
+      var name = comps[i], a = api[name] || {};
+      tree.appendChild(el('div', 'diag-group', 'API · ' + name));
+      line('Last success', num(a.last_success) !== null ? fmtRelMin(a.last_success) : null);
+      line('Last failure', num(a.last_failure) !== null ? fmtRelMin(a.last_failure) : 'none');
+      line('HTTP', a.http_code);
+      if (a.error) line('Error', a.error);
+      line('Consecutive failures', a.failures !== undefined ? a.failures : null);
+    }
+    var poll = diag.polling || {};
+    tree.appendChild(el('div', 'diag-group', 'Polling'));
+    line('Observations', poll.observations !== undefined ? poll.observations + ' s' : null);
+    line('Forecast', poll.forecast !== undefined ? poll.forecast + ' s' : null);
+    line('Alerts', poll.alerts !== undefined ? poll.alerts + ' s' : null);
+    c.appendChild(tree);
+    var btns = el('div', 'btn-row');
+    var rb = el('button', 'btn');
+    rb.appendChild(iconNode('refresh'));
+    rb.appendChild(document.createTextNode(' Refresh now'));
+    rb.style.display = 'inline-flex'; rb.style.alignItems = 'center'; rb.style.gap = '8px';
+    rb.addEventListener('click', function () {
+      rb.disabled = true;
+      sendCommand('ATMOS_REFRESH', {}, null);
+      window.setTimeout(function () { requestState(); rb.disabled = false; renderSettings(true); }, 1500);
+    });
+    btns.appendChild(rb);
+    c.appendChild(btns);
+    body.appendChild(c);
+  },
+  about: function (body) {
+    var c = paneCard('About', 'info');
+    c.appendChild(el('div', 'about-name', 'Atmosphere'));
+    c.appendChild(el('div', 'about-sub', 'Intelligent weather for Control4 · by SmartBuildOS'));
+    c.appendChild(el('div', 'about-sub', 'Driver version ' + String(getPath(state, 'diagnostics.driver_version') || '—')));
+    c.appendChild(el('div', 'about-sub', 'Data: National Weather Service (weather.gov). Radar imagery: NWS RIDGE. Forecasts and alerts are provided as-is; always follow official guidance during severe weather.'));
+    body.appendChild(c);
+  }
+};
+
+/* ================= THEME ================= */
+var AMBIENT_MAP = {
+  CLEAR_DAY: { bg0: '#1c62be', bg1: '#66a7e8', accent: '#dbeafe' },
+  CLEAR_NIGHT: { bg0: '#04091a', bg1: '#0c1631', accent: '#8ab8ff' },
+  PARTLY: { bg0: '#24303f', bg1: '#3c4c5e', accent: '#9cc2f0' },
+  CLOUDY: { bg0: '#242c36', bg1: '#37424f', accent: '#a9bccf' },
+  RAIN: { bg0: '#1c2836', bg1: '#2c3d50', accent: '#7fb2e8' },
+  STORM: { bg0: '#080b11', bg1: '#131a26', accent: '#9db4d8' },
+  SNOW: { bg0: '#c7d2dc', bg1: '#e6ecf2', accent: '#3d6ea8', light: true },
+  FOG: { bg0: '#2e3740', bg1: '#48525c', accent: '#aebfce' },
+  FREEZE: { bg0: '#0d1d30', bg1: '#1a3049', accent: '#9ed2f2' },
+  HEAT: { bg0: '#4a220c', bg1: '#8a4a1a', accent: '#ffce8a' },
+  WIND: { bg0: '#1d2a32', bg1: '#2f4049', accent: '#93d6cf' },
+  NIGHT: { bg0: '#060b1c', bg1: '#101b36', accent: '#8ab8ff' }
+};
+function ambientKey(mode, isDay) {
+  switch (mode) {
+    case 'CLEAR': return isDay ? 'CLEAR_DAY' : 'CLEAR_NIGHT';
+    case 'PARTLY_CLOUDY': return isDay ? 'PARTLY' : 'NIGHT';
+    case 'CLOUDY': return 'CLOUDY';
+    case 'FOG': return 'FOG';
+    case 'RAIN': case 'HEAVY_RAIN': return 'RAIN';
+    case 'THUNDERSTORM': case 'SEVERE_STORM': case 'TROPICAL': case 'HURRICANE': return 'STORM';
+    case 'SNOW': return 'SNOW';
+    case 'ICE': case 'FREEZE': return 'FREEZE';
+    case 'HIGH_WIND': return 'WIND';
+    case 'EXTREME_HEAT': return 'HEAT';
+    default: return isDay ? 'PARTLY' : 'NIGHT';
+  }
+}
+var AMBIENT_VARS = ['--bg0', '--bg1', '--accent', '--text', '--dim', '--faint', '--card', '--card-brd', '--chip', '--chip-brd', '--nav-bg', '--hairline', '--track', '--input-bg', '--accent-soft'];
+function applyTheme() {
+  var t = String(getPath(state, 'settings.display.theme') || 'AUTOMATIC').toUpperCase();
+  var isDay = getPath(state, 'solar.isDaytime') !== false;
+  var eff = t === 'AUTOMATIC' ? (isDay ? 'light' : 'dark') : t.toLowerCase();
+  if (['light', 'dark', 'oled', 'control4', 'ambient'].indexOf(eff) < 0) eff = 'dark';
+  var rs = document.documentElement.style;
+  for (var i = 0; i < AMBIENT_VARS.length; i++) rs.removeProperty(AMBIENT_VARS[i]);
+  document.documentElement.setAttribute('data-theme', eff);
+  if (eff === 'ambient') {
+    var m = AMBIENT_MAP[ambientKey(String(state && state.mode || 'UNKNOWN'), isDay)] || AMBIENT_MAP.NIGHT;
+    rs.setProperty('--bg0', m.bg0);
+    rs.setProperty('--bg1', m.bg1);
+    rs.setProperty('--accent', m.accent);
+    rs.setProperty('--accent-soft', 'rgba(255,255,255,.14)');
+    if (m.light) {
+      rs.setProperty('--text', '#182430');
+      rs.setProperty('--dim', 'rgba(24,36,48,.66)');
+      rs.setProperty('--faint', 'rgba(24,36,48,.42)');
+      rs.setProperty('--card', 'rgba(255,255,255,.55)');
+      rs.setProperty('--card-brd', 'rgba(20,32,48,.10)');
+      rs.setProperty('--chip', 'rgba(18,30,46,.07)');
+      rs.setProperty('--chip-brd', 'rgba(18,30,46,.11)');
+      rs.setProperty('--nav-bg', 'rgba(240,244,248,.92)');
+      rs.setProperty('--hairline', 'rgba(18,30,46,.10)');
+      rs.setProperty('--track', 'rgba(18,30,46,.17)');
+      rs.setProperty('--input-bg', 'rgba(18,30,46,.05)');
+      rs.setProperty('--accent-soft', 'rgba(61,110,168,.14)');
+    }
+  }
+}
+function themeIsLight() {
+  var t = document.documentElement.getAttribute('data-theme');
+  if (t === 'light') return true;
+  if (t === 'ambient') {
+    var m = AMBIENT_MAP[ambientKey(String(state && state.mode || 'UNKNOWN'), getPath(state, 'solar.isDaytime') !== false)];
+    return !!(m && m.light);
+  }
+  return false;
+}
+
+/* ================= CANVAS SCENE ENGINE ================= */
+var Scene = (function () {
+  var canvas = $('bg');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0, dpr = 1;
+  var mode = 'UNKNOWN', isDay = true;
+  var TIERS = ['OFF', 'SUBTLE', 'NORMAL', 'CINEMATIC'];
+  var MULT = [0, 0.3, 1, 1.6];
+  var settingIdx = 2, dropCount = 0, lastDropAt = 0;
+  var raf = null, lastT = 0, elapsed = 0;
+  var samples = [], sampleSum = 0;
+  var rain = [], snow = [], streaks = [], stars2 = [], crystals = [], fogBands = [], cloudsArr = [];
+  var cloudSprite = null, cloudSpriteDark = null;
+  var nextLightning = 0, flash = 0;
+
+  function effIdx() { return Math.max(0, settingIdx - dropCount); }
+  function makeCloudSprite(dark) {
+    var c = document.createElement('canvas');
+    c.width = 320; c.height = 160;
+    var g = c.getContext('2d');
+    var puffs = [[70, 100, 52], [130, 78, 62], [200, 88, 58], [255, 108, 44], [160, 116, 60]];
+    for (var i = 0; i < puffs.length; i++) {
+      var p = puffs[i];
+      var rg = g.createRadialGradient(p[0], p[1], 4, p[0], p[1], p[2]);
+      var col = dark ? '20,26,36' : '255,255,255';
+      rg.addColorStop(0, 'rgba(' + col + ',0.55)');
+      rg.addColorStop(1, 'rgba(' + col + ',0)');
+      g.fillStyle = rg;
+      g.fillRect(0, 0, 320, 160);
+    }
+    return c;
+  }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rebuild();
+    if (effIdx() === 0) drawStatic();
+  }
+  function gradColors() {
+    var light = themeIsLight();
+    switch (mode) {
+      case 'CLEAR':
+        return isDay ? (light ? ['#7db4e8', '#dcebf7'] : ['#123c78', '#2a6cb4']) : ['#04091a', '#0e1a38'];
+      case 'PARTLY_CLOUDY':
+        return isDay ? (light ? ['#8fb6da', '#e2ecf4'] : ['#1b3350', '#3c5c80']) : ['#070d1c', '#16233c'];
+      case 'CLOUDY':
+        return isDay ? (light ? ['#9fb0c0', '#dfe6ec'] : ['#232d3a', '#3c4a5a']) : ['#0b1017', '#1c242f'];
+      case 'FOG':
+        return light ? ['#aab6c0', '#dbe2e8'] : ['#242c34', '#414c56'];
+      case 'RAIN':
+        return light ? ['#8298ad', '#c8d5e0'] : ['#17222f', '#2b3c4f'];
+      case 'HEAVY_RAIN':
+        return light ? ['#6e8499', '#b4c4d2'] : ['#111a26', '#243546'];
+      case 'THUNDERSTORM': case 'SEVERE_STORM':
+        return ['#07090f', '#171e2c'];
+      case 'TROPICAL': case 'HURRICANE':
+        return ['#0a0e18', '#1c2536'];
+      case 'SNOW':
+        return light ? ['#c2cdd8', '#eef2f6'] : ['#1e2732', '#39444f'];
+      case 'ICE': case 'FREEZE':
+        return light ? ['#9dc0d8', '#e0eef6'] : ['#0a1a2c', '#1e3a54'];
+      case 'HIGH_WIND':
+        return light ? ['#8fa8b4', '#d6e2e8'] : ['#15242c', '#2c4450'];
+      case 'EXTREME_HEAT':
+        return light ? ['#e8b284', '#f6e0c4'] : ['#38180a', '#7a3c12'];
+      default:
+        return isDay ? (light ? ['#93b3d2', '#e0e9f1'] : ['#182c46', '#33506e']) : ['#070c18', '#141f34'];
+    }
+  }
+  function rebuild() {
+    var m = MULT[effIdx()];
+    rain = []; snow = []; streaks = []; stars2 = []; crystals = []; fogBands = []; cloudsArr = [];
+    if (m === 0) return;
+    if (!cloudSprite) { cloudSprite = makeCloudSprite(false); cloudSpriteDark = makeCloudSprite(true); }
+    var i, n;
+    var isRain = mode === 'RAIN' || mode === 'HEAVY_RAIN' || mode === 'THUNDERSTORM' || mode === 'SEVERE_STORM' || mode === 'TROPICAL' || mode === 'HURRICANE';
+    if (isRain) {
+      var heavy = mode !== 'RAIN';
+      n = Math.round((heavy ? 220 : 120) * m);
+      for (i = 0; i < n; i++) rain.push({ x: rnd(-40, W + 40), y: rnd(0, H), v: rnd(heavy ? 780 : 520, heavy ? 1150 : 760), l: rnd(heavy ? 14 : 9, heavy ? 26 : 17), drift: heavy ? rnd(-160, -80) : rnd(-70, -30), a: rnd(0.12, heavy ? 0.34 : 0.26) });
+    }
+    if (mode === 'SNOW') {
+      n = Math.round(90 * m);
+      for (i = 0; i < n; i++) snow.push({ x: rnd(0, W), y: rnd(0, H), v: rnd(28, 72), r: rnd(1, 3.2), ph: rnd(0, 6.28), sw: rnd(14, 42), a: rnd(0.3, 0.85) });
+    }
+    if (mode === 'HIGH_WIND' || mode === 'TROPICAL' || mode === 'HURRICANE') {
+      n = Math.round(60 * m);
+      for (i = 0; i < n; i++) streaks.push({ x: rnd(0, W), y: rnd(0, H), v: rnd(520, 1050), l: rnd(30, 90), a: rnd(0.05, 0.16) });
+    }
+    if (mode === 'CLEAR' && !isDay) {
+      n = Math.round(130 * m);
+      for (i = 0; i < n; i++) stars2.push({ x: rnd(0, W), y: rnd(0, H * 0.75), r: rnd(0.4, 1.5), ph: rnd(0, 6.28), sp: rnd(0.3, 1.4) });
+    }
+    if (mode === 'ICE' || mode === 'FREEZE') {
+      n = Math.round(36 * m);
+      for (i = 0; i < n; i++) crystals.push({ x: rnd(0, W), y: rnd(0, H), r: rnd(2, 5), ph: rnd(0, 6.28), sp: rnd(0.4, 1.1), vy: rnd(6, 18) });
+    }
+    if (mode === 'FOG') {
+      n = Math.max(3, Math.round(6 * m));
+      for (i = 0; i < n; i++) fogBands.push({ y: H * (0.12 + 0.8 * i / n), h: rnd(H * 0.10, H * 0.2), x: rnd(0, W), v: rnd(8, 26) * (i % 2 ? 1 : -1), a: rnd(0.05, 0.13) });
+    }
+    var wantClouds = ['PARTLY_CLOUDY', 'CLOUDY', 'THUNDERSTORM', 'SEVERE_STORM', 'TROPICAL', 'HURRICANE', 'RAIN', 'HEAVY_RAIN', 'SNOW'].indexOf(mode) >= 0 || (mode === 'CLEAR' && !isDay);
+    if (wantClouds) {
+      var count = mode === 'PARTLY_CLOUDY' ? 5 : (mode === 'CLEAR' ? 2 : 8);
+      n = Math.max(1, Math.round(count * m));
+      var darkClouds = mode === 'THUNDERSTORM' || mode === 'SEVERE_STORM' || mode === 'HURRICANE';
+      for (i = 0; i < n; i++) {
+        cloudsArr.push({ x: rnd(-300, W), y: rnd(-30, H * 0.45), v: rnd(6, 20), s: rnd(0.8, 2.2), a: darkClouds ? rnd(0.5, 0.85) : (isDay ? rnd(0.25, 0.5) : rnd(0.12, 0.25)), dark: darkClouds });
+      }
+    }
+    nextLightning = performance.now() + rnd(8000, 20000);
+  }
+  function drawStatic() {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    var cols = gradColors();
+    g.addColorStop(0, cols[0]); g.addColorStop(1, cols[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  function frame(t) {
+    raf = window.requestAnimationFrame(frame);
+    var dt = lastT ? Math.min(100, t - lastT) : 16;
+    lastT = t;
+    elapsed += dt;
+    /* rolling 3s perf window; drop a tier at most once per minute */
+    samples.push(dt); sampleSum += dt;
+    while (sampleSum > 3000 && samples.length > 1) sampleSum -= samples.shift();
+    if (samples.length > 20 && sampleSum / samples.length > 28 && t - lastDropAt > 60000 && effIdx() > 0) {
+      dropCount += 1; lastDropAt = t;
+      try { console.log('[atmosphere] frame budget exceeded — dropping animation tier to ' + TIERS[effIdx()]); } catch (eL) {}
+      rebuild();
+      if (effIdx() === 0) { drawStatic(); return; }
+    }
+    if (effIdx() === 0) { drawStatic(); return; }
+    var s = dt / 1000;
+    var m = MULT[effIdx()];
+    drawStatic();
+    var i, p;
+    /* sun glow / heat shimmer */
+    if ((mode === 'CLEAR' || mode === 'EXTREME_HEAT') && isDay) {
+      var hot = mode === 'EXTREME_HEAT';
+      var gx = W * 0.72, gy = H * 0.16;
+      var pulse = 0.9 + 0.1 * Math.sin(elapsed / 2400);
+      var rad = Math.max(W, H) * (hot ? 0.75 : 0.55) * pulse;
+      var rg = ctx.createRadialGradient(gx, gy, 10, gx, gy, rad);
+      rg.addColorStop(0, hot ? 'rgba(255,180,90,0.5)' : 'rgba(255,235,190,0.4)');
+      rg.addColorStop(1, 'rgba(255,220,150,0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(0, 0, W, H);
+      if (hot) {
+        var sx = (elapsed / 40) % (W + 600) - 300;
+        var rg2 = ctx.createRadialGradient(sx, H * 0.8, 20, sx, H * 0.8, W * 0.5);
+        rg2.addColorStop(0, 'rgba(255,140,60,0.10)');
+        rg2.addColorStop(1, 'rgba(255,140,60,0)');
+        ctx.fillStyle = rg2;
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+    /* stars */
+    for (i = 0; i < stars2.length; i++) {
+      p = stars2[i];
+      var tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(p.ph + elapsed / 900 * p.sp));
+      ctx.fillStyle = 'rgba(230,238,255,' + (tw * 0.85).toFixed(3) + ')';
+      ctx.fillRect(p.x, p.y, p.r, p.r);
+    }
+    /* clouds */
+    for (i = 0; i < cloudsArr.length; i++) {
+      p = cloudsArr[i];
+      p.x += p.v * s;
+      if (p.x > W + 200) { p.x = -340 * p.s; p.y = rnd(-30, H * 0.45); }
+      ctx.globalAlpha = p.a;
+      ctx.drawImage(p.dark ? cloudSpriteDark : cloudSprite, p.x, p.y, 320 * p.s, 160 * p.s);
+      ctx.globalAlpha = 1;
+    }
+    /* fog bands */
+    for (i = 0; i < fogBands.length; i++) {
+      p = fogBands[i];
+      p.x += p.v * s;
+      if (p.v > 0 && p.x > W) p.x = -W;
+      if (p.v < 0 && p.x < -W) p.x = W;
+      var fg = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
+      var fogCol = themeIsLight() ? '255,255,255' : '190,205,220';
+      fg.addColorStop(0, 'rgba(' + fogCol + ',0)');
+      fg.addColorStop(0.5, 'rgba(' + fogCol + ',' + p.a.toFixed(3) + ')');
+      fg.addColorStop(1, 'rgba(' + fogCol + ',0)');
+      ctx.fillStyle = fg;
+      ctx.fillRect(p.x - W, p.y, W * 2, p.h);
+      ctx.fillRect(p.x + W, p.y, W * 2, p.h);
+    }
+    /* rain */
+    if (rain.length) {
+      ctx.lineWidth = 1.1;
+      ctx.lineCap = 'round';
+      for (i = 0; i < rain.length; i++) {
+        p = rain[i];
+        p.y += p.v * s; p.x += p.drift * s;
+        if (p.y > H + 30) { p.y = rnd(-60, -10); p.x = rnd(-20, W + 60); }
+        if (p.x < -50) p.x = W + 40;
+        ctx.strokeStyle = 'rgba(170,200,235,' + p.a.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.drift * 0.02, p.y - p.l);
+        ctx.stroke();
+      }
+    }
+    /* snow */
+    for (i = 0; i < snow.length; i++) {
+      p = snow[i];
+      p.y += p.v * s;
+      var sxx = p.x + Math.sin(p.ph + elapsed / 1600) * p.sw;
+      if (p.y > H + 6) { p.y = rnd(-30, -4); p.x = rnd(0, W); }
+      ctx.fillStyle = 'rgba(255,255,255,' + p.a.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(sxx, p.y, p.r, 0, 6.283);
+      ctx.fill();
+    }
+    /* wind streaks */
+    if (streaks.length) {
+      ctx.lineWidth = 1;
+      for (i = 0; i < streaks.length; i++) {
+        p = streaks[i];
+        p.x += p.v * s;
+        if (p.x > W + 100) { p.x = -p.l - rnd(0, 200); p.y = rnd(0, H); }
+        ctx.strokeStyle = 'rgba(200,225,240,' + p.a.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.l, p.y - p.l * 0.06);
+        ctx.stroke();
+      }
+    }
+    /* ice crystals */
+    for (i = 0; i < crystals.length; i++) {
+      p = crystals[i];
+      p.y += p.vy * s;
+      if (p.y > H + 8) { p.y = -8; p.x = rnd(0, W); }
+      var glint = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(p.ph + elapsed / 700 * p.sp));
+      ctx.strokeStyle = 'rgba(210,240,255,' + glint.toFixed(3) + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.r, p.y); ctx.lineTo(p.x + p.r, p.y);
+      ctx.moveTo(p.x, p.y - p.r); ctx.lineTo(p.x, p.y + p.r);
+      ctx.moveTo(p.x - p.r * 0.6, p.y - p.r * 0.6); ctx.lineTo(p.x + p.r * 0.6, p.y + p.r * 0.6);
+      ctx.moveTo(p.x + p.r * 0.6, p.y - p.r * 0.6); ctx.lineTo(p.x - p.r * 0.6, p.y + p.r * 0.6);
+      ctx.stroke();
+    }
+    /* lightning */
+    var stormy = mode === 'THUNDERSTORM' || mode === 'SEVERE_STORM' || mode === 'HURRICANE';
+    if (stormy && effIdx() >= 2) {
+      if (t > nextLightning) {
+        flash = 1;
+        nextLightning = t + rnd(8000, 20000) / (effIdx() >= 3 ? 1.6 : 1);
+      }
+      if (flash > 0) {
+        ctx.fillStyle = 'rgba(235,240,255,' + (flash * 0.5).toFixed(3) + ')';
+        ctx.fillRect(0, 0, W, H);
+        flash -= dt / 80; /* ~80ms decay */
+        if (flash < 0) flash = 0;
+      }
+    }
+  }
+  function start() {
+    if (raf === null && !document.hidden) { lastT = 0; raf = window.requestAnimationFrame(frame); }
+  }
+  function stop() {
+    if (raf !== null) { window.cancelAnimationFrame(raf); raf = null; }
+  }
+  function setWeather() {
+    var newMode = String(state && state.mode || 'UNKNOWN');
+    var newDay = getPath(state, 'solar.isDaytime') !== false;
+    var tierName = String(getPath(state, 'settings.display.animation') || 'NORMAL').toUpperCase();
+    var newIdx = TIERS.indexOf(tierName);
+    if (newIdx < 0) newIdx = 2;
+    var changed = newMode !== mode || newDay !== isDay;
+    if (newIdx !== settingIdx) { settingIdx = newIdx; dropCount = 0; changed = true; }
+    mode = newMode; isDay = newDay;
+    if (changed) rebuild();
+    if (effIdx() === 0) { stop(); drawStatic(); } else start();
+  }
+  window.addEventListener('resize', resize);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop();
+    else { samples = []; sampleSum = 0; start(); if (effIdx() === 0) drawStatic(); }
+  });
+  resize();
+  start();
+  return { setWeather: setWeather, stop: stop, start: start, resizeNow: resize };
+})();
+
+/* ================= NAV & SCREENS ================= */
+var NAV = [
+  ['now', 'Now', 'home'], ['hourly', 'Hourly', 'clock'], ['forecast', 'Forecast', 'calendar'],
+  ['radar', 'Radar', 'radar'], ['alerts', 'Alerts', 'alertTri'], ['details', 'Details', 'grid'],
+  ['settings', 'Settings', 'sliders']
+];
+var SCREENS_BY_ID = { now: renderNow, hourly: renderHourly, forecast: renderForecast, radar: renderRadar, alerts: renderAlerts, details: renderDetails, settings: renderSettings };
+
+function buildNav() {
+  var nav = $('nav');
+  clear(nav);
+  for (var i = 0; i < NAV.length; i++) {
+    (function (id, label, icon) {
+      var b = el('button', 'nav-item');
+      b.id = 'nav-' + id;
+      b.setAttribute('aria-label', label);
+      b.appendChild(iconNode(icon));
+      b.appendChild(el('span', 'lbl', label));
+      b.addEventListener('click', function () { userNavigated = true; showScreen(id, true); });
+      nav.appendChild(b);
+    })(NAV[i][0], NAV[i][1], NAV[i][2]);
+  }
+}
+function updateNavBadge() {
+  var b = $('nav-alerts');
+  if (!b) return;
+  var old = b.querySelector('.nav-badge');
+  if (old) b.removeChild(old);
+  var n = state ? (num(state.alert_count) !== null ? state.alert_count : (state.alerts || []).length) : 0;
+  if (n > 0) b.appendChild(el('span', 'nav-badge', n > 9 ? '9+' : String(n)));
+}
+function showScreen(id, persist) {
+  if (!SCREENS_BY_ID[id]) id = 'now';
+  activeScreen = id;
+  var i;
+  var screens = document.querySelectorAll('.screen');
+  for (i = 0; i < screens.length; i++) screens[i].className = 'screen';
+  var target = $('screen-' + id);
+  if (target) target.className = 'screen active';
+  var items = document.querySelectorAll('.nav-item');
+  for (i = 0; i < items.length; i++) items[i].className = 'nav-item';
+  var nb = $('nav-' + id);
+  if (nb) nb.className = 'nav-item active';
+  if (persist) { try { window.localStorage.setItem('atmos.screen', id); } catch (e) {} }
+  $('screens').scrollTop = 0;
+  renderActive();
+  updateNavBadge();
+}
+function renderActive() {
+  var fn = SCREENS_BY_ID[activeScreen];
+  if (fn) { try { fn(); } catch (e) { try { console.log('[atmosphere] render error: ' + e.message); } catch (e2) {} } }
+  updateNavBadge();
+}
+
+/* ================= boot ================= */
+buildNav();
+if (mockMode) $('mockBadge').hidden = false;
+var initialScreen = 'now';
+try { initialScreen = window.localStorage.getItem('atmos.screen') || 'now'; } catch (e) {}
+showScreen(SCREENS_BY_ID[initialScreen] ? initialScreen : 'now', false);
+requestState();
+window.setInterval(requestState, 30000);
+window.setInterval(function () {
+  updateClock();
+  if (activeScreen === 'now' && state) {
+    var arc = document.querySelector('.sun-arc');
+    if (arc) positionSunDot(arc, state.solar || {});
+  }
+}, 1000);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) requestState();
+});
+})();
+</script>
+</body>
+</html>

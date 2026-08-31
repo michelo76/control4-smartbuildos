@@ -149,6 +149,7 @@ gDiag = {
 	lastLatencyMs = {},
 }
 gUiSubscribed = false
+gNavigateHint = nil -- { screen, at } — a one-shot hint for an open app
 
 -- ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -735,6 +736,7 @@ local function buildUiState()
 			label = license.statusLabel(),
 			operational = license.isOperational(),
 		},
+		navigate = gNavigateHint,
 		now = nowUtc(),
 	})
 end
@@ -758,6 +760,46 @@ local function pushUiState()
 			C4:SendDataToUI(encoded)
 		end
 	end)
+end
+
+-- ─── Agent health forwarding ─────────────────────────────────────────────────
+
+--- Data-health transitions are dealer-operations signals, so they ride the
+--- SmartBuildOS Agent's generic event path into the platform when an Agent
+--- is present (weather events themselves stay local — a rain shower is not
+--- a service incident). No Agent, no-op.
+local HEALTH_EVENT_DETAIL = {
+	["Weather Data Stale"] = "Atmosphere weather data exceeded its freshness threshold",
+	["Weather Data Restored"] = "Atmosphere weather data is fresh again",
+	["Weather API Unavailable"] = "api.weather.gov stopped answering from this controller",
+	["Weather API Recovered"] = "api.weather.gov recovered",
+}
+
+local function findAgentId()
+	for rawId, device in pairs(C4:GetDevices({}) or {}) do
+		local file = tostring((type(device) == "table" and device.driverFileName) or "")
+		-- Exact match, never substring (smartbuildos-insights.c4z is the near-miss).
+		if file == "smartbuildos.c4z" or file == "smartbuildos.c4i" then
+			return tonumber(rawId)
+		end
+	end
+	return nil
+end
+
+function forwardHealthEvents(events)
+	local agentId = nil
+	for _, name in ipairs(events) do
+		local detail = HEALTH_EVENT_DETAIL[name]
+		if detail ~= nil then
+			agentId = agentId or findAgentId()
+			if agentId == nil then
+				return
+			end
+			pcall(function()
+				C4:SendToDevice(agentId, "SEND_EVENT", { NAME = "Atmosphere: " .. name, DETAIL = detail })
+			end)
+		end
+	end
 end
 
 -- ─── The engine tick ──────────────────────────────────────────────────────────
@@ -822,6 +864,9 @@ function runEngine(reason, alertsResult)
 	for _, name in ipairs(events) do
 		log:info("Event: %s%s", name, snapshot.simulation and " [SIMULATION]" or "")
 		fireEvent(name)
+	end
+	if not snapshot.simulation then
+		forwardHealthEvents(events)
 	end
 	publishVariables(snapshot)
 	publishProperties(snapshot)
@@ -1081,6 +1126,41 @@ function EC.STOP_SIMULATION()
 	stopSimulation("action")
 end
 
+--- "Open <screen>" actions: a driver cannot force Navigator to open a page,
+--- so these set the app's default screen (persisted) and push a navigate
+--- hint an ALREADY-OPEN app follows on its next state update. Honest
+--- semantics, documented in docs/atmosphere/WEBVIEW.md.
+local function openScreen(screen)
+	gSettings = settingsstore.merge(gSettings, { display = { default_screen = screen } })
+	saveSettings()
+	gNavigateHint = { screen = screen, at = nowUtc() }
+	publishWebViewUrl("open-" .. screen)
+	pushUiState()
+	log:info("Weather app screen set to %s", screen)
+end
+
+function EC.OPEN_WEATHER_APP()
+	openScreen(gSettings.display.default_screen or "now")
+end
+function EC.OPEN_CURRENT_WEATHER()
+	openScreen("now")
+end
+function EC.OPEN_FORECAST()
+	openScreen("forecast")
+end
+function EC.OPEN_RADAR()
+	openScreen("radar")
+end
+function EC.OPEN_ALERTS()
+	openScreen("alerts")
+end
+function EC.OPEN_SETTINGS()
+	openScreen("settings")
+end
+function EC.OPEN_DIAGNOSTICS()
+	openScreen("settings")
+end
+
 EC["Start Simulation"] = function(tParams)
 	startSimulation(tParams ~= nil and tParams.SCENARIO or nil)
 end
@@ -1283,7 +1363,13 @@ function OnDriverLateInit()
 	gInitialized = true
 	UpdateProperty("Driver Status", "Online")
 	pcall(function()
-		UpdateProperty("Driver Version", tostring(C4:GetDriverConfigInfo("version")))
+		local version = tostring(C4:GetDriverConfigInfo("version"))
+		UpdateProperty("Driver Version", version)
+		-- Identify the exact build to NWS (their policy asks for a UA unique
+		-- to the application; the version makes fleet issues traceable).
+		nws.setUserAgent(
+			string.format("SmartBuildOS Atmosphere/%s (smartbuildos.io, support@smartbuildos.io)", version)
+		)
 	end)
 
 	-- Location: prefer a fresh resolution; fall back to the stored one.

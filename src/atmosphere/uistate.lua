@@ -172,6 +172,7 @@ function M.build(ctx)
 		units = u,
 		diagnostics = ctx.diagnostics,
 		license = ctx.license,
+		navigate = ctx.navigate,
 	}
 end
 
