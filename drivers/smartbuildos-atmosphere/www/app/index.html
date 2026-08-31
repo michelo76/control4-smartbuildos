@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://radar.weather.gov data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http:; img-src https://radar.weather.gov data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Atmosphere</title>
 <style>
@@ -634,13 +634,105 @@ var MOCK_SCENARIO_MODES = {
 };
 
 /* ================= driver bridge ================= */
-var mockMode = (typeof window.C4 === 'undefined') || /[?&]mock=1/.test(window.location.search);
+function queryParam(name) {
+  try {
+    var pairs = String(window.location.search).replace(/^\?/, '').split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      var eq = pairs[i].indexOf('=');
+      var k = eq < 0 ? pairs[i] : pairs[i].slice(0, eq);
+      if (decodeURIComponent(k) === name) return eq < 0 ? '' : decodeURIComponent(pairs[i].slice(eq + 1));
+    }
+  } catch (e) {}
+  return null;
+}
+/* LAN relay fallback (in memory only — never persisted) */
+var relayBase = null, relayToken = null;
+(function () {
+  var r = queryParam('relay');
+  /* accept only absolute http(s) origins; strip any trailing slash */
+  if (isStr(r) && r.indexOf('http') === 0 && r.indexOf(':' + '//') > 0) {
+    relayBase = r.replace(/\/+$/, '');
+    relayToken = queryParam('k') || '';
+  }
+})();
+var relayMode = false;      /* true once the relay has successfully served state */
+var relayProbed = false;    /* the 4 s C4-silence probe has fired at least once */
+var relayFails = 0;         /* consecutive relay failures */
+var c4Delivered = false;    /* a state document arrived via the C4 JS API */
+var lastStateAtMs = null;   /* wall clock of last applied state, any channel */
+
+var mockMode = /[?&]mock=1/.test(window.location.search) ||
+  (typeof window.C4 === 'undefined' && relayBase === null);
+
+function logRedacted(msg) {
+  try {
+    var s = String(msg);
+    if (isStr(relayToken)) s = s.split(relayToken).join('[token]');
+    console.log(s);
+  } catch (e) {}
+}
+function relayHost() {
+  if (!relayBase) return '';
+  var s = relayBase.slice(relayBase.indexOf(':' + '//') + 3);
+  return s.split('/')[0];
+}
+function channelDown() {
+  return relayBase !== null && relayFails >= 3 && !c4Delivered;
+}
+function relayRequest(method, path, body, cb) {
+  var url = relayBase + path + '?k=' + encodeURIComponent(relayToken || '');
+  var xhr = new XMLHttpRequest();
+  var done = false;
+  function fail(why) {
+    if (done) return;
+    done = true;
+    relayFails += 1;
+    logRedacted('[atmosphere] relay ' + path + ' failed: ' + why);
+    if (channelDown()) renderActive(); /* surface the stale/waiting treatment */
+    if (cb) { try { cb(why, null); } catch (e) {} }
+  }
+  try {
+    xhr.open(method, url, true);
+    xhr.timeout = 10000;
+    if (body !== null) xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+      if (done) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        done = true;
+        relayFails = 0;
+        if (cb) { try { cb(null, xhr.responseText); } catch (e) {} }
+      } else {
+        fail('HTTP ' + xhr.status);
+      }
+    };
+    xhr.onerror = function () { fail('network error'); };
+    xhr.ontimeout = function () { fail('timeout'); };
+    xhr.send(body === null ? null : JSON.stringify(body));
+  } catch (e2) {
+    fail(e2 && e2.message ? e2.message : 'request error');
+  }
+}
+function relayGetState() {
+  relayRequest('GET', '/state', null, function (err, text) {
+    if (err || !isStr(text)) return; /* retry on next poll */
+    try {
+      var doc = JSON.parse(text);
+      if (doc && typeof doc === 'object' && (doc.mode !== undefined || doc.current !== undefined || doc.v !== undefined)) {
+        relayMode = true;
+        applyState(doc, 'relay');
+      }
+    } catch (e) {
+      logRedacted('[atmosphere] relay /state returned malformed JSON');
+    }
+  });
+}
+
 var pendingAcks = []; /* {cb, t} — no correlation ids exist on this channel */
 
-function handleParsed(doc, directCb) {
+function handleParsed(doc, directCb, src) {
   if (!doc || typeof doc !== 'object') return;
   if (doc.mode !== undefined || doc.current !== undefined || doc.v !== undefined) {
-    applyState(doc);
+    applyState(doc, src || 'c4');
     return;
   }
   if (doc.ok !== undefined) {
@@ -651,13 +743,13 @@ function handleParsed(doc, directCb) {
     if (p && p.cb) { try { p.cb(doc); } catch (e2) {} }
   }
 }
-function handleAny(resp, directCb) {
+function handleAny(resp, directCb, src) {
   try {
-    if (typeof resp === 'string') { handleParsed(JSON.parse(resp), directCb); }
-    else if (resp && typeof resp === 'object') { handleParsed(resp, directCb); }
+    if (typeof resp === 'string') { handleParsed(JSON.parse(resp), directCb, src); }
+    else if (resp && typeof resp === 'object') { handleParsed(resp, directCb, src); }
   } catch (e) { /* malformed reply — ignore */ }
 }
-window.onDataToUi = function (response) { handleAny(response, null); };
+window.onDataToUi = function (response) { handleAny(response, null, 'c4'); };
 try {
   if (window.C4 && typeof window.C4.subscribeToDataToUi === 'function') window.C4.subscribeToDataToUi();
 } catch (e) {}
@@ -666,7 +758,7 @@ function mockDispatch(name, params, cb) {
   var reply = { ok: true };
   if (name === 'ATMOS_GET_STATE') {
     MOCK.now = Math.floor(Date.now() / 1000);
-    window.setTimeout(function () { applyState(JSON.parse(JSON.stringify(MOCK))); }, 30);
+    window.setTimeout(function () { applyState(JSON.parse(JSON.stringify(MOCK)), 'mock'); }, 30);
     return;
   }
   if (name === 'ATMOS_SET_SETTINGS') {
@@ -685,9 +777,31 @@ function mockDispatch(name, params, cb) {
   window.setTimeout(function () { requestState(); }, 120);
 }
 
+/* Route a write through the LAN relay using the same reply contract
+   as ATMOS_* commands ({ok, refused}). */
+function relaySend(name, params, cb) {
+  function ack(err, text) {
+    if (err) { if (cb) { try { cb(null); } catch (e) {} } return; }
+    var doc = null;
+    try { doc = JSON.parse(text); } catch (e2) {}
+    if (cb) { try { cb(doc); } catch (e3) {} }
+  }
+  if (name === 'ATMOS_SET_SETTINGS') {
+    var patch = {};
+    try { patch = JSON.parse(params.SETTINGS || '{}'); } catch (e) {}
+    relayRequest('POST', '/settings', { settings: patch }, ack);
+  } else if (name === 'ATMOS_REFRESH') {
+    relayRequest('POST', '/refresh', null, ack);
+  } else if (name === 'ATMOS_SIMULATE') {
+    relayRequest('POST', '/simulate', { scenario: String(params.SCENARIO || '') }, ack);
+  } else if (name === 'ATMOS_GET_STATE') {
+    relayGetState();
+  }
+}
 function sendCommand(name, params, cb) {
   params = params || {};
   if (mockMode) { mockDispatch(name, params, cb); return; }
+  if (relayMode) { relaySend(name, params, cb); return; }
   var ret;
   var sent = false;
   try { ret = window.C4.sendCommand(name, params, true, true); sent = true; }
@@ -696,12 +810,19 @@ function sendCommand(name, params, cb) {
     catch (e2) { sent = false; }
   }
   if (!sent) { if (cb) { try { cb(null); } catch (e3) {} } return; }
-  if (typeof ret === 'string' && ret.length > 0) { handleAny(ret, cb); return; }
-  if (ret && typeof ret === 'object') { handleAny(ret, cb); return; }
+  if (typeof ret === 'string' && ret.length > 0) { handleAny(ret, cb, 'c4'); return; }
+  if (ret && typeof ret === 'object') { handleAny(ret, cb, 'c4'); return; }
   /* async or fire-and-forget: reply may arrive via onDataToUi, or never */
   if (cb) pendingAcks.push({ cb: cb, t: Date.now() });
 }
-function requestState() { sendCommand('ATMOS_GET_STATE', {}, null); }
+function requestState() {
+  if (mockMode) { sendCommand('ATMOS_GET_STATE', {}, null); return; }
+  if (relayMode) { relayGetState(); return; }
+  sendCommand('ATMOS_GET_STATE', {}, null);
+  /* After the initial 4 s probe, keep offering the relay a chance on every
+     poll while the C4 channel stays silent. */
+  if (relayBase !== null && relayProbed && !c4Delivered) relayGetState();
+}
 
 /* ================= state ================= */
 var state = null;
@@ -711,9 +832,11 @@ var appliedDefaultScreen = false;
 var lastSettingsJson = '';
 var refusedWarnings = [];
 
-function applyState(doc) {
+function applyState(doc, src) {
   if (!doc || typeof doc !== 'object') return;
   state = doc;
+  lastStateAtMs = Date.now();
+  if (src === 'c4') c4Delivered = true;
   try { applyTheme(); } catch (e0) {}
   try { Scene.setWeather(); } catch (e1) {}
   try { updateNavBadge(); } catch (e2) {}
@@ -766,8 +889,9 @@ function buildBanners(container) {
     sim.appendChild(sbox);
     container.appendChild(sim);
   }
-  if (state.stale && state.stale.any) {
-    var obsAt = getPath(state, 'current.observed_at') || state.now;
+  if ((state.stale && state.stale.any) || channelDown()) {
+    var obsAt = getPath(state, 'current.observed_at') || state.now ||
+      (lastStateAtMs !== null ? Math.floor(lastStateAtMs / 1000) : null);
     var stale = el('div', 'banner banner-stale');
     stale.appendChild(iconNode('clock'));
     var stbox = el('div');
@@ -1715,6 +1839,8 @@ var SETTINGS_RENDER = {
     tree.appendChild(el('div', 'diag-group', 'Location'));
     line('Office', diag.office); line('Grid', diag.grid); line('Station', diag.station);
     line('Zone', diag.zone); line('Radar', diag.radar_station); line('Time zone', diag.time_zone);
+    tree.appendChild(el('div', 'diag-group', 'Data channel'));
+    line('Source', relayMode ? 'LAN relay (' + relayHost() + ')' : (c4Delivered ? 'Navigator JS API' : (mockMode && state ? 'Embedded mock' : 'none yet')));
     var api = diag.api || {};
     var comps = ['observations', 'forecast', 'alerts', 'points'];
     for (var i = 0; i < comps.length; i++) {
@@ -2181,6 +2307,14 @@ try { initialScreen = window.localStorage.getItem('atmos.screen') || 'now'; } ca
 showScreen(SCREENS_BY_ID[initialScreen] ? initialScreen : 'now', false);
 requestState();
 window.setInterval(requestState, 30000);
+/* Relay fallback probe: if the Navigator JS API has delivered nothing
+   within 4 s of load and relay params were provided, try the LAN relay. */
+if (relayBase !== null && !mockMode) {
+  window.setTimeout(function () {
+    relayProbed = true;
+    if (!c4Delivered) relayGetState();
+  }, 4000);
+}
 window.setInterval(function () {
   updateClock();
   if (activeScreen === 'now' && state) {

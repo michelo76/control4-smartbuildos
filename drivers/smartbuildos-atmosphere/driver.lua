@@ -53,9 +53,14 @@ local settingsstore = require("atmosphere.settingsstore")
 local uistate = require("atmosphere.uistate")
 local units = require("atmosphere.units")
 
+local uirelay = require("atmosphere.uirelay")
+
 local WEBVIEW_BINDING = 5001
 local TEMPERATURE_BINDING = 100
 local HUMIDITY_BINDING = 101
+local UI_RELAY_PORT = 47815
+local UI_RELAY_ID = "atmosphere-ui-relay"
+local P_RELAY_TOKEN = "atmos_relay_token"
 
 -- Persist keys (plain; nothing here is a secret).
 local P_POINTS = "atmos_points"
@@ -150,6 +155,10 @@ gDiag = {
 }
 gUiSubscribed = false
 gNavigateHint = nil -- { screen, at } — a one-shot hint for an open app
+gRelayPort = nil -- LAN state relay: listening port, or nil when stopped
+gRelayToken = nil -- minted once, persisted; rides the web_view_url query
+gRelayBuffers = {} -- per-connection request accumulation (chunked POSTs)
+gPublishedUrl = nil -- last URL_CHANGED value, so the tick can heal it
 
 -- ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -738,13 +747,11 @@ local function buildUiState()
 end
 
 --- Pushes state at the page. C4:SendDataToUI existence is checked at call
---- time (UNCONFIRMED on all OS builds); the page also polls GET_STATE over
---- the JS API, which returns the same document, so push is an optimization,
---- not the contract.
+--- time (UNCONFIRMED on all OS builds). Field-measured 2026-08-31: the JS
+--- API reply channel can deliver NOTHING on real Navigators, so this push
+--- is best-effort and the LAN relay below is the contract. Ungated — a
+--- page we never heard from still deserves the push attempt.
 local function pushUiState()
-  if not gUiSubscribed then
-    return
-  end
   local ok, encoded = pcall(function()
     return JSON:encode(buildUiState())
   end)
@@ -978,11 +985,171 @@ for _, cmd in ipairs({ "ATMOS_GET_STATE", "ATMOS_SET_SETTINGS", "ATMOS_REFRESH",
 end
 UIR.suppressDebug = { ATMOS_GET_STATE = true }
 
+-- ─── LAN state relay ─────────────────────────────────────────────────────────
+--
+-- Field-measured (Doerr touchscreen, 2026-08-31): the app renders but the
+-- JS API delivers no state. The Protect-proven answer: the driver listens on
+-- a controller port; the page fetches plain LAN HTTP. The relay address and
+-- token ride the web_view_url query — the one channel that provably reaches
+-- the page. src/atmosphere/uirelay.lua owns parsing/routing (pure, tested).
+
+--- The controller's LAN address (Protect-measured discovery: a control4_*
+--- device's non-loopback IPv4 network binding).
+local function relayHost()
+  local ok, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not ok or type(devices) ~= "table" then
+    return ""
+  end
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring((type(device) == "table" and device.driverFileName) or "")
+    if id ~= nil and file:find("^control4_") ~= nil then
+      local okB, raw = pcall(function()
+        return C4:GetNetworkBindingsByDevice(id)
+      end)
+      if okB and type(raw) == "table" then
+        for _, binding in ipairs(raw.networkbindings or {}) do
+          local addr = tostring(binding.addr or "")
+          if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
+            return addr
+          end
+        end
+      end
+    end
+  end
+  return ""
+end
+
+local function relayToken()
+  if gRelayToken ~= nil then
+    return gRelayToken
+  end
+  local stored = persist:get(P_RELAY_TOKEN, nil, true)
+  if type(stored) == "string" and #stored >= 16 then
+    gRelayToken = stored
+    return stored
+  end
+  -- Minted from non-secret-but-unguessable local entropy; the token's job is
+  -- keeping casual LAN clients out of settings writes, same posture as the
+  -- Protect webhook token.
+  local seed = string.format("%d|%d|%d|%s", os.time(), os.clock() * 1000000, C4:GetDeviceID(), tostring({}))
+  local ok, hex = pcall(function()
+    return C4:HMAC("SHA256", seed, "atmosphere-relay", { return_encoding = "HEX" })
+  end)
+  local token = ok and type(hex) == "string" and hex:sub(1, 32) or tostring(os.time()) .. tostring(os.clock())
+  gRelayToken = token
+  persist:set(P_RELAY_TOKEN, token, true)
+  return token
+end
+
+local relayProvider = {
+  state = function()
+    return JSON:encode(buildUiState())
+  end,
+  applySettings = function(bodyText)
+    local ok, doc = pcall(function()
+      return JSON:decode(tostring(bodyText))
+    end)
+    if not ok or type(doc) ~= "table" then
+      return nil
+    end
+    local patch = type(doc.settings) == "table" and doc.settings or doc
+    return applySettingsPatch(patch, "webview-relay")
+  end,
+  refresh = function()
+    fetchObservations()
+    fetchForecast()
+    fetchAlerts()
+  end,
+  simulate = function(scenario)
+    if scenario == nil or scenario == "" then
+      stopSimulation("webview-relay")
+      return true
+    end
+    return startSimulation(scenario)
+  end,
+  encode = function(t)
+    return JSON:encode(t)
+  end,
+  decode = function(s)
+    return JSON:decode(tostring(s))
+  end,
+}
+
+function OnServerDataIn(handle, data, _, _, identifier)
+  if identifier ~= nil and identifier ~= UI_RELAY_ID then
+    return
+  end
+  gRelayBuffers[handle] = (gRelayBuffers[handle] or "") .. tostring(data or "")
+  -- 64KB cap: nothing legitimate is bigger; a flood must not grow memory.
+  if #gRelayBuffers[handle] > 64 * 1024 then
+    gRelayBuffers[handle] = nil
+    pcall(function()
+      C4:ServerCloseClient(handle)
+    end)
+    return
+  end
+  local req = uirelay.parse(gRelayBuffers[handle])
+  if req == nil then
+    return -- more chunks coming
+  end
+  gRelayBuffers[handle] = nil
+  local result = uirelay.route(req, relayToken(), relayProvider)
+  pcall(function()
+    C4:ServerSend(handle, uirelay.render(result))
+  end)
+  pcall(function()
+    C4:ServerCloseClient(handle)
+  end)
+end
+
+local function startUiRelay()
+  if gRelayPort ~= nil then
+    return
+  end
+  local ok = pcall(function()
+    C4:CreateServer(UI_RELAY_PORT, "", false, UI_RELAY_ID)
+  end)
+  if ok then
+    gRelayPort = UI_RELAY_PORT
+    log:info("UI relay listening on port %d", UI_RELAY_PORT)
+  else
+    log:warn("UI relay could not listen on port %d - app falls back to JS API only", UI_RELAY_PORT)
+  end
+end
+
+local function stopUiRelay()
+  if gRelayPort ~= nil then
+    pcall(function()
+      C4:DestroyServer(gRelayPort)
+    end)
+    gRelayPort = nil
+  end
+  gRelayBuffers = {}
+end
+
+--- The app URL, carrying the relay endpoint + token when available. The
+--- page reads location.search; if the relay is absent it stays on the JS
+--- API channels alone.
+local function desiredWebViewUrl()
+  local base = "controller://driver/smartbuildos-atmosphere/app/index.html"
+  if gRelayPort == nil then
+    return base
+  end
+  local host = relayHost()
+  if host == "" then
+    return base
+  end
+  return string.format("%s?relay=http%%3A%%2F%%2F%s%%3A%d&k=%s", base, host, gRelayPort, relayToken())
+end
+
 local function publishWebViewUrl(reason)
-  C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", {
-    url = "controller://driver/smartbuildos-atmosphere/app/index.html",
-  })
-  log:debug("WebView URL published (%s)", tostring(reason))
+  local url = desiredWebViewUrl()
+  C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", { url = url })
+  gPublishedUrl = url
+  log:debug("WebView URL published (%s): %s", tostring(reason), url)
 end
 
 -- ─── Actions ──────────────────────────────────────────────────────────────────
@@ -1359,7 +1526,16 @@ function OnDriverLateInit()
   SetTimer(ALERTS_TIMER, (15 + scheduler.jitter(seed .. "a", 30)) * ONE_SECOND, fetchAlerts, false)
   SetTimer(ENGINE_TIMER, ONE_MINUTE, function()
     runEngine("tick")
+    -- Heal the app URL: the relay host can become discoverable after
+    -- startup (bindings settle late on big projects), and the page only
+    -- learns the relay address through the URL.
+    if gPublishedUrl ~= desiredWebViewUrl() then
+      publishWebViewUrl("heal")
+    end
   end, true)
+
+  -- The LAN state relay must exist before the URL that advertises it.
+  startUiRelay()
 
   -- WebView URL: publish now and re-publish after project start (a notify
   -- sent before the project finishes starting is silently lost — measured).
@@ -1372,5 +1548,6 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  stopUiRelay()
   KillAllTimers()
 end
