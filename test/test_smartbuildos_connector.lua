@@ -3029,5 +3029,48 @@ end
 check("the legacy command mirrors through the generic path", legacyPost ~= nil)
 check("defaulting the sku to Atmosphere", legacyPost ~= nil and (legacyPost.data or {}).driver_sku == "SBOS_ATMOSPHERE")
 
+print("\n[N] A platform without the generic route does not dark the mirror")
+reset()
+pair()
+nextGetResponse = { ok = true, code = 200, headers = {}, body = JSON:encode({ v = 1, mode = "CLEAR" }) }
+-- Every POST 404s: the server predates /api/driver-cloud/state.
+nextResponse = { ok = false, code = 404, body = "", error = "not found" }
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_ATMOSPHERE", port = "47815", app_token = "tok", requester = "51", urgent = "true" })
+local triedGeneric, triedLegacy = false, false
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/state", 1, true) then
+    triedGeneric = true
+  end
+  if r.url:find("/api/driver-cloud/atmosphere/state", 1, true) then
+    triedLegacy = true
+  end
+end
+check("the generic route is tried first", triedGeneric)
+check("a 404 falls back to the Atmosphere route", triedLegacy)
+
+-- A sku with no legacy route must NOT retry: there is nothing to retry against.
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_OTHER", port = "47820", app_token = "tok", requester = "52", urgent = "true" })
+local otherLegacy = false
+for _, r in ipairs(requests) do
+  if r.url:find("/atmosphere/state", 1, true) then
+    otherLegacy = true
+  end
+end
+check("another sku does not retry the Atmosphere route", otherLegacy == false)
+
+-- A non-404 failure is not a routing problem; retrying would double the load.
+nextResponse = { ok = false, code = 503, body = "", error = "unavailable" }
+requests = {}
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_ATMOSPHERE", port = "47815", app_token = "tok", requester = "53", urgent = "true" })
+local retriedOn503 = false
+for _, r in ipairs(requests) do
+  if r.url:find("/atmosphere/state", 1, true) then
+    retriedOn503 = true
+  end
+end
+check("a 503 does not trigger the fallback", retriedOn503 == false)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

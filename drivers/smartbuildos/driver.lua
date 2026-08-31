@@ -1991,36 +1991,56 @@ local function mirrorDriverState(tParams, legacy)
       return
     end
     gStateLastPush[sku] = os.time()
-    http
-      :post(
-        driverCloudUrl("state"),
-        { driver_sku = sku, state = state, app_token = token },
-        authHeaders(),
-        { timeout = REQUEST_TIMEOUT }
-      )
-      :next(function(postResp)
-        local okB, body = pcall(function()
-          return JSON:decode(postResp.body)
+    -- The ack a successful post produces, either route.
+    local function announce(postResp)
+      local okB, body = pcall(function()
+        return JSON:decode(postResp.body)
+      end)
+      if not okB or type(body) ~= "table" or body.view_url == nil or requester == nil then
+        return
+      end
+      local ack = {
+        sku = sku,
+        view_url = tostring(body.view_url),
+        view_handle = tostring(body.view_handle or ""),
+      }
+      pcall(function()
+        C4:SendToDevice(requester, "SBOS_DRIVER_STATE_ACK", ack)
+      end)
+      -- A driver that asked with the legacy command is listening for the
+      -- legacy ack name; without this it would mirror successfully and
+      -- still never learn its capability URL.
+      if legacy then
+        pcall(function()
+          C4:SendToDevice(requester, "SBOS_ATMOSPHERE_STATE_ACK", ack)
         end)
-        if okB and type(body) == "table" and body.view_url ~= nil and requester ~= nil then
-          local ack = {
-            sku = sku,
-            view_url = tostring(body.view_url),
-            view_handle = tostring(body.view_handle or ""),
-          }
-          pcall(function()
-            C4:SendToDevice(requester, "SBOS_DRIVER_STATE_ACK", ack)
-          end)
-          -- A driver that asked with the legacy command is listening for the
-          -- legacy ack name; without this it would mirror successfully and
-          -- still never learn its capability URL.
-          if legacy then
-            pcall(function()
-              C4:SendToDevice(requester, "SBOS_ATMOSPHERE_STATE_ACK", ack)
+      end
+    end
+
+    local payload = { driver_sku = sku, state = state, app_token = token }
+    http
+      :post(driverCloudUrl("state"), payload, authHeaders(), { timeout = REQUEST_TIMEOUT })
+      :next(announce, function(err)
+        -- A platform that predates the generic route answers 404. Deploy
+        -- order between this driver and the server is not ours to control
+        -- (a dealer updates drivers whenever, and a rollback can move the
+        -- server backwards), so Atmosphere retries its original route
+        -- rather than going dark. Any other failure is just logged.
+        local code = type(err) == "table" and tonumber(err.code) or nil
+        if code == 404 and sku == "SBOS_ATMOSPHERE" then
+          log:debug("Generic state route absent; falling back to the Atmosphere route")
+          http
+            :post(
+              driverCloudUrl("atmosphere/state"),
+              { state = state, app_token = token },
+              authHeaders(),
+              { timeout = REQUEST_TIMEOUT }
+            )
+            :next(announce, function(err2)
+              log:debug("%s state push failed: %s", sku, tostring(type(err2) == "table" and err2.error or err2))
             end)
-          end
+          return
         end
-      end, function(err)
         log:debug("%s state push failed: %s", sku, tostring(type(err) == "table" and err.error or err))
       end)
   end, function()
