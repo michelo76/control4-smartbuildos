@@ -3072,5 +3072,55 @@ for _, r in ipairs(requests) do
 end
 check("a 503 does not trigger the fallback", retriedOn503 == false)
 
+print("\n[N] Device rosters are a platform capability, not a Protect one")
+reset()
+pair()
+requests = {}
+EC.SBOS_DEVICE_ROSTER({
+  sku = "SBOS_SONOS",
+  source = "sonos",
+  payload = JSON:encode({ { id = "rincon-1", kind = "player", name = "Kitchen", state = "online" } }),
+})
+local sonosPush = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/devices", 1, true) then
+    sonosPush = r
+  end
+end
+check("any driver can forward a roster", sonosPush ~= nil)
+check("filed under the driver's own sku", sonosPush ~= nil and (sonosPush.data or {}).driver_sku == "SBOS_SONOS")
+check("devices mapped", sonosPush ~= nil and #((sonosPush.data or {}).devices or {}) == 1)
+
+-- An unattributed roster must NOT be filed: the platform keys devices by
+-- (controller, sku, external id) and a blank sku would collide with the
+-- next driver's roster.
+requests = {}
+EC.SBOS_DEVICE_ROSTER({ source = "mystery", payload = JSON:encode({ { id = "x", state = "online" } }) })
+local unattributed = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/devices", 1, true) then
+    unattributed = r
+  end
+end
+check("a roster with no sku is refused, not filed blank", unattributed == nil)
+
+-- The legacy Protect command still works and still attributes correctly.
+requests = {}
+EC.SBOS_PROTECT_ROSTER({
+  source = "unifi-protect",
+  payload = JSON:encode({ { id = "cam-1", kind = "cameras", state = "CONNECTED" } }),
+})
+local legacyRoster = nil
+for _, r in ipairs(requests) do
+  if r.url:find("/api/driver-cloud/devices", 1, true) then
+    legacyRoster = r
+  end
+end
+check("the legacy Protect command still forwards", legacyRoster ~= nil)
+check(
+  "still as SBOS_UNIFI_PROTECT",
+  legacyRoster ~= nil and (legacyRoster.data or {}).driver_sku == "SBOS_UNIFI_PROTECT"
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

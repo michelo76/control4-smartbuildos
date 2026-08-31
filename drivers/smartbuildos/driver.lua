@@ -6680,12 +6680,25 @@ end
 --- and-forget — device telemetry must never disrupt licensing or the driver.
 --- @param source string The reporting driver ("unifi-protect").
 --- @param roster table Array of { kind, id, name, mac, state, model, firmware }.
-local function forwardDeviceRoster(source, roster)
+--- Legacy source names, from before drivers sent their own SKU.
+local ROSTER_SOURCE_SKUS = { ["unifi-protect"] = "SBOS_UNIFI_PROTECT" }
+
+local function forwardDeviceRoster(source, roster, sku)
   local url = driverCloudUrl("devices")
   if not url or not isPaired() then
     return
   end
-  local sku = source == "unifi-protect" and "SBOS_UNIFI_PROTECT" or ""
+  sku = tostring(sku or "")
+  if sku == "" then
+    sku = ROSTER_SOURCE_SKUS[tostring(source or "")] or ""
+  end
+  -- No SKU, nowhere to file it: the platform keys devices by (controller,
+  -- sku, external id), so an unattributed roster would collide with the
+  -- next driver's. Refuse loudly rather than write into the wrong bucket.
+  if sku == "" then
+    log:warn("Device roster from '%s' carried no sku - not forwarded", tostring(source or "?"))
+    return
+  end
   local devices = {}
   for _, d in ipairs(roster) do
     if type(d) == "table" and d.id ~= nil then
@@ -6719,18 +6732,43 @@ local function forwardDeviceRoster(source, roster)
   end)
 end
 
-function EC.SBOS_PROTECT_ROSTER(tParams)
+--- Any driver's device roster. The driver names its own SKU, so fleet
+--- device tracking is a platform capability rather than a Protect one.
+--- tParams: sku, source (a human label), payload (JSON array of devices).
+local function receiveDeviceRoster(tParams, legacySku)
   tParams = tParams or {}
   local ok, roster = pcall(function()
     return JSON:decode(tostring(tParams.payload or ""))
   end)
   if not ok or type(roster) ~= "table" then
-    log:warn("SBOS_PROTECT_ROSTER carried an undecodable payload")
+    log:warn("Device roster carried an undecodable payload")
     return
   end
-  persist:set("sbos_protect_roster", { received_at = os.date("%Y-%m-%d %H:%M:%S"), devices = roster })
-  log:info("Protect roster received: %d device(s)", #roster)
-  forwardDeviceRoster(tostring(tParams.source or ""), roster)
+  local source = tostring(tParams.source or "")
+  local sku = tostring(tParams.sku or legacySku or "")
+  -- Kept per source so two drivers' rosters never overwrite each other in
+  -- the support snapshot.
+  local key = "sbos_roster_" .. (source ~= "" and source or sku):lower():gsub("%W", "_")
+  persist:set(key, { received_at = os.date("%Y-%m-%d %H:%M:%S"), sku = sku, devices = roster })
+  log:info("Device roster received from %s: %d device(s)", source ~= "" and source or sku, #roster)
+  forwardDeviceRoster(source, roster, sku)
+end
+
+function EC.SBOS_DEVICE_ROSTER(tParams)
+  receiveDeviceRoster(tParams)
+end
+
+--- Back-compat: the Protect gateway shipped before the generic command.
+function EC.SBOS_PROTECT_ROSTER(tParams)
+  tParams = tParams or {}
+  -- The legacy snapshot key some support tooling reads.
+  local ok, roster = pcall(function()
+    return JSON:decode(tostring(tParams.payload or ""))
+  end)
+  if ok and type(roster) == "table" then
+    persist:set("sbos_protect_roster", { received_at = os.date("%Y-%m-%d %H:%M:%S"), devices = roster })
+  end
+  receiveDeviceRoster(tParams, "SBOS_UNIFI_PROTECT")
 end
 
 --- The Agent-side inventory, for support calls.
