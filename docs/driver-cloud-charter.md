@@ -121,6 +121,14 @@ every licensing mutation lands in an immutable audit trail · RBAC'd
 issuance (`driver_license.issue` etc.) · fail-secure but distinguish
 outage from revocation — a SmartBuildOS outage must never dark a home.
 
+**Repository rule added 2026-09-01:** every standalone Control4 product must
+register through `sbos.license`; child/proxy drivers explicitly inherit their
+licensed suite root, and only the SmartBuildOS Agent is exempt because it is the
+authority. `test/test_driver_license_guard.lua` makes this a build invariant.
+Dependent drivers may make a direct platform request only with an
+Agent-provisioned capability restricted to their controller + SKU + app-token
+installation. They never receive the Agent bearer or signing secret.
+
 ## Success snapshot to build toward
 
 Dealer installs Agent → Account `PAV-004218` + pairing code → paired

@@ -1347,11 +1347,10 @@ function askCloudMirror(urgent)
     return
   end
   -- The SDK owns discovery, the protocol and the steady-state throttle;
-  -- the token and controller address are resolved lazily with the relay, so
-  -- hand both over each time. Hardware proved that the Agent cannot fetch a
-  -- sibling driver's CreateServer listener through 127.0.0.1 on OS 4.2.
+  -- The token is resolved lazily with the relay. The Agent uses it to mint a
+  -- controller+SKU+install scoped capability; this driver then pushes its own
+  -- state over HTTPS, with no inter-driver HTTP fetch.
   mirror.setToken(relayToken())
-  mirror.setRelayHost(relayHost())
   mirror.publish(urgent)
 end
 
@@ -1386,6 +1385,13 @@ end
 --- referenced it earlier would compile as a nil global lookup.)
 function EC.SBOS_DRIVER_STATE_ACK(tParams)
   mirror.onAck(tParams)
+end
+
+--- The Agent's provisioned direct-upload capability. It contains neither the
+--- Agent bearer nor its signing secret and is usable only for this controller,
+--- SKU and app-token installation.
+function EC.SBOS_DRIVER_CLOUD(tParams)
+  mirror.onProvision(tParams)
 end
 
 --- Back-compat: an Agent released before the generic protocol answers with
@@ -1756,8 +1762,7 @@ function OnDriverLateInit()
   gLocation = type(storedLocation) == "table" and storedLocation.lat ~= nil and storedLocation or nil
   mirror.setup({
     sku = "SBOS_ATMOSPHERE",
-    port = UI_RELAY_PORT,
-    path = "/state",
+    state = buildUiState,
     -- The capability URL is what the page needs; persist it and republish
     -- the app URL whenever it changes so a reopened page learns it.
     onView = function(url, handle)

@@ -13,15 +13,17 @@ ______________________________________________________________________
 
 ## 1. What you get for free
 
-A driver in this repo is not just a `.c4z`. It can opt into a platform that
-already exists, one `require` at a time. Every capability below is fail-open — a
-driver that never opts in is not worse off, and a driver that opts in and gets
-no answer keeps working.
+A driver in this repo is not just a `.c4z`. It builds on a platform that already
+exists, one `require` at a time. Licensing is mandatory for every standalone
+Control4 product: suite children explicitly inherit their licensed gateway, and
+only `smartbuildos.c4z` is exempt because it is the licensing authority. The
+guard is executable in `test/test_driver_license_guard.lua`. Runtime uncertainty
+still fails open — a SmartBuildOS outage must never dark a home.
 
 | Capability                                                     | Opt in with                                                                    | Cost                                    | Section                                              |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------- |
 | Licensing / entitlements (status, features, tier, company)     | `require("sbos.license")`                                                      | ~5 lines + 4 XML properties             | [§3](#3-licensing-in-five-lines)                     |
-| Cloud state mirror (your UI state readable off-LAN)            | `require("sbos.mirror")`                                                       | ~5 lines + a LAN JSON route             | [§4](#4-cloud-mirror--remote-settings-in-five-lines) |
+| Cloud state mirror (your UI state readable off-LAN)            | `require("sbos.mirror")`                                                       | ~5 lines + a state-provider function    | [§4](#4-cloud-mirror--remote-settings-in-five-lines) |
 | Remote settings pushed from SmartBuildOS                       | `mirror.onConfig(apply)`                                                       | one `apply(patch) -> refusals` function | [§4](#4-cloud-mirror--remote-settings-in-five-lines) |
 | Self-update from the platform store (or GitHub)                | one line in the Agent                                                          | none in your driver                     | [§5](#5-registering-the-sku)                         |
 | Driver store publishing (STABLE/BETA channels)                 | one `sku_for()` case in CI                                                     | none                                    | [§5](#5-registering-the-sku) · [§7](#7-shipping)     |
@@ -32,11 +34,12 @@ no answer keeps working.
 | Test harness that runs a whole driver with no controller       | `test/c4_shim.lua` + `make test`                                               | one test file                           | [§6](#6-testing)                                     |
 
 The organising idea, from `docs/driver-cloud-charter.md`: **the Agent
-(`smartbuildos.c4z`) is the only driver that holds account credentials and talks
-to the platform.** Your driver never holds a token, never calls SmartBuildOS,
-and never needs to know the API URL. It talks to the Agent over the bindingless
-device path — exact-filename discovery plus `SendToDevice` into the Agent's
-`EC.*` handlers — and the Agent does the rest.
+(`smartbuildos.c4z`) is the only driver that holds account credentials.** A
+dependent driver talks to it over the bindingless device path for licensing and
+provisioning. When a driver needs to upload substantial state, the Agent trades
+its broad bearer for a controller+SKU+installation scoped capability; the
+dependent driver can then call only that upload endpoint. It never receives the
+Agent bearer or per-controller HMAC secret.
 
 ### Health events and telemetry, without an SDK
 
@@ -239,6 +242,10 @@ ______________________________________________________________________
 
 ## 3. Licensing in five lines
 
+This section is required, not an optional integration checklist. A new
+standalone driver that omits `sbos.license` fails the repository guard. Child
+drivers inherit only when the guard names their licensed suite root explicitly.
+
 `src/sbos/license.lua` is the whole client. From a real driver
 (`drivers/bond-bridge/driver.lua:61, 1146, 1440-1448`):
 
@@ -327,33 +334,31 @@ ______________________________________________________________________
 ## 4. Cloud mirror + remote settings in five lines
 
 `src/sbos/mirror.lua` is the companion SDK, same conventions, same fail-open
-posture. It exists because of a measured fact (recorded at `mirror.lua:11-18`):
-a driver-hosted Navigator page can reach its driver over the LAN, but a phone
-off the home network cannot, and the Navigator JS API delivered nothing on real
-hardware. So the driver hands its state to the Agent, the Agent posts it to
-SmartBuildOS, and the page reads it back from a capability URL. The mirror also
-feeds fleet dashboards and sampled history — useful even for a driver with no
-web view.
+posture. A driver-hosted Navigator page can reach its driver over the LAN, but a
+phone off the home network cannot, and the Navigator JS API delivered nothing
+on real hardware. Hardware then proved that the Agent cannot fetch a sibling
+driver's `CreateServer` listener through either loopback or the controller LAN
+address. The durable path is therefore provision-then-push: the licensed Agent
+mints a narrow upload capability and the dependent driver posts its own state.
 
 ```lua
 local mirror = require("sbos.mirror")
 
 mirror.setup({
   sku = "SBOS_X",
-  port = MY_LAN_PORT,
-  path = "/state",
+  state = buildUiState,
   onView = function(url, handle)
     persist:set(P_CLOUD_VIEW, { url = url, handle = handle })
     publishWebViewUrl("cloud-ready")
   end,
 })
+EC.SBOS_DRIVER_CLOUD = mirror.onProvision
 EC.SBOS_DRIVER_STATE_ACK = mirror.onAck
 EC.SBOS_DRIVER_CONFIG = mirror.onConfig(function(patch)
   return applySettingsPatch(patch, "smartbuildos")
 end)
 
-mirror.setToken(myToken)   -- tokens are usually minted lazily with the server
-mirror.setRelayHost(controllerLanAddress) -- 127.0.0.1 hangs on measured OS 4.2 hardware
+mirror.setToken(myToken)   -- minted lazily with the local app relay
 mirror.publish()           -- steady state, throttled to 60 s
 mirror.publish(true)       -- something a remote viewer cares about changed
 ```
@@ -362,15 +367,20 @@ Atmosphere's wiring is at `drivers/smartbuildos-atmosphere/driver.lua:1343-1351`
 (publish), `1382-1392` (acks), `1469-1479` (config), `1752-1770` (setup +
 `restoreView` from persist so a restart advertises the URL immediately).
 
-### What the driver must provide: a LAN JSON state route
+### What the driver must provide: a state-provider function
 
-The Agent fetches your state from **your own server at the controller's private
-LAN address** — same controller, and inter-driver message size limits never
-apply (`drivers/smartbuildos/driver.lua:1955-2019`). OS 4.2 hardware proved that
-an Agent request to another driver's `CreateServer` listener through
-`127.0.0.1` hangs without a callback; current drivers must pass their resolved
-relay address with `mirror.setRelayHost()`. You therefore
-need a `C4:CreateServer` listener with a `GET /state?k=<token>` route.
+`state = buildUiState` returns the same bounded JSON-safe table the app consumes.
+The SDK asks the Agent for `SBOS_DRIVER_CLOUD`; the Agent provisions through its
+paired bearer only when the SKU's entitlement is authorized, and answers with a
+capability cryptographically restricted to this controller, SKU and app token.
+The SDK POSTs the table directly over HTTPS. A 401/403 forgets only that narrow
+credential and asks the Agent to provision again.
+
+The LAN relay remains useful for on-network app reads and writes, but it is no
+longer part of cloud publishing. That separation is intentional: app LAN
+transport can fail without starving fleet state, history or off-LAN reads.
+
+### Optional local app relay
 
 `src/atmosphere/uirelay.lua` is the reference router and is worth copying
 wholesale — it is pure (no `C4`), chunk-safe, and tested:

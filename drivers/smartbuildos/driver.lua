@@ -6128,6 +6128,10 @@ local gEntitlements = {
   backwardsWarned = false,
   clockSkewed = false,
 }
+-- One Agent-authenticated provisioning exchange per SKU at a time. The
+-- dependent driver receives only the resulting controller+SKU+install scoped
+-- upload capability — never this Agent's bearer or HMAC secret.
+local gDriverCloudProvisioning = {}
 
 --- @return string secret The per-controller HMAC secret, "" pre-Phase-5 pairings.
 local function agentSecret()
@@ -6715,6 +6719,77 @@ function EC.SBOS_CHECK_ENTITLEMENT(tParams)
     return
   end
   answerEntitlement(requester, sku)
+end
+
+--- Whether a signed entitlement may receive a direct cloud-state capability.
+--- The provisioning path is deliberately stricter than the driver's local
+--- fail-open behavior: cloud publishing is an additive service, so LEGACY or
+--- uncertain licensing never needs a credential.
+local function cloudProvisioningAllowed(status)
+  return status == "AUTHORIZED_SUBSCRIPTION"
+    or status == "AUTHORIZED_PERPETUAL"
+    or status == "AUTHORIZED_GRACE"
+    or status == "TRIAL"
+end
+
+--- Exchanges the Agent's paired-controller bearer for a capability restricted
+--- to one controller, one catalog SKU and the driver's current app token. The
+--- dependent driver then publishes its own state over outbound HTTPS, avoiding
+--- the inter-driver CreateServer path that hangs on CORE hardware.
+function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
+  tParams = tParams or {}
+  local sku = tostring(tParams.sku or "")
+  local appToken = tostring(tParams.app_token or "")
+  local requester = tonumber(tParams.requester)
+  if sku == "" or appToken == "" or requester == nil or not isPaired() then
+    return
+  end
+  if not cloudProvisioningAllowed(statusForSku(sku).status) then
+    answerEntitlement(requester, sku)
+    return
+  end
+  if gDriverCloudProvisioning[sku] then
+    return
+  end
+  local url = driverCloudUrl("state/provision")
+  if not url then
+    return
+  end
+  gDriverCloudProvisioning[sku] = true
+  http
+    :post(url, { driver_sku = sku, app_token = appToken }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+    :next(function(response)
+      gDriverCloudProvisioning[sku] = nil
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
+      end
+      if
+        type(body) ~= "table"
+        or tostring(body.driver_sku or "") ~= sku
+        or tostring(body.upload_url or ""):find("^https://") == nil
+        or tostring(body.upload_token or ""):find("^sbosdu1%.") == nil
+      then
+        log:warn("Driver Cloud provisioning returned an unusable response for %s", sku)
+        return
+      end
+      SendToDevice(requester, "SBOS_DRIVER_CLOUD", {
+        sku = sku,
+        upload_url = tostring(body.upload_url),
+        upload_token = tostring(body.upload_token),
+      })
+      log:info("Driver Cloud direct upload provisioned for %s (device %d)", sku, requester)
+    end, function(err)
+      gDriverCloudProvisioning[sku] = nil
+      log:debug(
+        "Driver Cloud provisioning failed for %s: %s",
+        sku,
+        tostring(type(err) == "table" and (err.error or err.code) or err)
+      )
+    end)
 end
 
 --- The UniFi Protect Gateway's device roster (name/MAC/state per Protect

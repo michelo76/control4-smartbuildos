@@ -98,16 +98,19 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- **Atmosphere off-LAN state:** the driver now gives the SmartBuildOS Agent its
-  private controller address instead of relying on `127.0.0.1`. CORE 1 hardware
-  on OS 4.2 proved that an Agent request to a sibling driver's `CreateServer`
-  listener hangs over loopback even while the listener works on the LAN. The
-  Agent accepts only private IPv4/CGNAT addresses, preserves loopback for older
-  drivers, redacts the frozen `?k=` capability token from HTTP traces, and the
-  Atmosphere upgrade rotates the token that the field trace exposed. Bench
-  builds now give every packaged driver one shared UTC version stamp, matching
-  CI and preventing either clock skew or a one-second packaging split from
-  confusing Composer upgrades.
+- **Atmosphere off-LAN state:** replaced the Agent-pulls-local-relay path with
+  direct HTTPS publishing from Atmosphere. CORE 1 hardware on OS 4.2 proved an
+  Agent request to a sibling driver's `CreateServer` listener hangs through both
+  loopback and the controller's LAN address. The paired, licensed Agent now
+  provisions a bearer cryptographically restricted to that controller,
+  `SBOS_ATMOSPHERE`, and the app-token installation; Atmosphere never receives
+  the Agent bearer or signing secret. The old pull handler remains for deployed
+  drivers, accepts only private relay addresses, and HTTP traces redact the
+  frozen `?k=` capability token. The Atmosphere upgrade rotates the token the
+  field trace exposed. A new build guard also makes SmartBuildOS licensing
+  mandatory for every standalone Control4 driver, with suite children explicitly
+  inheriting their licensed parent. Bench builds give every package one shared
+  UTC stamp so Composer sees the coordinated upgrade.
 
 ## v20260830.122926 - 2026-08-30
 
