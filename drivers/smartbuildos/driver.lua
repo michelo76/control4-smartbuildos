@@ -566,6 +566,39 @@ local function authHeaders()
   }
 end
 
+--- What Composer calls this PROJECT, or nil.
+---
+--- ⚠ The 2026-08-19 sweep recorded "A DRIVER CANNOT READ THE COMPOSER PROJECT
+--- NAME" and the plumbing for it was removed. That conclusion was wrong, and
+--- it was wrong for a specific reason worth keeping: it asked
+--- GetProjectHierarchy, which starts at the SITE (type 2, "Home" here) and
+--- never shows the type-1 root above it. The docs' own LOCATIONS example does:
+---
+---   <item majorversion="4" ...><id>1</id><name>Miami-Beta</name><type>1</type>
+---
+--- Measured 2026-09-01 on the same controller that produced the "Home" answer.
+--- Note it is "Miami-Beta" while the host name is "Beta-Miami" — two different
+--- names, reversed, which is exactly why one must not be used for the other.
+--- @return string|nil
+local function composerProjectName()
+  local ok, xml = pcall(function()
+    return C4:GetProjectItems("LOCATIONS", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+  end)
+  if not ok or type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  for item in xml:gmatch("<item[^>]*>(.-)</item>") do
+    if item:match("<type>%s*1%s*</type>") then
+      local name = item:match("<name>%s*(.-)%s*</name>")
+      if type(name) == "string" and name ~= "" then
+        return (name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'"):gsub("&amp;", "&"))
+      end
+      return nil
+    end
+  end
+  return nil
+end
+
 --- Collects the controller-level facts sent with every payload.
 --- @return table<string, any> identity
 local function systemIdentity()
@@ -668,6 +701,14 @@ local function send(path, payload, description, onOk, onDelivered)
   end
 
   payload.system = systemIdentity()
+  -- The platform has parsed and displayed `composer_project_ref` since the
+  -- technical inventory shipped, and nothing has ever sent it — the field has
+  -- been blank in every system's inventory because the driver was told the
+  -- project name was unreadable. It is not; see composerProjectName().
+  local projectName = composerProjectName()
+  if projectName ~= nil then
+    payload.technical_metadata = { composer_project_ref = projectName }
+  end
   payload.sent_at = os.time()
 
   log:debug("Sending %s to %s", description, url)
@@ -903,7 +944,10 @@ function projectItemName(id)
   if not ok or type(xml) ~= "string" or xml == "" then
     return nil
   end
-  for item in xml:gmatch("<item>(.-)</item>") do
+  -- `<item[^>]*>` and not a bare `<item>`: the DEVICES filter emits bare tags,
+  -- but LOCATIONS emits `<item majorversion="4" ...>`, and a pattern that only
+  -- matched the bare form silently found nothing there.
+  for item in xml:gmatch("<item[^>]*>(.-)</item>") do
     if tonumber(item:match("<id>%s*(%d+)%s*</id>") or "") == id then
       local name = item:match("<name>%s*(.-)%s*</name>")
       if type(name) == "string" and name ~= "" then
@@ -1684,6 +1728,36 @@ function snapshotUrlFor(device, id)
   return base .. query, nil
 end
 
+--- The controller's own name, from its host name.
+---
+--- MEASURED 2026-09-01 on XDT_CORE1 / OS 4.2.0, the run that settled this:
+---   GetHostname                    Beta-Miami-000FFF9CB2CB
+---   projectItemName(19)            Control4 CORE 1
+---   GetDeviceDisplayName(19)       System Controller
+--- Composer shows this Director as "Beta-Miami". Only the host name carries
+--- it. The project item is the MODEL (its config_data_file is
+--- control4_core1.c4i — the item was never renamed), and GetDeviceDisplayName,
+--- despite being documented as "the name of the device as shown in Composer",
+--- answers with the generic proxy label.
+---
+--- Control4 forms the host name as `<name>-<MAC>`. The MAC suffix is stripped
+--- only when it is exactly twelve hex digits after a dash, so a controller
+--- named "Rack-1" keeps its name rather than being trimmed on a guess.
+--- @return string|nil
+local function controllerName()
+  local ok, host = pcall(function()
+    return C4:GetHostname()
+  end)
+  if not ok or type(host) ~= "string" then
+    return nil
+  end
+  host = host:match("^%s*(.-)%s*$")
+  if host == "" then
+    return nil
+  end
+  return host:match("^(.+)%-%x%x%x%x%x%x%x%x%x%x%x%x$") or host
+end
+
 --- Cached Director identity; see directorIdentity().
 local gDirector = { id = nil, name = nil, at = nil }
 local DIRECTOR_CACHE_SECONDS = 3600
@@ -1772,7 +1846,11 @@ function directorIdentity()
     -- after the project became readable.
     return nil, nil
   end
-  gDirector = { id = id, name = projectItemName(id) or driverName, at = os.time() }
+  -- Host name FIRST: it is the only one of the three that carries what an
+  -- integrator typed. The project item name is the model and the device name
+  -- is the proxy label, so both are kept only as fallbacks for a controller
+  -- whose host name is unreadable or empty.
+  gDirector = { id = id, name = controllerName() or projectItemName(id) or driverName, at = os.time() }
   return gDirector.id, gDirector.name
 end
 
@@ -5096,15 +5174,22 @@ local function diagnose(lines)
   --   GetDeviceData(0,name) nil
   --   hierarchy top         [13]Home(2)
   --
-  -- The only project-level identity reachable is the SITE location, and on
-  -- this project it is named "Home" — the Control4 default, which identifies
-  -- nothing. SmartBuildOS therefore labels a system by CUSTOMER and PROPERTY
-  -- ADDRESS, and its `project_name` plumbing was removed rather than left
-  -- inert.
+  -- ⚠ THAT CONCLUSION WAS WRONG, and the re-run it asked for is what caught
+  -- it. Corrected 2026-09-01 on the same controller:
   --
-  -- Kept, and not deleted, because a negative result is worth exactly as much
-  -- as a positive one and costs a release to rediscover. Re-run it against a
-  -- different OS version before concluding anything has changed.
+  --   GetHostname                    Beta-Miami-000FFF9CB2CB
+  --   GetProjectItems(LOCATIONS)     <id>1</id><name>Miami-Beta</name><type>1</type>
+  --
+  -- Both names are readable. The sweep missed them because it asked
+  -- GetProjectHierarchy, which begins at the SITE (type 2, "Home") and never
+  -- shows the type-1 root above it — so "Home" was the top of the wrong tree,
+  -- not the top of the project. The four methods it tried do not exist at all,
+  -- and four nils from four non-existent methods prove nothing.
+  --
+  -- Kept as a standing probe, because a negative result is worth as much as a
+  -- positive one — but read it as "not found by these means", never as "not
+  -- reachable". Re-run against a different OS version before concluding
+  -- anything has changed.
   --
   -- Deliberately in diagnose() and not surveyTelemetry(): the latter runs
   -- only from the Actions tab in Composer, which is why its project-hierarchy
