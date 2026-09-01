@@ -263,9 +263,23 @@ local UNUSED_CONNECTIONS = {
   },
 }
 
+--- Overrides UNUSED_CONNECTIONS when set, for the Director-IP tests.
+local nextConnections = nil
 function C4:GetNetworkConnections()
   -- Per-CALLER only, which is why the driver no longer uses it for the project.
-  return UNUSED_CONNECTIONS
+  return nextConnections or UNUSED_CONNECTIONS
+end
+
+--- What C4:GetControllerNetworkAddress answers. ⚠ Never observed on real
+--- hardware: the driver runs ON the master controller, so this may well be the
+--- controller's self-reference. Set per-test; nil means "the API is absent",
+--- which is what an older OS looks like.
+local nextControllerAddress = nil
+function C4:GetControllerNetworkAddress()
+  if nextControllerAddress == nil then
+    error("GetControllerNetworkAddress is not available")
+  end
+  return nextControllerAddress
 end
 
 --- The survey's APIs. Deliberately returning empty rather than absent, so the
@@ -629,11 +643,93 @@ nextLocationsXml = ""
 reset()
 EC.SEND_HEARTBEAT()
 check(
-  "an unreadable project name sends no key",
-  ((requests[1] or {}).data or {}).technical_metadata == nil,
-  tostring(((requests[1] or {}).data or {}).technical_metadata)
+  "an unreadable project name sends no composer_project_ref",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).composer_project_ref == nil,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).composer_project_ref)
 )
 nextLocationsXml = savedLocations
+
+-- ── Director IP ─────────────────────────────────────────────────────────────
+--
+-- "Director IP" has been a row in the technical inventory since it shipped and
+-- nothing ever filled it. The trap is that the OBVIOUS answers are loopback:
+-- this driver runs ON the controller, and the Director appears in its own
+-- device inventory as 127.0.0.1 (that is how directorIdentity finds it). The
+-- real address of the first controller is 192.168.1.123 and appears nowhere in
+-- that inventory.
+--
+-- So the rule under test is: report a routable address or report NOTHING.
+-- "Director IP: 127.0.0.1" is worse than a blank row — a blank prompts
+-- somebody to look, a confident wrong answer ends the search.
+local savedConnections, savedAddress = nextConnections, nextControllerAddress
+
+nextControllerAddress = "192.168.1.123"
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "a routable controller address is reported",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).director_ip == "192.168.1.123",
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_ip)
+)
+
+-- ⚠ THE CASE THIS EXISTS FOR. A driver hosted on the controller may be told
+-- the controller is 127.0.0.1. Loopback must never be reported.
+nextControllerAddress = "127.0.0.1"
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "loopback is refused outright",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).director_ip == nil,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_ip)
+)
+
+-- ⚠ REGRESSION: GetNetworkConnections IS NOT A FALLBACK. It is PER-DEVICE, so
+-- "the first routable address in the table" is whatever device happens to sit
+-- there — the default fixture answers 192.168.1.40, an 8-Channel Relay. A
+-- first cut did exactly that and would have printed a relay's address under
+-- "Director IP" on every system. Filtering to the Director's own row does not
+-- save it either: that row is the loopback one.
+nextControllerAddress = "127.0.0.1"
+nextConnections = {
+  { deviceid = 63, name = "Home Controller EA5", type = 1, state = 1, address = "127.0.0.1" },
+  { deviceid = 43, name = "8-Channel Relay", type = 2, state = 1, address = "192.168.1.40" },
+  { deviceid = 216, name = "Driver Properties", type = 5, state = 1, address = "192.168.1.123" },
+}
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "another device's address is never borrowed for the Director",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).director_ip == nil,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_ip)
+)
+
+-- Link-local and the unspecified address are true strings that answer the
+-- wrong question; an octet over 255 is not an address at all.
+for _, bad in ipairs({ "169.254.4.11", "0.0.0.0", "192.168.1.999", "not-an-ip" }) do
+  nextControllerAddress = bad
+  nextConnections = {}
+  reset()
+  EC.SEND_HEARTBEAT()
+  check(
+    string.format("%s is not reported as the Director IP", bad),
+    (((requests[1] or {}).data or {}).technical_metadata or {}).director_ip == nil,
+    tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_ip)
+  )
+end
+
+-- An older OS without the API must report nothing, not throw. The heartbeat
+-- still has to go out: an absent identity API cannot cost a check-in.
+nextControllerAddress = nil
+nextConnections = { { deviceid = 216, type = 5, state = 1, address = "10.0.0.8" } }
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "a missing GetControllerNetworkAddress sends no key and does not throw",
+  #requests == 1 and (((requests[1] or {}).data or {}).technical_metadata or {}).director_ip == nil,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_ip)
+)
+
+nextConnections, nextControllerAddress = savedConnections, savedAddress
 
 print("\n[7] A trailing slash on API URL does not produce a double slash")
 pair()
