@@ -6,9 +6,20 @@ DC_FILENAME = "smartbuildos.c4z"
 DRIVER_GITHUB_REPO = "michelo76/control4-smartbuildos"
 DRIVER_FILENAMES = {
   "smartbuildos.c4z",
-  -- Suite drivers the Agent keeps current (updateAll only touches drivers
-  -- that are actually installed in the project — it never installs new).
+  -- Every driver the store publishes, so an install keeps itself current.
+  -- updateAll only touches drivers ACTUALLY INSTALLED in this project and
+  -- only when the store holds a NEWER build — it never installs a driver a
+  -- dealer did not choose, and a filename with no store package is simply
+  -- skipped. Suite children are listed individually because the update is
+  -- per .c4z file; they share the parent's SKU, not its filename.
   "smartbuildos-atmosphere.c4z",
+  "smartbuildos-mode-composer.c4z",
+  "smartbuildos-mode-button.c4z",
+  "unifi-protect.c4z",
+  "unifi-protect-camera.c4z",
+  "unifi-protect-light.c4z",
+  "unifi-protect-sensor.c4z",
+  "unifi-protect-viewport.c4z",
 }
 --#endif
 

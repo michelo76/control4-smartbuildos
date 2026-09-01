@@ -175,5 +175,52 @@ check(
   "a colon call is back — every argument shifts one place along"
 )
 
+print("\n[9] Everything the store publishes is a driver the Agent keeps current")
+-- The gap this pins: a driver can be published to the store (a sku_for case
+-- in .github/workflows/publish-to-store.yml) and still never update itself,
+-- because the Agent only ever checks the filenames in DRIVER_FILENAMES.
+-- Publishing and updating are two registries, and they drifted apart once —
+-- Protect and Mode Composer shipped builds for weeks that no install ever
+-- picked up.
+local wf = assert(io.open(".github/workflows/publish-to-store.yml", "r"))
+local workflow = wf:read("*a")
+wf:close()
+
+-- Filenames the publish map names, i.e. everything that can reach the store.
+local published = {}
+for line in workflow:gmatch("[^\n]+") do
+  -- Only the case arms inside sku_for(), which are the lines mapping one or
+  -- more *.c4z patterns to a SKU.
+  if line:find("echo SBOS_") then
+    for filename in line:gmatch("([%w%-%.]+%.c4z)") do
+      published[filename] = true
+    end
+  end
+end
+check("the publish map was parsed", next(published) ~= nil, "found no *.c4z cases in sku_for()")
+
+-- Read the list from SOURCE, not from a loaded global: this suite never
+-- executes the driver (see [8]), and a source-level check also catches a
+-- list that is correct only on some --#ifdef branch.
+local listed = {}
+local block = src:match("DRIVER_FILENAMES%s*=%s*{(.-)}")
+check("DRIVER_FILENAMES was found in the source", block ~= nil)
+for filename in tostring(block or ""):gmatch('"([%w%-%.]+%.c4z)"') do
+  listed[filename] = true
+end
+
+local missing = {}
+for filename in pairs(published) do
+  if not listed[filename] then
+    missing[#missing + 1] = filename
+  end
+end
+table.sort(missing)
+check(
+  "no published driver is left out of DRIVER_FILENAMES",
+  #missing == 0,
+  #missing > 0 and ("publishes but never updates: " .. table.concat(missing, ", ")) or nil
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
