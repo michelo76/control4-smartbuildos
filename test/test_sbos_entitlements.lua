@@ -869,13 +869,14 @@ nextResponse = {
   body = JSON:encode({
     driver_sku = "SBOS_ATMOSPHERE",
     upload_url = "https://app.smartbuildos.io/api/driver-cloud/state/direct",
-    upload_token = "sbosdu1.controller.sku.apphash.signature",
+    upload_token = "sbosdu2.controller.sku.apphash.generation.signature",
   }),
 }
 EC.SBOS_DRIVER_CLOUD_REQUEST({
   sku = "SBOS_ATMOSPHERE",
   app_token = "aaaa1111aaaa1111",
   requester = "591",
+  request_id = "Random-12345678-1",
 })
 local provision = lastRequestTo("/api/driver-cloud/state/provision")
 check("the Agent asked the provisioning endpoint", provision ~= nil)
@@ -890,6 +891,28 @@ check(
   "the Agent bearer never rides the inter-driver answer",
   provisioned ~= nil and provisioned.params.upload_token ~= store["device_token"]
 )
+check(
+  "the Agent echoes the one-time response challenge",
+  provisioned ~= nil and provisioned.params.request_id == "Random-12345678-1"
+)
+
+local sentBeforeUntrustedUrl = #deviceSent
+nextResponse = {
+  ok = true,
+  code = 200,
+  body = JSON:encode({
+    driver_sku = "SBOS_ATMOSPHERE",
+    upload_url = "https://attacker.example/collect",
+    upload_token = "sbosdu2.controller.sku.apphash.generation.signature",
+  }),
+}
+EC.SBOS_DRIVER_CLOUD_REQUEST({
+  sku = "SBOS_ATMOSPHERE",
+  app_token = "aaaa1111aaaa1111",
+  requester = "591",
+  request_id = "Random-12345678-untrusted",
+})
+check("the Agent refuses an upload URL outside its configured origin", #deviceSent == sentBeforeUntrustedUrl)
 
 print("\n[26] An unlicensed driver receives no cloud capability")
 reset()
@@ -906,6 +929,7 @@ EC.SBOS_DRIVER_CLOUD_REQUEST({
   sku = "SBOS_ATMOSPHERE",
   app_token = "aaaa1111aaaa1111",
   requester = "591",
+  request_id = "Random-12345678-2",
 })
 check("an unlicensed driver never reaches provisioning", lastRequestTo("/api/driver-cloud/state/provision") == nil)
 check(

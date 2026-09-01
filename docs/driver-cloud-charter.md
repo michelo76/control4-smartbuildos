@@ -127,7 +127,9 @@ licensed suite root, and only the SmartBuildOS Agent is exempt because it is the
 authority. `test/test_driver_license_guard.lua` makes this a build invariant.
 Dependent drivers may make a direct platform request only with an
 Agent-provisioned capability restricted to their controller + SKU + app-token
-installation. They never receive the Agent bearer or signing secret.
+installation and the current revocable capability generation. Provisioning
+answers must echo the dependent driver's one-time request challenge. They never
+receive the Agent bearer or signing secret.
 
 ## Success snapshot to build toward
 

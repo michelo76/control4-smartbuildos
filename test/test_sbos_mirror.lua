@@ -28,6 +28,8 @@ JSON = require("JSON")
 
 local posts = {}
 local nextPostError = nil
+local deferPosts = false
+local pendingPosts = {}
 local nextPostResponse = {
   body = {
     ok = true,
@@ -40,6 +42,10 @@ package.loaded["lib.http"] = {
     posts[#posts + 1] = { url = url, data = data, headers = headers, options = options }
     return {
       next = function(_, resolved, rejected)
+        if deferPosts then
+          pendingPosts[#pendingPosts + 1] = { resolved = resolved, rejected = rejected }
+          return
+        end
         if nextPostError ~= nil then
           rejected(nextPostError)
         else
@@ -75,6 +81,8 @@ local function reset(withAgent)
   sent = {}
   posts = {}
   nextPostError = nil
+  deferPosts = false
+  pendingPosts = {}
   devices = withAgent and { [9] = { driverFileName = "smartbuildos.c4z" } } or {}
 end
 
@@ -100,6 +108,14 @@ check("ask uses the provisioning command", lastSent().command == "SBOS_DRIVER_CL
 check("ask carries sku", lastSent().params.sku == "SBOS_TEST")
 check("ask carries token", lastSent().params.app_token == "tok")
 check("ask identifies the requester", lastSent().params.requester == "55")
+check("ask carries a one-time response challenge", tostring(lastSent().params.request_id or "") ~= "")
+local firstRequestId = lastSent().params.request_id
+local sentBeforeDuplicateAsk = #sent
+check("an outstanding provisioning challenge is not replaced", mirror.publish(true) == false)
+check(
+  "only one request is sent while provisioning is outstanding",
+  #sent == sentBeforeDuplicateAsk and lastSent().params.request_id == firstRequestId
+)
 
 reset(true)
 devices[9] = { driverFileName = "smartbuildos.c4i" }
@@ -121,7 +137,7 @@ reset(true)
 mirror.setup({ sku = "SBOS_TEST", token = "tok", state = uiState })
 check("first steady-state ask sends", mirror.publish(false) == true)
 check("second steady-state ask is throttled", mirror.publish(false) == false)
-check("urgent bypasses the throttle", mirror.publish(true) == true)
+check("urgent does not replace an outstanding provisioning ask", mirror.publish(true) == false)
 check("throttle window is a minute", mirror.THROTTLE_SECONDS == 60)
 
 reset(true)
@@ -141,22 +157,35 @@ mirror.setup({
   end,
 })
 mirror.publish(true)
+local requestId = lastSent().params.request_id
 mirror.onProvision({
   sku = "SBOS_OTHER",
   upload_url = "https://app.example/api/driver-cloud/state/direct",
-  upload_token = "sbosdu1.wrong",
+  upload_token = "sbosdu2.wrong",
+  request_id = requestId,
 })
 check("provisioning for another sku is ignored", #posts == 0)
 mirror.onProvision({
   sku = "SBOS_TEST",
+  upload_url = "https://attacker.example/collect",
+  upload_token = "sbosdu2.controller.sku.hash.generation.signature",
+  request_id = "a-different-request",
+})
+check("an unsolicited sibling response is ignored", #posts == 0)
+mirror.onProvision({
+  sku = "SBOS_TEST",
   upload_url = "http://insecure.example/state",
-  upload_token = "sbosdu1.bad",
+  upload_token = "sbosdu2.bad",
+  request_id = requestId,
 })
 check("an insecure upload URL is refused", #posts == 0)
+mirror.publish(true)
+requestId = lastSent().params.request_id
 mirror.onProvision({
   sku = "SBOS_TEST",
   upload_url = "https://app.example/api/driver-cloud/state/direct",
-  upload_token = "sbosdu1.controller.sku.hash.signature",
+  upload_token = "sbosdu2.controller.sku.hash.generation.signature",
+  request_id = requestId,
 })
 check("provisioning triggers a direct HTTPS push", #posts == 1)
 check("direct push carries the state table", posts[1].data.state.mode == "CLEAR")
@@ -164,10 +193,29 @@ check("direct push carries the sku", posts[1].data.driver_sku == "SBOS_TEST")
 check("direct push binds the app token", posts[1].data.app_token == "abcdefghijklmnop")
 check(
   "direct push uses only the scoped bearer",
-  posts[1].headers.Authorization == "Bearer sbosdu1.controller.sku.hash.signature"
+  posts[1].headers.Authorization == "Bearer sbosdu2.controller.sku.hash.generation.signature"
 )
 check("successful direct push stores the capability read URL", mirror.viewUrl() == nextPostResponse.body.view_url)
 check("successful direct push fires onView", #directViews == 1)
+
+-- A transition that lands while an older document is uploading must be
+-- sampled and sent immediately after that request settles.
+reset(true)
+mirror.setup({ sku = "SBOS_TEST", token = "abcdefghijklmnop", state = uiState })
+mirror.publish(true)
+requestId = lastSent().params.request_id
+deferPosts = true
+mirror.onProvision({
+  sku = "SBOS_TEST",
+  upload_url = "https://app.example/api/driver-cloud/state/direct",
+  upload_token = "sbosdu2.controller.sku.hash.generation.signature",
+  request_id = requestId,
+})
+check("the first direct upload is in flight", #posts == 1 and #pendingPosts == 1)
+mirror.publish(true)
+check("an urgent change waits behind the in-flight upload", #posts == 1)
+pendingPosts[1].resolved(nextPostResponse)
+check("the queued urgent change uploads as soon as the first settles", #posts == 2)
 
 -- ─── ack ──────────────────────────────────────────────────────────────────────
 

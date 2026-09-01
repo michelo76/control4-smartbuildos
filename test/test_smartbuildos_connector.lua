@@ -2933,6 +2933,10 @@ check("an unpaired agent forwards no devices", lastRequestToPlain("/api/driver-c
 print("\n[N] Generic cloud state mirror: any driver, per-SKU")
 reset()
 pair()
+-- The relay address is accepted only because Director reports it on the
+-- Control4 controller itself. Restore the normal fixture after this case.
+local originalControllerAddr = BINDINGS[63].addr
+BINDINGS[63].addr = "192.168.1.123"
 -- The local fetch and the platform POST both ride the faked transport; the
 -- mirror asks for the driver's state on the controller's reachable LAN
 -- address, then posts it.
@@ -2978,6 +2982,7 @@ check("the local fetch carries the driver's token", localFetch ~= nil and localF
 check("state is posted to the generic route", cloudPost ~= nil)
 check("the post carries the sku", cloudPost ~= nil and (cloudPost.data or {}).driver_sku == "SBOS_TEST")
 check("the post is token-authed", cloudPost ~= nil and (cloudPost.headers or {})["Authorization"] ~= nil)
+BINDINGS[63].addr = originalControllerAddr
 
 -- Compatibility and SSRF guard: an older driver with no host, or a driver
 -- presenting a public host, may only make the Agent fetch loopback.
@@ -3004,6 +3009,24 @@ check(
 check(
   "a public relay host never reaches the requested address",
   guardedFetch ~= nil and guardedFetch.url:find("8.8.8.8", 1, true) == nil
+)
+
+getCount = #getRequests
+EC.SBOS_DRIVER_STATE({
+  sku = "SBOS_PRIVATE_ATTACK",
+  port = "47825",
+  relay_host = "192.168.1.50",
+  app_token = "tok5",
+  requester = "35",
+})
+local privateGuardedFetch = getRequests[getCount + 1]
+check(
+  "an arbitrary private host not owned by the controller is refused",
+  privateGuardedFetch ~= nil and privateGuardedFetch.url:find("127.0.0.1:47825", 1, true) ~= nil
+)
+check(
+  "the private target never reaches the requested address",
+  privateGuardedFetch ~= nil and privateGuardedFetch.url:find("192.168.1.50", 1, true) == nil
 )
 
 -- Per-SKU throttle: a second driver must not spend the first one's budget.

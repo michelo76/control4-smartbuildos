@@ -1994,6 +1994,56 @@ local function privateRelayHost(value)
   return nil
 end
 
+--- Accept a LAN relay address only when Director reports that exact address
+--- on a Control4 controller device. Merely being RFC1918 is insufficient: a
+--- sibling driver could otherwise turn the legacy command into an Agent-side
+--- fetch of any router, NAS, or service on the customer's LAN.
+local function controllerRelayHost(value)
+  local wanted = privateRelayHost(value)
+  if wanted == nil then
+    return nil
+  end
+  if wanted == "127.0.0.1" then
+    return wanted
+  end
+  local function containsAddress(node, depth, seen)
+    if type(node) ~= "table" or depth > 6 or seen[node] then
+      return false
+    end
+    seen[node] = true
+    if privateRelayHost(node.addr) == wanted then
+      return true
+    end
+    for _, child in pairs(node) do
+      if type(child) == "table" and containsAddress(child, depth + 1, seen) then
+        return true
+      end
+    end
+    return false
+  end
+  local okDevices, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not okDevices or type(devices) ~= "table" then
+    return nil
+  end
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring(type(device) == "table" and device.driverFileName or "")
+    if id ~= nil and file:find("^control4_") ~= nil then
+      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
+        local okBindings, bindings = pcall(function()
+          return C4[api](C4, id)
+        end)
+        if okBindings and containsAddress(bindings, 0, {}) then
+          return wanted
+        end
+      end
+    end
+  end
+  return nil
+end
+
 local function mirrorDriverState(tParams, legacy)
   tParams = tParams or {}
   local sku = tostring(tParams.sku or "")
@@ -2020,7 +2070,7 @@ local function mirrorDriverState(tParams, legacy)
   -- private controller address its Navigator app already uses successfully.
   -- Reject public/malformed addresses so this inter-driver command cannot be
   -- turned into an arbitrary Agent-side HTTP request.
-  local relayHost = privateRelayHost(tParams.relay_host) or "127.0.0.1"
+  local relayHost = controllerRelayHost(tParams.relay_host) or "127.0.0.1"
   local localUrl = string.format("http://%s:%d%s?k=%s", relayHost, port, path, token)
   log:debug("%s state fetch from %s:%d%s", sku, relayHost, port, path)
   http:get(localUrl, {}, { timeout = 10 }):next(function(resp)
@@ -6741,7 +6791,16 @@ function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
   local sku = tostring(tParams.sku or "")
   local appToken = tostring(tParams.app_token or "")
   local requester = tonumber(tParams.requester)
-  if sku == "" or appToken == "" or requester == nil or not isPaired() then
+  local requestId = tostring(tParams.request_id or "")
+  if
+    sku == ""
+    or appToken == ""
+    or requester == nil
+    or #requestId < 8
+    or #requestId > 128
+    or requestId:find("^[%w%-]+$") == nil
+    or not isPaired()
+  then
     return
   end
   if not cloudProvisioningAllowed(statusForSku(sku).status) then
@@ -6770,8 +6829,8 @@ function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
       if
         type(body) ~= "table"
         or tostring(body.driver_sku or "") ~= sku
-        or tostring(body.upload_url or ""):find("^https://") == nil
-        or tostring(body.upload_token or ""):find("^sbosdu1%.") == nil
+        or tostring(body.upload_url or "") ~= tostring(driverCloudUrl("state/direct") or "")
+        or tostring(body.upload_token or ""):find("^sbosdu2%.") == nil
       then
         log:warn("Driver Cloud provisioning returned an unusable response for %s", sku)
         return
@@ -6780,6 +6839,7 @@ function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
         sku = sku,
         upload_url = tostring(body.upload_url),
         upload_token = tostring(body.upload_token),
+        request_id = requestId,
       })
       log:info("Driver Cloud direct upload provisioned for %s (device %d)", sku, requester)
     end, function(err)

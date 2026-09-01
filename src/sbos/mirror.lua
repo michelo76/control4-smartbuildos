@@ -55,6 +55,8 @@ local state = {
   stateProvider = nil,
   cloud = nil, -- { url, token }
   inFlight = false,
+  pendingPublish = false,
+  pendingProvision = nil, -- { id, expires }
   lastAsk = 0,
   view = nil, -- { url, handle }
   onView = nil,
@@ -100,6 +102,8 @@ function M.setup(opts)
   state.stateProvider = type(opts.state) == "function" and opts.state or nil
   state.cloud = nil
   state.inFlight = false
+  state.pendingPublish = false
+  state.pendingProvision = nil
   state.onView = type(opts.onView) == "function" and opts.onView or nil
   state.lastAsk = 0
 end
@@ -144,17 +148,36 @@ local function acceptView(url, handle)
 end
 
 local function requestProvision(agent)
-  return pcall(function()
+  if state.pendingProvision ~= nil and os.time() <= state.pendingProvision.expires then
+    return false
+  end
+  local okNonce, requestId = pcall(function()
+    return tostring(C4:UUID("Random"))
+  end)
+  if not okNonce or requestId == "" then
+    return false
+  end
+  state.pendingProvision = { id = requestId, expires = os.time() + 60 }
+  local okSend = pcall(function()
     C4:SendToDevice(agent, "SBOS_DRIVER_CLOUD_REQUEST", {
       sku = state.sku,
       app_token = state.token,
       requester = tostring(C4:GetDeviceID()),
+      request_id = requestId,
     })
   end)
+  if not okSend then
+    state.pendingProvision = nil
+  end
+  return okSend
 end
 
 local function publishDirect()
-  if state.inFlight or state.cloud == nil then
+  if state.inFlight then
+    state.pendingPublish = true
+    return false
+  end
+  if state.cloud == nil then
     return false
   end
   local okState, document = pcall(state.stateProvider)
@@ -182,6 +205,10 @@ local function publishDirect()
       if type(body) == "table" and body.ok == true then
         acceptView(body.view_url, body.view_handle)
       end
+      if state.pendingPublish then
+        state.pendingPublish = false
+        M.publish(true)
+      end
     end, function(err)
       state.inFlight = false
       local code = tonumber(type(err) == "table" and err.code or nil)
@@ -192,6 +219,10 @@ local function publishDirect()
         state.cloud = nil
       end
       log:debug("Cloud mirror direct push failed for %s", state.sku)
+      if state.pendingPublish then
+        state.pendingPublish = false
+        M.publish(true)
+      end
     end)
   return true
 end
@@ -226,9 +257,17 @@ function M.onProvision(tParams)
   if tostring(tParams.sku or "") ~= state.sku then
     return
   end
+  local pending = state.pendingProvision
+  if pending == nil or os.time() > pending.expires or tostring(tParams.request_id or "") ~= pending.id then
+    return
+  end
+  -- A matching one-time challenge proves this is the answer to our private
+  -- SendToDevice request to the discovered Agent, rather than an unsolicited
+  -- EC message from another installed driver.
+  state.pendingProvision = nil
   local url = tostring(tParams.upload_url or "")
   local token = tostring(tParams.upload_token or "")
-  if url:find("^https://") == nil or token:find("^sbosdu1%.") == nil then
+  if url:find("^https://") == nil or token:find("^sbosdu2%.") == nil then
     return
   end
   state.cloud = { url = url, token = token }
@@ -332,6 +371,8 @@ function M._reset()
     stateProvider = nil,
     cloud = nil,
     inFlight = false,
+    pendingPublish = false,
+    pendingProvision = nil,
     lastAsk = 0,
     view = nil,
     onView = nil,

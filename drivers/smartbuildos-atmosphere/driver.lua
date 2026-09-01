@@ -1343,9 +1343,6 @@ end
 --- Global on purpose: called from runEngine, which is defined earlier in
 --- the file than this section's locals.
 function askCloudMirror(urgent)
-  if gRelayPort == nil then
-    return
-  end
   -- The SDK owns discovery, the protocol and the steady-state throttle;
   -- The token is resolved lazily with the relay. The Agent uses it to mint a
   -- controller+SKU+install scoped capability; this driver then pushes its own

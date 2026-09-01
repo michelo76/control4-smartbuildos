@@ -71,14 +71,16 @@ driver's UI state is mirrored to SmartBuildOS and the app reads it back as a
 read-only channel. End to end:
 
 1. **Driver → Agent (provisioning ask).** Atmosphere sends
-   `SBOS_DRIVER_CLOUD_REQUEST {sku, app_token, requester}` over the bindingless
+   `SBOS_DRIVER_CLOUD_REQUEST {sku, app_token, requester, request_id}` over the bindingless
    device path. The Agent answers only for an authorized subscription,
-   perpetual, grace or trial entitlement.
+   perpetual, grace or trial entitlement. Atmosphere accepts only the answer
+   that echoes its outstanding one-time `request_id`.
 1. **Agent → platform (credential exchange).** Using its paired-controller
    bearer, the Agent calls `/api/driver-cloud/state/provision`. The response is
    a narrow upload bearer HMAC-bound to controller + `SBOS_ATMOSPHERE` + this
-   installation's app token. The main Agent bearer and per-controller signing
-   secret never leave `smartbuildos.c4z`.
+   installation's app token and the current server-side generation. A reinstall
+   rotates that generation and revokes prior upload bearers. The main Agent
+   bearer and per-controller signing secret never leave `smartbuildos.c4z`.
 1. **Atmosphere → platform (direct HTTPS push).** The Agent forwards the narrow
    bearer as `SBOS_DRIVER_CLOUD`; Atmosphere then POSTs
    `{driver_sku, state, app_token}` directly to
@@ -86,6 +88,8 @@ read-only channel. End to end:
    field hardware proved that an Agent request to a sibling driver's
    `CreateServer` listener hangs through both loopback and the controller LAN
    address.
+   A LAN relay bind failure does not disable this direct path, and state changes
+   arriving during a POST are queued for an immediate follow-up upload.
 1. **Capability read becomes ready.** The direct push answers with `view_url`
    and the controller's `SBOS-XXXXXX` support id. Atmosphere adds `cloud=` +
    `cid=` to the app URL alongside its independent LAN relay pointer.

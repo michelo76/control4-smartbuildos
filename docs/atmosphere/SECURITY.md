@@ -14,7 +14,7 @@ one self-minted token.
 | Navigator WebView page                                                             | Driver-hosted, but its inputs (NWS text) are untrusted; its settings writes are validated like anyone else's                           |
 | LAN relay clients (port 47815)                                                     | Untrusted network peers: token-gated, chunk-capped, routed through the same validators as every other write path                       |
 | SmartBuildOS Agent channel                                                         | Authenticated at pairing (platform side); the driver still validates every settings field — the schema is the contract, not the sender |
-| Driver-scoped cloud upload                                                         | Agent-provisioned HMAC bearer bound to controller + SKU + app token; HTTPS only; cannot act as the Agent                               |
+| Driver-scoped cloud upload                                                         | Agent-provisioned HMAC bearer bound to controller + SKU + app token + current generation; HTTPS only; cannot act as the Agent          |
 | Composer / programming                                                             | Trusted operator surface                                                                                                               |
 
 ## No secrets in the weather path
@@ -25,6 +25,8 @@ on the controller belong to the SmartBuildOS Agent (its existing model:
 per-controller HMAC secret in encrypted persist); this driver never sees them.
 It receives only a narrow state-upload capability that cannot be widened to
 another controller, SKU or app-token installation.
+The answer must also echo a one-time request challenge known only to Atmosphere
+and the Agent, so an unsolicited sibling-driver EC message is ignored.
 
 The integration test asserts the WebView document contains no `token`/`secret`
 strings — a tripwire, not the whole defense.
@@ -61,7 +63,9 @@ cloud mirror's public read.
   failed read — malformed params, unknown support id, no stored hash, wrong
   token — answers a uniform 404, so the public endpoint cannot probe which
   installs exist.
-- **Revocation.** Revoking the controller's pairing kills the cloud capability
+- **Revocation.** Reinstalling or rotating the app token replaces the current
+  server-side capability generation, so every older upload bearer is refused.
+  Revoking the controller's pairing also kills the cloud capability
   (the read 404s; the row is kept, never deleted). Mirrors older than 24 h are
   refused — a dead controller's last state does not get presented as current
   weather. On the LAN, clearing the driver's persist re-mints the token and the

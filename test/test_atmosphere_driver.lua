@@ -433,6 +433,12 @@ check("OnDriverInit runs", okInit, initErr)
 local okLate, lateErr = pcall(OnDriverLateInit)
 check("OnDriverLateInit runs", okLate, lateErr)
 
+-- Direct cloud mirroring must remain configured even when the optional LAN
+-- relay cannot bind its port.
+gRelayPort = nil
+askCloudMirror(true)
+check("cloud mirror does not depend on the LAN relay listener", require("sbos.mirror").isConfigured() == true)
+
 -- ─── Startup chain assertions ─────────────────────────────────────────────────
 
 check("driver reports Online", Properties["Driver Status"] == "Online")

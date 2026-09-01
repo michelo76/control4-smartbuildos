@@ -373,8 +373,12 @@ Atmosphere's wiring is at `drivers/smartbuildos-atmosphere/driver.lua:1343-1351`
 The SDK asks the Agent for `SBOS_DRIVER_CLOUD`; the Agent provisions through its
 paired bearer only when the SKU's entitlement is authorized, and answers with a
 capability cryptographically restricted to this controller, SKU and app token.
-The SDK POSTs the table directly over HTTPS. A 401/403 forgets only that narrow
-credential and asks the Agent to provision again.
+Every provisioning ask carries a one-time challenge; the SDK accepts only the
+matching Agent answer. Reprovisioning rotates a server-side generation, so an
+older bearer stops authorizing immediately. The SDK POSTs the table directly
+over HTTPS, queues a transition that arrives while an upload is in flight, and
+sends the latest state when that request settles. A 401/403 forgets only that
+narrow credential and asks the Agent to provision again.
 
 The LAN relay remains useful for on-network app reads and writes, but it is no
 longer part of cloud publishing. That separation is intentional: app LAN
