@@ -353,6 +353,7 @@ EC.SBOS_DRIVER_CONFIG = mirror.onConfig(function(patch)
 end)
 
 mirror.setToken(myToken)   -- tokens are usually minted lazily with the server
+mirror.setRelayHost(controllerLanAddress) -- 127.0.0.1 hangs on measured OS 4.2 hardware
 mirror.publish()           -- steady state, throttled to 60 s
 mirror.publish(true)       -- something a remote viewer cares about changed
 ```
@@ -363,9 +364,12 @@ Atmosphere's wiring is at `drivers/smartbuildos-atmosphere/driver.lua:1343-1351`
 
 ### What the driver must provide: a LAN JSON state route
 
-The Agent fetches your state from **your own server over loopback** — same
-controller, so nothing sensitive crosses a wire and inter-driver message size
-limits never apply (`drivers/smartbuildos/driver.lua:1955-1985`). You therefore
+The Agent fetches your state from **your own server at the controller's private
+LAN address** — same controller, and inter-driver message size limits never
+apply (`drivers/smartbuildos/driver.lua:1955-2019`). OS 4.2 hardware proved that
+an Agent request to another driver's `CreateServer` listener through
+`127.0.0.1` hangs without a callback; current drivers must pass their resolved
+relay address with `mirror.setRelayHost()`. You therefore
 need a `C4:CreateServer` listener with a `GET /state?k=<token>` route.
 
 `src/atmosphere/uirelay.lua` is the reference router and is worth copying

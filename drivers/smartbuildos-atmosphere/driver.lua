@@ -64,7 +64,9 @@ local TEMPERATURE_BINDING = 100
 local HUMIDITY_BINDING = 101
 local UI_RELAY_PORT = 47815
 local UI_RELAY_ID = "atmosphere-ui-relay"
-local P_RELAY_TOKEN = "atmos_relay_token"
+-- v2 rotates the original token once. Hardware diagnosis exposed v1 in an
+-- Agent TRACE URL before the HTTP redactor learned the frozen `?k=` shape.
+local P_RELAY_TOKEN = "atmos_relay_token_v2"
 local P_CLOUD_VIEW = "atmos_cloud_view"
 
 -- Persist keys (plain; nothing here is a secret).
@@ -1345,8 +1347,11 @@ function askCloudMirror(urgent)
     return
   end
   -- The SDK owns discovery, the protocol and the steady-state throttle;
-  -- the token is minted lazily with the relay, so hand it over each time.
+  -- the token and controller address are resolved lazily with the relay, so
+  -- hand both over each time. Hardware proved that the Agent cannot fetch a
+  -- sibling driver's CreateServer listener through 127.0.0.1 on OS 4.2.
   mirror.setToken(relayToken())
+  mirror.setRelayHost(relayHost())
   mirror.publish(urgent)
 end
 

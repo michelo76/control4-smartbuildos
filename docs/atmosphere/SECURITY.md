@@ -35,7 +35,10 @@ cloud mirror's public read.
 
 - **Minting.** 32 hex chars from `C4:HMAC("SHA256", …)` over local entropy
   (time, clock, device id, a table address). The seed is not secret; the output
-  is unguessable. Minted once, stored in encrypted persist.
+  is unguessable. Minted once, stored in encrypted persist. The 2026-09-01
+  relay-host fix rotates the token once because the prior Agent TRACE path
+  logged the frozen short `?k=` query key before the HTTP redactor recognized
+  it.
 - **Posture.** The token's job is keeping casual LAN clients out of the state
   read and the settings writes — the same posture as the Protect webhook token.
   It is a LAN-boundary credential, not a platform credential: anyone who can
@@ -45,12 +48,13 @@ cloud mirror's public read.
   (`?k=`) because that is the only channel proven to reach the page on real
   Navigators. Consequences handled: the page keeps it in memory only (never
   localStorage), scrubs it from every console line, and shows only host:port in
-  diagnostics; the driver redacts it from logs and Print Diagnostics
-  (`k=[token]`).
+  diagnostics; both drivers redact it from logs and Print Diagnostics
+  (`k=[token]` / `k=***REDACTED***`).
 - **`/ping` is tokenless** so the page can probe reachability without leaking
   anything; every other route 403s on a missing or wrong token.
 - **Hashed at rest in the cloud.** When the cloud mirror is active the token
-  travels driver → Agent over localhost only, then inside TLS to the platform,
+  travels driver → Agent over the controller's private LAN address, then inside
+  TLS to the platform,
   which stores **only its SHA-256 hash** and compares in constant time. Every
   failed read — malformed params, unknown support id, no stored hash, wrong
   token — answers a uniform 404, so the public endpoint cannot probe which

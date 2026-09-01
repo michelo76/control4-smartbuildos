@@ -133,12 +133,15 @@ update-xml: update-xml-version update-xml-modified ## Stamp version + modified i
 # has already cost a round trip during a probe cycle.
 #
 # Still monotonic as a decimal: .2224 < .222430 < .222459 < .230000, so builds
-# stamped by the old format stay older than everything after it.
+# stamped by the old format stay older than everything after it. UTC is
+# mandatory: GitHub's runner stamps UTC, and a local build in a western time
+# zone otherwise looks older than a release created hours earlier by the clock.
 update-xml-version: $(VENV_STAMP)
-	@for build in $(DISTRIBUTIONS); do \
+	@version_stamp="$$(date -u +'%Y%m%d.%H%M%S')"; \
+	for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
 			$(VENV_PY) tools/package.py xml-set \
-				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d.%H%M%S')"; \
+				"$${driver_dir}driver.xml" version "$$version_stamp"; \
 		done; \
 	done
 

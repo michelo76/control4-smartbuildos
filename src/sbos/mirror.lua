@@ -25,6 +25,7 @@
 --- Usage from a driver:
 ---   local mirror = require("sbos.mirror")
 ---   mirror.setup({ sku = "SBOS_UNIFI_PROTECT", port = 47820, path = "/state" })
+---   mirror.setRelayHost("192.168.1.20")          -- controller LAN address
 ---   EC.SBOS_DRIVER_STATE_ACK = mirror.onAck        -- where to read it back
 ---   EC.SBOS_DRIVER_CONFIG = mirror.onConfig(apply) -- remote settings
 ---   mirror.publish()          -- steady state, throttled
@@ -44,6 +45,7 @@ local state = {
   port = nil,
   path = "/state",
   token = nil,
+  relayHost = nil,
   lastAsk = 0,
   view = nil, -- { url, handle }
   onView = nil,
@@ -75,6 +77,7 @@ end
 ---   port   (required) the driver's own LAN state server port
 ---   path   optional state route on that server (default "/state")
 ---   token  optional shared token the Agent must present to that route
+---   relayHost optional controller LAN address the Agent can use to reach it
 ---   onView optional callback(url, handle) when the capability URL arrives
 --- }
 function M.setup(opts)
@@ -83,6 +86,7 @@ function M.setup(opts)
   state.port = tonumber(opts.port)
   state.path = tostring(opts.path or "/state")
   state.token = opts.token ~= nil and tostring(opts.token) or nil
+  state.relayHost = opts.relayHost ~= nil and tostring(opts.relayHost) or nil
   state.onView = type(opts.onView) == "function" and opts.onView or nil
   state.lastAsk = 0
 end
@@ -91,6 +95,15 @@ end
 --- the token is created lazily with the state server).
 function M.setToken(token)
   state.token = token ~= nil and tostring(token) or nil
+end
+
+--- Supplies the controller's reachable LAN address after setup. Control4 OS
+--- 4.2 was measured hanging forever when the Agent fetched another driver's
+--- CreateServer listener through 127.0.0.1, even though the same listener was
+--- healthy on the controller's LAN address. The Agent validates this value as
+--- a private IPv4 address before using it.
+function M.setRelayHost(host)
+  state.relayHost = host ~= nil and tostring(host) or nil
 end
 
 function M.isConfigured()
@@ -119,6 +132,7 @@ function M.publish(urgent)
       sku = state.sku,
       port = tostring(state.port),
       path = state.path,
+      relay_host = state.relayHost,
       app_token = state.token,
       requester = tostring(C4:GetDeviceID()),
       urgent = urgent and "true" or "false",
@@ -228,7 +242,16 @@ end
 
 --- Test hook: forgets all SDK state.
 function M._reset()
-  state = { sku = nil, port = nil, path = "/state", token = nil, lastAsk = 0, view = nil, onView = nil }
+  state = {
+    sku = nil,
+    port = nil,
+    path = "/state",
+    token = nil,
+    relayHost = nil,
+    lastAsk = 0,
+    view = nil,
+    onView = nil,
+  }
 end
 
 return M

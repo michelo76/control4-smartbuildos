@@ -96,6 +96,19 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   right tab. Devices with SetHSV derive the color child automatically; plain
   lights keep the simpler driver.
 
+### Fixed
+
+- **Atmosphere off-LAN state:** the driver now gives the SmartBuildOS Agent its
+  private controller address instead of relying on `127.0.0.1`. CORE 1 hardware
+  on OS 4.2 proved that an Agent request to a sibling driver's `CreateServer`
+  listener hangs over loopback even while the listener works on the LAN. The
+  Agent accepts only private IPv4/CGNAT addresses, preserves loopback for older
+  drivers, redacts the frozen `?k=` capability token from HTTP traces, and the
+  Atmosphere upgrade rotates the token that the field trace exposed. Bench
+  builds now give every packaged driver one shared UTC version stamp, matching
+  CI and preventing either clock skew or a one-second packaging split from
+  confusing Composer upgrades.
+
 ## v20260830.122926 - 2026-08-30
 
 ### Added

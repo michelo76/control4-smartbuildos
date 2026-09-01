@@ -150,6 +150,11 @@ do
   out = redact(url)
   check("URL query token masked", not contains(out, "tok_live_1"), out)
   check("URL path preserved", contains(out, "example.com/api"), out)
+
+  local capabilityUrl = "http://192.168.1.123:47815/state?k=capability_leak"
+  out = redact(capabilityUrl)
+  check("short k capability token masked", not contains(out, "capability_leak"), out)
+  check("capability URL path preserved", contains(out, "192.168.1.123:47815/state"), out)
 end
 
 --------------------------------------------------------------------------------

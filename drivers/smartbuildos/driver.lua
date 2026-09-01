@@ -1955,7 +1955,7 @@ end
 --- Atmosphere cloud state mirror: the Atmosphere driver asks us to publish
 --- its UI state (so its app works off-LAN, where the LAN relay is
 --- unreachable). We fetch the state from the driver's OWN relay on
---- localhost — same-controller, avoids inter-driver message size limits —
+--- the controller's private LAN address — same-controller, avoids inter-driver message size limits —
 --- and POST it with our bearer auth. Throttled here as the last line of
 --- defense; the driver throttles too.
 --- Per-SKU throttle. One shared timestamp would let a chatty driver spend
@@ -1968,10 +1968,32 @@ local STATE_THROTTLE_SECONDS = 45
 --- The driver asks; this does the fetch and the authenticated POST, because
 --- the Agent is where the account credentials live and a dependent driver
 --- must never hold them. The state is read from the asking driver's own LAN
---- server over LOOPBACK — same controller, so nothing sensitive crosses a
---- wire and inter-driver message size limits never apply.
+--- server over the controller's private LAN address — same controller, so
+--- inter-driver message size limits never apply. Older drivers that do not
+--- send an address retain the original loopback fallback.
 ---
---- tParams: sku, port, path (default /state), app_token, requester, urgent.
+--- tParams: sku, port, path (default /state), relay_host, app_token,
+--- requester, urgent.
+local function privateRelayHost(value)
+  local host = tostring(value or ""):match("^%s*(.-)%s*$")
+  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+  if a == nil or b == nil or c == nil or d == nil or a > 255 or b > 255 or c > 255 or d > 255 then
+    return nil
+  end
+  if
+    a == 10
+    or a == 127
+    or (a == 169 and b == 254)
+    or (a == 172 and b >= 16 and b <= 31)
+    or (a == 192 and b == 168)
+    or (a == 100 and b >= 64 and b <= 127)
+  then
+    return string.format("%d.%d.%d.%d", a, b, c, d)
+  end
+  return nil
+end
+
 local function mirrorDriverState(tParams, legacy)
   tParams = tParams or {}
   local sku = tostring(tParams.sku or "")
@@ -1979,7 +2001,7 @@ local function mirrorDriverState(tParams, legacy)
   local token = tostring(tParams.app_token or "")
   local path = tostring(tParams.path or "/state")
   local requester = tonumber(tParams.requester)
-  if sku == "" or port == nil or token == "" then
+  if sku == "" or port == nil or port < 1 or port > 65535 or port % 1 ~= 0 or token == "" then
     return
   end
   if path:sub(1, 1) ~= "/" then
@@ -1993,7 +2015,14 @@ local function mirrorDriverState(tParams, legacy)
   if base == "" or not isPaired() then
     return
   end
-  local localUrl = string.format("http://127.0.0.1:%d%s?k=%s", port, path, token)
+  -- OS 4.2 hardware proved that 127.0.0.1 can hang when one driver fetches
+  -- another driver's CreateServer listener. A current driver sends the same
+  -- private controller address its Navigator app already uses successfully.
+  -- Reject public/malformed addresses so this inter-driver command cannot be
+  -- turned into an arbitrary Agent-side HTTP request.
+  local relayHost = privateRelayHost(tParams.relay_host) or "127.0.0.1"
+  local localUrl = string.format("http://%s:%d%s?k=%s", relayHost, port, path, token)
+  log:debug("%s state fetch from %s:%d%s", sku, relayHost, port, path)
   http:get(localUrl, {}, { timeout = 10 }):next(function(resp)
     local ok, state = pcall(function()
       return JSON:decode(resp.body)
@@ -2055,7 +2084,7 @@ local function mirrorDriverState(tParams, legacy)
         log:debug("%s state push failed: %s", sku, tostring(type(err) == "table" and err.error or err))
       end)
   end, function()
-    log:debug("%s state fetch from local server :%d%s failed", sku, port, path)
+    log:debug("%s state fetch from %s:%d%s failed", sku, relayHost, port, path)
   end)
 end
 
