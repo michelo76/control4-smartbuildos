@@ -88,5 +88,92 @@ out = updater.outdated({
 }, FILES, true)
 check("force selects the current build", #out == 1, #out)
 
+-- ── The call convention ─────────────────────────────────────────────────────
+
+print("\n[7] updateAll is a MODULE function — a colon call shifts every argument")
+-- FIELD BUG 2026-08-31: pressing Update Drivers died with
+--   driver.lua:991: bad argument #1 to 'pairs' (table expected, got string)
+-- The driver called `sbosUpdater:updateAll(url, authHeaders(), ...)`. This
+-- module ends in `return M` — plain dot functions — so the colon passed M
+-- itself as `url` and slid every argument one place along: `headers` received
+-- the URL STRING, and `pairs(headers or {})` threw before a request was made.
+--
+-- The neighbouring `githubUpdater:updateAll(...)` IS a colon call, correctly:
+-- that module ends in `return GitHubUpdater:new()`. Two updaters side by side
+-- with opposite conventions, and nothing that made them agree.
+
+-- Stub the transport so updateAll can be driven without a Director. Registered
+-- into package.loaded before the module under test is re-required.
+local captured = nil
+package.loaded["lib.http"] = {
+  get = function(_self, url, headers)
+    captured = { url = url, headers = headers }
+    -- A deferred that never settles: this test is about what updateAll SENDS.
+    return {
+      next = function(d)
+        return d
+      end,
+    }
+  end,
+}
+package.loaded["lib.sbos-updater"] = nil
+local mod = require("lib.sbos-updater")
+
+local okDot = pcall(function()
+  mod.updateAll(
+    "https://sbos.test/api/driver-cloud/updates",
+    { Authorization = "Bearer t" },
+    FILES,
+    "Production",
+    false
+  )
+end)
+check("a dot call reaches the request", okDot and captured ~= nil, okDot)
+check(
+  "the URL lands in `url`, not in `headers`",
+  captured ~= nil and captured.url == "https://sbos.test/api/driver-cloud/updates?appetite=Production",
+  captured and captured.url
+)
+check(
+  "the auth header survives the copy into reqHeaders",
+  captured ~= nil and captured.headers ~= nil and captured.headers.Authorization == "Bearer t",
+  captured and captured.headers and captured.headers.Authorization
+)
+
+-- And the shape of the failure, so the reason this exists stays legible.
+captured = nil
+local okColon, err = pcall(function()
+  mod:updateAll(
+    "https://sbos.test/api/driver-cloud/updates",
+    { Authorization = "Bearer t" },
+    FILES,
+    "Production",
+    false
+  )
+end)
+check("a colon call still fails on `pairs`", not okColon, err)
+check(
+  "and it fails exactly as the field reported",
+  not okColon and tostring(err):find("table expected, got string", 1, true) ~= nil,
+  err
+)
+check("nothing was sent", captured == nil)
+
+print("\n[8] The driver calls it the way the module is written")
+-- Asserted against the source: the bug was never inside updateAll.
+local f = assert(io.open("drivers/smartbuildos/driver.lua", "r"))
+local src = f:read("*a")
+f:close()
+check(
+  "driver.lua uses sbosUpdater.updateAll",
+  src:find("sbosUpdater%s*%.%s*updateAll") ~= nil,
+  "call site does not use a dot"
+)
+check(
+  "driver.lua does NOT use sbosUpdater:updateAll",
+  src:find("sbosUpdater%s*:%s*updateAll") == nil,
+  "a colon call is back — every argument shifts one place along"
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
