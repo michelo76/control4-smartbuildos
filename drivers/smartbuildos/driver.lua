@@ -666,6 +666,54 @@ local function controllerIp()
   return nil
 end
 
+--- The Director controller's MAC, normalised to AA:BB:CC:DD:EE:FF, or nil.
+---
+--- `GetUniqueMAC` is documented as "the unique MAC address of the Director
+--- controller". Composer prints it colon-separated and upper-case on the
+--- Director page (00:0F:FF:9C:B2:CB), while the host name carries the same
+--- twelve digits bare (Beta-Miami-000FFF9CB2CB) — so the API's own separator
+--- style is not assumed. Every non-hex character is stripped and the result is
+--- accepted only if exactly twelve hex digits remain, which rejects a partial
+--- read instead of formatting it into something that looks authoritative.
+--- @return string|nil
+local function directorMac()
+  local ok, raw = pcall(function()
+    return C4:GetUniqueMAC()
+  end)
+  if not ok or type(raw) ~= "string" then
+    return nil
+  end
+  local hex = raw:upper():gsub("[^0-9A-F]", "")
+  if #hex ~= 12 then
+    return nil
+  end
+  -- Insert a colon after every pair, then drop the trailing one: 12 hex digits
+  -- become 17 characters. Lua patterns have no lookahead, so the tail is
+  -- trimmed by length rather than avoided by the pattern.
+  return (hex:gsub("(%x%x)", "%1:"):sub(1, 17))
+end
+
+--- How long the controller has been up, in seconds, or nil.
+---
+--- Never observed, so the shape is not assumed: a string of digits is accepted
+--- as readily as a number, and anything negative or non-finite is refused
+--- rather than stored as a fact. An uptime is the one figure on Composer's
+--- Device Status panel a driver can actually answer.
+--- @return number|nil
+local function controllerUptime()
+  local ok, raw = pcall(function()
+    return C4:GetUptime()
+  end)
+  if not ok then
+    return nil
+  end
+  local n = type(raw) == "number" and raw or tonumber(raw)
+  if n == nil or n ~= n or n < 0 or n == math.huge then
+    return nil
+  end
+  return math.floor(n)
+end
+
 --- Collects the controller-level facts sent with every payload.
 --- @return table<string, any> identity
 local function systemIdentity()
@@ -780,6 +828,14 @@ local function send(path, payload, description, onOk, onDelivered)
   local ip = controllerIp()
   if ip ~= nil then
     technical.director_ip = ip
+  end
+  local mac = directorMac()
+  if mac ~= nil then
+    technical.director_mac = mac
+  end
+  local uptime = controllerUptime()
+  if uptime ~= nil then
+    technical.uptime_seconds = uptime
   end
   if next(technical) ~= nil then
     payload.technical_metadata = technical
