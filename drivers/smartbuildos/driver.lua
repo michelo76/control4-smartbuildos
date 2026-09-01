@@ -599,6 +599,73 @@ local function composerProjectName()
   return nil
 end
 
+--- Is this a routable IPv4 address a support engineer could actually dial?
+---
+--- Rejects loopback, the unspecified address and link-local: those are true
+--- strings that answer the wrong question. "Director IP: 127.0.0.1" is worse
+--- than a blank row, because a blank row prompts somebody to go and look
+--- while a confident wrong answer ends the search.
+--- @param value any
+--- @return boolean
+local function isRoutableIPv4(value)
+  if type(value) ~= "string" then
+    return false
+  end
+  local a, b, c, d = value:match("^%s*(%d+)%.(%d+)%.(%d+)%.(%d+)%s*$")
+  if a == nil then
+    return false
+  end
+  a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+  for _, octet in ipairs({ a, b, c, d }) do
+    if octet > 255 then
+      return false
+    end
+  end
+  if a == 127 or a == 0 then
+    return false
+  end
+  if a == 169 and b == 254 then
+    return false
+  end
+  return true
+end
+
+--- The controller's own LAN address, or nil.
+---
+--- ⚠ THE DRIVER RUNS ON THE CONTROLLER, so the obvious sources answer with the
+--- controller's SELF-reference rather than its address on the network: the
+--- Director appears in this driver's own device inventory as 127.0.0.1, which
+--- is how directorIdentity finds it. The real address (192.168.1.123 on the
+--- first controller) appears nowhere in that inventory.
+---
+--- ⚠ AND `GetNetworkConnections` IS NOT A FALLBACK, however much it looks like
+--- one. It is PER-DEVICE: it lists a binding row per device, each with its own
+--- `deviceid` and `address`. A first cut here scanned it for the first
+--- routable IPv4 and the test fixture immediately handed back 192.168.1.40 —
+--- an 8-Channel Relay. That would have printed another device's address under
+--- "Director IP" on every system. Filtering to the Director's own row does not
+--- rescue it either: that row is the loopback one, by construction.
+---
+--- So there is exactly one candidate, GetControllerNetworkAddress, documented
+--- as "the address of the master controller in a project, in IP format". It
+--- has never been observed on hardware, so it is not trusted — whatever it
+--- says must survive isRoutableIPv4 before it is reported.
+---
+--- Reports nothing rather than something wrong. A blank Director IP is a
+--- question somebody will go and answer; a loopback or a relay's address is a
+--- wrong answer that ends the search. The diagnostics probes dump the raw
+--- values, so if a real source does turn up it can be wired deliberately.
+--- @return string|nil
+local function controllerIp()
+  local ok, address = pcall(function()
+    return C4:GetControllerNetworkAddress()
+  end)
+  if ok and isRoutableIPv4(address) then
+    return (address:match("^%s*(.-)%s*$"))
+  end
+  return nil
+end
+
 --- Collects the controller-level facts sent with every payload.
 --- @return table<string, any> identity
 local function systemIdentity()
@@ -705,9 +772,17 @@ local function send(path, payload, description, onOk, onDelivered)
   -- technical inventory shipped, and nothing has ever sent it — the field has
   -- been blank in every system's inventory because the driver was told the
   -- project name was unreadable. It is not; see composerProjectName().
+  local technical = {}
   local projectName = composerProjectName()
   if projectName ~= nil then
-    payload.technical_metadata = { composer_project_ref = projectName }
+    technical.composer_project_ref = projectName
+  end
+  local ip = controllerIp()
+  if ip ~= nil then
+    technical.director_ip = ip
+  end
+  if next(technical) ~= nil then
+    payload.technical_metadata = technical
   end
   payload.sent_at = os.time()
 
@@ -5244,6 +5319,59 @@ local function diagnose(lines)
   -- of the device as shown in Composer" — i.e. the OFFICIAL form of what
   -- projectItemName() currently reconstructs by scraping GetProjectItems XML.
   -- If those two disagree, the scrape is the bug.
+  -- ── The controller's own address ─────────────────────────────────────────
+  --
+  -- "Director IP" has been a row in the technical inventory since it shipped
+  -- and nothing has ever filled it. The obvious sources answer with the
+  -- controller's SELF-reference (the Director is 127.0.0.1 in this driver's
+  -- own inventory), so these dump the RAW values — including every connection
+  -- row, which the old `GetNetworkConnections -> table, N entr(ies)` line
+  -- counted and threw away. A count cannot tell you an address.
+  probe("GetControllerNetworkAddress", function()
+    return C4:GetControllerNetworkAddress()
+  end)
+  probe("GetMyNetworkAddress", function()
+    return C4:GetMyNetworkAddress()
+  end)
+  probe("connections (address/type/state)", function()
+    local conns = C4:GetNetworkConnections()
+    local rows = {}
+    for _, conn in pairs(type(conns) == "table" and conns or {}) do
+      if type(conn) == "table" then
+        rows[#rows + 1] = string.format(
+          "%s(type=%s,state=%s,dev=%s)",
+          tostring(conn.address),
+          tostring(conn.type),
+          tostring(conn.state),
+          tostring(conn.deviceid)
+        )
+      end
+    end
+    return table.concat(rows, " ")
+  end)
+  -- What the driver will actually SEND, after the routable check. Printed
+  -- beside the raw values so a nil here is traceable to which source failed.
+  probe("controllerIp() -> sent", function()
+    return controllerIp() or "nil (nothing routable found)"
+  end)
+
+  -- Composer's Director page shows MODEL / MAC / OS / SERVICE TAG / IP / I/O
+  -- FIRMWARE plus Zigbee and ZAP state and CPU/memory. Model and OS the driver
+  -- already sends. Of the rest, only these have a documented API — the others
+  -- (service tag, I/O firmware, ZAP, CPU, memory) appear nowhere in the 391
+  -- documented calls, so they are probably Composer reading the controller's
+  -- own system service rather than anything DriverWorks exposes. Probed, not
+  -- assumed: that is exactly the mistake the project-name sweep made.
+  probe("GetUniqueMAC", function()
+    return C4:GetUniqueMAC()
+  end)
+  probe("GetUptime", function()
+    return C4:GetUptime()
+  end)
+  probe("GetZigbeeEUID", function()
+    return C4:GetZigbeeEUID()
+  end)
+
   probe("GetHostname", function()
     return C4:GetHostname()
   end)
