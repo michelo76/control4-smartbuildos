@@ -270,6 +270,24 @@ function C4:GetNetworkConnections()
   return nextConnections or UNUSED_CONNECTIONS
 end
 
+--- What C4:GetUniqueMAC and C4:GetUptime answer. Both are documented but
+--- neither has been observed, so the tests drive their shapes rather than
+--- assuming one.
+local nextUniqueMac = "000FFF9CB2CB"
+function C4:GetUniqueMAC()
+  if nextUniqueMac == nil then
+    error("GetUniqueMAC is not available")
+  end
+  return nextUniqueMac
+end
+local nextUptime = 86400
+function C4:GetUptime()
+  if nextUptime == nil then
+    error("GetUptime is not available")
+  end
+  return nextUptime
+end
+
 --- What C4:GetControllerNetworkAddress answers. ⚠ Never observed on real
 --- hardware: the driver runs ON the master controller, so this may well be the
 --- controller's self-reference. Set per-test; nil means "the API is absent",
@@ -730,6 +748,81 @@ check(
 )
 
 nextConnections, nextControllerAddress = savedConnections, savedAddress
+
+-- ── Controller vitals: MAC and uptime ───────────────────────────────────────
+--
+-- Composer's Director page prints the MAC colon-separated and upper-case
+-- (00:0F:FF:9C:B2:CB) while the host name carries the same twelve digits bare
+-- (Beta-Miami-000FFF9CB2CB). Same address, two presentations, so the driver
+-- normalises rather than trusting whichever the API happens to use.
+local savedMac, savedUptime = nextUniqueMac, nextUptime
+
+for _, form in ipairs({ "000FFF9CB2CB", "00:0f:ff:9c:b2:cb", "00-0F-FF-9C-B2-CB" }) do
+  nextUniqueMac = form
+  reset()
+  EC.SEND_HEARTBEAT()
+  check(
+    string.format("%s normalises to the Composer form", form),
+    (((requests[1] or {}).data or {}).technical_metadata or {}).director_mac == "00:0F:FF:9C:B2:CB",
+    tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_mac)
+  )
+end
+
+-- A partial read must be refused, not formatted into something authoritative.
+for _, bad in ipairs({ "000FFF9CB2", "000FFF9CB2CBFF", "not-a-mac", "" }) do
+  nextUniqueMac = bad
+  reset()
+  EC.SEND_HEARTBEAT()
+  check(
+    string.format("%q is not reported as a MAC", bad),
+    (((requests[1] or {}).data or {}).technical_metadata or {}).director_mac == nil,
+    tostring((((requests[1] or {}).data or {}).technical_metadata or {}).director_mac)
+  )
+end
+nextUniqueMac = savedMac
+
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "uptime travels as a whole number of seconds",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds == 86400,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds)
+)
+
+-- Shape is not assumed: digits as a string are as good as a number.
+nextUptime = "3600.7"
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "a numeric string uptime is accepted and floored",
+  (((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds == 3600,
+  tostring((((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds)
+)
+
+-- Nonsense is refused rather than stored as a fact.
+for _, bad in ipairs({ "-5", "banana" }) do
+  nextUptime = bad
+  reset()
+  EC.SEND_HEARTBEAT()
+  check(
+    string.format("%q is not reported as an uptime", bad),
+    (((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds == nil,
+    tostring((((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds)
+  )
+end
+
+-- An older OS without either API must still check in.
+nextUniqueMac, nextUptime = nil, nil
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "missing vitals APIs cost no heartbeat",
+  #requests == 1
+    and (((requests[1] or {}).data or {}).technical_metadata or {}).director_mac == nil
+    and (((requests[1] or {}).data or {}).technical_metadata or {}).uptime_seconds == nil,
+  tostring(#requests)
+)
+nextUniqueMac, nextUptime = savedMac, savedUptime
 
 print("\n[7] A trailing slash on API URL does not produce a double slash")
 pair()
