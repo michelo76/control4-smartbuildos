@@ -5145,6 +5145,72 @@ local function diagnose(lines)
   -- The top of the location tree: type 2 is the site. On this project it is
   -- named "Home", which may well be the Control4 default rather than anything
   -- an integrator chose — worth confirming against a second project.
+  -- ── Untested until now (2026-09-01) ──────────────────────────────────────
+  --
+  -- The 2026-08-19 sweep above concluded "a driver cannot read the project
+  -- name" after trying four methods that do not exist. It never tried the two
+  -- that DO exist in the documented API, and the field still shows a name the
+  -- platform cannot account for: Composer displays this Director as
+  -- "Beta-Miami" while the platform reports "Control4 CORE 1".
+  --
+  -- GetHostname (OS 3.3.1+) is the controller's host name, which is what an
+  -- integrator sets in System Manager and the likeliest home for a name like
+  -- "Beta-Miami". GetDeviceDisplayName (OS 1.6.0+) is documented as "the name
+  -- of the device as shown in Composer" — i.e. the OFFICIAL form of what
+  -- projectItemName() currently reconstructs by scraping GetProjectItems XML.
+  -- If those two disagree, the scrape is the bug.
+  probe("GetHostname", function()
+    return C4:GetHostname()
+  end)
+  probe("GetUname", function()
+    return C4:GetUname()
+  end)
+
+  -- Is the reported name the SCRAPE or the fallback? `directorIdentity` uses
+  -- `projectItemName(id) or driverName`, so "Control4 CORE 1" could be either
+  -- the project item's name or the device's own name standing in for it. The
+  -- two cases point at completely different fixes, and nothing recorded so far
+  -- distinguishes them.
+  local directorId = select(1, directorIdentity())
+  probe("directorId", function()
+    return directorId
+  end)
+  probe("projectItemName(director)", function()
+    return directorId ~= nil and projectItemName(directorId) or "no director id"
+  end)
+  probe("GetDeviceDisplayName(director)", function()
+    return directorId ~= nil and C4:GetDeviceDisplayName(directorId) or "no director id"
+  end)
+  probe("GetDeviceDisplayName()", function()
+    return C4:GetDeviceDisplayName()
+  end)
+  -- The raw XML item, so a name that IS present but shaped differently than
+  -- the non-greedy pattern expects is visible rather than silently nil.
+  probe("raw item xml(director)", function()
+    if directorId == nil then
+      return "no director id"
+    end
+    local xml = C4:GetProjectItems("DEVICES", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+    for item in tostring(xml):gmatch("<item>(.-)</item>") do
+      if tonumber(item:match("<id>%s*(%d+)%s*</id>") or "") == directorId then
+        return item:sub(1, 300)
+      end
+    end
+    return "id not found among items"
+  end)
+
+  -- The docs' own example for "general information about the project i.e.
+  -- location, dealer info, etc" — the LOCATIONS filter, which this driver has
+  -- never asked for. NO_ROOT_TAGS is dropped here on purpose: if a project
+  -- name lives in a root tag, stripping it is exactly how we would keep
+  -- missing it.
+  probe("GetProjectItems(LOCATIONS) head", function()
+    return C4:GetProjectItems("LOCATIONS", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS"):sub(1, 400)
+  end)
+  probe("GetProjectItems(LOCATIONS, root tags) head", function()
+    return C4:GetProjectItems("LOCATIONS", "LIMIT_DEVICE_DATA"):sub(1, 400)
+  end)
+
   probe("hierarchy top", function()
     local h = C4:GetProjectHierarchy()
     local tops = {}
