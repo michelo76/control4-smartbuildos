@@ -4700,8 +4700,16 @@ function UpdateDrivers(forceUpdate)
 
   local url = driverCloudUrl("updates")
   if source ~= "GitHub" and url and isPaired() then
+    -- ⚠ DOT, NOT COLON — and the `githubUpdater:updateAll` two lines up is a
+    -- colon on purpose. `lib.github-updater` ends in `return GitHubUpdater:new()`,
+    -- an instance whose methods use `self`; `lib.sbos-updater` ends in
+    -- `return M`, a plain module of dot functions. A colon here passes the
+    -- module itself as `url`, shifting every argument along: `headers` receives
+    -- the URL string and `pairs(headers or {})` dies with "table expected, got
+    -- string" before a single request is made. Two updaters side by side with
+    -- opposite call conventions is the whole trap.
     sbosUpdater
-      :updateAll(url, authHeaders(), DRIVER_FILENAMES, prerelease and "Prerelease" or "Production", forceUpdate)
+      .updateAll(url, authHeaders(), DRIVER_FILENAMES, prerelease and "Prerelease" or "Production", forceUpdate)
       :next(function(updated)
         if not IsEmpty(updated) then
           log:info("Updated driver(s) from SmartBuildOS: %s", table.concat(updated, ","))
