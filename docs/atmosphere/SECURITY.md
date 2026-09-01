@@ -14,15 +14,19 @@ one self-minted token.
 | Navigator WebView page                                                             | Driver-hosted, but its inputs (NWS text) are untrusted; its settings writes are validated like anyone else's                           |
 | LAN relay clients (port 47815)                                                     | Untrusted network peers: token-gated, chunk-capped, routed through the same validators as every other write path                       |
 | SmartBuildOS Agent channel                                                         | Authenticated at pairing (platform side); the driver still validates every settings field — the schema is the contract, not the sender |
+| Driver-scoped cloud upload                                                         | Agent-provisioned HMAC bearer bound to controller + SKU + app token + current generation; HTTPS only; cannot act as the Agent          |
 | Composer / programming                                                             | Trusted operator surface                                                                                                               |
 
 ## No secrets in the weather path
 
 NWS is keyless — there is nothing to steal. No API keys, tokens, passwords, or
 account identifiers exist anywhere in the weather pipeline. The platform secrets
-on the controller belong to the SmartBuildOS Agent (its existing, unchanged
-model: per-controller HMAC secret in encrypted persist); this driver never sees
-them.
+on the controller belong to the SmartBuildOS Agent (its existing model:
+per-controller HMAC secret in encrypted persist); this driver never sees them.
+It receives only a narrow state-upload capability that cannot be widened to
+another controller, SKU or app-token installation.
+The answer must also echo a one-time request challenge known only to Atmosphere
+and the Agent, so an unsolicited sibling-driver EC message is ignored.
 
 The integration test asserts the WebView document contains no `token`/`secret`
 strings — a tripwire, not the whole defense.
@@ -35,7 +39,10 @@ cloud mirror's public read.
 
 - **Minting.** 32 hex chars from `C4:HMAC("SHA256", …)` over local entropy
   (time, clock, device id, a table address). The seed is not secret; the output
-  is unguessable. Minted once, stored in encrypted persist.
+  is unguessable. Minted once, stored in encrypted persist. The 2026-09-01
+  relay-host fix rotates the token once because the prior Agent TRACE path
+  logged the frozen short `?k=` query key before the HTTP redactor recognized
+  it.
 - **Posture.** The token's job is keeping casual LAN clients out of the state
   read and the settings writes — the same posture as the Protect webhook token.
   It is a LAN-boundary credential, not a platform credential: anyone who can
@@ -45,17 +52,20 @@ cloud mirror's public read.
   (`?k=`) because that is the only channel proven to reach the page on real
   Navigators. Consequences handled: the page keeps it in memory only (never
   localStorage), scrubs it from every console line, and shows only host:port in
-  diagnostics; the driver redacts it from logs and Print Diagnostics
-  (`k=[token]`).
+  diagnostics; both drivers redact it from logs and Print Diagnostics
+  (`k=[token]` / `k=***REDACTED***`).
 - **`/ping` is tokenless** so the page can probe reachability without leaking
   anything; every other route 403s on a missing or wrong token.
-- **Hashed at rest in the cloud.** When the cloud mirror is active the token
-  travels driver → Agent over localhost only, then inside TLS to the platform,
-  which stores **only its SHA-256 hash** and compares in constant time. Every
+- **Hashed at rest in the cloud.** The Agent binds the app token into a scoped
+  upload capability, then Atmosphere sends token + state directly inside TLS.
+  The platform stores **only the app token's SHA-256 hash** and compares in
+  constant time. Every
   failed read — malformed params, unknown support id, no stored hash, wrong
   token — answers a uniform 404, so the public endpoint cannot probe which
   installs exist.
-- **Revocation.** Revoking the controller's pairing kills the cloud capability
+- **Revocation.** Reinstalling or rotating the app token replaces the current
+  server-side capability generation, so every older upload bearer is refused.
+  Revoking the controller's pairing also kills the cloud capability
   (the read 404s; the row is kept, never deleted). Mirrors older than 24 h are
   refused — a dead controller's last state does not get presented as current
   weather. On the LAN, clearing the driver's persist re-mints the token and the
@@ -141,11 +151,11 @@ failure to a weather event.
 
 ## What the driver deliberately cannot do
 
-- **No writes to anything external.** Every weather HTTP call is a GET to NWS
-  hosts. The one outbound write in the system is the Agent (not this driver)
-  POSTing the driver's own display state to SmartBuildOS over its authenticated
-  channel — display data the driver would happily print in a log, containing no
-  secrets by construction.
+- **No broad platform writes.** Every weather HTTP call is a GET to NWS hosts.
+  Atmosphere's only external write is its own display-state POST to SmartBuildOS
+  with the Agent-provisioned capability. That bearer is restricted to this
+  controller + `SBOS_ATMOSPHERE` + app token and cannot call licensing,
+  telemetry, configuration or any other controller endpoint.
 - **No PII beyond coordinates.** The most sensitive datum handled is the
   property's lat/lon, sent (rounded to 4 decimals) to a US government API as
   every weather client must, and mirrored in the cloud state's `location` block

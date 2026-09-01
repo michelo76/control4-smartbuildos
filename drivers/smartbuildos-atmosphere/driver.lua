@@ -64,7 +64,9 @@ local TEMPERATURE_BINDING = 100
 local HUMIDITY_BINDING = 101
 local UI_RELAY_PORT = 47815
 local UI_RELAY_ID = "atmosphere-ui-relay"
-local P_RELAY_TOKEN = "atmos_relay_token"
+-- v2 rotates the original token once. Hardware diagnosis exposed v1 in an
+-- Agent TRACE URL before the HTTP redactor learned the frozen `?k=` shape.
+local P_RELAY_TOKEN = "atmos_relay_token_v2"
 local P_CLOUD_VIEW = "atmos_cloud_view"
 
 -- Persist keys (plain; nothing here is a secret).
@@ -1341,11 +1343,10 @@ end
 --- Global on purpose: called from runEngine, which is defined earlier in
 --- the file than this section's locals.
 function askCloudMirror(urgent)
-  if gRelayPort == nil then
-    return
-  end
   -- The SDK owns discovery, the protocol and the steady-state throttle;
-  -- the token is minted lazily with the relay, so hand it over each time.
+  -- The token is resolved lazily with the relay. The Agent uses it to mint a
+  -- controller+SKU+install scoped capability; this driver then pushes its own
+  -- state over HTTPS, with no inter-driver HTTP fetch.
   mirror.setToken(relayToken())
   mirror.publish(urgent)
 end
@@ -1381,6 +1382,13 @@ end
 --- referenced it earlier would compile as a nil global lookup.)
 function EC.SBOS_DRIVER_STATE_ACK(tParams)
   mirror.onAck(tParams)
+end
+
+--- The Agent's provisioned direct-upload capability. It contains neither the
+--- Agent bearer nor its signing secret and is usable only for this controller,
+--- SKU and app-token installation.
+function EC.SBOS_DRIVER_CLOUD(tParams)
+  mirror.onProvision(tParams)
 end
 
 --- Back-compat: an Agent released before the generic protocol answers with
@@ -1751,8 +1759,7 @@ function OnDriverLateInit()
   gLocation = type(storedLocation) == "table" and storedLocation.lat ~= nil and storedLocation or nil
   mirror.setup({
     sku = "SBOS_ATMOSPHERE",
-    port = UI_RELAY_PORT,
-    path = "/state",
+    state = buildUiState,
     -- The capability URL is what the page needs; persist it and republish
     -- the app URL whenever it changes so a reopened page learns it.
     onView = function(url, handle)

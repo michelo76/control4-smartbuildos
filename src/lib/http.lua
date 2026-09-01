@@ -139,6 +139,11 @@ local function redactSerialized(text)
       return key .. "=" .. REDACTED
     end
   end)
+  -- Atmosphere's capability credential is deliberately named `k` in its
+  -- frozen WebView/LAN-relay URL shape. `k` is too generic to classify as a
+  -- sensitive key everywhere, but in a URL query it must never reach TRACE
+  -- logs (field evidence: the Agent's local relay GET printed it verbatim).
+  text = text:gsub("([%?&])k=([^&%s]+)", "%1k=" .. REDACTED)
   return text
 end
 

@@ -1,19 +1,24 @@
 --- SmartBuildOS cloud-mirror SDK — the one implementation every SmartBuildOS
 --- driver uses to publish its UI state to SmartBuildOS and to receive remote
---- settings, both through the SmartBuildOS Agent.
+--- settings, with the SmartBuildOS Agent remaining the licensing and
+--- provisioning authority.
 ---
 --- Companion to `sbos.license`, and deliberately the same shape: the Agent
---- (`smartbuildos.c4z`) owns the account credentials and the HTTP path; a
---- dependent driver never holds a token and never calls the platform.
+--- (`smartbuildos.c4z`) owns the account credentials and provisions a narrow
+--- controller+SKU+install upload capability. The dependent driver never sees
+--- the Agent bearer or HMAC secret, but uses that scoped capability to push its
+--- own state over outbound HTTPS.
 --- Transport is the same bindingless device path — exact-filename discovery
 --- plus SendToDevice into the Agent's EC handlers.
 ---
 --- WHY A MIRROR EXISTS (measured, 2026-08-31): a driver-hosted Navigator
 --- page can reach its driver over the LAN, but a phone off the home network
---- cannot, and the Navigator JS API delivered nothing on real hardware. So
---- the driver hands its state to the Agent, the Agent posts it to
---- SmartBuildOS, and the page reads it back from a capability URL when it
---- has no better channel. The mirror is also what feeds fleet dashboards,
+--- cannot, and the Navigator JS API delivered nothing on real hardware. A
+--- second field measurement proved that the Agent also cannot fetch a sibling
+--- driver's CreateServer listener through controller loopback or LAN. So the
+--- Agent provisions the credential and the driver pushes its own state. The
+--- page reads it back from a capability URL when it has no better channel.
+--- The mirror is also what feeds fleet dashboards,
 --- sampled history and briefings — those exist for every driver, not just
 --- ones with a web view.
 ---
@@ -24,14 +29,16 @@
 ---
 --- Usage from a driver:
 ---   local mirror = require("sbos.mirror")
----   mirror.setup({ sku = "SBOS_UNIFI_PROTECT", port = 47820, path = "/state" })
----   EC.SBOS_DRIVER_STATE_ACK = mirror.onAck        -- where to read it back
+---   mirror.setup({ sku = "SBOS_UNIFI_PROTECT", state = buildUiState })
+---   EC.SBOS_DRIVER_CLOUD = mirror.onProvision      -- scoped upload credential
+---   EC.SBOS_DRIVER_STATE_ACK = mirror.onAck        -- old-Agent compatibility
 ---   EC.SBOS_DRIVER_CONFIG = mirror.onConfig(apply) -- remote settings
 ---   mirror.publish()          -- steady state, throttled
 ---   mirror.publish(true)      -- something changed, send now
 ---   mirror.viewUrl()          -- capability URL once the Agent answers
 
 local log = require("lib.logging")
+local http = require("lib.http")
 
 local M = {}
 
@@ -44,6 +51,12 @@ local state = {
   port = nil,
   path = "/state",
   token = nil,
+  relayHost = nil,
+  stateProvider = nil,
+  cloud = nil, -- { url, token }
+  inFlight = false,
+  pendingPublish = false,
+  pendingProvision = nil, -- { id, expires }
   lastAsk = 0,
   view = nil, -- { url, handle }
   onView = nil,
@@ -72,9 +85,11 @@ end
 --- Configures the SDK.
 --- opts = {
 ---   sku    (required) the driver's catalog SKU, e.g. "SBOS_ATMOSPHERE"
----   port   (required) the driver's own LAN state server port
----   path   optional state route on that server (default "/state")
+---   state  (required) function returning the UI-state table to publish
+---   port   optional legacy LAN state server port
+---   path   optional legacy state route on that server (default "/state")
 ---   token  optional shared token the Agent must present to that route
+---   relayHost optional controller LAN address the Agent can use to reach it
 ---   onView optional callback(url, handle) when the capability URL arrives
 --- }
 function M.setup(opts)
@@ -83,6 +98,12 @@ function M.setup(opts)
   state.port = tonumber(opts.port)
   state.path = tostring(opts.path or "/state")
   state.token = opts.token ~= nil and tostring(opts.token) or nil
+  state.relayHost = opts.relayHost ~= nil and tostring(opts.relayHost) or nil
+  state.stateProvider = type(opts.state) == "function" and opts.state or nil
+  state.cloud = nil
+  state.inFlight = false
+  state.pendingPublish = false
+  state.pendingProvision = nil
   state.onView = type(opts.onView) == "function" and opts.onView or nil
   state.lastAsk = 0
 end
@@ -93,11 +114,122 @@ function M.setToken(token)
   state.token = token ~= nil and tostring(token) or nil
 end
 
-function M.isConfigured()
-  return state.sku ~= nil and state.sku ~= "" and state.port ~= nil and state.token ~= nil and state.token ~= ""
+--- Supplies the controller's reachable LAN address after setup. Control4 OS
+--- 4.2 was measured hanging forever when the Agent fetched another driver's
+--- CreateServer listener through 127.0.0.1, even though the same listener was
+--- healthy on the controller's LAN address. The Agent validates this value as
+--- a private IPv4 address before using it.
+function M.setRelayHost(host)
+  state.relayHost = host ~= nil and tostring(host) or nil
 end
 
---- Asks the Agent to mirror this driver's state.
+function M.isConfigured()
+  return state.sku ~= nil
+    and state.sku ~= ""
+    and state.token ~= nil
+    and state.token ~= ""
+    and state.stateProvider ~= nil
+end
+
+local function acceptView(url, handle)
+  url = tostring(url or "")
+  if url == "" or url:find("^https://") == nil then
+    return
+  end
+  handle = tostring(handle or "")
+  local changed = state.view == nil or state.view.url ~= url or state.view.handle ~= handle
+  state.view = { url = url, handle = handle }
+  if changed then
+    log:info("Cloud mirror ready for %s (handle %s)", state.sku, handle)
+    if state.onView ~= nil then
+      pcall(state.onView, url, handle)
+    end
+  end
+end
+
+local function requestProvision(agent)
+  if state.pendingProvision ~= nil and os.time() <= state.pendingProvision.expires then
+    return false
+  end
+  local okNonce, requestId = pcall(function()
+    return tostring(C4:UUID("Random"))
+  end)
+  if not okNonce or requestId == "" then
+    return false
+  end
+  state.pendingProvision = { id = requestId, expires = os.time() + 60 }
+  local okSend = pcall(function()
+    C4:SendToDevice(agent, "SBOS_DRIVER_CLOUD_REQUEST", {
+      sku = state.sku,
+      app_token = state.token,
+      requester = tostring(C4:GetDeviceID()),
+      request_id = requestId,
+    })
+  end)
+  if not okSend then
+    state.pendingProvision = nil
+  end
+  return okSend
+end
+
+local function publishDirect()
+  if state.inFlight then
+    state.pendingPublish = true
+    return false
+  end
+  if state.cloud == nil then
+    return false
+  end
+  local okState, document = pcall(state.stateProvider)
+  if not okState or type(document) ~= "table" then
+    log:warn("Cloud mirror state provider failed for %s", state.sku)
+    return false
+  end
+  state.inFlight = true
+  http
+    :post(
+      state.cloud.url,
+      { driver_sku = state.sku, state = document, app_token = state.token },
+      { Authorization = "Bearer " .. state.cloud.token },
+      { timeout = 15 }
+    )
+    :next(function(response)
+      state.inFlight = false
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
+      end
+      if type(body) == "table" and body.ok == true then
+        acceptView(body.view_url, body.view_handle)
+      end
+      if state.pendingPublish then
+        state.pendingPublish = false
+        M.publish(true)
+      end
+    end, function(err)
+      state.inFlight = false
+      local code = tonumber(type(err) == "table" and err.code or nil)
+      if code == 401 or code == 403 then
+        -- Pairing/app-token rotation or revocation invalidated the scoped
+        -- credential. Forget only it; the Agent will provision a replacement
+        -- if the current entitlement remains authorized.
+        state.cloud = nil
+      end
+      log:debug("Cloud mirror direct push failed for %s", state.sku)
+      if state.pendingPublish then
+        state.pendingPublish = false
+        M.publish(true)
+      end
+    end)
+  return true
+end
+
+--- Publishes this driver's own state. Until the Agent provisions the scoped
+--- credential this asks for one; afterwards the HTTP request goes directly
+--- from this driver to SmartBuildOS.
 --- `urgent` bypasses the steady-state throttle — pass it when something a
 --- remote viewer would care about changed (an alert, a mode transition).
 --- Returns true when an ask was actually sent.
@@ -109,22 +241,37 @@ function M.publish(urgent)
   if not urgent and (now - state.lastAsk) < M.THROTTLE_SECONDS then
     return false
   end
-  local agent = findAgent()
-  if agent == nil then
-    return false
-  end
   state.lastAsk = now
-  local ok = pcall(function()
-    C4:SendToDevice(agent, "SBOS_DRIVER_STATE", {
-      sku = state.sku,
-      port = tostring(state.port),
-      path = state.path,
-      app_token = state.token,
-      requester = tostring(C4:GetDeviceID()),
-      urgent = urgent and "true" or "false",
-    })
-  end)
-  return ok
+  if state.cloud ~= nil then
+    return publishDirect()
+  end
+  local agent = findAgent()
+  return agent ~= nil and requestProvision(agent) or false
+end
+
+--- The Agent's answer containing only a driver-scoped upload capability. A
+--- valid answer is used immediately so the first cloud row and its read URL
+--- are created in the same cycle.
+function M.onProvision(tParams)
+  tParams = tParams or {}
+  if tostring(tParams.sku or "") ~= state.sku then
+    return
+  end
+  local pending = state.pendingProvision
+  if pending == nil or os.time() > pending.expires or tostring(tParams.request_id or "") ~= pending.id then
+    return
+  end
+  -- A matching one-time challenge proves this is the answer to our private
+  -- SendToDevice request to the discovered Agent, rather than an unsolicited
+  -- EC message from another installed driver.
+  state.pendingProvision = nil
+  local url = tostring(tParams.upload_url or "")
+  local token = tostring(tParams.upload_token or "")
+  if url:find("^https://") == nil or token:find("^sbosdu2%.") == nil then
+    return
+  end
+  state.cloud = { url = url, token = token }
+  M.publish(true)
 end
 
 --- Wire as EC.SBOS_DRIVER_STATE_ACK. The Agent answers with where the
@@ -135,20 +282,7 @@ function M.onAck(tParams)
   if tostring(tParams.sku or "") ~= state.sku then
     return
   end
-  local url = tostring(tParams.view_url or "")
-  -- https only: this URL ends up in a page and must never be a downgrade.
-  if url == "" or url:find("^https://") == nil then
-    return
-  end
-  local handle = tostring(tParams.view_handle or "")
-  local changed = state.view == nil or state.view.url ~= url or state.view.handle ~= handle
-  state.view = { url = url, handle = handle }
-  if changed then
-    log:info("Cloud mirror ready for %s (handle %s)", state.sku, handle)
-    if state.onView ~= nil then
-      pcall(state.onView, url, handle)
-    end
-  end
+  acceptView(tParams.view_url, tParams.view_handle)
 end
 
 --- The capability URL and handle, or nil until the Agent has answered.
@@ -228,7 +362,21 @@ end
 
 --- Test hook: forgets all SDK state.
 function M._reset()
-  state = { sku = nil, port = nil, path = "/state", token = nil, lastAsk = 0, view = nil, onView = nil }
+  state = {
+    sku = nil,
+    port = nil,
+    path = "/state",
+    token = nil,
+    relayHost = nil,
+    stateProvider = nil,
+    cloud = nil,
+    inFlight = false,
+    pendingPublish = false,
+    pendingProvision = nil,
+    lastAsk = 0,
+    view = nil,
+    onView = nil,
+  }
 end
 
 return M

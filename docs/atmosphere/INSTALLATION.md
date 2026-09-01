@@ -16,9 +16,10 @@ version of the manual that ships in the c4z
 - **Internet access from the controller** to `api.weather.gov` (weather data)
   and `radar.weather.gov` (radar imagery). No API key, no account, no per-call
   cost.
-- **Optional:** the SmartBuildOS Agent driver (`smartbuildos.c4z`) for
-  licensing, fleet status, and remote settings. Weather automation works without
-  it — the driver runs in `LEGACY` license state.
+- **SmartBuildOS Agent driver (`smartbuildos.c4z`).** Every SmartBuildOS
+  Control4 product licenses through the Agent. It also provisions Atmosphere's
+  driver-scoped cloud upload so app data works off-LAN. Weather safety logic
+  remains fail-open during an Agent or cloud outage.
 
 ## Adding the driver
 

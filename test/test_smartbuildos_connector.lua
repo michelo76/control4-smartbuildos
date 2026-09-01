@@ -2933,9 +2933,14 @@ check("an unpaired agent forwards no devices", lastRequestToPlain("/api/driver-c
 print("\n[N] Generic cloud state mirror: any driver, per-SKU")
 reset()
 pair()
+-- The relay address is accepted only because Director reports it on the
+-- Control4 controller itself. Restore the normal fixture after this case.
+local originalControllerAddr = BINDINGS[63].addr
+BINDINGS[63].addr = "192.168.1.123"
 -- The local fetch and the platform POST both ride the faked transport; the
--- mirror asks for the driver's state on LOOPBACK, then posts it.
--- The loopback GET returns the driver's state; the POST returns the ack.
+-- mirror asks for the driver's state on the controller's reachable LAN
+-- address, then posts it.
+-- The local GET returns the driver's state; the POST returns the ack.
 nextGetResponse = { ok = true, code = 200, headers = {}, body = JSON:encode({ v = 1, mode = "RAIN" }) }
 nextResponse = {
   ok = true,
@@ -2950,6 +2955,7 @@ EC.SBOS_DRIVER_STATE({
   sku = "SBOS_TEST",
   port = "47820",
   path = "/state",
+  relay_host = "192.168.1.123",
   app_token = "tok9",
   requester = "31",
   urgent = "true",
@@ -2958,7 +2964,7 @@ EC.SBOS_DRIVER_STATE({
 local localFetch = nil
 local cloudPost = nil
 for _, r in ipairs(getRequests) do
-  if r.url:find("127.0.0.1:47820", 1, true) then
+  if r.url:find("192.168.1.123:47820", 1, true) then
     localFetch = r
   end
 end
@@ -2967,11 +2973,61 @@ for _, r in ipairs(requests) do
     cloudPost = r
   end
 end
-check("state is fetched from the driver over loopback", localFetch ~= nil, localFetch and localFetch.url)
+check(
+  "state is fetched from the driver over its reachable LAN address",
+  localFetch ~= nil,
+  localFetch and localFetch.url
+)
 check("the local fetch carries the driver's token", localFetch ~= nil and localFetch.url:find("k=tok9", 1, true) ~= nil)
 check("state is posted to the generic route", cloudPost ~= nil)
 check("the post carries the sku", cloudPost ~= nil and (cloudPost.data or {}).driver_sku == "SBOS_TEST")
 check("the post is token-authed", cloudPost ~= nil and (cloudPost.headers or {})["Authorization"] ~= nil)
+BINDINGS[63].addr = originalControllerAddr
+
+-- Compatibility and SSRF guard: an older driver with no host, or a driver
+-- presenting a public host, may only make the Agent fetch loopback.
+local getCount = #getRequests
+EC.SBOS_DRIVER_STATE({ sku = "SBOS_COMPAT", port = "47823", app_token = "tok7", requester = "33" })
+local compatFetch = getRequests[getCount + 1]
+check(
+  "an older driver without a host retains the loopback fallback",
+  compatFetch ~= nil and compatFetch.url:find("127.0.0.1:47823", 1, true) ~= nil
+)
+getCount = #getRequests
+EC.SBOS_DRIVER_STATE({
+  sku = "SBOS_PUBLIC",
+  port = "47824",
+  relay_host = "8.8.8.8",
+  app_token = "tok6",
+  requester = "34",
+})
+local guardedFetch = getRequests[getCount + 1]
+check(
+  "a public relay host is refused in favor of loopback",
+  guardedFetch ~= nil and guardedFetch.url:find("127.0.0.1:47824", 1, true) ~= nil
+)
+check(
+  "a public relay host never reaches the requested address",
+  guardedFetch ~= nil and guardedFetch.url:find("8.8.8.8", 1, true) == nil
+)
+
+getCount = #getRequests
+EC.SBOS_DRIVER_STATE({
+  sku = "SBOS_PRIVATE_ATTACK",
+  port = "47825",
+  relay_host = "192.168.1.50",
+  app_token = "tok5",
+  requester = "35",
+})
+local privateGuardedFetch = getRequests[getCount + 1]
+check(
+  "an arbitrary private host not owned by the controller is refused",
+  privateGuardedFetch ~= nil and privateGuardedFetch.url:find("127.0.0.1:47825", 1, true) ~= nil
+)
+check(
+  "the private target never reaches the requested address",
+  privateGuardedFetch ~= nil and privateGuardedFetch.url:find("192.168.1.50", 1, true) == nil
+)
 
 -- Per-SKU throttle: a second driver must not spend the first one's budget.
 requests = {}

@@ -1955,7 +1955,7 @@ end
 --- Atmosphere cloud state mirror: the Atmosphere driver asks us to publish
 --- its UI state (so its app works off-LAN, where the LAN relay is
 --- unreachable). We fetch the state from the driver's OWN relay on
---- localhost — same-controller, avoids inter-driver message size limits —
+--- the controller's private LAN address — same-controller, avoids inter-driver message size limits —
 --- and POST it with our bearer auth. Throttled here as the last line of
 --- defense; the driver throttles too.
 --- Per-SKU throttle. One shared timestamp would let a chatty driver spend
@@ -1968,10 +1968,82 @@ local STATE_THROTTLE_SECONDS = 45
 --- The driver asks; this does the fetch and the authenticated POST, because
 --- the Agent is where the account credentials live and a dependent driver
 --- must never hold them. The state is read from the asking driver's own LAN
---- server over LOOPBACK — same controller, so nothing sensitive crosses a
---- wire and inter-driver message size limits never apply.
+--- server over the controller's private LAN address — same controller, so
+--- inter-driver message size limits never apply. Older drivers that do not
+--- send an address retain the original loopback fallback.
 ---
---- tParams: sku, port, path (default /state), app_token, requester, urgent.
+--- tParams: sku, port, path (default /state), relay_host, app_token,
+--- requester, urgent.
+local function privateRelayHost(value)
+  local host = tostring(value or ""):match("^%s*(.-)%s*$")
+  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+  if a == nil or b == nil or c == nil or d == nil or a > 255 or b > 255 or c > 255 or d > 255 then
+    return nil
+  end
+  if
+    a == 10
+    or a == 127
+    or (a == 169 and b == 254)
+    or (a == 172 and b >= 16 and b <= 31)
+    or (a == 192 and b == 168)
+    or (a == 100 and b >= 64 and b <= 127)
+  then
+    return string.format("%d.%d.%d.%d", a, b, c, d)
+  end
+  return nil
+end
+
+--- Accept a LAN relay address only when Director reports that exact address
+--- on a Control4 controller device. Merely being RFC1918 is insufficient: a
+--- sibling driver could otherwise turn the legacy command into an Agent-side
+--- fetch of any router, NAS, or service on the customer's LAN.
+local function controllerRelayHost(value)
+  local wanted = privateRelayHost(value)
+  if wanted == nil then
+    return nil
+  end
+  if wanted == "127.0.0.1" then
+    return wanted
+  end
+  local function containsAddress(node, depth, seen)
+    if type(node) ~= "table" or depth > 6 or seen[node] then
+      return false
+    end
+    seen[node] = true
+    if privateRelayHost(node.addr) == wanted then
+      return true
+    end
+    for _, child in pairs(node) do
+      if type(child) == "table" and containsAddress(child, depth + 1, seen) then
+        return true
+      end
+    end
+    return false
+  end
+  local okDevices, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not okDevices or type(devices) ~= "table" then
+    return nil
+  end
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring(type(device) == "table" and device.driverFileName or "")
+    if id ~= nil and file:find("^control4_") ~= nil then
+      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
+        local okBindings, bindings = pcall(function()
+          return C4[api](C4, id)
+        end)
+        if okBindings and containsAddress(bindings, 0, {}) then
+          return wanted
+        end
+      end
+    end
+  end
+  return nil
+end
+
 local function mirrorDriverState(tParams, legacy)
   tParams = tParams or {}
   local sku = tostring(tParams.sku or "")
@@ -1979,7 +2051,7 @@ local function mirrorDriverState(tParams, legacy)
   local token = tostring(tParams.app_token or "")
   local path = tostring(tParams.path or "/state")
   local requester = tonumber(tParams.requester)
-  if sku == "" or port == nil or token == "" then
+  if sku == "" or port == nil or port < 1 or port > 65535 or port % 1 ~= 0 or token == "" then
     return
   end
   if path:sub(1, 1) ~= "/" then
@@ -1993,7 +2065,14 @@ local function mirrorDriverState(tParams, legacy)
   if base == "" or not isPaired() then
     return
   end
-  local localUrl = string.format("http://127.0.0.1:%d%s?k=%s", port, path, token)
+  -- OS 4.2 hardware proved that 127.0.0.1 can hang when one driver fetches
+  -- another driver's CreateServer listener. A current driver sends the same
+  -- private controller address its Navigator app already uses successfully.
+  -- Reject public/malformed addresses so this inter-driver command cannot be
+  -- turned into an arbitrary Agent-side HTTP request.
+  local relayHost = controllerRelayHost(tParams.relay_host) or "127.0.0.1"
+  local localUrl = string.format("http://%s:%d%s?k=%s", relayHost, port, path, token)
+  log:debug("%s state fetch from %s:%d%s", sku, relayHost, port, path)
   http:get(localUrl, {}, { timeout = 10 }):next(function(resp)
     local ok, state = pcall(function()
       return JSON:decode(resp.body)
@@ -2055,7 +2134,7 @@ local function mirrorDriverState(tParams, legacy)
         log:debug("%s state push failed: %s", sku, tostring(type(err) == "table" and err.error or err))
       end)
   end, function()
-    log:debug("%s state fetch from local server :%d%s failed", sku, port, path)
+    log:debug("%s state fetch from %s:%d%s failed", sku, relayHost, port, path)
   end)
 end
 
@@ -6099,6 +6178,10 @@ local gEntitlements = {
   backwardsWarned = false,
   clockSkewed = false,
 }
+-- One Agent-authenticated provisioning exchange per SKU at a time. The
+-- dependent driver receives only the resulting controller+SKU+install scoped
+-- upload capability — never this Agent's bearer or HMAC secret.
+local gDriverCloudProvisioning = {}
 
 --- @return string secret The per-controller HMAC secret, "" pre-Phase-5 pairings.
 local function agentSecret()
@@ -6686,6 +6769,87 @@ function EC.SBOS_CHECK_ENTITLEMENT(tParams)
     return
   end
   answerEntitlement(requester, sku)
+end
+
+--- Whether a signed entitlement may receive a direct cloud-state capability.
+--- The provisioning path is deliberately stricter than the driver's local
+--- fail-open behavior: cloud publishing is an additive service, so LEGACY or
+--- uncertain licensing never needs a credential.
+local function cloudProvisioningAllowed(status)
+  return status == "AUTHORIZED_SUBSCRIPTION"
+    or status == "AUTHORIZED_PERPETUAL"
+    or status == "AUTHORIZED_GRACE"
+    or status == "TRIAL"
+end
+
+--- Exchanges the Agent's paired-controller bearer for a capability restricted
+--- to one controller, one catalog SKU and the driver's current app token. The
+--- dependent driver then publishes its own state over outbound HTTPS, avoiding
+--- the inter-driver CreateServer path that hangs on CORE hardware.
+function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
+  tParams = tParams or {}
+  local sku = tostring(tParams.sku or "")
+  local appToken = tostring(tParams.app_token or "")
+  local requester = tonumber(tParams.requester)
+  local requestId = tostring(tParams.request_id or "")
+  if
+    sku == ""
+    or appToken == ""
+    or requester == nil
+    or #requestId < 8
+    or #requestId > 128
+    or requestId:find("^[%w%-]+$") == nil
+    or not isPaired()
+  then
+    return
+  end
+  if not cloudProvisioningAllowed(statusForSku(sku).status) then
+    answerEntitlement(requester, sku)
+    return
+  end
+  if gDriverCloudProvisioning[sku] then
+    return
+  end
+  local url = driverCloudUrl("state/provision")
+  if not url then
+    return
+  end
+  gDriverCloudProvisioning[sku] = true
+  http
+    :post(url, { driver_sku = sku, app_token = appToken }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+    :next(function(response)
+      gDriverCloudProvisioning[sku] = nil
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
+      end
+      if
+        type(body) ~= "table"
+        or tostring(body.driver_sku or "") ~= sku
+        or tostring(body.upload_url or "") ~= tostring(driverCloudUrl("state/direct") or "")
+        or tostring(body.upload_token or ""):find("^sbosdu2%.") == nil
+      then
+        log:warn("Driver Cloud provisioning returned an unusable response for %s", sku)
+        return
+      end
+      SendToDevice(requester, "SBOS_DRIVER_CLOUD", {
+        sku = sku,
+        upload_url = tostring(body.upload_url),
+        upload_token = tostring(body.upload_token),
+        request_id = requestId,
+      })
+      log:info("Driver Cloud direct upload provisioned for %s (device %d)", sku, requester)
+    end, function(err)
+      gDriverCloudProvisioning[sku] = nil
+      log:debug(
+        "Driver Cloud provisioning failed for %s: %s",
+        sku,
+        tostring(type(err) == "table" and (err.error or err.code) or err)
+      )
+    end)
 end
 
 --- The UniFi Protect Gateway's device roster (name/MAC/state per Protect

@@ -96,6 +96,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   right tab. Devices with SetHSV derive the color child automatically; plain
   lights keep the simpler driver.
 
+### Fixed
+
+- **Atmosphere off-LAN state:** replaced the Agent-pulls-local-relay path with
+  direct HTTPS publishing from Atmosphere. CORE 1 hardware on OS 4.2 proved an
+  Agent request to a sibling driver's `CreateServer` listener hangs through both
+  loopback and the controller's LAN address. The paired, licensed Agent now
+  provisions a bearer cryptographically restricted to that controller,
+  `SBOS_ATMOSPHERE`, the app-token installation, and a revocable generation;
+  Atmosphere never receives the Agent bearer or signing secret. A one-time
+  request challenge authenticates the Agent's response, state transitions queue
+  behind an in-flight upload, and the cloud path no longer depends on the LAN
+  listener binding. The old pull handler remains for deployed drivers, accepts
+  only addresses Director reports on the controller itself, and HTTP traces
+  redact the frozen `?k=` capability token. The Atmosphere upgrade rotates the
+  token the field trace exposed. A new build guard also makes SmartBuildOS
+  licensing mandatory for every standalone Control4 driver, with suite children
+  explicitly inheriting their licensed parent. Bench builds give every package
+  one shared UTC stamp so Composer sees the coordinated upgrade.
+
 ## v20260830.122926 - 2026-08-30
 
 ### Added

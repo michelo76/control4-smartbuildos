@@ -1,16 +1,17 @@
 # Atmosphere — SmartBuildOS Platform Integration
 
-**None of this is required for weather automation.** The driver's independence
-rule: everything weather-related works with no SmartBuildOS pairing and no
-platform reachability. Pairing the project's SmartBuildOS Agent adds management
-conveniences on top — it is never in the weather data path.
+Weather safety remains independent of platform reachability, but the
+SmartBuildOS Agent is the required licensing authority for this Control4
+product. Its entitlement cache fails open during uncertainty so a cloud outage
+never disables weather automation.
 
 ## What pairing adds
 
 ### 1. Licensing
 
 The Agent answers entitlement for `SBOS_ATMOSPHERE` — see
-[LICENSING.md](LICENSING.md). Without it: `LEGACY`, fully operational.
+[LICENSING.md](LICENSING.md). All standalone drivers follow this process;
+suite children inherit the entitlement of their licensed gateway.
 
 ### 2. Fleet status
 
@@ -69,26 +70,29 @@ Off the LAN the Navigator app has no data: the JS API is dead on real Navigators
 driver's UI state is mirrored to SmartBuildOS and the app reads it back as a
 read-only channel. End to end:
 
-1. **Driver → Agent (local ask).** On every engine run the driver calls
-   `SendToDevice(agent, "SBOS_ATMOSPHERE_STATE", { port, app_token, requester, urgent })`.
-   Steady state is throttled to 60 s driver-side (plus a 45 s last-line throttle
-   in the Agent); a transition (events fired) sets `urgent` and goes
-   immediately, so the remote app never shows a stale warning picture.
-1. **Agent → driver relay (localhost fetch).** The Agent GETs
-   `http://127.0.0.1:<port>/state?k=<token>` — the driver's *own* LAN relay,
-   same controller, which avoids inter-driver message size limits. The token
-   never leaves localhost except inside TLS (next step).
-1. **Agent → platform (bearer POST).** The Agent POSTs `{ state, app_token }` to
-   `/api/driver-cloud/atmosphere/state` with its existing controller bearer
-   auth. The platform validates (state must be a JSON object ≤ 96 KB;
-   `app_token` 16–64 alphanumeric chars, or absent to keep the stored hash),
-   then upserts one `driver_atmosphere_state` row per controller —
-   company/controller identity comes off the authenticated row, never the body.
-   **Only the token's SHA-256 hash is stored.**
-1. **Ack back down.** The platform answers with `view_url` (the public
-   capability endpoint) and `view_handle` (the controller's `SBOS-XXXXXX`
-   support id); the Agent forwards them as `SBOS_ATMOSPHERE_STATE_ACK`, and the
-   driver adds `cloud=` + `cid=` to the app URL alongside the LAN relay pointer.
+1. **Driver → Agent (provisioning ask).** Atmosphere sends
+   `SBOS_DRIVER_CLOUD_REQUEST {sku, app_token, requester, request_id}` over the bindingless
+   device path. The Agent answers only for an authorized subscription,
+   perpetual, grace or trial entitlement. Atmosphere accepts only the answer
+   that echoes its outstanding one-time `request_id`.
+1. **Agent → platform (credential exchange).** Using its paired-controller
+   bearer, the Agent calls `/api/driver-cloud/state/provision`. The response is
+   a narrow upload bearer HMAC-bound to controller + `SBOS_ATMOSPHERE` + this
+   installation's app token and the current server-side generation. A reinstall
+   rotates that generation and revokes prior upload bearers. The main Agent
+   bearer and per-controller signing secret never leave `smartbuildos.c4z`.
+1. **Atmosphere → platform (direct HTTPS push).** The Agent forwards the narrow
+   bearer as `SBOS_DRIVER_CLOUD`; Atmosphere then POSTs
+   `{driver_sku, state, app_token}` directly to
+   `/api/driver-cloud/state/direct`. This avoids inter-driver HTTP entirely —
+   field hardware proved that an Agent request to a sibling driver's
+   `CreateServer` listener hangs through both loopback and the controller LAN
+   address.
+   A LAN relay bind failure does not disable this direct path, and state changes
+   arriving during a POST are queued for an immediate follow-up upload.
+1. **Capability read becomes ready.** The direct push answers with `view_url`
+   and the controller's `SBOS-XXXXXX` support id. Atmosphere adds `cloud=` +
+   `cid=` to the app URL alongside its independent LAN relay pointer.
 1. **Public capability read.** The app GETs `view_url?c=<support id>&k=<token>`
    with no session — the URL pair is the whole credential, same shape as the
    calendar capability URLs. The read compares the presented token's hash in
@@ -103,11 +107,9 @@ read-only channel. End to end:
 The app treats the mirror as strictly read-only (settings disabled, writes
 dropped) and climbs back to the JS API / LAN relay every 5 minutes.
 
-*Status:* driver and Agent sides are implemented and tested in this repo;
-platform sides (routes + `driver_atmosphere_state` table) are implemented in the
-smartbuildos repo on the `codex/atmosphere-cloud-mirror` branch. **The
-end-to-end path has not yet had a field pass** — no real controller has mirrored
-state to production and had the app read it back.
+*Status:* implemented with cross-language security tests and awaiting a hardware
+field pass. The former Agent-pulls-relay path remains only for compatibility
+with older drivers; current Atmosphere does not use it.
 
 ### 5. Notifications (planned)
 
