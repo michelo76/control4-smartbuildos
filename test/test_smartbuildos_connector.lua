@@ -45,8 +45,23 @@ local pairBody = nil
 --- What C4:GetProjectItems answers. Shaped like the live project (diagnostics
 --- line 06): flat <item> entries whose <name> is the DEALER-TYPED name.
 local nextProjectXml = nil
-C4.GetProjectItems = function()
+--- What C4:GetProjectItems answers for the LOCATIONS filter. The real one
+--- carries ATTRIBUTES on <item>, which a bare-`<item>` pattern silently misses.
+local nextLocationsXml = '<systemitems><item majorversion="4" minorversion="2">'
+  .. "<id>1</id><name>Miami-Beta</name><type>1</type></item>"
+  .. "<item><id>13</id><name>Home</name><type>2</type></item></systemitems>"
+C4.GetProjectItems = function(_, filter)
+  if filter == "LOCATIONS" then
+    return nextLocationsXml or ""
+  end
   return nextProjectXml or ""
+end
+
+--- The controller host name. Control4 forms it as `<name>-<MAC>`; measured
+--- 2026-09-01 as "Beta-Miami-000FFF9CB2CB" on the live XDT_CORE1.
+local nextHostname = nil
+C4.GetHostname = function()
+  return nextHostname
 end
 
 --- What the camera proxy answers GET_SNAPSHOT_QUERY_STRING with, and what it
@@ -592,6 +607,33 @@ check(
 check("Authorization is the bearer token", (req.headers or {})["Authorization"] == "Bearer " .. TOKEN)
 check("property id travels in the header", (req.headers or {})["X-SmartBuildOS-Property"] == PROPERTY)
 check("device total is reported", (req.data or {}).devices_total == 5, (req.data or {}).devices_total)
+
+-- The Composer project name, in the field the platform has parsed and shown
+-- as "Composer project reference" since the technical inventory shipped —
+-- and which nothing has ever filled, because the driver was told the project
+-- name was unreadable. It is not: the LOCATIONS tree's type-1 root carries it.
+--
+-- ⚠ The <item> tag there has ATTRIBUTES. The bare-`<item>` pattern the device
+-- lookup used matches nothing against this shape, which is exactly how a
+-- present name would come back nil.
+check(
+  "the Composer project name reaches the payload",
+  ((req.data or {}).technical_metadata or {}).composer_project_ref == "Miami-Beta",
+  tostring(((req.data or {}).technical_metadata or {}).composer_project_ref)
+)
+
+-- Absent, not guessed: a project with no readable type-1 root must send no
+-- key at all rather than an empty string the platform would store as a fact.
+local savedLocations = nextLocationsXml
+nextLocationsXml = ""
+reset()
+EC.SEND_HEARTBEAT()
+check(
+  "an unreadable project name sends no key",
+  ((requests[1] or {}).data or {}).technical_metadata == nil,
+  tostring(((requests[1] or {}).data or {}).technical_metadata)
+)
+nextLocationsXml = savedLocations
 
 print("\n[7] A trailing slash on API URL does not produce a double slash")
 pair()
@@ -1343,23 +1385,52 @@ local function freshDirector()
   return id, name
 end
 
-nextProjectXml = "<item><id>63</id><name>Beta-Miami</name><type>7</type></item>"
+-- ⚠ THE FIXTURE USED TO ASSUME THE PROJECT ITEM CARRIED THE NAME, naming item
+-- 63 "Beta-Miami" and asserting that came back. The live run on 2026-09-01
+-- disproved it: the project item is the MODEL and the host name is the only
+-- place the integrator's name lives.
+--
+--   GetHostname                Beta-Miami-000FFF9CB2CB
+--   projectItemName(19)        Control4 CORE 1     (config control4_core1.c4i)
+--   GetDeviceDisplayName(19)   System Controller
+--
+-- So the fixture now says what the controller actually says, and the assertion
+-- passes for the right reason rather than by luck.
+nextHostname = "Beta-Miami-000FFF9CB2CB"
+nextProjectXml = "<item><id>63</id><name>Control4 CORE 1</name><type>7</type></item>"
   .. "<item><id>39</id><name>Apple TV Jesse Alt</name><type>6</type></item>"
 local dirId, dirName = freshDirector()
 check("the Director is found by loopback", dirId == 63, tostring(dirId))
-check("and named as Composer shows it, not as the driver is named", dirName == "Beta-Miami", tostring(dirName))
+check("named from the host name, not the model or the proxy label", dirName == "Beta-Miami", tostring(dirName))
 check("never this driver's own device id", dirId ~= C4:GetDeviceID(), tostring(dirId))
 
--- Without a project item the device name is an honest fallback, not nothing.
+-- Only a REAL MAC tail is stripped. A controller named "Rack-1" must keep it.
+nextHostname = "Rack-1"
+dirId, dirName = freshDirector()
+check("a name with no MAC suffix is left alone", dirName == "Rack-1", tostring(dirName))
+
+nextHostname = "Beta-Miami-00FFF9CB2CB"
+dirId, dirName = freshDirector()
+check("an eleven-digit tail is not a MAC and is not stripped", dirName == "Beta-Miami-00FFF9CB2CB", tostring(dirName))
+
+-- Fallback chain, in order. The project item is the model, but a model still
+-- beats nothing when the host name is unreadable.
+nextHostname = nil
+dirId, dirName = freshDirector()
+check("no host name falls back to the project item", dirName == "Control4 CORE 1", tostring(dirName))
+
+nextHostname = ""
 nextProjectXml = ""
 dirId, dirName = freshDirector()
 check(
-  "no project item falls back to the device name",
+  "no host name and no project item falls back to the device name",
   dirId == 63 and dirName == "Home Controller EA5",
   tostring(dirName)
 )
 
--- An item for a DIFFERENT id must not be borrowed.
+-- An item for a DIFFERENT id must not be borrowed. Host name off, so the
+-- project-item path is the one under test.
+nextHostname = nil
 nextProjectXml = "<item><id>39</id><name>Apple TV Jesse Alt</name></item>"
 dirId, dirName = freshDirector()
 check("another item's name is never borrowed", dirName == "Home Controller EA5", tostring(dirName))
