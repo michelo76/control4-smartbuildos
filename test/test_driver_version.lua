@@ -55,5 +55,14 @@ check("later legacy beats earlier dated build", version.isNewer("20260831.133204
 check("earlier dated build does not beat later legacy", not version.isNewer("20260830.2", "20260831.133204"))
 check("same-day scheme flip is an upgrade", version.isNewer("20260831.1", "20260831.235959"))
 
+print("\n[9] HHMM and HHMMSS are the SAME clock and must compare as one")
+-- As raw numbers 1234 (12:34) sorts below 020000 (02:00), so an afternoon
+-- four-digit stamp read as OLDER than a pre-dawn six-digit one. Both the
+-- driver and the platform comparator had this; found 2026-09-01 in review.
+check("12:34 is later than 02:00", comparison("20260820.1234", "20260820.020000") == 1)
+check("and not the other way round", comparison("20260820.020000", "20260820.1234") == -1)
+check("the same minute written both ways is EQUAL", comparison("20260820.0234", "20260820.023400") == 0)
+check("ordinary same-width case still holds", comparison("20260820.1235", "20260820.1234") == 1)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

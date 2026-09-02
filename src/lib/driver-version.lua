@@ -67,7 +67,13 @@ local function legacyTimestamp(text)
   if not validDate(month, day, year) or hour > 23 or minute > 59 or second > 59 then
     return nil
   end
-  return { kind = "legacy", date = tonumber(date), time = tonumber(time), text = text }
+  -- ⚠ NORMALISE HHMM TO SECONDS BEFORE COMPARING. As raw numbers 1234 (12:34)
+  -- sorts BELOW 020000 (02:00), so a four-digit stamp from the afternoon read
+  -- as older than a six-digit one from before dawn — an inversion inside the
+  -- legacy scheme itself, which the updater would turn into refusing a newer
+  -- build. Four digits are HHMM, so they scale by 100.
+  local seconds = #time == 4 and tonumber(time) * 100 or tonumber(time)
+  return { kind = "legacy", date = tonumber(date), time = seconds, text = text }
 end
 
 --- Parse a supported driver version.
