@@ -6915,16 +6915,18 @@ licensedDriverCounts = function()
   return installed, licensed
 end
 
+--- The status each SKU was last told, so the hourly tick can tell a driver
+--- when its answer changes without a cloud refresh (see pushChangedEntitlements).
+--- In memory only, so it is empty after the Agent alone reloads (a driver
+--- update), while the inventory and the dependent drivers' last answers
+--- survive. An entry missing here therefore means "not told since this load",
+--- and the tick answers it.
+local gAnswered = {}
+
 --- Answers one entitlement question — the Phase-2 seam, now with real
 --- statuses behind it. Every caller and the protocol shape are unchanged.
 --- @param requester number The asking driver's device id.
 --- @param sku string The driver SKU.
---- The status each SKU was last told, so the hourly tick can tell a driver
---- when its answer changes without a cloud refresh (see pushChangedEntitlements).
---- In memory only: after a Director restart every driver registers again and
---- is answered fresh.
-local gAnswered = {}
-
 local function answerEntitlement(requester, sku)
   local answer = statusForSku(sku)
   gAnswered[sku] = answer.status
@@ -7097,8 +7099,15 @@ local function pushChangedEntitlements()
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   for sku, entry in pairs(inventory) do
     local device = tonumber(entry.device_id)
-    if device ~= nil and gAnswered[sku] ~= nil and statusForSku(sku).status ~= gAnswered[sku] then
-      log:info("Licence status for %s changed to %s without a refresh; telling device %s", sku, statusForSku(sku).status, device)
+    local status = statusForSku(sku).status
+    if device ~= nil and status ~= gAnswered[sku] then
+      log:info(
+        "Licence status for %s is %s, last told %s; telling device %s",
+        sku,
+        status,
+        tostring(gAnswered[sku]),
+        device
+      )
       answerEntitlement(device, sku)
     end
   end
