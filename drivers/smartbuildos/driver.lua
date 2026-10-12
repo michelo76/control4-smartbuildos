@@ -778,6 +778,22 @@ end
 --- contract.
 --- @param body any Decoded response body, a string, or nil.
 --- @return string
+--- The HTTP status of a rejected request, or nil when no response arrived.
+--- Control4's url layer (drivers-common-public/global/url.lua) reports a
+--- transfer that never got an answer (no route, DNS, timeout) as response code
+--- 0, and lib/http passes it through as `code = 0`. That is "no answer", not a
+--- status: treating it as a number made every outage read "HTTP 0" and left
+--- the "Unreachable" wording unreachable.
+--- @param err table|nil The rejection from lib/http.
+--- @return number|nil status
+local function httpStatus(err)
+  local code = type(err) == "table" and tonumber(err.code) or nil
+  if code ~= nil and code > 0 then
+    return code
+  end
+  return nil
+end
+
 local function bodyText(body)
   if type(body) == "table" then
     local parts = {}
@@ -844,10 +860,16 @@ local function send(path, payload, description, onOk, onDelivered)
 
   log:debug("Sending %s to %s", description, url)
   http:post(url, payload, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
-    gFailures = 0
-    UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
-    setConnected(true, "Connected")
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
+    -- A request can still be in flight when the driver unpairs: the unpair
+    -- notice itself always is, because EC.UNPAIR wipes the pairing right after
+    -- sending it. Its answer must not repaint an unpaired driver as
+    -- "Connected" (or stamp a sync time on it).
+    if isPaired() then
+      gFailures = 0
+      UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
+      setConnected(true, "Connected")
+    end
 
     if onDelivered then
       pcall(onDelivered)
@@ -870,10 +892,16 @@ local function send(path, payload, description, onOk, onDelivered)
     -- this one handler covers both. The distinction matters to whoever reads
     -- Connection Status: a 401 means the token was revoked and a 404 means the
     -- property is gone, and those need different fixes than "no internet".
+    if not isPaired() then
+      -- Unpaired while this was in flight (see the success path): the
+      -- connection it was reporting on no longer exists.
+      log:info("%s failed after unpairing; ignored: %s", description, tostring(err and (err.error or err.code) or err))
+      return
+    end
     gFailures = gFailures + 1
-    local code = err and err.code
+    local code = httpStatus(err)
     local reason
-    if type(code) == "number" then
+    if code ~= nil then
       reason = string.format("HTTP %d: %s", code, bodyText(err.body))
       setConnected(false, string.format("HTTP %d", code))
       log:error("%s rejected with HTTP %d: %s", description, code, bodyText(err.body))
@@ -4381,10 +4409,10 @@ end
 
 --- The shared failure painter for both pairing doors.
 local function pairError(err)
-  local code_ = err and err.code
+  local code_ = httpStatus(err)
   if code_ == 404 or code_ == 410 then
     UpdateProperty("Connection Status", "Pairing failed - code is invalid or expired")
-  elseif type(code_) == "number" then
+  elseif code_ ~= nil then
     UpdateProperty("Connection Status", string.format("Pairing failed - HTTP %d", code_))
   else
     UpdateProperty("Connection Status", "Pairing failed - SmartBuildOS unreachable")
@@ -4473,8 +4501,8 @@ local function requestAccountCode(accountNumber)
     :next(function()
       UpdateProperty("Connection Status", "If that account matches, a code was emailed. Enter it in Verification Code.")
     end, function(err)
-      local code_ = err and err.code
-      if type(code_) == "number" then
+      local code_ = httpStatus(err)
+      if code_ ~= nil then
         UpdateProperty("Connection Status", string.format("Could not request a code - HTTP %d", code_))
       else
         UpdateProperty("Connection Status", "Could not request a code - SmartBuildOS unreachable")
@@ -6887,12 +6915,21 @@ licensedDriverCounts = function()
   return installed, licensed
 end
 
+--- The status each SKU was last told, so the hourly tick can tell a driver
+--- when its answer changes without a cloud refresh (see pushChangedEntitlements).
+--- In memory only, so it is empty after the Agent alone reloads (a driver
+--- update), while the inventory and the dependent drivers' last answers
+--- survive. An entry missing here therefore means "not told since this load",
+--- and the tick answers it.
+local gAnswered = {}
+
 --- Answers one entitlement question — the Phase-2 seam, now with real
 --- statuses behind it. Every caller and the protocol shape are unchanged.
 --- @param requester number The asking driver's device id.
 --- @param sku string The driver SKU.
 local function answerEntitlement(requester, sku)
   local answer = statusForSku(sku)
+  gAnswered[sku] = answer.status
   SendToDevice(requester, "SBOS_ENTITLEMENT", {
     sku = sku,
     status = answer.status,
@@ -7052,7 +7089,32 @@ end
 
 --- The hourly tick: refresh only once the cache is older than the server's
 --- revalidate window (default 24h), so the cadence is server-tunable.
+--- Tells every registered driver whose answer has changed since it was last
+--- told. statusForSku() moves on its own as the cache ages (AUTHORIZED_GRACE
+--- once the cache window passes, CLOUD_VALIDATION_REQUIRED once grace runs
+--- out), and that happens precisely while the cloud is unreachable, when no
+--- successful refresh will ever call pushEntitlements(). Without this a
+--- dependent driver kept "Licensed" for as long as the cloud stayed down.
+local function pushChangedEntitlements()
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  for sku, entry in pairs(inventory) do
+    local device = tonumber(entry.device_id)
+    local status = statusForSku(sku).status
+    if device ~= nil and status ~= gAnswered[sku] then
+      log:info(
+        "Licence status for %s is %s, last told %s; telling device %s",
+        sku,
+        status,
+        tostring(gAnswered[sku]),
+        device
+      )
+      answerEntitlement(device, sku)
+    end
+  end
+end
+
 function entitlementTick()
+  pushChangedEntitlements()
   local cache = entitlementCache()
   if cache == nil then
     refreshEntitlements("initial validation")
@@ -7087,6 +7149,11 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   persist:set(SBOS_DRIVERS_PERSIST, inventory)
   log:info("SmartBuildOS driver registered: %s %s (device %s)", sku, entry.version, requester)
   answerEntitlement(requester, sku)
+  -- "Licensed Drivers" counts the inventory, which just changed. Without this
+  -- it was only repainted after a licence refresh, and a sku already in the
+  -- cache does not trigger one, so a newly added driver stayed out of the
+  -- count for up to a day.
+  updateLicenseProperties()
   -- A sku the cache has never seen deserves a prompt cloud ask (debounced:
   -- a Director restart registers everybody at once, and one refresh serves
   -- them all).
