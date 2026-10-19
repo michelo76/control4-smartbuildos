@@ -113,6 +113,8 @@ function M.new(io)
   self.evaluateAfterSync = false
   self.remoteStateWasCurrent = nil
   self.stats = { published = 0, applied = 0, rejected = 0, events_in = 0, events_out = 0 }
+  self.commands = {} -- outbound companion commands: [id] = { routine, target, status, at }
+  self.commandOrder = {}
   return self
 end
 
@@ -624,6 +626,34 @@ function M:sendRequest(routine, payload, deadlineS)
   return entry
 end
 
+--- Companion control: a bounded, correlated command to the owner. Unlike a
+--- request it occupies no dealer request slot; the companion learns the
+--- outcome through io.onCommandResult. Non-idempotent operations are never
+--- retried by anyone: the relay dedups by id and the owner executes once.
+M.COMMANDS_MAX = 50
+function M:sendCommand(routine, target, params, ttlS)
+  if not self.link then
+    return nil, "not provisioned"
+  end
+  if not self:commandsPermitted() then
+    return nil, "commands paused"
+  end
+  if self.peerState ~= "online" then
+    return nil, "peer unavailable"
+  end
+  local id = self.io.uuid()
+  local env = self:envelope("command", { routine = routine, target = target, params = params, ttl_s = ttlS or 30 })
+  env.id = id
+  pushPending(self, env)
+  self.commands[id] = { routine = routine, target = target, status = "accepted", at = self.io.now() }
+  self.commandOrder[#self.commandOrder + 1] = id
+  while #self.commandOrder > M.COMMANDS_MAX do
+    local old = table.remove(self.commandOrder, 1)
+    self.commands[old] = nil
+  end
+  return id
+end
+
 --- Local programming reports on an INBOUND request it is handling.
 function M:reportRequest(slotOrId, status, result)
   local entry
@@ -1051,6 +1081,9 @@ function M:applyMirrorValue(def, incoming, source)
   self:writeNative(def)
   self.stats.applied = self.stats.applied + 1
   local kind = reconcile.classify(self.reconcile, source)
+  if self.io.onMirrorApplied then
+    self.io.onMirrorApplied(def, tv, kind)
+  end
   if kind == "live" and changed then
     self.lastInboundHops = incoming.hops
     self.io.fireItemEvent(def.id, "changed")
@@ -1212,6 +1245,15 @@ function M:applyInbound(env, rawLen)
       return
     end
     local id = tostring(env.body.request_id or "")
+    local cmd = self.commands[id]
+    if cmd then
+      cmd.status = tostring(env.body.status or "")
+      cmd.result = env.body.result
+      if self.io.onCommandResult then
+        self.io.onCommandResult(id, cmd, cmd.status, type(cmd.result) == "table" and cmd.result.reason or nil)
+      end
+      return
+    end
     local entry = requests.get(self.requests, id)
     if entry and entry.direction == "out" then
       local status = tostring(env.body.status or "")

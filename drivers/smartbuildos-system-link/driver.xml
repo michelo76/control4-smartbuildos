@@ -91,6 +91,8 @@
       <action><name>Delete Selected Item</name><command>DELETE_SELECTED_ITEM</command></action>
       <action><name>Apply Filter To Selected Item</name><command>APPLY_FILTER_TO_SELECTED_ITEM</command></action>
       <action><name>Print Shared Items</name><command>PRINT_SHARED_ITEMS</command></action>
+      <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
+      <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
       <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
       <action><name>Run Link Test</name><command>RUN_LINK_TEST</command></action>
       <action><name>Pause Remote Commands</name><command>PAUSE_COMMANDS</command></action>
@@ -192,6 +194,41 @@
       <command>
         <name>Resume Remote Commands</name>
         <description>End a local command suspension</description>
+      </command>
+      <command>
+        <name>Export Device</name>
+        <description>Share DEVICE with the linked project as NAME (KIND companion; CONTROL; optional OPS e.g. on,off,set_level)</description>
+        <params>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>KIND</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items></param>
+          <param><name>CONTROL</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items></param>
+          <param><name>OPS</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Remove Export</name>
+        <description>Stop sharing export NAME (its Composer variables stay hidden, never reused)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Export Schedule</name>
+        <description>Permit remote control of export NAME only on DAYS (1=Sun..7=Sat, comma list) between FROM and TO (HH:MM, controller local time)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DAYS</name><type>STRING</type></param>
+          <param><name>FROM</name><type>STRING</type></param>
+          <param><name>TO</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Clear Export Schedule</name>
+        <description>Allow remote control of export NAME at any time</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
       </command>
     </commands>
     <properties>

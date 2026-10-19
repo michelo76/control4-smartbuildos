@@ -470,6 +470,108 @@ check(
   TC.REQUEST_STATUS(nil, { VALUE = "1 completed" }) == true and gEngine.requests.slots[1] == false
 )
 
+print("\n[4b] exports: owner watches a light, publishes fields, executes remote commands")
+local watched = {}
+function C4:GetDeviceVariables(id)
+  if id == 41 then
+    return { ["1000"] = { name = "LIGHT_STATE", value = "1" }, ["1001"] = { name = "Brightness Percent", value = "55" } }
+  end
+  return {}
+end
+function C4:RegisterVariableListener(id, varId)
+  watched[#watched + 1] = { id = id, varId = varId }
+  return true
+end
+function C4:UnregisterVariableListener() end
+function C4:GetDeviceDisplayName(id)
+  return "device " .. tostring(id)
+end
+function C4:GetDeviceData(id, key)
+  if key == "name" then
+    return "Porch Light"
+  end
+end
+EC.Export_Device({
+  DEVICE = "41",
+  NAME = "Porch_Light",
+  KIND = "light",
+  CONTROL = "Control allowed",
+  OPS = "on,off,set_level",
+})
+check(
+  "export created two owned items",
+  gEngine:findByName("Porch_Light_On") ~= nil and gEngine:findByName("Porch_Light_Level") ~= nil,
+  Properties["Last Error"]
+)
+check("both source variables watched", #watched == 2 and watched[1].id == 41)
+check(
+  "initial values published from the device",
+  variables["California.Porch_Light_On"] == "1" and variables["California.Porch_Light_Level"] == "55",
+  tostring(variables["California.Porch_Light_Level"])
+)
+OnWatchedVariableChanged(41, 1001, "20")
+check("variable listener drives the field", variables["California.Porch_Light_Level"] == "20")
+local exp
+for _, e in pairs(gExports) do
+  exp = e
+end
+check(
+  "companion metadata carries no local device id",
+  exp
+    and gEngine:findByName("Porch_Light_Level").companion.device_id == nil
+    and gEngine:findByName("Porch_Light_Level").companion.name == "Porch_Light"
+)
+sent = {}
+local okCmd, why =
+  OnSystemLinkCommand({ routine = "light.set_level", target = exp.id, params = { level = 70, time_ms = 500 } }, "cmd-1")
+check(
+  "remote command executes RAMP_TO_LEVEL on the real device",
+  okCmd
+    and lastSent("RAMP_TO_LEVEL")
+    and lastSent("RAMP_TO_LEVEL").id == 41
+    and lastSent("RAMP_TO_LEVEL").params.LEVEL == 70,
+  why
+)
+check("variable NOT written by the command (feedback only)", variables["California.Porch_Light_Level"] == "20")
+EC.Set_Export_Schedule({ NAME = "Porch_Light", DAYS = "1", FROM = "00:00", TO = "00:01" })
+local okSched, whySched = OnSystemLinkCommand({ routine = "light.on", target = exp.id }, "cmd-2")
+check("schedule refuses outside the window", not okSched and tostring(whySched):match("schedule"), whySched)
+EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
+check(
+  "thermostat export refused without the gated feature",
+  (function()
+    EC.Export_Device({ DEVICE = "42", NAME = "Hall_Stat", KIND = "thermostat", CONTROL = "Control allowed" })
+    return gEngine:findByName("Hall_Stat_Temperature") == nil and Properties["Last Error"]:match("THERMOSTAT")
+  end)(),
+  Properties["Last Error"]
+)
+-- companion handshake on the PEER side: pretend we mirror an export
+gEngine.registry.items["ny-occ"].companion =
+  { id = "nyx", name = "Guest_Lamp", kind = "light", control = true, ops = { "on", "off" }, field = "On" }
+sent = {}
+EC.SBOS_LINK_COMPANION_HELLO({ requester = "777", kind = "light", export = "Guest_Lamp" })
+check(
+  "companion receives the export list and a state push",
+  lastSent("SBOS_LINK_COMPANION_EXPORTS")
+    and JSON:decode(lastSent("SBOS_LINK_COMPANION_EXPORTS").params.exports)[1].name == "Guest_Lamp"
+    and lastSent("SBOS_LINK_COMPANION_STATE") ~= nil
+)
+EC.SBOS_LINK_COMPANION_CONTROL({ requester = "777", export = "Guest_Lamp", op = "on", params = "{}" })
+check(
+  "companion control becomes an outbound command and an accepted result",
+  lastSent("SBOS_LINK_COMPANION_RESULT").params.status == "accepted"
+    and (function()
+      for _, env in ipairs(gEngine.pending) do
+        if env.t == "command" and env.body.routine == "light.on" then
+          return true
+        end
+      end
+    end)(),
+  lastSent("SBOS_LINK_COMPANION_RESULT").params.reason
+)
+EC.Remove_Export({ NAME = "Porch_Light" })
+check("remove export tombstones its items", gEngine:findByName("Porch_Light_On") == nil)
+
 print("\n[5] pause, 401 re-provision, forget")
 EC.Pause_Remote_Commands({ MINUTES = "1" })
 check("local pause suspends commands and fires Commands Paused", TC.COMMANDS_PERMITTED() == false and fired(18) == 1)

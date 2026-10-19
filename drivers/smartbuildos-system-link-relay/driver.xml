@@ -1,0 +1,85 @@
+<devicedata>
+  <name>SmartBuildOS System Link Relay</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>System Link Relay</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>10/18/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Others</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>REMOTE_CURRENT</name>
+      <type>BOOL</type>
+      <condition_statement>Remote Value Is Current</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>current</true_text>
+      <false_text>not current</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>RELAY_CLOSED</name>
+      <type>BOOL</type>
+      <condition_statement>Remote Relay Is Closed</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>closed</true_text>
+      <false_text>open</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Remote Value Current</name><description>The export's values became current.</description></event>
+    <event><id>2</id><name>Remote Value Stale</name><description>The export's values are stale, unknown or unavailable.</description></event>
+    <event><id>3</id><name>Control Refused</name><description>The owner refused a control request (see Last Result).</description></event>
+    <event><id>4</id><name>Remote Relay Closed</name><description>The remote relay reported closed.</description></event>
+    <event><id>5</id><name>Remote Relay Opened</name><description>The remote relay reported open.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Bridge</name><command>REFRESH_FROM_BRIDGE</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+    </actions>
+    <properties>
+      <property><name>Linked Export</name><type>DYNAMIC_LIST</type><default>-</default><description>Which export of the linked project this instance presents. The list is filled by the System Link bridge.</description></property>
+      <property><name>Bridge Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
+      <property><name>Remote System State</name><type>STRING</type><default>Offline</default><readonly>true</readonly></property>
+      <property><name>Freshness</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
+      <property><name>Confirmed State</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Requested State</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+
+  </proxies>
+  <capabilities>
+
+  </capabilities>
+  <connections>
+    <connection>
+      <id>200</id>
+      <facing>6</facing>
+      <connectionname>Relay</connectionname>
+      <type>1</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>RELAY</classname></class></classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -38,6 +38,7 @@ local http = require("lib.http")
 local license = require("sbos.license")
 local Engine = require("systemlink.engine")
 local schema = require("systemlink.schema")
+local exportsModel = require("systemlink.exports")
 local RealtimeClient = require("telemetry.realtime")
 local WebSocket = require("drivers-common-public.module.websocket")
 
@@ -95,6 +96,20 @@ local gSyncInFlight = false
 local gSyncWanted = false
 local gDoorbell = { ws = nil, client = nil, up = false, backoff = 15 }
 local gLastStatus = {}
+local EXPORTS_KEY = "sl_exports" -- { [id] = export }   local device ids never leave the controller
+local COMPANIONS_KEY = "sl_companions" -- { [exportName] = deviceId }  peer-side companion mapping
+local COMPANION_FILES = {
+  light = "smartbuildos-system-link-light.c4z",
+  relay = "smartbuildos-system-link-relay.c4z",
+  contact = "smartbuildos-system-link-contact.c4z",
+  temperature = "smartbuildos-system-link-temperature.c4z",
+  thermostat = "smartbuildos-system-link-thermostat.c4z",
+  shade = "smartbuildos-system-link-shade.c4z",
+}
+gExports = nil
+gCompanionMap = nil
+local gCompanionSubscribers = {} -- [exportName] = { [deviceId] = true }
+local gAddCompanionInFlight = nil
 
 -- ─── Time helpers ────────────────────────────────────────────────────────────
 
@@ -262,12 +277,13 @@ local function buildIo()
   io.log = log
   io.slots = tonumber(Properties["Request Slots"]) or 4
   io.onCommand = function(body, id)
-    -- Companion control requests land here (stage 7+). Until a companion
-    -- driver registers a handler, every command is refused explicitly.
-    if type(OnSystemLinkCommand) == "function" then
-      return OnSystemLinkCommand(body, id)
-    end
-    return false, "no companion handler on this project"
+    return OnSystemLinkCommand(body, id)
+  end
+  io.onMirrorApplied = function(def, tv, kind)
+    OnSystemLinkMirrorApplied(def, tv, kind)
+  end
+  io.onCommandResult = function(id, cmd, status, reason)
+    OnSystemLinkCommandResult(id, cmd, status, reason)
   end
   return io
 end
@@ -743,6 +759,519 @@ function EC.PRINT_SHARED_ITEMS()
   end
 end
 
+-- ─── Source-device exports (owner side) ─────────────────────────────────────
+
+local function licenseFeatures()
+  -- Light, relay and sensor ship on every pair licence (and on a LEGACY
+  -- Agent that cannot say). THERMOSTAT and SHADE are hardware-validation
+  -- gates (SL-07): they open only when the entitlement names them
+  -- explicitly — never through the licence SDK's fail-open LEGACY answer,
+  -- because the gate is about unverified behaviour, not about billing.
+  local set = { BASE = true, LIGHT = true, RELAY = true, SENSOR = true }
+  if license.status() ~= "LEGACY" then
+    for _, f in ipairs({ "THERMOSTAT", "SHADE" }) do
+      if license.hasFeature(f) then
+        set[f] = true
+      end
+    end
+  end
+  return set
+end
+
+local function loadExports()
+  if gExports == nil then
+    gExports = persist:get(EXPORTS_KEY, {}) or {}
+  end
+  return gExports
+end
+
+local function saveExports()
+  persist:set(EXPORTS_KEY, gExports)
+end
+
+local function findExport(ref)
+  ref = tostring(ref or "")
+  for id, exp in pairs(loadExports()) do
+    if id == ref or exp.name == ref then
+      return exp
+    end
+  end
+  return nil
+end
+
+local function exportItemFor(exp, suffix)
+  local f = exp.fields and exp.fields[suffix]
+  return f and f.item_id and gEngine.registry.items[f.item_id] or nil
+end
+
+--- A watched source variable changed: map it and publish the field. This is
+--- the ONLY path that writes an export field — never a command.
+local function onSourceVariable(exp, suffix, value)
+  local def = exportItemFor(exp, suffix)
+  if not def then
+    return
+  end
+  local mapped = exportsModel.mapValue(exp, suffix, value)
+  if mapped == nil then
+    local cur = gEngine.values[def.id]
+    if not cur or cur.tv.s ~= schema.STATES.UNAVAILABLE then
+      gEngine.values[def.id] =
+        { tv = schema.unavailable(), gen = gEngine.link.gen, rev = (cur and cur.rev or 0), src_at = nowMs() }
+      gEngine:writeNative(def)
+      gEngine:queueState(def, schema.unavailable())
+      gEngine:persistAll()
+    end
+    return
+  end
+  gEngine:setLocal(def.id, mapped)
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+local function watchExport(exp)
+  local okV, vars = pcall(function()
+    return C4:GetDeviceVariables(exp.device_id)
+  end)
+  if not okV or type(vars) ~= "table" then
+    log:warn("Export %s: cannot read variables of device %s", exp.name, tostring(exp.device_id))
+    return
+  end
+  local resolved = exportsModel.resolveVariables(exp, vars)
+  for suffix, field in pairs(exp.fields or {}) do
+    local r = resolved[suffix]
+    if r then
+      field.var_id, field.var_name = r.id, r.name
+      pcall(function()
+        C4:RegisterVariableListener(exp.device_id, r.id)
+      end)
+      OWVC[exp.device_id] = OWVC[exp.device_id] or {}
+      -- handlers.lua calls the watcher as (idDevice, idVariable, strValue).
+      OWVC[exp.device_id][r.id] = function(_, _, value)
+        onSourceVariable(exp, suffix, value)
+      end
+      local initial = type(vars[tostring(r.id)]) == "table" and vars[tostring(r.id)].value
+        or (type(vars[r.id]) == "table" and vars[r.id].value)
+        or nil
+      if initial ~= nil then
+        onSourceVariable(exp, suffix, initial)
+      end
+    else
+      -- No candidate variable on this device: the field is unavailable, and
+      -- it says so instead of pretending.
+      onSourceVariable(exp, suffix, nil)
+    end
+  end
+end
+
+local function unwatchExport(exp)
+  for _, field in pairs(exp.fields or {}) do
+    if field.var_id then
+      pcall(function()
+        C4:UnregisterVariableListener(exp.device_id, field.var_id)
+      end)
+      if OWVC[exp.device_id] then
+        OWVC[exp.device_id][field.var_id] = nil
+      end
+    end
+  end
+end
+
+local function restoreExports()
+  for _, exp in pairs(loadExports()) do
+    watchExport(exp)
+  end
+end
+
+--- Programming command: Export Device DEVICE as NAME (KIND, CONTROL, OPS).
+function EC.Export_Device(tParams)
+  tParams = tParams or {}
+  if not gEngine or not gEngine.link then
+    updateStatus("Last Error", "Export: link is not provisioned")
+    return
+  end
+  local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
+  local kind = tostring(tParams.KIND or "light"):lower()
+  local ops
+  if tParams.OPS and tostring(tParams.OPS) ~= "" then
+    ops = {}
+    for op in tostring(tParams.OPS):gmatch("[^,%s]+") do
+      ops[#ops + 1] = op:lower()
+    end
+  end
+  local okName, deviceName = pcall(function()
+    return C4:GetDeviceData(deviceId, "name")
+  end)
+  local exp, err = exportsModel.define({
+    id = uuid(),
+    name = tostring(tParams.NAME or ""),
+    kind = kind,
+    device_id = deviceId,
+    device_name = okName and deviceName or nil,
+    control = tostring(tParams.CONTROL or "View only") == "Control allowed",
+    ops = ops,
+  }, licenseFeatures())
+  if not exp then
+    updateStatus("Last Error", "Export: " .. tostring(err))
+    log:warn("Export Device refused: %s", tostring(err))
+    return
+  end
+  if findExport(exp.name) then
+    updateStatus("Last Error", "Export: name already used")
+    return
+  end
+  for _, def in ipairs(exportsModel.itemDefinitions(exp, gEngine.link.endpoint)) do
+    local created, cerr = gEngine:createItem(def, nil)
+    if not created then
+      updateStatus("Last Error", "Export: " .. tostring(cerr))
+      return
+    end
+    exp.fields[def.companion.field] = { item_id = created.id }
+  end
+  loadExports()[exp.id] = exp
+  saveExports()
+  watchExport(exp)
+  SetTimer(SYNC_TIMER, 100, doSync)
+  log:print(
+    "Exported %s (%s) as %s — %s",
+    tostring(exp.device_name or deviceId),
+    kind,
+    exp.name,
+    exp.control and ("control: " .. table.concat(exp.ops, ", ")) or "view only"
+  )
+end
+
+function EC.Remove_Export(tParams)
+  local exp = findExport((tParams or {}).NAME)
+  if not exp then
+    updateStatus("Last Error", "Remove Export: no such export")
+    return
+  end
+  unwatchExport(exp)
+  for _, field in pairs(exp.fields or {}) do
+    if field.item_id then
+      gEngine:deleteItem(field.item_id)
+    end
+  end
+  loadExports()[exp.id] = nil
+  saveExports()
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.Set_Export_Schedule(tParams)
+  tParams = tParams or {}
+  local exp = findExport(tParams.NAME)
+  if not exp then
+    updateStatus("Last Error", "Schedule: no such export")
+    return
+  end
+  local days = {}
+  for d in tostring(tParams.DAYS or "1,2,3,4,5,6,7"):gmatch("%d") do
+    days[#days + 1] = tonumber(d)
+  end
+  local schedule = {
+    tz = timezone() ~= "" and timezone() or "controller-local",
+    windows = { { days = days, from = tostring(tParams.FROM or "00:00"), to = tostring(tParams.TO or "23:59") } },
+  }
+  local ok, err = exportsModel.validateSchedule(schedule)
+  if not ok then
+    updateStatus("Last Error", "Schedule: " .. tostring(err))
+    return
+  end
+  exp.schedule = schedule
+  saveExports()
+end
+
+function EC.Clear_Export_Schedule(tParams)
+  local exp = findExport((tParams or {}).NAME)
+  if exp then
+    exp.schedule = nil
+    saveExports()
+  end
+end
+
+function EC.PRINT_EXPORTS()
+  for _, exp in pairs(loadExports()) do
+    local fields = {}
+    for suffix, f in pairs(exp.fields or {}) do
+      fields[#fields + 1] = suffix .. "=" .. tostring(f.var_name or "unavailable")
+    end
+    print(
+      string.format(
+        "%-24s %-12s device %-6s %s  [%s]%s",
+        exp.name,
+        exp.kind,
+        tostring(exp.device_id),
+        exp.control and ("control: " .. table.concat(exp.ops, ",")) or "view only",
+        table.concat(fields, " "),
+        exp.schedule and " scheduled" or ""
+      )
+    )
+  end
+end
+
+--- Inbound remote command (from the peer's companion). Validates the
+--- export, permission, schedule and licence, then sends the device command.
+--- Acceptance is reported as "delivered"; physical feedback arrives through
+--- the variable listener and is published like any other change.
+function OnSystemLinkCommand(body, id)
+  local exp = findExport(body.target)
+  local commands, why = exportsModel.validateCommand(exp, body, {
+    features = licenseFeatures(),
+    commandsPermitted = gEngine:commandsPermitted(),
+    localTime = os.date("*t"),
+  })
+  if not commands then
+    log:info("Remote command %s refused: %s", tostring(body.routine), tostring(why))
+    return false, why
+  end
+  for _, c in ipairs(commands) do
+    local ok, err = pcall(function()
+      C4:SendToDevice(exp.device_id, c.name, c.params)
+    end)
+    if not ok then
+      return false, "device command failed: " .. tostring(err)
+    end
+  end
+  log:info("Remote command %s executed on %s (%s)", tostring(body.routine), exp.name, tostring(id))
+  return true
+end
+
+-- ─── Companions (peer side) ─────────────────────────────────────────────────
+
+local function loadCompanionMap()
+  if gCompanionMap == nil then
+    gCompanionMap = persist:get(COMPANIONS_KEY, {}) or {}
+  end
+  return gCompanionMap
+end
+
+--- Mirrored exports, grouped by companion kind, from the peer's definitions.
+local function mirroredExports(kind)
+  local byName = {}
+  for _, def in ipairs(schema.registryItems(gEngine.registry)) do
+    local c = def.mirror and type(def.companion) == "table" and def.companion or nil
+    if c and (kind == nil or kind == "" or c.kind == kind) then
+      local entry = byName[c.name]
+      if not entry then
+        entry = { id = c.id, name = c.name, kind = c.kind, control = c.control == true, ops = c.ops or {}, fields = {} }
+        byName[c.name] = entry
+      end
+      entry.fields[c.field] = def.id
+    end
+  end
+  local list = {}
+  for _, e in pairs(byName) do
+    list[#list + 1] = e
+  end
+  table.sort(list, function(a, b)
+    return a.name < b.name
+  end)
+  return list
+end
+
+local function companionState(entry)
+  local fields = {}
+  local worst = "current"
+  for suffix, itemId in pairs(entry.fields) do
+    local v = gEngine.values[itemId]
+    local def = gEngine.registry.items[itemId]
+    if v and v.tv.s == schema.STATES.CURRENT then
+      fields[suffix] = v.tv.v
+    else
+      fields[suffix] = JSON.null
+    end
+    local f = gEngine:itemCurrent(def and gEngine:variableNameFor(def) or "") and "current"
+      or (v and v.tv.s ~= schema.STATES.CURRENT and v.tv.s or "stale")
+    if f ~= "current" then
+      worst = f
+    end
+  end
+  return fields, worst
+end
+
+local function pushCompanionState(entry, deviceId)
+  local fields, fresh = companionState(entry)
+  pcall(function()
+    C4:SendToDevice(deviceId, "SBOS_LINK_COMPANION_STATE", {
+      export = entry.name,
+      fields = JSON:encode(fields),
+      fresh = fresh,
+      state = tostring(gEngine.remoteState or "Offline"),
+      control = entry.control and gEngine:commandsPermitted() and "true" or "false",
+    })
+  end)
+end
+
+function EC.SBOS_LINK_COMPANION_HELLO(tParams)
+  tParams = tParams or {}
+  local requester = tonumber(tParams.requester)
+  if not requester or not gEngine then
+    return
+  end
+  local list = mirroredExports(tostring(tParams.kind or ""))
+  local described = {}
+  for _, e in ipairs(list) do
+    described[#described + 1] = { id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops }
+  end
+  pcall(function()
+    C4:SendToDevice(requester, "SBOS_LINK_COMPANION_EXPORTS", { exports = JSON:encode(described) })
+  end)
+  local wanted = tostring(tParams.export or "")
+  if wanted ~= "" then
+    for _, e in ipairs(list) do
+      if e.name == wanted then
+        gCompanionSubscribers[e.name] = gCompanionSubscribers[e.name] or {}
+        gCompanionSubscribers[e.name][requester] = true
+        pushCompanionState(e, requester)
+      end
+    end
+  end
+end
+
+function EC.SBOS_LINK_COMPANION_CONTROL(tParams)
+  tParams = tParams or {}
+  local requester = tonumber(tParams.requester)
+  local name = tostring(tParams.export or "")
+  local op = tostring(tParams.op or "")
+  if not requester or name == "" or op == "" or not gEngine then
+    return
+  end
+  local entry
+  for _, e in ipairs(mirroredExports(nil)) do
+    if e.name == name then
+      entry = e
+    end
+  end
+  local function result(status, reason)
+    pcall(function()
+      C4:SendToDevice(
+        requester,
+        "SBOS_LINK_COMPANION_RESULT",
+        { export = name, op = op, status = status, reason = reason or "" }
+      )
+    end)
+  end
+  if not entry then
+    return result("failed", "unknown export")
+  end
+  if not entry.control then
+    return result("failed", "export is view-only")
+  end
+  local okParams, params = pcall(function()
+    return JSON:decode(tostring(tParams.params or "{}"))
+  end)
+  local id, err = gEngine:sendCommand(entry.kind .. "." .. op, entry.id, okParams and params or {}, 30)
+  if not id then
+    return result("failed", err)
+  end
+  gEngine.commands[id].companion = requester
+  gEngine.commands[id].export = name
+  gEngine.commands[id].op = op
+  gEngine.lastRemoteCommand =
+    { at = nowMs(), origin = "companion " .. tostring(requester), routine = entry.kind .. "." .. op }
+  SetTimer(SYNC_TIMER, 100, doSync)
+  result("accepted", "")
+end
+
+function OnSystemLinkCommandResult(_, cmd, status, reason)
+  if cmd.companion then
+    pcall(function()
+      C4:SendToDevice(
+        cmd.companion,
+        "SBOS_LINK_COMPANION_RESULT",
+        { export = cmd.export, op = cmd.op, status = status, reason = reason or "" }
+      )
+    end)
+  end
+end
+
+function OnSystemLinkMirrorApplied(def)
+  local c = type(def.companion) == "table" and def.companion or nil
+  if not c or not gCompanionSubscribers[c.name] then
+    return
+  end
+  for _, e in ipairs(mirroredExports(c.kind)) do
+    if e.name == c.name then
+      for deviceId in pairs(gCompanionSubscribers[c.name]) do
+        pushCompanionState(e, deviceId)
+      end
+    end
+  end
+end
+
+--- Dealer-initiated companion provisioning for the selected mirrored export.
+--- One instance per export; a second request for the same export is refused
+--- while the first instance is still in the project.
+function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
+  local def = selectedItem()
+  local c = def and type(def.companion) == "table" and def.companion or nil
+  if not def or not def.mirror or not c then
+    updateStatus("Last Error", "Select a mirrored export field first (e.g. Porch_Light_Level)")
+    return
+  end
+  local file = COMPANION_FILES[c.kind]
+  if not file then
+    updateStatus("Last Error", "No companion driver for kind " .. tostring(c.kind))
+    return
+  end
+  local map = loadCompanionMap()
+  local existing = tonumber(map[c.name])
+  if existing then
+    local okD, devices = pcall(function()
+      return C4:GetDevices({})
+    end)
+    if okD and type(devices) == "table" and (devices[existing] or devices[tostring(existing)]) then
+      updateStatus(
+        "Last Error",
+        "A companion for " .. c.name .. " already exists (device " .. tostring(existing) .. ")"
+      )
+      return
+    end
+    map[c.name] = nil
+  end
+  if gAddCompanionInFlight then
+    updateStatus("Last Error", "A companion is still being added")
+    return
+  end
+  gAddCompanionInFlight = { name = c.name, kind = c.kind }
+  local ok, err = pcall(function()
+    C4:AddDevice(file, OnSystemLinkCompanionAdded)
+  end)
+  if not ok then
+    gAddCompanionInFlight = nil
+    updateStatus(
+      "Last Error",
+      "AddDevice failed: "
+        .. tostring(err)
+        .. " — upload "
+        .. file
+        .. " to the controller once via Driver > Add or Update Driver"
+    )
+  end
+end
+
+function OnSystemLinkCompanionAdded(deviceId)
+  local pending = gAddCompanionInFlight
+  gAddCompanionInFlight = nil
+  deviceId = tonumber(deviceId) or 0
+  if not pending then
+    return
+  end
+  if deviceId == 0 then
+    log:print(
+      "Add companion: FAILED for %s — upload %s once via Driver > Add or Update Driver, then rerun",
+      pending.name,
+      COMPANION_FILES[pending.kind]
+    )
+    return
+  end
+  loadCompanionMap()[pending.name] = deviceId
+  persist:set(COMPANIONS_KEY, gCompanionMap)
+  pcall(function()
+    C4:SendToDevice(deviceId, "SBOS_LINK_COMPANION_ASSIGN", { export = pending.name })
+  end)
+  log:print("Added %s companion for %s (device %d)", pending.kind, pending.name, deviceId)
+end
+
 -- ─── Composer: link controls ─────────────────────────────────────────────────
 
 function EC.REFRESH_LINK()
@@ -1045,6 +1574,7 @@ function OnDriverLateInit()
   end
   license.setup({ sku = SKU })
   paintItemList()
+  restoreExports()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
   -- phases start when the relay answers.
   if gEngine.link then
