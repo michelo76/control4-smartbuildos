@@ -583,16 +583,13 @@ function M:emitEvent(defName, payload, ttlS)
   local occ = requests.newOccurrence(defName, self.io.uuid(), self.link.endpoint, self.io.now(), ttlS, payload)
   pushPending(
     self,
-    self:envelope(
-      "event",
-      {
-        def = defName,
-        occurrence = occ.id,
-        payload = payload,
-        ttl_s = occ.ttl_s,
-        source_tz = self.io.timezone and self.io.timezone() or nil,
-      }
-    )
+    self:envelope("event", {
+      def = defName,
+      occurrence = occ.id,
+      payload = payload,
+      ttl_s = occ.ttl_s,
+      source_tz = self.io.timezone and self.io.timezone() or nil,
+    })
   )
   self.stats.events_out = self.stats.events_out + 1
   return true
@@ -606,17 +603,13 @@ function M:sendRequest(routine, payload, deadlineS)
     return nil, "commands paused"
   end
   local id = self.io.uuid()
-  local entry, err = requests.open(
-    self.requests,
-    {
-      id = id,
-      routine = routine,
-      direction = "out",
-      payload = payload,
-      deadline_ms = self.io.now() + (deadlineS or requests.DEFAULT_DEADLINE_S) * 1000,
-    },
-    self.io.now()
-  )
+  local entry, err = requests.open(self.requests, {
+    id = id,
+    routine = routine,
+    direction = "out",
+    payload = payload,
+    deadline_ms = self.io.now() + (deadlineS or requests.DEFAULT_DEADLINE_S) * 1000,
+  }, self.io.now())
   if not entry then
     return nil, err
   end
@@ -1168,14 +1161,11 @@ function M:applyInbound(env, rawLen)
       if self.pausedLocal and self.io.now() < self.pausedLocal.until_ms then
         pushPending(
           self,
-          self:envelope(
-            "command_update",
-            {
-              request_id = env.id,
-              status = "failed",
-              result = { reason = "commands suspended on " .. tostring(self.link.alias) },
-            }
-          )
+          self:envelope("command_update", {
+            request_id = env.id,
+            status = "failed",
+            result = { reason = "commands suspended on " .. tostring(self.link.alias) },
+          })
         )
         return
       end
@@ -1183,30 +1173,23 @@ function M:applyInbound(env, rawLen)
         local accepted, why = self.io.onCommand(env.body, env.id)
         pushPending(
           self,
-          self:envelope(
-            "command_update",
-            {
-              request_id = env.id,
-              status = accepted and "delivered" or "failed",
-              result = accepted and nil or { reason = why },
-            }
-          )
+          self:envelope("command_update", {
+            request_id = env.id,
+            status = accepted and "delivered" or "failed",
+            result = accepted and nil or { reason = why },
+          })
         )
       end
       return
     end
-    local entry = requests.open(
-      self.requests,
-      {
-        id = env.id,
-        routine = tostring(env.body.routine or ""),
-        direction = "in",
-        payload = env.body.payload,
-        origin_ep = env.ep,
-        deadline_ms = env.exp and (env.exp - (self.relayOffset or 0)) or nil,
-      },
-      self.io.now()
-    )
+    local entry = requests.open(self.requests, {
+      id = env.id,
+      routine = tostring(env.body.routine or ""),
+      direction = "in",
+      payload = env.body.payload,
+      origin_ep = env.ep,
+      deadline_ms = env.exp and (env.exp - (self.relayOffset or 0)) or nil,
+    }, self.io.now())
     if not entry then
       pushPending(
         self,

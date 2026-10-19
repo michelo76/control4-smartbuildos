@@ -804,20 +804,16 @@ function EC.GENERATE_DIAGNOSTICS()
   local agent = findAgent()
   if agent then
     pcall(function()
-      C4:SendToDevice(
-        agent,
-        "SEND_EVENT",
-        {
-          NAME = "SYSTEM_LINK_DIAGNOSTICS",
-          DETAIL = JSON:encode({
-            remote_state = diag.remote_state,
-            transport = diag.transport,
-            pending = diag.pending,
-            latency_p95_ms = diag.latency_p95_ms,
-            items = #diag.items,
-          }),
-        }
-      )
+      C4:SendToDevice(agent, "SEND_EVENT", {
+        NAME = "SYSTEM_LINK_DIAGNOSTICS",
+        DETAIL = JSON:encode({
+          remote_state = diag.remote_state,
+          transport = diag.transport,
+          pending = diag.pending,
+          latency_p95_ms = diag.latency_p95_ms,
+          items = #diag.items,
+        }),
+      })
     end)
   end
 end

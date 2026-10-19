@@ -117,21 +117,18 @@ end
 local Relay = {}
 Relay.__index = Relay
 function Relay.new()
-  return setmetatable(
-    {
-      seq = 0,
-      messages = {},
-      items = {},
-      state = {},
-      endpoints = {},
-      requests = {},
-      paused = false,
-      commandsPaused = false,
-      down = false,
-      delivered = {},
-    },
-    Relay
-  )
+  return setmetatable({
+    seq = 0,
+    messages = {},
+    items = {},
+    state = {},
+    endpoints = {},
+    requests = {},
+    paused = false,
+    commandsPaused = false,
+    down = false,
+    delivered = {},
+  }, Relay)
 end
 function Relay:endpoint(id, gen, peerId)
   self.endpoints[id] = { gen = gen, peer = peerId, hb = nil, status = "active" }
