@@ -1,0 +1,270 @@
+<devicedata>
+  <name>SmartBuildOS System Link</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>System Link</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>10/18/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>REMOTE_READY</name>
+      <type>BOOL</type>
+      <condition_statement>Remote System Is Ready</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>ready</true_text>
+      <false_text>not ready</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>LINK_SYNCED</name>
+      <type>BOOL</type>
+      <condition_statement>Link Is Synchronized</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>synchronized</true_text>
+      <false_text>not synchronized</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>COMMANDS_PERMITTED</name>
+      <type>BOOL</type>
+      <condition_statement>Remote Commands Are Permitted</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>permitted</true_text>
+      <false_text>suspended</false_text>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>ITEM_CURRENT</name>
+      <type>STRING</type>
+      <condition_statement>Shared Item Is Current (item name)</condition_statement>
+      <description>NAME LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>5</id>
+      <name>REQUEST_STATUS</name>
+      <type>STRING</type>
+      <condition_statement>Request Slot Status ("1 completed")</condition_statement>
+      <description>NAME LOGIC STRING</description>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Link Connected</name><description>The relay accepted this bridge's credential.</description></event>
+    <event><id>2</id><name>Link Disconnected</name><description>The relay became unreachable or refused the link.</description></event>
+    <event><id>3</id><name>Peer Online</name><description>The linked project's bridge is heartbeating.</description></event>
+    <event><id>4</id><name>Peer Offline</name><description>The linked project's bridge has not been heard from.</description></event>
+    <event><id>5</id><name>Peer Stale</name><description>The linked project's heartbeat is late.</description></event>
+    <event><id>6</id><name>Initial Sync Complete</name><description>Definitions and the current snapshot are applied; live updates begin.</description></event>
+    <event><id>7</id><name>Remote Variable Changed Live</name><description>A mirrored variable changed after initial sync.</description></event>
+    <event><id>8</id><name>Remote State Current</name><description>The aggregate Remote System State became Ready.</description></event>
+    <event><id>9</id><name>Remote State Stale</name><description>The aggregate Remote System State left Ready.</description></event>
+    <event><id>10</id><name>Named Event Received</name><description>The linked project emitted a named event.</description></event>
+    <event><id>11</id><name>Request Received</name><description>The linked project asked this project to run a routine.</description></event>
+    <event><id>12</id><name>Request Completed</name><description>A request this project sent was reported successful.</description></event>
+    <event><id>13</id><name>Request Failed</name><description>A request this project sent was reported failed or refused.</description></event>
+    <event><id>14</id><name>Request Expired</name><description>A request reached its deadline without a confirmed outcome.</description></event>
+    <event><id>15</id><name>Request Outcome Unknown</name><description>A request's outcome can no longer be learned.</description></event>
+    <event><id>16</id><name>Schema Attention</name><description>The linked project's definitions changed in a way that needs review.</description></event>
+    <event><id>17</id><name>License Changed</name><description>The pair license state changed.</description></event>
+    <event><id>18</id><name>Commands Paused</name><description>Remote commands and requests are suspended; state keeps flowing.</description></event>
+    <event><id>19</id><name>Commands Resumed</name><description>Remote commands and requests resumed.</description></event>
+    <event><id>20</id><name>Loop Suspended</name><description>An item's traffic was suspended by the burst/loop guard.</description></event>
+    <event><id>21</id><name>Link Paused</name><description>The whole link is paused.</description></event>
+    <event><id>22</id><name>Link Resumed</name><description>The link resumed.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Create Shared Item</name><command>CREATE_SHARED_ITEM</command></action>
+      <action><name>Rename Selected Item</name><command>RENAME_SELECTED_ITEM</command></action>
+      <action><name>Delete Selected Item</name><command>DELETE_SELECTED_ITEM</command></action>
+      <action><name>Apply Filter To Selected Item</name><command>APPLY_FILTER_TO_SELECTED_ITEM</command></action>
+      <action><name>Print Shared Items</name><command>PRINT_SHARED_ITEMS</command></action>
+      <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
+      <action><name>Run Link Test</name><command>RUN_LINK_TEST</command></action>
+      <action><name>Pause Remote Commands</name><command>PAUSE_COMMANDS</command></action>
+      <action><name>Resume Remote Commands</name><command>RESUME_COMMANDS</command></action>
+      <action><name>Generate Diagnostics</name><command>GENERATE_DIAGNOSTICS</command></action>
+      <action><name>Re-provision Link</name><command>RE_PROVISION_LINK</command></action>
+      <action><name>Forget Link</name><command>FORGET_LINK</command></action>
+      <action><name>Refresh License</name><command>REFRESH_LICENSE</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>Set Local Boolean</name>
+        <description>Set owned boolean ITEM to VALUE</description>
+        <params>
+          <param><name>ITEM</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>LIST</type><items><item>True</item><item>False</item></items></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Local Integer</name>
+        <description>Set owned integer ITEM to VALUE</description>
+        <params>
+          <param><name>ITEM</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Local Decimal</name>
+        <description>Set owned decimal ITEM to VALUE</description>
+        <params>
+          <param><name>ITEM</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Local String</name>
+        <description>Set owned string ITEM to VALUE</description>
+        <params>
+          <param><name>ITEM</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Set Local Choice</name>
+        <description>Set owned choice ITEM to VALUE (must be an allowed value)</description>
+        <params>
+          <param><name>ITEM</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Emit Named Event</name>
+        <description>Emit one-time event EVENT with PAYLOAD to the linked project (TTL seconds)</description>
+        <params>
+          <param><name>EVENT</name><type>STRING</type></param>
+          <param><name>PAYLOAD</name><type>STRING</type></param>
+          <param><name>TTL</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>600</maximum><default>30</default></param>
+        </params>
+      </command>
+      <command>
+        <name>Send Remote Request</name>
+        <description>Ask the linked project to run ROUTINE with PAYLOAD; wait up to DEADLINE seconds for its result</description>
+        <params>
+          <param><name>ROUTINE</name><type>STRING</type></param>
+          <param><name>PAYLOAD</name><type>STRING</type></param>
+          <param><name>DEADLINE</name><type>RANGED_INTEGER</type><minimum>5</minimum><maximum>3600</maximum><default>120</default></param>
+        </params>
+      </command>
+      <command>
+        <name>Report Request Progress</name>
+        <description>Report that the request in SLOT is running</description>
+        <params>
+          <param><name>SLOT</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>1</default></param>
+        </params>
+      </command>
+      <command>
+        <name>Report Request Success</name>
+        <description>Report that the request in SLOT completed, with RESULT text</description>
+        <params>
+          <param><name>SLOT</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>1</default></param>
+          <param><name>RESULT</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Report Request Failure</name>
+        <description>Report that the request in SLOT failed, with RESULT text</description>
+        <params>
+          <param><name>SLOT</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>1</default></param>
+          <param><name>RESULT</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Pause Remote Commands</name>
+        <description>Suspend inbound remote commands and outbound requests for MINUTES; state keeps flowing</description>
+        <params>
+          <param><name>MINUTES</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>43200</maximum><default>60</default></param>
+        </params>
+      </command>
+      <command>
+        <name>Resume Remote Commands</name>
+        <description>End a local command suspension</description>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Installed Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>License State</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default></default><readonly>true</readonly></property>
+
+      <property><name>Link</name><type>LABEL</type><default>Link</default></property>
+      <property><name>Local System Name</name><type>STRING</type><default>Not linked</default><readonly>true</readonly></property>
+      <property><name>Linked System Name</name><type>STRING</type><default>Not linked</default><readonly>true</readonly></property>
+      <property><name>Link Authorization</name><type>STRING</type><default>Not provisioned</default><readonly>true</readonly></property>
+      <property><name>Relay Connection</name><type>STRING</type><default>disconnected</default><readonly>true</readonly></property>
+      <property><name>Peer Status</name><type>STRING</type><default>offline</default><readonly>true</readonly></property>
+      <property><name>Remote System State</name><type>STRING</type><default>Offline</default><readonly>true</readonly></property>
+      <property><name>Sync Status</name><type>STRING</type><default>not started</default><readonly>true</readonly></property>
+      <property><name>Last Sync</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Heartbeat</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Local Variables Created</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Remote Variables Monitored</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Pending Updates</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Pending Requests</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Measured Latency</name><type>STRING</type><default>no samples</default><readonly>true</readonly></property>
+      <property><name>Last Remote Command</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Command Suspension</name><type>STRING</type><default>Active</default><readonly>true</readonly></property>
+      <property><name>Schema Revision</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default></default><readonly>true</readonly></property>
+
+      <property><name>Shared Items</name><type>LABEL</type><default>Shared Items</default></property>
+      <property><name>Selected Item</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Selected Item Details</name><type>STRING</type><default>Select an item</default><readonly>true</readonly></property>
+      <property><name>New Item Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Used with Create Shared Item and Rename Selected Item.</description></property>
+      <property><name>New Item Type</name><type>LIST</type><items><item>BOOLEAN</item><item>INTEGER</item><item>DECIMAL</item><item>STRING</item><item>CHOICE</item></items><default>BOOLEAN</default></property>
+      <property><name>New Item Description</name><type>STRING</type><default></default></property>
+      <property><name>New Item Initial Value</name><type>STRING</type><default></default></property>
+      <property><name>New Item Group</name><type>STRING</type><default></default></property>
+      <property><name>New Item Allowed Values</name><type>STRING</type><default></default><description>CHOICE only: comma-separated allowed values.</description></property>
+      <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
+      <property><name>Filter Debounce Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
+      <property><name>Filter Change Threshold</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>1000000</maximum><default>0</default></property>
+      <property><name>Filter Minimum Interval Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
+      <property><name>Filter Maximum Silence Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
+
+      <property><name>Behaviour</name><type>LABEL</type><default>Behaviour</default></property>
+      <property><name>Request Slots</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>4</default><description>Concurrent request contexts exposed as Request_N_* variables. Applies after the next Director restart.</description></property>
+      <property><name>Evaluate State After Initial Sync</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Yes fires the per-item live events once right after Initial Sync Complete, so programming can evaluate current remote state.</description></property>
+      <property><name>Pause Minutes</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>43200</maximum><default>60</default></property>
+
+      <property><name>Diagnostics</name><type>LABEL</type><default>Diagnostics</default></property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items>
+        <default>2 - Warning</default>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items>
+        <default>Off</default>
+      </property>
+      <property>
+        <name>Link Credential Backup</name>
+        <type>STRING</type>
+        <default></default>
+        <password>true</password>
+        <readonly>true</readonly>
+        <description>Written by the driver so the link survives driver updates. Not user-editable; cleared by Forget Link.</description>
+      </property>
+    </properties>
+  </config>
+</devicedata>
