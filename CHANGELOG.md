@@ -22,6 +22,24 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **System Link** (new, 7 drivers): `smartbuildos-system-link` bridge links two
+  Control4 projects through SmartBuildOS — each project owns its shared
+  variables (BOOLEAN/INTEGER/DECIMAL/STRING/CHOICE), the other sees read-only
+  mirrors with `.STATE` freshness twins; named one-time events; request/result
+  routines with bounded slots; publication filters; freshness and an aggregate
+  Remote System State; startup reconciliation that never replays events; loop
+  guard; endpoint credential provisioned by the Agent
+  (`SBOS_LINK_PROVISION_REQUEST`/`SBOS_LINK_PROVISION`); contentless Realtime
+  doorbell plus a 20 s poll fallback; source-device exports with validated
+  remote commands, owner-side schedules (controller-local time, fail closed on
+  an untrusted clock) and command suspension. Companions
+  `smartbuildos-system-link-{light,relay,contact,temperature}` present an
+  export natively; `-thermostat` and `-shade` ship feature-gated (THERMOSTAT /
+  SHADE on the pair licence) because their proxy vocabulary is taken from
+  shipped drivers, not from a documented proxy guide. Licensing: one pair
+  licence per link (`SBOS_SYSTEM_LINK`), companions inherit the bridge.
+  **No hardware validation yet**; see each driver's documentation tab.
+
 - **Bond driver suite** (new, 6 drivers): `bond-bridge` gateway (one per Bond
   Bridge / Smart by Bond unit — token letterbox stored encrypted, inventory sync
   with hash polling, BPUP push updates over UDP, per-function dynamic CONTROL

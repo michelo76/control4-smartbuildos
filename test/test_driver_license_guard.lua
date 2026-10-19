@@ -27,6 +27,12 @@ local inherited = {
   ["bond-weather"] = "bond-bridge",
   ["smartbuildos-insights"] = "smartbuildos",
   ["smartbuildos-mode-button"] = "smartbuildos-mode-composer",
+  ["smartbuildos-system-link-light"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-relay"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-contact"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-temperature"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-thermostat"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-shade"] = "smartbuildos-system-link",
   ["unifi-protect-camera"] = "unifi-protect",
   ["unifi-protect-light"] = "unifi-protect",
   ["unifi-protect-sensor"] = "unifi-protect",
@@ -34,7 +40,9 @@ local inherited = {
 }
 
 local roots = {}
-local pipe = assert(io.popen("rg --files drivers -g driver.lua | sort"))
+-- `rg` is a shell shim on some development machines and invisible to
+-- io.popen; `find` is always there and lists the same files.
+local pipe = assert(io.popen("(rg --files drivers -g driver.lua 2>/dev/null || find drivers -name driver.lua) | sort"))
 for path in pipe:lines() do
   local name = path:match("^drivers/([^/]+)/driver%.lua$")
   if name ~= nil then
