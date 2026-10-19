@@ -57,7 +57,7 @@ Done in **System Studio → Connections → System Link** with Composer alongsid
    version).
 1. **Approve.** Both endpoints activate; each bridge asks its Agent for a
    credential, connects to the relay and completes the initial sync.
-1. Create shared items (Composer action or Studio editor), export devices.
+1. Create shared items with the Composer actions on the owning bridge, then export devices. Studio shows them read-only.
 1. Run **commissioning** (Studio) and keep the report.
 
 Cancelling, expiry, rejection and retries are supported at every step; the
@@ -67,7 +67,8 @@ link holds exactly two endpoints; a system can be on one link at a time.
 ## Shared variables
 
 Create one with the Composer **Create Shared Item** action after filling the
-"New Item" properties, or from the Studio editor (same schema, same checks).
+"New Item" properties. Studio shows items and their committed values but does
+not create or edit them: all configuration is done in Composer on the bridge.
 
 | Type    | Composer variable type | Notes                                 |
 | ------- | ---------------------- | ------------------------------------- |
