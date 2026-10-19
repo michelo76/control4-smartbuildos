@@ -49,6 +49,8 @@ M.LIMITS = {
   frame_bytes = 32 * 1024,
   payload_bytes = 4 * 1024, -- event/request/command payloads
   state_batch = 200, -- items per state message
+  outbound_per_sync = 50,
+  inbound_per_sync = 200,
   dedup_window = 512,
 }
 
