@@ -71,7 +71,14 @@ end
 local persisted = {}
 package.preload["lib.persist"] = function()
   local P = {}
+  -- Mirrors src/lib/persist.lua: a nil default becomes the library's EMPTY
+  -- table, so a missing key answers `{}`, never nil (the 2026-10-20 bench
+  -- crash: a fresh bridge loaded `{}` as its registry).
+  local EMPTY = {}
   function P:get(key, default)
+    if default == nil then
+      default = EMPTY
+    end
     if persisted[key] == nil then
       return default
     end

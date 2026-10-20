@@ -230,8 +230,11 @@ local function buildIo()
     return tostring(C4:GetDriverConfigInfo("version") or "")
   end
   io.load = function(key)
-    local v = persist:get(key, nil)
-    if v == nil then
+    -- lib.persist answers a missing key with its internal EMPTY table when
+    -- the default is nil, never with nil. Ask with `false` and map it back,
+    -- or a fresh install loads `{}` as its registry, link and requests.
+    local v = persist:get(key, false)
+    if v == false or v == nil then
       return nil
     end
     return v
@@ -299,7 +302,7 @@ local function storeCredential(info)
 end
 
 local function loadCredential()
-  local blob = persist:get(CREDENTIAL_KEY, nil, true)
+  local blob = persist:get(CREDENTIAL_KEY, false, true)
   if type(blob) ~= "string" or blob == "" then
     blob = Properties[BACKUP_PROPERTY] or ""
   end
