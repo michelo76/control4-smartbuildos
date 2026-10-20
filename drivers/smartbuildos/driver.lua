@@ -4379,12 +4379,80 @@ local function applyPairResponse(response)
   return true
 end
 
+--- Property-code enrollment needs ONE idempotency key per pairing attempt.
+---
+--- The platform stores each attempt's outcome under its key and answers a
+--- repeat of that key with the STORED outcome. So a key reused after a refusal
+--- ("open an enrollment window first") would return that refusal forever, even
+--- once the window is open. The key is therefore minted fresh for every
+--- attempt and kept only while an attempt has had NO answer (timeout, no
+--- route): that is the one case where the platform must recognise the retry,
+--- because a pairing that succeeded but whose response was lost can only be
+--- recovered under the same key.
+---
+--- One table, not four locals: this chunk sits at Lua's 200-local ceiling
+--- (test_driver_globals loads it the way Director does and fails above it).
+local PairAttempt = { KEY = "pair_attempt_key" }
+
+--- The current attempt's key, minted on first use (16-200 chars, opaque).
+function PairAttempt.key()
+  local key = persist:get(PairAttempt.KEY, nil)
+  if type(key) == "string" and #key >= 16 then
+    return key
+  end
+  local mac = (directorMac() or ""):gsub(":", "")
+  key =
+    string.format("c4-agent-%s-%d-%d-%06d", mac ~= "" and mac or "nomac", os.time(), tonumber(select(
+      2,
+      pcall(function()
+        return C4:GetTickCount()
+      end)
+    )) or 0, math.random(0, 999999))
+  persist:set(PairAttempt.KEY, key)
+  return key
+end
+
+--- The attempt got an answer, whatever it was: the next attempt is a new one.
+function PairAttempt.finish()
+  persist:delete(PairAttempt.KEY)
+end
+
+--- The platform's own reason, when it sent one, cut to fit a property row.
+--- @param err table|nil The rejection from lib/http.
+--- @return string|nil
+function PairAttempt.reason(err)
+  local body = type(err) == "table" and err.body or nil
+  if type(body) == "string" then
+    local ok, decoded = pcall(function()
+      return JSON:decode(body)
+    end)
+    body = ok and decoded or nil
+  end
+  if type(body) ~= "table" or type(body.error) ~= "string" or body.error == "" then
+    return nil
+  end
+  return body.error:sub(1, 120)
+end
+
 --- The shared failure painter for both pairing doors.
 local function pairError(err)
-  local code_ = err and err.code
+  -- Response code 0 is Control4's url layer reporting "no answer" (no route,
+  -- DNS, timeout), not an HTTP status. Inlined rather than a helper: this
+  -- chunk sits at Lua's 200-local ceiling.
+  local code_ = type(err) == "table" and tonumber(err.code) or nil
+  if code_ ~= nil and code_ <= 0 then
+    code_ = nil
+  end
+  if code_ ~= nil then
+    PairAttempt.finish()
+  end
   if code_ == 404 or code_ == 410 then
     UpdateProperty("Connection Status", "Pairing failed - code is invalid or expired")
-  elseif type(code_) == "number" then
+  elseif (code_ == 400 or code_ == 409) and PairAttempt.reason(err) then
+    -- Property-code enrollment refusals carry an actionable reason (open an
+    -- enrollment window, use Change Primary Controller, staff review).
+    UpdateProperty("Connection Status", "Pairing failed - " .. PairAttempt.reason(err))
+  elseif code_ ~= nil then
     UpdateProperty("Connection Status", string.format("Pairing failed - HTTP %d", code_))
   else
     UpdateProperty("Connection Status", "Pairing failed - SmartBuildOS unreachable")
@@ -4414,6 +4482,10 @@ local function redeemPairingCode(code)
   http
     :post(url, {
       code = code,
+      -- Property-code enrollment (the permanent 20-character code) requires a
+      -- stable controller identity and a per-attempt idempotency key; the
+      -- one-time 8-character code ignores both.
+      enrollment_idempotency_key = PairAttempt.key(),
       system = {
         controller_type = C4:GetSystemType(),
         os_version = C4:GetVersionInfo().version,
@@ -4423,9 +4495,17 @@ local function redeemPairingCode(code)
         driver_device_id = C4:GetDeviceID(),
         director_device_id = select(1, directorIdentity()),
         director_name = select(2, directorIdentity()),
+        director_mac = directorMac(),
       },
     }, { ["Content-Type"] = "application/json" }, { timeout = REQUEST_TIMEOUT })
     :next(function(response)
+      PairAttempt.finish()
+      if tonumber(response.code) == 202 then
+        -- The platform already holds an enrollment for this attempt and is
+        -- still processing it: no credential in this answer, and not an error.
+        UpdateProperty("Connection Status", "Pairing pending - enter the code again in a minute")
+        return
+      end
       if applyPairResponse(response) then
         -- The code is spent. Clearing it keeps it out of the project file and
         -- makes the field obviously reusable for a future re-pair.
@@ -4448,6 +4528,7 @@ local function pairingSystemInfo()
     driver_device_id = C4:GetDeviceID(),
     director_device_id = select(1, directorIdentity()),
     director_name = select(2, directorIdentity()),
+    director_mac = directorMac(),
   }
 end
 
