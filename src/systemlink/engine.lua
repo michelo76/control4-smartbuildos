@@ -67,6 +67,12 @@ M.ITEM_EVENT_ID_START = 1000
 M.PENDING_MAX = 500
 M.HEARTBEAT_MS = 30 * 1000
 M.POLL_FALLBACK_MS = 20 * 1000
+-- A doorbell socket can be joined and silent: the relay's ring failed (its
+-- broadcast endpoint down or not enabled) while the socket stays healthy.
+-- Trust the doorbell only while it has rung recently; otherwise keep the
+-- poll, or a peer's change waits for the next 30 s heartbeat (bench
+-- 2026-10-20: changes arrived "once in a while").
+M.DOORBELL_TRUST_MS = 10 * 60 * 1000
 M.STATE_VAR_SUFFIX = ".STATE"
 
 local function deepcopy(v)
@@ -902,6 +908,11 @@ function M:onSyncResponse(resp, rawLen)
               v.rev = tonumber(rej.committed_rev) or v.rev
               self.lastError = "adopted committed revision for " .. def.name
               self.needSnapshot = true
+              -- The dealer's value is still the current one here: resend it
+              -- above the adopted revision instead of dropping it.
+              if v.tv.s == schema.STATES.CURRENT then
+                self:queueState(def, v.tv)
+              end
             end
           end
         end
@@ -1374,10 +1385,22 @@ function M:tick(doorbellUp)
   if self:heartbeatDue() then
     return true
   end
-  if not doorbellUp and self.lastSyncAt and now - self.lastSyncAt >= M.POLL_FALLBACK_MS then
+  self.doorbellUp = doorbellUp
+  if not self:doorbellLive(now) and self.lastSyncAt and now - self.lastSyncAt >= M.POLL_FALLBACK_MS then
     return true
   end
   return false
+end
+
+--- The doorbell counts only while it is joined AND has rung recently.
+function M:doorbellLive(now)
+  now = now or self.io.now()
+  return self.doorbellUp == true and self.lastDoorbellAt ~= nil and now - self.lastDoorbellAt < M.DOORBELL_TRUST_MS
+end
+
+--- The driver calls this for every ring; the reaction (a sync) is the driver's.
+function M:onDoorbell()
+  self.lastDoorbellAt = self.io.now()
 end
 
 function M:updateRemoteState()
@@ -1510,7 +1533,8 @@ function M:statusProperties()
     ["Local Variables Created"] = tostring(owned),
     ["Remote Variables Monitored"] = tostring(mirrored),
     ["Link Authorization"] = self.link and (self.link.link_state or "unknown") or "Not provisioned",
-    ["Relay Connection"] = self.transport,
+    ["Relay Connection"] = self.transport
+      .. (self.transport == "connected" and (self:doorbellLive() and " · doorbell" or " · polling every 20 s") or ""),
     ["Peer Status"] = self.peerState,
     ["Remote System State"] = (self.remoteState or "Offline")
       .. (self.remoteReason and (" — " .. self.remoteReason) or ""),

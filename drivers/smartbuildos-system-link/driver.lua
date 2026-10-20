@@ -372,7 +372,7 @@ local function requestProvision()
   return ok
 end
 
-local startSync, doorbellConnect, doorbellStop
+local startSync, doorbellConnect, doorbellStop, paintSelectedValue
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -488,6 +488,7 @@ local function paintStatus()
   for name, value in pairs(gEngine:statusProperties()) do
     updateStatus(name, value)
   end
+  paintSelectedValue()
   if not gEngine.link then
     -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
     -- handler (older build) or never got the message: say so and ask again,
@@ -589,6 +590,9 @@ doorbellConnect = function(cfg)
     elseif event.type == "ping" then
       -- The relay says "there is a new sequence". The reaction is the same
       -- authenticated sync; nothing on the socket is ever acted upon.
+      if gEngine then
+        gEngine:onDoorbell()
+      end
       SetTimer(SYNC_TIMER, 100, doSync)
     elseif event.type == "closed" then
       gDoorbell.up = false
@@ -659,6 +663,30 @@ local function registerNativeWrites()
   end
 end
 
+-- The selected item's actual value, as the link holds it right now: the
+-- value, its freshness state, revision and when it was committed. Repainted
+-- every tick so a dealer can watch a change land without leaving Composer.
+paintSelectedValue = function()
+  local def = gEngine and selectedItem()
+  if not def then
+    updateStatus("Selected Item Value", "—")
+    return
+  end
+  local v = gEngine.values[def.id]
+  if not v or not v.tv then
+    updateStatus("Selected Item Value", "unknown · rev 0")
+    return
+  end
+  local shown = v.tv.s == "current" and tostring(v.tv.v) or v.tv.s
+  if v.tv.s ~= "current" and v.tv.v ~= nil then
+    shown = string.format("%s (last %s)", v.tv.s, tostring(v.tv.v))
+  end
+  updateStatus(
+    "Selected Item Value",
+    string.format("%s · rev %s · %s", shown, tostring(v.rev or 0), v.src_at and formatTime(v.src_at) or "never")
+  )
+end
+
 local function paintItemList()
   if not gEngine then
     return
@@ -673,15 +701,12 @@ local function paintItemList()
   end)
   local def = selectedItem()
   if def then
-    local v = gEngine.values[def.id]
     updateStatus(
       "Selected Item Details",
       string.format(
-        "%s · %s · %s · rev %s · %s%s",
+        "%s · %s · %s%s",
         def.mirror and "mirror (read-only)" or "owned",
         def.type,
-        v and v.tv.s or "unknown",
-        tostring(v and v.rev or 0),
         def.group and (def.group .. " · ") or "",
         def.description or ""
       )
@@ -689,6 +714,7 @@ local function paintItemList()
   else
     updateStatus("Selected Item Details", "Select an item")
   end
+  paintSelectedValue()
 end
 
 local function readFilterForm()

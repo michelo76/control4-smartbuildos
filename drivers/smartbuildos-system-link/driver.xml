@@ -264,6 +264,7 @@
       <property><name>Shared Items</name><type>LABEL</type><default>Shared Items</default></property>
       <property><name>Selected Item</name><type>DYNAMIC_LIST</type><default>-</default></property>
       <property><name>Selected Item Details</name><type>STRING</type><default>Select an item</default><readonly>true</readonly></property>
+      <property><name>Selected Item Value</name><type>STRING</type><default>—</default><readonly>true</readonly><description>The selected item's current value as the link holds it: value · revision · committed time. Mirrors show stale/unknown with the last value.</description></property>
       <property><name>New Item Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Used with Create Shared Item and Rename Selected Item.</description></property>
       <property><name>New Item Type</name><type>LIST</type><items><item>BOOLEAN</item><item>INTEGER</item><item>DECIMAL</item><item>STRING</item><item>CHOICE</item></items><default>BOOLEAN</default></property>
       <property><name>New Item Description</name><type>STRING</type><default></default></property>

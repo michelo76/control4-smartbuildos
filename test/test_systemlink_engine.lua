@@ -656,11 +656,47 @@ local st = CA2:statusProperties()
 check(
   "status properties populated",
   st["Local Variables Created"] == "1"
-    and st["Relay Connection"] == "connected"
+    and st["Relay Connection"]:match("^connected") ~= nil
     and st["Remote System State"]:match("^Ready"),
   st["Remote System State"]
 )
 local diag = CA2:diagnostics()
+
+print("\n[doorbell] a joined but silent doorbell does not switch the poll off")
+sync(NY, "ep-ny")
+advance(25 * 1000)
+check("doorbell joined, never rang: poll is due after 20 s", NY:tick(true) == true)
+check("status says polling", NY:statusProperties()["Relay Connection"] == "connected · polling every 20 s")
+sync(NY, "ep-ny")
+NY:onDoorbell()
+advance(25 * 1000)
+check(
+  "doorbell rang recently: trusted, the ring drives the sync",
+  NY:doorbellLive() == true and (NY:tick(true) == false or NY:heartbeatDue())
+)
+check("status says doorbell", NY:statusProperties()["Relay Connection"] == "connected · doorbell")
+advance(Engine.DOORBELL_TRUST_MS)
+check("a doorbell silent for ten minutes is distrusted again", NY:doorbellLive() == false and NY:tick(true) == true)
+
+print("\n[stale] a value refused as stale is resent above the adopted revision")
+local awayDef = CA2:findByName("Away")
+assert(CA2:setLocal(awayDef.id, "true"))
+sync(CA2, "ep-ca")
+local relayRev = relay.state[awayDef.id].rev
+CA2.values[awayDef.id].rev = 0 -- a restored backup: local counter behind the relay
+assert(CA2:setLocal(awayDef.id, "false"))
+sync(CA2, "ep-ca")
+check(
+  "first attempt refused and the revision adopted",
+  CA2.values[awayDef.id].rev >= relayRev,
+  tostring(CA2.values[awayDef.id].rev)
+)
+sync(CA2, "ep-ca")
+check(
+  "the dealer's value still reached the relay",
+  relay.state[awayDef.id].value.v == false and relay.state[awayDef.id].rev == relayRev + 1,
+  tostring(relay.state[awayDef.id].rev) .. " " .. tostring(relay.state[awayDef.id].value.v)
+)
 check("diagnostics carry no payloads", diag.items[1].value == nil and diag.items[1].state ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
