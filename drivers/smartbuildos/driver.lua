@@ -56,6 +56,7 @@ local ssdpModule = require("drivers-common-public.module.ssdp")
 local log = require("lib.logging")
 local http = require("lib.http")
 local persist = require("lib.persist")
+local AgentContract = require("sbos.agent_contract")
 local Rooms = require("telemetry.rooms")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
@@ -165,6 +166,14 @@ local RELOAD_COUNT_KEY = "director_reload_count"
 local RELOAD_AT_KEY = "director_reload_at"
 local RELOAD_VERSION_KEY = "director_reload_version"
 local RELOAD_KIND_KEY = "director_reload_kind"
+--- Versioned System Studio Agent state. Configuration and runtime state are
+--- separate documents: replacing a settings revision must never reset startup
+--- history, and a runtime write must never masquerade as a configuration save.
+local AGENT_CONFIG_KEY = "sbos_agent_config_v1"
+local AGENT_CONFIG_VERSION_KEY = "sbos_agent_config_version"
+local AGENT_STATE_KEY = "sbos_agent_state_v1"
+local AGENT_EVENT_SEQUENCE_KEY = "sbos_agent_event_sequence"
+local AGENT_PENDING_OBSERVATION_KEY = "sbos_agent_pending_observation_v1"
 
 --- Requests are given a generous ceiling: a controller on a saturated uplink
 --- should retry on the next tick rather than pile up in-flight posts.
@@ -297,6 +306,13 @@ local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- What this driver start was: count, timestamp, and cause.
 --- @type table
 local gStart = { count = 0, at = nil, kind = nil }
+--- System Studio Agent Contract v1 runtime state. Restored during late init so
+--- a malformed persisted document cannot prevent the normal connector startup.
+local gAgentConfig = select(1, AgentContract.validateConfig({}))
+local gAgentConfigVersion = nil
+local gAgentState = AgentContract.newState()
+local gAgentPendingObservation = {}
+local gAgentInitReason = nil
 --- Devices that reported a sensor or battery signature at the last catalogue
 --- walk: id -> { name, room }. Re-read on each state upload.
 --- @type table<number, table>
@@ -369,6 +385,11 @@ local reportDiagnostics
 -- resolve the runner targets as nil globals and every remote command would ack
 -- as "attempt to call a nil value".
 local collectCommands
+-- Contract v1 functions are defined after the shared HTTP sender and consumed
+-- by the heartbeat configuration callback and lifecycle entry points. They use
+-- an Agent-prefixed global namespace deliberately: this driver is close to
+-- Lua 5.1's 200-local ceiling, and adding top-level locals makes the packaged
+-- chunk fail to compile on Director.
 
 --- Classify a driver start from what changed since the last one.
 ---
@@ -752,6 +773,12 @@ local function setConnected(connected, status)
   UpdateProperty("Connection Status", status)
   if changed then
     C4:FireEvent(connected and "Connected" or "Disconnected")
+    pcall(function()
+      C4:FireEvent("Cloud Connection Changed")
+    end)
+    if PublishAgentStatus ~= nil then
+      pcall(PublishAgentStatus)
+    end
   end
 end
 
@@ -944,6 +971,357 @@ local function send(path, payload, description, onOk, onDelivered)
       }, "sync failure report")
     end
   end)
+end
+
+-- ─── System Studio Agent Contract v1 ────────────────────────────────────────
+
+function AgentVersion()
+  local ok, version = pcall(function()
+    return C4:GetDriverConfigInfo("version")
+  end)
+  return ok and tostring(version or "") or ""
+end
+
+function AgentIsoAt(epoch)
+  local numeric = tonumber(epoch)
+  if numeric == nil or numeric < 0 then
+    return nil
+  end
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", numeric)
+end
+
+function PersistAgentState()
+  persist:set(AGENT_STATE_KEY, gAgentState)
+end
+
+function RestoreAgentState()
+  gAgentState = AgentContract.restoreState(persist:get(AGENT_STATE_KEY, nil))
+  local storedConfig, refusals = AgentContract.validateConfig(persist:get(AGENT_CONFIG_KEY, {}))
+  if storedConfig ~= nil then
+    gAgentConfig = storedConfig
+  else
+    gAgentConfig = select(1, AgentContract.validateConfig({}))
+    log:warn("Stored Agent configuration was unusable (%d refusal(s)); using contract defaults", #refusals)
+  end
+  gAgentConfigVersion = tointeger(persist:get(AGENT_CONFIG_VERSION_KEY, nil))
+  local pending = persist:get(AGENT_PENDING_OBSERVATION_KEY, nil)
+  gAgentPendingObservation = {}
+  if type(pending) == "table" then
+    if pending.source_event_id ~= nil then
+      -- Upgrade the first vNext development build's single-document shape.
+      gAgentPendingObservation[1] = pending
+    else
+      for _, observation in ipairs(pending) do
+        if type(observation) == "table" and observation.source_event_id ~= nil then
+          gAgentPendingObservation[#gAgentPendingObservation + 1] = observation
+          if #gAgentPendingObservation >= 128 then
+            break
+          end
+        end
+      end
+    end
+  end
+end
+
+function UpdateAgentProperty(name, value)
+  pcall(function()
+    UpdateProperty(name, value == nil and "Not reported" or tostring(value))
+  end)
+end
+
+function PublishAgentStatus()
+  local now = os.time()
+  local serviceMode = AgentContract.serviceModeActive(gAgentState, now)
+  if not serviceMode and gAgentState.serviceModeExpiresEpoch ~= nil then
+    gAgentState = AgentContract.exitServiceMode(gAgentState)
+    PersistAgentState()
+  end
+
+  local monitoringState = gAgentConfig.startupMonitoring and "Active" or "Disabled"
+  UpdateAgentProperty("Agent Contract", string.format("v%d", AgentContract.CONTRACT_VERSION))
+  UpdateAgentProperty("Agent Configuration Version", gAgentConfigVersion or "Not configured")
+  UpdateAgentProperty("Monitoring State", monitoringState)
+  UpdateAgentProperty("System Startups Today", gAgentState.systemStartupsToday)
+  UpdateAgentProperty("System Startups Lifetime", gAgentState.systemStartupsLifetime)
+  UpdateAgentProperty("Controller Reboots Observed Today", gAgentState.controllerRebootsObservedToday)
+  UpdateAgentProperty("Controller Reboots Observed Lifetime", gAgentState.controllerRebootsObservedLifetime)
+  UpdateAgentProperty("Last Startup Classification", gAgentState.lastClassification)
+  UpdateAgentProperty("Last Startup Confidence", gAgentState.lastConfidence)
+  UpdateAgentProperty("Last Report Status", gAgentState.lastReportStatus)
+  UpdateAgentProperty("Last Report At", gAgentState.lastReportAt)
+  UpdateAgentProperty("Execution Controller Identity", gAgentState.lastExecutionControllerIdentity)
+  UpdateAgentProperty("Primary Controller Identity", gAgentState.lastPrimaryControllerIdentity)
+  UpdateAgentProperty("Pairing State", isPaired() and "Paired" or "Not paired")
+  UpdateAgentProperty("Cloud Connection State", gConnected and "Connected" or "Disconnected")
+  UpdateAgentProperty("Agent Version", AgentVersion())
+  UpdateAgentProperty("Agent License State", Properties["License Cloud"] or "Not reported")
+  UpdateAgentProperty("Effective Service Profile ID", "Not assigned")
+  UpdateAgentProperty("Effective Service Profile Version", "Not reported")
+  UpdateAgentProperty("Service Mode Expires At", serviceMode and gAgentState.serviceModeExpiresAt or "Inactive")
+
+  UpdateAgentProperty("Startup Monitoring", gAgentConfig.startupMonitoring and "On" or "Off")
+  UpdateAgentProperty("Notification Policy", gAgentConfig.notificationPolicy)
+  UpdateAgentProperty("Startup Count Basis", gAgentConfig.countBasis)
+  UpdateAgentProperty("Startup Threshold", gAgentConfig.startupThreshold)
+  UpdateAgentProperty("Stabilization Delay", string.format("%d seconds", gAgentConfig.stabilizationSeconds))
+  UpdateAgentProperty("Service Mode Duration", string.format("%d minutes", gAgentConfig.serviceModeMinutes))
+  UpdateAgentProperty("Report Schedule", gAgentConfig.reportSchedule or "Not scheduled")
+  UpdateAgentProperty("Recipient Profile", gAgentConfig.recipientProfileId or "Not configured")
+  UpdateAgentProperty("Auto-update Preference", gAgentConfig.autoUpdatePreference)
+
+  pcall(function()
+    C4:SetVariable("SYSTEM_STARTUPS_TODAY", gAgentState.systemStartupsToday)
+    C4:SetVariable("CONTROLLER_REBOOTS_OBSERVED_TODAY", gAgentState.controllerRebootsObservedToday)
+    C4:SetVariable("SERVICE_MODE_ACTIVE", serviceMode)
+    C4:SetVariable("CLOUD_CONNECTED", gConnected)
+    C4:SetVariable("REPORT_STATUS", gAgentState.lastReportStatus or "not-requested")
+    C4:SetVariable("LICENSE_STATE", Properties["License Cloud"] or "Not reported")
+  end)
+end
+
+function ReportAgentConfigOutcome(applied, settingsVersion, refusals)
+  local detail
+  if applied then
+    detail = string.format(
+      "Agent Contract v%d applied settings version %s",
+      AgentContract.CONTRACT_VERSION,
+      tostring(settingsVersion)
+    )
+  else
+    local names = {}
+    for _, item in ipairs(refusals or {}) do
+      names[#names + 1] = tostring(item.path or "settings")
+    end
+    detail = string.format(
+      "Agent Contract v%d refused settings version %s (%s)",
+      AgentContract.CONTRACT_VERSION,
+      tostring(settingsVersion),
+      table.concat(names, ", ")
+    )
+  end
+  if isPaired() then
+    send("event", {
+      kind = "event",
+      name = applied and "agent_config_applied" or "agent_config_refused",
+      detail = detail:sub(1, 400),
+    }, applied and "Agent configuration acknowledgement" or "Agent configuration refusal")
+  end
+end
+
+function ApplyAgentConfigBlock(block)
+  if type(block) ~= "table" or tostring(block.driver_sku or "") ~= AgentContract.DRIVER_SKU then
+    return false
+  end
+  if block.contract_version ~= nil and tonumber(block.contract_version) ~= AgentContract.CONTRACT_VERSION then
+    ReportAgentConfigOutcome(false, block.settings_version, { { path = "contract_version" } })
+    UpdateAgentProperty("Agent Configuration Version", "Refused: contract mismatch")
+    return false
+  end
+  local settingsVersion = tointeger(block.settings_version)
+  if settingsVersion == nil or settingsVersion < 1 then
+    ReportAgentConfigOutcome(false, block.settings_version, { { path = "settings_version" } })
+    return false
+  end
+  if gAgentConfigVersion ~= nil and settingsVersion < gAgentConfigVersion then
+    log:warn("Ignoring stale Agent settings v%d; v%d is already applied", settingsVersion, gAgentConfigVersion)
+    return false
+  end
+  local config, refusals = AgentContract.validateConfig(block.settings)
+  if config == nil then
+    log:error("Agent settings v%d refused (%d invalid field(s))", settingsVersion, #refusals)
+    ReportAgentConfigOutcome(false, settingsVersion, refusals)
+    UpdateAgentProperty("Agent Configuration Version", string.format("v%d refused", settingsVersion))
+    return false
+  end
+  if gAgentConfigVersion == settingsVersion then
+    if AgentContract.sameConfig(config, gAgentConfig) then
+      PublishAgentStatus()
+      return true
+    end
+    log:error("Agent settings v%d refused because that version is already bound to different values", settingsVersion)
+    ReportAgentConfigOutcome(false, settingsVersion, { { path = "settings_version" } })
+    UpdateAgentProperty("Agent Configuration Version", string.format("v%d conflict refused", settingsVersion))
+    return false
+  end
+
+  gAgentConfig = config
+  gAgentConfigVersion = settingsVersion
+  persist:set(AGENT_CONFIG_KEY, config)
+  persist:set(AGENT_CONFIG_VERSION_KEY, settingsVersion)
+  PublishAgentStatus()
+  ReportAgentConfigOutcome(true, settingsVersion)
+  log:info("Agent Contract v%d settings v%d applied", AgentContract.CONTRACT_VERSION, settingsVersion)
+  return true
+end
+
+function SafeAgentBootId()
+  if C4.GetBootID == nil then
+    return nil, false
+  end
+  local ok, value = pcall(function()
+    return C4:GetBootID()
+  end)
+  if not ok or value == nil or tostring(value) == "" then
+    return nil, false
+  end
+  return tostring(value):sub(1, 180), true
+end
+
+function NextAgentEventId()
+  local sequence = (tointeger(persist:get(AGENT_EVENT_SEQUENCE_KEY, 0)) or 0) + 1
+  persist:set(AGENT_EVENT_SEQUENCE_KEY, sequence)
+  return string.format("agent-start:%s:%d:%d", tostring(C4:GetDeviceID()), os.time(), sequence)
+end
+
+function SendPendingAgentObservation()
+  if type(gAgentPendingObservation) ~= "table" or #gAgentPendingObservation == 0 or not isPaired() then
+    return
+  end
+  local observation = gAgentPendingObservation[1]
+  local deliverAfter = tonumber(observation._deliver_after_epoch)
+  if deliverAfter ~= nil and deliverAfter > os.time() then
+    SetTimer(
+      "SmartBuildOSAgentStabilization",
+      math.max(ONE_SECOND, (deliverAfter - os.time()) * ONE_SECOND),
+      SendPendingAgentObservation
+    )
+    return
+  end
+  local eventId = tostring(observation.source_event_id or "")
+  send("startup-observation", observation, "Agent startup observation", function(body)
+    if type(body.notification) == "table" and body.notification.state == "failed" then
+      pcall(function()
+        C4:FireEvent("Notification Failed")
+      end)
+    end
+  end, function()
+    if
+      type(gAgentPendingObservation) == "table"
+      and type(gAgentPendingObservation[1]) == "table"
+      and tostring(gAgentPendingObservation[1].source_event_id or "") == eventId
+    then
+      table.remove(gAgentPendingObservation, 1)
+      if #gAgentPendingObservation == 0 then
+        persist:delete(AGENT_PENDING_OBSERVATION_KEY)
+      else
+        persist:set(AGENT_PENDING_OBSERVATION_KEY, gAgentPendingObservation)
+        SetTimer("SmartBuildOSAgentPendingObservation", ONE_SECOND, SendPendingAgentObservation)
+      end
+    end
+  end)
+end
+
+function ProcessAgentStartup(initReason)
+  local bootId, bootSupported = SafeAgentBootId()
+  local executionIdentity = directorMac()
+  local result = AgentContract.recordStartup(gAgentState, {
+    eventId = NextAgentEventId(),
+    observedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    localDate = os.date("%Y-%m-%d"),
+    initReason = initReason,
+    observedBootId = bootId,
+    bootIdSupported = bootSupported,
+    executionControllerIdentity = executionIdentity,
+    -- The current heartbeat does not return a verified primary identity. Do
+    -- not manufacture equality: the backend retains the boot evidence while
+    -- primary_controller_reboot_observed remains false until both agree.
+    primaryControllerIdentity = nil,
+    nowEpoch = os.time(),
+  }, gAgentConfig)
+  if not result.ok then
+    log:error("Agent startup state refused: %s", tostring(result.error))
+    return
+  end
+  gAgentState = result.state
+  PersistAgentState()
+  PublishAgentStatus()
+  if not result.observed or result.event == nil then
+    return
+  end
+
+  if #gAgentPendingObservation >= 128 then
+    log:error("Agent startup observation queue is full; retaining the oldest 128 undelivered records")
+    return
+  end
+  local delay = math.max(0, math.min(tointeger(gAgentConfig.stabilizationSeconds) or 0, 3600))
+  result.event._deliver_after_epoch = os.time() + delay
+  gAgentPendingObservation[#gAgentPendingObservation + 1] = result.event
+  persist:set(AGENT_PENDING_OBSERVATION_KEY, gAgentPendingObservation)
+  pcall(function()
+    C4:FireEvent(
+      result.event.event_type == "controller-reboot-observed" and "Controller Reboot Observed"
+        or (
+          result.event.event_type == "startup-threshold-reached" and "Startup Threshold Reached"
+          or "System Startup Observed"
+        )
+    )
+  end)
+  SendPendingAgentObservation()
+end
+
+function EnterAgentServiceMode(minutes)
+  local duration = tointeger(minutes) or gAgentConfig.serviceModeMinutes
+  local now = os.time()
+  local bounded = math.max(5, math.min(1440, duration))
+  gAgentState = AgentContract.enterServiceMode(gAgentState, now, bounded, AgentIsoAt(now + bounded * 60))
+  PersistAgentState()
+  PublishAgentStatus()
+  ArmAgentServiceModeTimer()
+  EC.SEND_HEARTBEAT()
+  return string.format("service mode active for %d minutes", bounded)
+end
+
+function ArmAgentServiceModeTimer()
+  CancelTimer("SmartBuildOSAgentServiceMode")
+  if not AgentContract.serviceModeActive(gAgentState, os.time()) then
+    return
+  end
+  local remaining = math.max(1, (tonumber(gAgentState.serviceModeExpiresEpoch) or os.time()) - os.time())
+  SetTimer("SmartBuildOSAgentServiceMode", remaining * ONE_SECOND, function()
+    if not AgentContract.serviceModeActive(gAgentState, os.time()) then
+      gAgentState = AgentContract.exitServiceMode(gAgentState)
+      PersistAgentState()
+      PublishAgentStatus()
+      EC.SEND_HEARTBEAT()
+    end
+  end)
+end
+
+function ExitAgentServiceMode()
+  CancelTimer("SmartBuildOSAgentServiceMode")
+  gAgentState = AgentContract.exitServiceMode(gAgentState)
+  PersistAgentState()
+  PublishAgentStatus()
+  EC.SEND_HEARTBEAT()
+  return "service mode inactive"
+end
+
+function RequestAgentReport(sendRequested)
+  -- Report generation is a platform operation over stored measurements. The
+  -- controller records the request and refreshes its evidence; it never claims
+  -- a report exists until a platform acknowledgement returns.
+  gAgentState.lastReportStatus = sendRequested and "send-requested" or "generation-requested"
+  gAgentState.lastReportAt = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  PersistAgentState()
+  PublishAgentStatus()
+  send(
+    "event",
+    {
+      kind = "event",
+      name = sendRequested and "send_system_report_requested" or "generate_system_report_requested",
+      detail = sendRequested and "Composer requested authorized delivery of the latest System Studio report."
+        or "Composer requested an immutable System Studio report snapshot.",
+    },
+    sendRequested and "system report delivery request" or "system report generation request",
+    function()
+      -- The current generic event endpoint acknowledges only that the request was
+      -- stored. Keep the state explicit; stored is not generated or sent.
+      gAgentState.lastReportStatus = "request-recorded"
+      PersistAgentState()
+      PublishAgentStatus()
+    end
+  )
+  return "report request recorded; awaiting platform generation"
 end
 
 -- ─── Device state, from Director ──────────────────────────────────────────────
@@ -1776,6 +2154,7 @@ function driverCapabilities()
     "catalogue_v1",
     "notify_v1",
     "realtime_v1",
+    "agent_contract_v1",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -2166,7 +2545,11 @@ local function forwardDriverConfigs(list)
     return
   end
   for _, cfg in ipairs(list) do
-    forwardDriverConfig(cfg)
+    if type(cfg) == "table" and tostring(cfg.driver_sku or "") == AgentContract.DRIVER_SKU then
+      ApplyAgentConfigBlock(cfg)
+    else
+      forwardDriverConfig(cfg)
+    end
   end
 end
 
@@ -2431,6 +2814,35 @@ local function sendHeartbeat()
       director_reloads = gStart.count,
       last_reload_at = gStart.at,
       last_reload_kind = gStart.kind,
+      -- The server may ignore this additive object until its status reader is
+      -- deployed. That is intentional forward compatibility: absence is an
+      -- old Agent; presence is the Agent's own claim, never inferred from a
+      -- successful website save.
+      agent_contract = {
+        contract_version = AgentContract.CONTRACT_VERSION,
+        settings_version = gAgentConfigVersion,
+        monitoring_state = gAgentConfig.startupMonitoring and "active" or "disabled",
+        system_startups_today = gAgentState.systemStartupsToday,
+        system_startups_lifetime = gAgentState.systemStartupsLifetime,
+        controller_reboots_observed_today = gAgentState.controllerRebootsObservedToday,
+        controller_reboots_observed_lifetime = gAgentState.controllerRebootsObservedLifetime,
+        last_startup_classification = gAgentState.lastClassification,
+        last_startup_confidence = gAgentState.lastConfidence,
+        last_report_status = gAgentState.lastReportStatus,
+        last_report_at = gAgentState.lastReportAt,
+        execution_controller_identity = gAgentState.lastExecutionControllerIdentity,
+        primary_controller_identity = gAgentState.lastPrimaryControllerIdentity,
+        pairing_state = isPaired() and "paired" or "not-paired",
+        cloud_connection_state = gConnected and "connected" or "disconnected",
+        agent_version = AgentVersion(),
+        license_state = Properties["License Cloud"] or nil,
+        effective_service_profile_id = nil,
+        effective_service_profile_version = nil,
+        service_mode_expires_at = AgentContract.serviceModeActive(gAgentState, os.time())
+            and gAgentState.serviceModeExpiresAt
+          or nil,
+        pending_startup_observations = #gAgentPendingObservation,
+      },
     },
     "heartbeat",
     function(body)
@@ -2469,6 +2881,7 @@ local function sendHeartbeat()
       -- deploy keeps configuring Atmosphere during a rollout.
       pcall(forwardDriverConfigs, body.driver_config)
       pcall(forwardDriverConfig, body.atmosphere, "SBOS_ATMOSPHERE")
+      pcall(SendPendingAgentObservation)
 
       local monitor = body.monitor
       if type(monitor) ~= "table" then
@@ -4626,9 +5039,15 @@ function registerBridgeVariables()
     { "ISSUE_SEVERITY", "None" },
     { "ISSUE_TEXT", "" },
     { "NOTICE_TEXT", "" },
+    { "SYSTEM_STARTUPS_TODAY", 0, "NUMBER" },
+    { "CONTROLLER_REBOOTS_OBSERVED_TODAY", 0, "NUMBER" },
+    { "SERVICE_MODE_ACTIVE", false, "BOOL" },
+    { "CLOUD_CONNECTED", false, "BOOL" },
+    { "REPORT_STATUS", "not-requested", "STRING" },
+    { "LICENSE_STATE", "Not reported", "STRING" },
   }) do
     pcall(function()
-      C4:AddVariable(v[1], v[2], "STRING", true)
+      C4:AddVariable(v[1], v[2], v[3] or "STRING", true)
     end)
   end
   -- Events share the variables' add-time trap, proven on the same instance:
@@ -4640,6 +5059,15 @@ function registerBridgeVariables()
     { 9, "Issue Detected", "SmartBuildOS detected a problem at this home" },
     { 11, "Issue Updated", "SmartBuildOS updated a previously reported problem" },
     { 10, "Issue Resolved", "SmartBuildOS resolved a reported problem" },
+    { 12, "System Startup Observed", "The Agent classified a Control4 system startup" },
+    { 13, "Controller Reboot Observed", "The Agent observed a changed controller boot identity" },
+    { 14, "Startup Threshold Reached", "The configured startup count threshold was reached" },
+    { 15, "Report Ready", "SmartBuildOS confirmed a requested System Studio report is ready" },
+    { 16, "Report Failed", "SmartBuildOS reported that a requested system report failed" },
+    { 17, "Notification Failed", "SmartBuildOS could not accept an approved-recipient notification" },
+    { 18, "Cloud Connection Changed", "The Agent cloud connection state changed" },
+    { 19, "License Status Changed", "The Agent license state changed" },
+    { 20, "Controller Mismatch", "The execution controller did not match the verified primary controller" },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -4647,12 +5075,15 @@ function registerBridgeVariables()
   end
 end
 
-function OnDriverLateInit()
-  log:trace("OnDriverLateInit()")
+function OnDriverLateInit(reason)
+  log:trace("OnDriverLateInit(%s)", tostring(reason))
   if not CheckMinimumVersion("Driver Status") then
     return
   end
 
+  RestoreAgentState()
+  ArmAgentServiceModeTimer()
+  gAgentInitReason = reason
   restorePairingFromBackup()
 
   registerBridgeVariables()
@@ -4671,6 +5102,11 @@ function OnDriverLateInit()
   -- Recording the start is safe: persist plus a pcall'd version read.
   -- ANNOUNCING it is not, and is deferred until the timers are armed.
   gStart = recordStart()
+  if gAgentInitReason == nil then
+    gAgentInitReason = gStart.kind == "update" and "DIT_UPDATING"
+      or (gStart.kind == "first" and "DIT_ADDING" or "DIT_STARTUP")
+  end
+  PublishAgentStatus()
 
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
@@ -4679,7 +5115,13 @@ function OnDriverLateInit()
     -- the only way to tell was to remember what had been published. A
     -- channel nobody can observe is a channel nobody can fix.
     gUpdate.checked_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
-    gUpdate.automatic = toboolean(Properties["Automatic Updates"]) and true or false
+    if gAgentConfigVersion ~= nil then
+      gUpdate.automatic = gAgentConfig.autoUpdatePreference == "automatic"
+    else
+      -- Preserve the existing Composer setting until System Studio has
+      -- actually delivered a versioned Agent document.
+      gUpdate.automatic = toboolean(Properties["Automatic Updates"]) and true or false
+    end
     -- What the updater will compare against — the value that silently
     -- rejected every check when it came back nil.
     local okV, seen = pcall(function()
@@ -4690,12 +5132,16 @@ function OnDriverLateInit()
       log:info("Checking for driver update (installed version reads as %s)", gUpdate.reads_version_as)
       UpdateDrivers()
     else
-      log:info("Automatic Updates is off; not checking")
+      log:info(
+        "Automatic update not run (policy %s)",
+        gAgentConfigVersion ~= nil and gAgentConfig.autoUpdatePreference or tostring(Properties["Automatic Updates"])
+      )
     end
   end, true)
   --#endif
 
   if not isPaired() then
+    ProcessAgentStartup(gAgentInitReason)
     setConnected(false, "Not paired")
     log:warn("SmartBuildOS Connector is not paired. Paste a pairing code from SmartBuildOS.")
     return
@@ -4740,6 +5186,7 @@ function OnDriverLateInit()
     end
   end
   scheduleTimers()
+  ProcessAgentStartup(gAgentInitReason)
 
   -- ⚠ ANNOUNCED ONLY AFTER THE TIMERS ARE ARMED, AND NEVER FATALLY.
   --
@@ -6405,6 +6852,58 @@ function EC.UPDATE_DRIVERS()
 end
 --#endif
 
+function EC.GENERATE_SYSTEM_REPORT()
+  log:info("System Studio report generation requested from Composer")
+  RequestAgentReport(false)
+end
+
+function EC.SEND_SYSTEM_REPORT()
+  log:info("System Studio report delivery requested from Composer")
+  RequestAgentReport(true)
+end
+
+function EC.SEND_TEST_NOTIFICATION()
+  log:info("Running the local Control4 notification bridge test")
+  local ok, result = pcall(COMMAND_RUNNERS.SEND_NOTIFICATION, {
+    kind = "update",
+    severity = "info",
+    title = "SmartBuildOS test notification",
+    detail = "The SmartBuildOS Agent notification bridge was tested from Composer.",
+  })
+  if not ok then
+    log:error("Test notification failed: %s", tostring(result))
+    C4:FireEvent("Notification Failed")
+  end
+end
+
+function EC.REFRESH_INVENTORY()
+  EC.SEND_FULL_SYNC()
+end
+
+function EC.CHECK_FOR_UPDATES()
+  if type(EC.UPDATE_DRIVERS) == "function" then
+    EC.UPDATE_DRIVERS()
+  else
+    log:warn("Manual update checks are unavailable in this distribution")
+  end
+end
+
+function EC.ENTER_SERVICE_MODE()
+  log:info("%s", EnterAgentServiceMode())
+end
+
+function EC.EXIT_SERVICE_MODE()
+  log:info("%s", ExitAgentServiceMode())
+end
+
+function EC.REFRESH_STATUS()
+  EC.SEND_HEARTBEAT()
+end
+
+function EC.CAMERA_READ_ONLY_PROBE()
+  EC.PROBE_CAPABILITIES()
+end
+
 --- Lets Composer programming push a named event into SmartBuildOS, so a dealer
 --- can surface things the driver has no way to observe on its own (a rack door
 --- contact, a UPS on battery, a "client called" button).
@@ -6489,6 +6988,20 @@ function EC.REPORT_SERVICE_EVENT(tParams)
   reportCustom("service", tostring(tParams.NAME or ""), {
     value_text = tostring(tParams.DETAIL or ""),
   })
+end
+
+function EC.RECORD_SERVICE_NOTE(tParams)
+  tParams = tParams or {}
+  local note = tostring(tParams.NOTE or ""):sub(1, 1000)
+  if note == "" then
+    log:warn("RECORD_SERVICE_NOTE called with an empty NOTE; ignoring")
+    return
+  end
+  send("event", {
+    kind = "event",
+    name = "service note",
+    detail = note,
+  }, "service note")
 end
 
 function EC.SEND_EVENT(tParams)
@@ -6725,10 +7238,7 @@ local function noteClockSkew(serverIso)
     local hours = math.floor(math.abs(skew) / 3600)
     local direction = skew > 0 and "ahead of" or "behind"
     log:warn("Controller clock is %dh %s SmartBuildOS - licensing stays up, but fix the clock", hours, direction)
-    UpdateProperty(
-      "License Cloud",
-      string.format("OK - but the controller clock is %dh %s the cloud", hours, direction)
-    )
+    SetAgentLicenseState(string.format("OK - but the controller clock is %dh %s the cloud", hours, direction))
     licenseEvent(
       "WARNING",
       "CONFIGURATION",
@@ -6737,6 +7247,20 @@ local function noteClockSkew(serverIso)
     )
   end
   gEntitlements.clockSkewed = skewed
+end
+
+function SetAgentLicenseState(value)
+  value = tostring(value or "Not reported")
+  local changed = tostring(Properties["License Cloud"] or "") ~= value
+  UpdateProperty("License Cloud", value)
+  if changed and gInitialized then
+    pcall(function()
+      C4:FireEvent("License Status Changed")
+    end)
+  end
+  if PublishAgentStatus ~= nil then
+    pcall(PublishAgentStatus)
+  end
 end
 
 --- Paints the License Cloud + Support ID properties from current state.
@@ -6767,9 +7291,9 @@ function updateLicenseProperties()
   end
   if cache == nil then
     if isPaired() then
-      UpdateProperty("License Cloud", "Not yet validated - drivers run in legacy mode")
+      SetAgentLicenseState("Not yet validated - drivers run in legacy mode")
     else
-      UpdateProperty("License Cloud", "Not paired - drivers run in legacy mode")
+      SetAgentLicenseState("Not paired - drivers run in legacy mode")
     end
     return
   end
@@ -6797,7 +7321,7 @@ function updateLicenseProperties()
   if not cache.verified then
     label = label .. " (unsigned cache - re-pair to enable signing)"
   end
-  UpdateProperty("License Cloud", label)
+  SetAgentLicenseState(label)
 end
 
 --- The answer for one SKU, from the cache through the staleness ladder.

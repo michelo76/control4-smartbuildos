@@ -978,7 +978,14 @@ EC.SEND_HEARTBEAT()
 EC.SEND_HEARTBEAT()
 check(
   "one Connected for three successes",
-  #firedEvents == 1 and firedEvents[1] == "Connected",
+  (function()
+    local connected, cloudChanged = 0, 0
+    for _, event in ipairs(firedEvents) do
+      connected = connected + (event == "Connected" and 1 or 0)
+      cloudChanged = cloudChanged + (event == "Cloud Connection Changed" and 1 or 0)
+    end
+    return connected == 1 and cloudChanged == 1
+  end)(),
   table.concat(firedEvents, ",")
 )
 

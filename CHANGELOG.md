@@ -39,6 +39,23 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   shipped drivers, not from a documented proxy guide. Licensing: one pair
   licence per link (`SBOS_SYSTEM_LINK`), companions inherit the bridge.
   **No hardware validation yet**; see each driver's documentation tab.
+- **System Studio Agent Contract v1:** the existing SmartBuildOS Agent now
+  self-applies the versioned `SBOS_AGENT` configuration returned by its normal
+  heartbeat, persists startup/service-mode state separately from configuration,
+  classifies add/update/startup without inventing controller evidence, records
+  optional kernel boot-ID changes, queues authenticated startup observations,
+  exposes the declared Composer actions/events/read-only variables/status
+  fields, and reports its applied version and runtime state in heartbeat
+  evidence. Existing action tokens, variable/event IDs, pairing, entitlement,
+  Driver Cloud, and per-SKU configuration forwarding are preserved. Report
+  actions record requests without claiming generation or delivery until a
+  dedicated platform acknowledgement exists.
+
+- **Driver Store forward-compatibility boundary:** Agent licensing remains
+  SKU-generic for every dependent driver that registers through
+  `SBOS_REGISTER_DRIVER`; unknown future store metadata is not interpreted on
+  the controller. Package inventory and update filenames remain an explicit,
+  reviewed allowlist so a storefront change cannot silently install software.
 
 - **Bond driver suite** (new, 6 drivers): `bond-bridge` gateway (one per Bond
   Bridge / Smart by Bond unit — token letterbox stored encrypted, inventory sync
