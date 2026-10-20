@@ -330,6 +330,25 @@ check(
 )
 check("licence SDK registered through the Agent", lastSent("SBOS_REGISTER_DRIVER") ~= nil)
 
+print("\n[1b] the Agent's refusal stays readable and is retried")
+local askedBefore = #sent
+EC.SBOS_LINK_PROVISION({ request_id = ask.params.request_id, error = "HTTP 404" })
+advance(2500) -- two status repaints
+check(
+  "Link Authorization keeps the Agent's answer, not the generic 'Not provisioned'",
+  Properties["Link Authorization"] == "Agent: HTTP 404",
+  Properties["Link Authorization"]
+)
+check("Last Error says the same", Properties["Last Error"] == "Agent: HTTP 404", Properties["Last Error"])
+advance(61 * 1000)
+local again = lastSent("SBOS_LINK_PROVISION_REQUEST")
+check(
+  "asked the Agent again after the retry interval",
+  again ~= nil and again.params.request_id ~= ask.params.request_id and #sent > askedBefore,
+  again and again.params.request_id
+)
+ask = again
+
 print("\n[2] provisioning answer and first sync")
 EC.SBOS_LINK_PROVISION({ request_id = "wrong", info = "{}" })
 check("answer with the wrong request id is ignored", gEngine.link == nil)

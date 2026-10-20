@@ -327,10 +327,24 @@ end
 
 -- ─── Provisioning handshake with the Agent ───────────────────────────────────
 
+-- What the dealer reads under "Link Authorization" while there is no link:
+-- the Agent's last answer (or its silence), not the engine's generic
+-- "Not provisioned", which paintStatus would otherwise repaint every second
+-- over the one message that says why.
+gProvisionMessage = gProvisionMessage or nil
+
+local function setProvisionMessage(message)
+  gProvisionMessage = message
+  updateStatus("Link Authorization", message)
+  if gEngine then
+    gEngine.lastError = message
+  end
+end
+
 local function requestProvision()
   local agent = findAgent()
   if not agent then
-    updateStatus("Link Authorization", "No SmartBuildOS Agent found — add the free Connector first")
+    setProvisionMessage("No SmartBuildOS Agent found — add the free Connector first")
     return false
   end
   if gPendingProvision and os.time() <= gPendingProvision.expires then
@@ -350,8 +364,11 @@ local function requestProvision()
   end)
   if not ok then
     gPendingProvision = nil
+    setProvisionMessage("Could not reach the SmartBuildOS Agent (SendToDevice failed)")
+    return false
   end
-  updateStatus("Link Authorization", "Asking the Agent for this system's link…")
+  gProvisionMessage = "Asking the Agent for this system's link…"
+  updateStatus("Link Authorization", gProvisionMessage)
   return ok
 end
 
@@ -365,8 +382,7 @@ function EC.SBOS_LINK_PROVISION(tParams)
   end
   gPendingProvision = nil
   if tParams.error and tParams.error ~= "" then
-    updateStatus("Link Authorization", tostring(tParams.error))
-    updateStatus("Last Error", tostring(tParams.error))
+    setProvisionMessage("Agent: " .. tostring(tParams.error))
     SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
     return
   end
@@ -379,8 +395,13 @@ function EC.SBOS_LINK_PROVISION(tParams)
     or tostring(info.credential or ""):find("^sbosl1%.") == nil
     or tostring(info.relay_url or ""):find("^https://") == nil
   then
-    updateStatus("Last Error", "Agent returned an unusable link provision")
+    setProvisionMessage("Agent returned an unusable link provision")
+    SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
     return
+  end
+  gProvisionMessage = nil
+  if gEngine then
+    gEngine.lastError = nil
   end
   storeCredential(info)
   gEngine:onProvisioned(info)
@@ -466,6 +487,25 @@ local function paintStatus()
   end
   for name, value in pairs(gEngine:statusProperties()) do
     updateStatus(name, value)
+  end
+  if not gEngine.link then
+    -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
+    -- handler (older build) or never got the message: say so and ask again,
+    -- instead of waiting silently for a reply that cannot come.
+    if gPendingProvision and os.time() > gPendingProvision.expires then
+      gPendingProvision = nil
+      setProvisionMessage(
+        "The SmartBuildOS Agent did not answer the link request — update the Agent to a build with System Link support"
+      )
+      SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
+    end
+    if gProvisionMessage then
+      updateStatus("Link Authorization", gProvisionMessage)
+      updateStatus(
+        "Last Error",
+        gProvisionMessage == "Asking the Agent for this system's link…" and "" or gProvisionMessage
+      )
+    end
   end
   updateStatus("License State", license.statusLabel())
   updateStatus("Installed Version", tostring(C4:GetDriverConfigInfo("version") or ""))
