@@ -96,8 +96,8 @@ Composer exposes the v1 actions, events, read-only variables, and non-editable
 status fields. **Generate System Report** and **Send System Report** currently
 record a platform request only. They deliberately do not fire Report Ready or
 claim a report was generated/sent until SmartBuildOS returns a purpose-built
-report acknowledgement. Likewise, a stored website configuration is not shown
-as applied until this Agent accepts and reports it.
+report acknowledgement. Likewise, a stored website configuration is not shown as
+applied until this Agent accepts and reports it.
 
 The Driver Store remains a separate delivery boundary. Any dependent driver can
 register its SKU with the Agent and receive the existing generic entitlement

@@ -33,12 +33,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   doorbell plus a 20 s poll fallback; source-device exports with validated
   remote commands, owner-side schedules (controller-local time, fail closed on
   an untrusted clock) and command suspension. Companions
-  `smartbuildos-system-link-{light,relay,contact,temperature}` present an
-  export natively; `-thermostat` and `-shade` ship feature-gated (THERMOSTAT /
-  SHADE on the pair licence) because their proxy vocabulary is taken from
-  shipped drivers, not from a documented proxy guide. Licensing: one pair
-  licence per link (`SBOS_SYSTEM_LINK`), companions inherit the bridge.
-  **No hardware validation yet**; see each driver's documentation tab.
+  `smartbuildos-system-link-{light,relay,contact,temperature}` present an export
+  natively; `-thermostat` and `-shade` ship feature-gated (THERMOSTAT / SHADE on
+  the pair licence) because their proxy vocabulary is taken from shipped
+  drivers, not from a documented proxy guide. Licensing: one pair licence per
+  link (`SBOS_SYSTEM_LINK`), companions inherit the bridge. **No hardware
+  validation yet**; see each driver's documentation tab.
+
 - **System Studio Agent Contract v1:** the existing SmartBuildOS Agent now
   self-applies the versioned `SBOS_AGENT` configuration returned by its normal
   heartbeat, persists startup/service-mode state separately from configuration,
