@@ -50,8 +50,10 @@ end
 --- opts = { kind, onState = fn(fields, fresh, meta), onExports = fn(list), onResult = fn(op, status, reason) }
 function M.setup(opts)
   state.opts = opts or {}
-  state.export = persist:get(EXPORT_KEY, nil)
-  if state.export == "" then
+  -- `false`, not nil: lib.persist answers a missing key with a table when the
+  -- default is nil, and a table export never matches an incoming state.
+  state.export = persist:get(EXPORT_KEY, false)
+  if type(state.export) ~= "string" or state.export == "" then
     state.export = nil
   end
   EC.SBOS_LINK_COMPANION_EXPORTS = function(tParams)
