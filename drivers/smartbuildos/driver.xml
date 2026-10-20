@@ -90,6 +90,54 @@
       <readonly>true</readonly>
       <hidden>false</hidden>
     </variable>
+    <variable>
+      <id>2006</id>
+      <name>SYSTEM_STARTUPS_TODAY</name>
+      <type>NUMBER</type>
+      <default>0</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2007</id>
+      <name>CONTROLLER_REBOOTS_OBSERVED_TODAY</name>
+      <type>NUMBER</type>
+      <default>0</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2008</id>
+      <name>SERVICE_MODE_ACTIVE</name>
+      <type>BOOL</type>
+      <default>false</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2009</id>
+      <name>CLOUD_CONNECTED</name>
+      <type>BOOL</type>
+      <default>false</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2010</id>
+      <name>REPORT_STATUS</name>
+      <type>STRING</type>
+      <default>not-requested</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
+    <variable>
+      <id>2011</id>
+      <name>LICENSE_STATE</name>
+      <type>STRING</type>
+      <default>Not reported</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
   </variables>
   <events>
     <event>
@@ -147,6 +195,15 @@
       <name>Director Reloaded</name>
       <description>When Director comes back up under this driver — a controller reboot, a Director restart or a project reload. Deliberately NOT fired by a driver update, which restarts the driver without the controller having gone anywhere.</description>
     </event>
+    <event><id>12</id><name>System Startup Observed</name><description>When the Agent classifies a Control4 system startup</description></event>
+    <event><id>13</id><name>Controller Reboot Observed</name><description>When the Agent observes a changed controller boot identity</description></event>
+    <event><id>14</id><name>Startup Threshold Reached</name><description>When the configured startup count threshold is reached</description></event>
+    <event><id>15</id><name>Report Ready</name><description>When SmartBuildOS confirms a requested System Studio report is ready</description></event>
+    <event><id>16</id><name>Report Failed</name><description>When SmartBuildOS reports that a requested system report failed</description></event>
+    <event><id>17</id><name>Notification Failed</name><description>When SmartBuildOS cannot accept an approved-recipient notification</description></event>
+    <event><id>18</id><name>Cloud Connection Changed</name><description>When the Agent cloud connection state changes</description></event>
+    <event><id>19</id><name>License Status Changed</name><description>When the Agent license state changes</description></event>
+    <event><id>20</id><name>Controller Mismatch</name><description>When execution-controller evidence conflicts with the verified primary controller</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"/>
@@ -200,6 +257,15 @@
         <name>Generate Touchpanel URL</name>
         <command>GENERATE_DISPLAY_URL</command>
       </action>
+      <action><name>Generate System Report</name><command>GENERATE_SYSTEM_REPORT</command></action>
+      <action><name>Send System Report</name><command>SEND_SYSTEM_REPORT</command></action>
+      <action><name>Send Test Notification</name><command>SEND_TEST_NOTIFICATION</command></action>
+      <action><name>Refresh Inventory</name><command>REFRESH_INVENTORY</command></action>
+      <action><name>Check for Updates</name><command>CHECK_FOR_UPDATES</command></action>
+      <action><name>Enter Service Mode</name><command>ENTER_SERVICE_MODE</command></action>
+      <action><name>Exit Service Mode</name><command>EXIT_SERVICE_MODE</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>Camera Read-Only Probe</name><command>CAMERA_READ_ONLY_PROBE</command></action>
       <action>
         <name>Unpair</name>
         <command>UNPAIR</command>
@@ -294,6 +360,13 @@
             <name>DETAIL</name>
             <type>STRING</type>
           </param>
+        </params>
+      </command>
+      <command>
+        <name>RECORD_SERVICE_NOTE</name>
+        <description>Record an integrator-authored service note in SmartBuildOS</description>
+        <params>
+          <param><name>NOTE</name><type>STRING</type></param>
         </params>
       </command>
     </commands>
@@ -528,6 +601,37 @@
         <readonly>true</readonly>
         <description>When this driver last started, and what caused it</description>
       </property>
+      <property><name>System Studio Agent</name><type>LABEL</type><default>System Studio Agent Contract v1</default></property>
+      <property><name>Agent Contract</name><type>STRING</type><default>v1</default><readonly>true</readonly></property>
+      <property><name>Agent Configuration Version</name><type>STRING</type><default>Not configured</default><readonly>true</readonly></property>
+      <property><name>Monitoring State</name><type>STRING</type><default>Active</default><readonly>true</readonly></property>
+      <property><name>System Startups Today</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>System Startups Lifetime</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Controller Reboots Observed Today</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Controller Reboots Observed Lifetime</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Startup Classification</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Last Startup Confidence</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Last Report Status</name><type>STRING</type><default>not-requested</default><readonly>true</readonly></property>
+      <property><name>Last Report At</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Execution Controller Identity</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Primary Controller Identity</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Pairing State</name><type>STRING</type><default>Not paired</default><readonly>true</readonly></property>
+      <property><name>Cloud Connection State</name><type>STRING</type><default>Disconnected</default><readonly>true</readonly></property>
+      <property><name>Agent Version</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Agent License State</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Effective Service Profile ID</name><type>STRING</type><default>Not assigned</default><readonly>true</readonly></property>
+      <property><name>Effective Service Profile Version</name><type>STRING</type><default>Not reported</default><readonly>true</readonly></property>
+      <property><name>Service Mode Expires At</name><type>STRING</type><default>Inactive</default><readonly>true</readonly></property>
+      <property><name>Delivered Agent Configuration</name><type>LABEL</type><default>Delivered Agent Configuration (read-only)</default></property>
+      <property><name>Startup Monitoring</name><type>STRING</type><default>On</default><readonly>true</readonly></property>
+      <property><name>Notification Policy</name><type>STRING</type><default>default-escalation</default><readonly>true</readonly></property>
+      <property><name>Startup Count Basis</name><type>STRING</type><default>system-startups</default><readonly>true</readonly></property>
+      <property><name>Startup Threshold</name><type>STRING</type><default>3</default><readonly>true</readonly></property>
+      <property><name>Stabilization Delay</name><type>STRING</type><default>120 seconds</default><readonly>true</readonly></property>
+      <property><name>Service Mode Duration</name><type>STRING</type><default>60 minutes</default><readonly>true</readonly></property>
+      <property><name>Report Schedule</name><type>STRING</type><default>Not scheduled</default><readonly>true</readonly></property>
+      <property><name>Recipient Profile</name><type>STRING</type><default>Not configured</default><readonly>true</readonly></property>
+      <property><name>Auto-update Preference</name><type>STRING</type><default>notify</default><readonly>true</readonly></property>
       <property>
         <name>Email Alerts</name>
         <type>LABEL</type>

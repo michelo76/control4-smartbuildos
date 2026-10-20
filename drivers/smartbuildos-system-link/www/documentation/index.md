@@ -57,7 +57,8 @@ Done in **System Studio → Connections → System Link** with Composer alongsid
    version).
 1. **Approve.** Both endpoints activate; each bridge asks its Agent for a
    credential, connects to the relay and completes the initial sync.
-1. Create shared items with the Composer actions on the owning bridge, then export devices. Studio shows them read-only.
+1. Create shared items with the Composer actions on the owning bridge, then
+   export devices. Studio shows them read-only.
 1. Run **commissioning** (Studio) and keep the report.
 
 Cancelling, expiry, rejection and retries are supported at every step; the

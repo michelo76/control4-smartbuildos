@@ -167,16 +167,12 @@ function M.control(op, params)
     return false
   end
   pcall(function()
-    C4:SendToDevice(
-      bridge,
-      "SBOS_LINK_COMPANION_CONTROL",
-      {
-        requester = tostring(C4:GetDeviceID()),
-        export = state.export,
-        op = tostring(op),
-        params = JSON:encode(params or {}),
-      }
-    )
+    C4:SendToDevice(bridge, "SBOS_LINK_COMPANION_CONTROL", {
+      requester = tostring(C4:GetDeviceID()),
+      export = state.export,
+      op = tostring(op),
+      params = JSON:encode(params or {}),
+    })
   end)
   return true
 end

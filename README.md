@@ -73,6 +73,40 @@ every entitlement check. A value the platform cannot confirm is left blank
 rather than shown wrong, and the last known value is kept until a confirmed one
 replaces it.
 
+## System Studio Agent contract
+
+The Agent implements the additive **System Studio Agent Contract v1** while
+remaining the same single licensing and connection authority used by existing
+SmartBuildOS drivers. The heartbeat may deliver an `SBOS_AGENT` settings
+document. The Agent validates the complete document, rejects unknown or invalid
+fields, applies only a monotonic settings version, persists the accepted
+configuration, and reports the applied version separately from the version the
+website stored.
+
+Startup monitoring distinguishes three lifecycle reasons supplied by Director:
+adding the driver and updating the driver establish evidence but do not count as
+system startups; a Director startup can count as a system startup. On supported
+OS versions the Agent also compares the optional kernel boot ID. A changed boot
+ID is controller-reboot evidence, but it is not called a *primary-controller
+reboot* unless the platform supplies a separately verified matching primary
+identity. Counters, the bounded undelivered-observation queue, service-mode
+expiry, and boot baseline survive a driver restart.
+
+Composer exposes the v1 actions, events, read-only variables, and non-editable
+status fields. **Generate System Report** and **Send System Report** currently
+record a platform request only. They deliberately do not fire Report Ready or
+claim a report was generated/sent until SmartBuildOS returns a purpose-built
+report acknowledgement. Likewise, a stored website configuration is not shown as
+applied until this Agent accepts and reports it.
+
+The Driver Store remains a separate delivery boundary. Any dependent driver can
+register its SKU with the Agent and receive the existing generic entitlement
+answer, so adding products does not require a new licensing protocol. Package
+inventory and update filenames stay allowlisted in the Agent; future Driver
+Store catalog or fulfillment metadata is ignored unless a reviewed protocol
+version explicitly adds it. This prevents a storefront rollout from silently
+changing software on a controller.
+
 ## What it monitors
 
 Three sources, because no single one sees everything:
