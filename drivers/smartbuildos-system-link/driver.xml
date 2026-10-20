@@ -91,6 +91,8 @@
       <action><name>Delete Selected Item</name><command>DELETE_SELECTED_ITEM</command></action>
       <action><name>Apply Filter To Selected Item</name><command>APPLY_FILTER_TO_SELECTED_ITEM</command></action>
       <action><name>Print Shared Items</name><command>PRINT_SHARED_ITEMS</command></action>
+      <action><name>Export Selected Device</name><command>EXPORT_SELECTED_DEVICE</command></action>
+      <action><name>Refresh Export Device List</name><command>REFRESH_EXPORT_DEVICE_LIST</command></action>
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
       <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
@@ -272,6 +274,12 @@
       <property><name>New Item Group</name><type>STRING</type><default></default></property>
       <property><name>New Item Allowed Values</name><type>STRING</type><default></default><description>CHOICE only: comma-separated allowed values.</description></property>
       <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
+      <property><name>Device Exports</name><type>LABEL</type><default>Device Exports</default></property>
+      <property><name>Export Kind</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items><default>light</default><description>What the linked project will see this device as. Changing it refreshes the device list below.</description></property>
+      <property><name>Export Device</name><type>DYNAMIC_LIST</type><default>-</default><description>The local device to share with the linked project. Devices whose driver matches the kind are listed first; Refresh Export Device List rebuilds it.</description></property>
+      <property><name>Export Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Becomes &lt;Alias&gt;.&lt;Name&gt;_On, _Level, … on the other side.</description></property>
+      <property><name>Export Control</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items><default>View only</default></property>
+      <property><name>Export Operations</name><type>STRING</type><default></default><description>Optional, comma-separated: which operations the linked project may send (e.g. on,off,set_level). Blank allows the kind's defaults.</description></property>
       <property><name>Filter Debounce Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
       <property><name>Filter Change Threshold</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>1000000</maximum><default>0</default></property>
       <property><name>Filter Minimum Interval Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>

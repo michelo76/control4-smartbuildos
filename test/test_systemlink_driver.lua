@@ -557,6 +557,51 @@ check(
 )
 OnWatchedVariableChanged(41, 1001, "20")
 check("variable listener drives the field", variables["California.Porch_Light_Level"] == "20")
+
+print("\n[3c] Device Exports properties: the bridge lists devices itself")
+local savedGetDevices = C4.GetDevices
+function C4:GetDevices()
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [43] = { driverFileName = "light_v2.c4i" },
+    [44] = { driverFileName = "relay.c4i" },
+  }
+end
+local savedGetDeviceData = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" then
+    return ({ [43] = "Hall Light", [44] = "Gate Relay" })[id] or "Porch Light"
+  end
+end
+Properties["Export Kind"] = "light"
+EC.REFRESH_EXPORT_DEVICE_LIST()
+local list = Properties["Export Device__list"] or ""
+check(
+  "the light is listed first, the Agent is not listed",
+  list:find("^%-,Hall Light · 43,") ~= nil and list:find("900") == nil,
+  list
+)
+Properties["Export Device"] = "Hall Light · 43"
+Properties["Export Name"] = "Hall"
+Properties["Export Kind"] = "light"
+Properties["Export Control"] = "Control allowed"
+Properties["Export Operations"] = ""
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "Export Selected Device creates the export from the properties",
+  gEngine:findByName("Hall_On") ~= nil and gEngine:findByName("Hall_Level") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Device"] = "-"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "no device picked: a clear message",
+  Properties["Last Error"]:find("pick a device") ~= nil,
+  Properties["Last Error"]
+)
+EC.Remove_Export({ NAME = "Hall" }) -- the tests below assume Porch_Light is the only export
+C4.GetDevices = savedGetDevices
+C4.GetDeviceData = savedGetDeviceData
 local exp
 for _, e in pairs(gExports) do
   exp = e
