@@ -981,6 +981,93 @@ local function restoreExports()
   end
 end
 
+-- ─── Device Exports (Properties block) ───────────────────────────────────────
+--
+-- Composer's device picker on the Export Device command showed an empty tree
+-- on the bench (2026-10-20), so the bridge lists the project's devices
+-- itself: every device the Director reports, the kind's likely proxies
+-- first, as "Name · id". The action below is the Export Device command with
+-- the properties as its parameters.
+
+local EXPORT_KIND_HINTS = {
+  light = { "light" },
+  relay = { "relay" },
+  contact = { "contact" },
+  temperature = { "temperature", "thermostat" },
+  thermostat = { "thermostat" },
+  shade = { "blind", "shade" },
+}
+
+local function exportDeviceEntries()
+  local ok, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not ok or type(devices) ~= "table" then
+    return {}
+  end
+  local me = C4:GetDeviceID()
+  local kind = tostring(Properties["Export Kind"] or "light"):lower()
+  local hints = EXPORT_KIND_HINTS[kind] or {}
+  local likely, others = {}, {}
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring((type(device) == "table" and device.driverFileName) or ""):lower()
+    if id and id ~= me and not AGENT_FILES[file] and not file:find("smartbuildos%-system%-link") then
+      local okName, name = pcall(function()
+        return C4:GetDeviceData(id, "name")
+      end)
+      name = okName and tostring(name or "") or ""
+      if name == "" and type(device) == "table" and device.name then
+        name = tostring(device.name)
+      end
+      if name == "" then
+        name = "device"
+      end
+      local entry = { id = id, label = string.format("%s · %d", name:gsub(",", " "), id) }
+      local matched = false
+      for _, hint in ipairs(hints) do
+        if file:find(hint, 1, true) then
+          matched = true
+          break
+        end
+      end
+      if matched then
+        likely[#likely + 1] = entry
+      else
+        others[#others + 1] = entry
+      end
+    end
+  end
+  local byLabel = function(a, b)
+    return a.label < b.label
+  end
+  table.sort(likely, byLabel)
+  table.sort(others, byLabel)
+  for _, e in ipairs(others) do
+    likely[#likely + 1] = e
+  end
+  return likely
+end
+
+local function paintExportDeviceList()
+  local labels = { "-" }
+  for _, e in ipairs(exportDeviceEntries()) do
+    labels[#labels + 1] = e.label
+  end
+  local current = Properties["Export Device"] or "-"
+  pcall(function()
+    C4:UpdatePropertyList("Export Device", table.concat(labels, ","), current)
+  end)
+end
+
+function OPC.Export_Kind()
+  paintExportDeviceList()
+end
+
+function EC.REFRESH_EXPORT_DEVICE_LIST()
+  paintExportDeviceList()
+end
+
 --- Programming command: Export Device DEVICE as NAME (KIND, CONTROL, OPS).
 function EC.Export_Device(tParams)
   tParams = tParams or {}
@@ -1037,6 +1124,31 @@ function EC.Export_Device(tParams)
     exp.name,
     exp.control and ("control: " .. table.concat(exp.ops, ", ")) or "view only"
   )
+end
+
+--- Action: the Export Device command fed from the Device Exports properties.
+function EC.EXPORT_SELECTED_DEVICE()
+  local selection = tostring(Properties["Export Device"] or "-")
+  local id = selection:match("· (%d+)$")
+  if not id then
+    updateStatus(
+      "Last Error",
+      "Export: pick a device in Export Device first (Refresh Export Device List if it is empty)"
+    )
+    return
+  end
+  local name = tostring(Properties["Export Name"] or "")
+  if name == "" then
+    updateStatus("Last Error", "Export: fill in Export Name first")
+    return
+  end
+  EC.Export_Device({
+    DEVICE = id,
+    NAME = name,
+    KIND = Properties["Export Kind"] or "light",
+    CONTROL = Properties["Export Control"] or "View only",
+    OPS = Properties["Export Operations"] or "",
+  })
 end
 
 function EC.Remove_Export(tParams)
@@ -1674,6 +1786,7 @@ function OnDriverLateInit()
   end
   license.setup({ sku = SKU })
   paintItemList()
+  paintExportDeviceList()
   restoreExports()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
   -- phases start when the relay answers.
