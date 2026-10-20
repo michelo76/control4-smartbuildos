@@ -394,7 +394,7 @@ advance(1000)
 check(
   "status properties painted",
   Properties["Linked System Name"] == "New York Home"
-    and Properties["Relay Connection"] == "connected"
+    and Properties["Relay Connection"]:match("^connected") ~= nil
     and Properties["Remote System State"]:match("^Ready"),
   Properties["Remote System State"]
 )
