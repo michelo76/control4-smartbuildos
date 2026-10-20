@@ -415,6 +415,26 @@ advance(200)
 check("schema and state published; relay holds the item", relay.items[gEngine:findByName("Away").id] ~= nil)
 EC.Set_Local_Boolean({ ITEM = "Away", VALUE = "True" })
 check("programming command sets the owned variable", variables["California.Away"] == "1")
+-- Composer's native "variable = value" programming: Director writes the
+-- variable and calls OnVariableChanged. It must publish exactly like the
+-- Set Local command, and the driver's own echo must publish nothing.
+Variables = Variables or variables -- Director's table of this driver's variables
+local awayId = gEngine:findByName("Away").id
+advance(200)
+local revBefore = gEngine.values[awayId].rev
+variables["California.Away"] = "0"
+OnVariableChanged("California.Away")
+advance(200)
+check(
+  "native variable write publishes the owned item",
+  gEngine.values[awayId].tv.v == false and gEngine.values[awayId].rev == revBefore + 1,
+  tostring(gEngine.values[awayId].rev)
+)
+variables["California.Away"] = "0"
+OnVariableChanged("California.Away")
+advance(200)
+check("the echo of the same value publishes nothing", gEngine.values[awayId].rev == revBefore + 1)
+check("mirrors get no native-write handler", OVC["NewYork.Occupied"] == nil)
 EC.Set_Local_Boolean({ ITEM = "NewYork.Occupied", VALUE = "False" })
 check(
   "programming cannot write a mirror",
