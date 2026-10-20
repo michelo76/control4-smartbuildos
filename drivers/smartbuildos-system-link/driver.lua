@@ -629,10 +629,41 @@ local function selectedItem()
   return gEngine and gEngine:findByName(name) or nil
 end
 
+-- Composer's own "variable = value" programming writes the driver's variable
+-- directly and tells the driver through OnVariableChanged; without a handler
+-- the write stays local and never publishes (bench, 2026-10-20: a dealer's
+-- first instinct). Owned items get a handler that publishes like the Set
+-- Local commands do; mirrors are read-only natives and get none. The echo
+-- of the driver's own write is the same value and publishes nothing.
+local function registerNativeWrites()
+  if not gEngine or type(OVC) ~= "table" then
+    return
+  end
+  local me = gEngine:selfEndpoint()
+  for _, def in ipairs(schema.registryItems(gEngine.registry)) do
+    local name = gEngine:variableNameFor(def)
+    if not def.mirror and (def.owner == nil or def.owner == me) then
+      OVC[name] = function(value)
+        if not gEngine then
+          return
+        end
+        local ok, err = gEngine:setLocal(def.id, value)
+        if not ok then
+          updateStatus("Last Error", tostring(err))
+          gEngine.lastError = tostring(err)
+        end
+      end
+    else
+      OVC[name] = nil
+    end
+  end
+end
+
 local function paintItemList()
   if not gEngine then
     return
   end
+  registerNativeWrites()
   local names = { "-" }
   for _, def in ipairs(schema.registryItems(gEngine.registry)) do
     names[#names + 1] = gEngine:variableNameFor(def)
