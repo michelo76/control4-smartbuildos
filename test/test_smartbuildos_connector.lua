@@ -620,6 +620,81 @@ check(
 )
 check("no token was stored", store["device_token"] == nil)
 
+print("\n[4b] Property-code enrollment: identity, one key per attempt, readable refusals")
+-- The permanent 20-character property code is refused (HTTP 400) unless the
+-- pair request carries a stable controller identity and an idempotency key.
+-- The platform stores each attempt's outcome under its key, so the key must be
+-- NEW after any answer and REUSED only after no answer at all.
+local PROPERTY_CODE = "ABCD-EFGH-JKMN-PQRS-TVWX"
+reset()
+gInitialized = true
+store["device_token"], store["property_id"] = nil, nil
+nextResponse = { ok = false, code = nil, error = "timeout" }
+OPC.Pairing_Code(PROPERTY_CODE)
+local first = lastRequestTo("/pair")
+local firstKey = ((first or {}).data or {}).enrollment_idempotency_key
+check(
+  "the Director MAC was sent",
+  (((first or {}).data or {}).system or {}).director_mac == "00:0F:FF:9C:B2:CB",
+  tostring((((first or {}).data or {}).system or {}).director_mac)
+)
+check(
+  "an idempotency key of 16-200 chars was sent",
+  type(firstKey) == "string" and #firstKey >= 16 and #firstKey <= 200,
+  tostring(firstKey)
+)
+check(
+  "no answer reads as unreachable",
+  (Properties["Connection Status"] or ""):find("unreachable", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+reset()
+gInitialized = true
+nextResponse = {
+  ok = false,
+  code = 409,
+  body = '{"error":"An authorized user must approve this controller from the property first.","code":"approval_required"}',
+}
+OPC.Pairing_Code(PROPERTY_CODE)
+local second = lastRequestTo("/pair")
+check("a retry after NO answer reuses the key", ((second or {}).data or {}).enrollment_idempotency_key == firstKey)
+check(
+  "a refusal shows the platform's reason",
+  (Properties["Connection Status"] or ""):find("must approve this controller", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+reset()
+gInitialized = true
+nextResponse = {
+  ok = true,
+  code = 202,
+  body = { error = "This enrollment request is already being processed.", code = "enrollment_replayed" },
+}
+OPC.Pairing_Code(PROPERTY_CODE)
+local third = lastRequestTo("/pair")
+local thirdKey = ((third or {}).data or {}).enrollment_idempotency_key
+check(
+  "an attempt after an ANSWER gets a new key",
+  type(thirdKey) == "string" and thirdKey ~= firstKey,
+  tostring(thirdKey)
+)
+check(
+  "a 202 reads as pending, not as a broken response",
+  (Properties["Connection Status"] or ""):find("Pairing pending", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+check("a 202 stores no token", store["device_token"] == nil)
+
+reset()
+gInitialized = true
+pairBody = { token = TOKEN, property_id = PROPERTY, property_name = "Kraus Residence" }
+OPC.Pairing_Code(PROPERTY_CODE)
+local fourth = lastRequestTo("/pair")
+check("the next attempt after a 202 is new again", ((fourth or {}).data or {}).enrollment_idempotency_key ~= thirdKey)
+check("a property-code pairing stores the token", store["device_token"] == TOKEN)
+
 print("\n[5] An empty pairing code is a no-op, not a pairing attempt")
 pair()
 reset()
