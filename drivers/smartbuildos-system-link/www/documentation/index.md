@@ -178,6 +178,13 @@ printed to the Lua tab with the reason. **Refresh Export Device List**
 rebuilds the list after a device is added. The `Export Device` programming
 command still exists for scripted setups.
 
+Existing exports are listed in **Selected Export**. **Rename Selected
+Export** renames the selected one to **Export Name** (every field variable
+keeps its id; the old names become hidden tombstones; the companion on the
+linked project must be re-linked to the new name) and **Remove Selected
+Export** stops sharing it (its variables stay hidden and are never reused).
+Both print their effect to the Lua tab first.
+
 ## Publication filters
 
 Per owned item, optional: debounce/stability seconds, numeric change threshold,

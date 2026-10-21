@@ -648,7 +648,38 @@ check(
   Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
   Properties["Last Error"]
 )
-EC.Remove_Export({ NAME = "Hall" }) -- the tests below assume Porch_Light is the only export
+print("\n[3d] Selected Export: rename and remove from the Properties block")
+check("Selected Export lists the exports", (Properties["Selected Export__list"] or ""):find("Hall") ~= nil, Properties["Selected Export__list"])
+Properties["Selected Export"] = "Hall"
+Properties["Export Name"] = "Hall Way"
+EC.RENAME_SELECTED_EXPORT()
+check("rename refuses a bad name", Properties["Last Error"]:find("letters, digits and underscores") ~= nil and gEngine:findByName("Hall_On") ~= nil, Properties["Last Error"])
+Properties["Export Name"] = "Porch_Light"
+EC.RENAME_SELECTED_EXPORT()
+check("rename refuses a name already used", Properties["Last Error"]:find("already used") ~= nil, Properties["Last Error"])
+Properties["Export Name"] = "Hallway"
+EC.RENAME_SELECTED_EXPORT()
+local renamed = gEngine:findByName("Hallway_On")
+check(
+  "rename moves every field, keeps the companion name in step, hides the old variables",
+  renamed ~= nil and gEngine:findByName("Hallway_Level") ~= nil and gEngine:findByName("Hall_On") == nil
+    and renamed.companion.name == "Hallway" and renamed.group == "Hallway"
+    and varMeta["California.Hall_On"] ~= nil and varMeta["California.Hall_On"].hidden == true
+    and Properties["Selected Export"] == "Hallway" and Properties["Export Name"] == "",
+  Properties["Last Error"]
+)
+check("the export record carries the new name", (function() for _, e in pairs(gExports) do if e.name == "Hallway" then return true end end return false end)())
+Properties["Selected Export"] = "-"
+EC.REMOVE_SELECTED_EXPORT()
+check("remove without a selection: a clear message", Properties["Last Error"]:find("pick an export") ~= nil, Properties["Last Error"])
+Properties["Selected Export"] = "Hallway"
+EC.REMOVE_SELECTED_EXPORT()
+check(
+  "Remove Selected Export stops sharing and clears the selection",
+  (function() for _, e in pairs(gExports) do if e.name == "Hallway" then return false end end return true end)()
+    and Properties["Selected Export"] == "-" and (Properties["Selected Export__list"] or ""):find("Hallway") == nil,
+  Properties["Selected Export__list"]
+)
 C4.GetDevices = savedGetDevices
 C4.GetDeviceData = savedGetDeviceData
 C4.GetDeviceVariables = savedGetDeviceVariables
