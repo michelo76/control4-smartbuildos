@@ -37,6 +37,12 @@ local function newIo(name)
   io.isoNow = function()
     return "t" .. tostring(clock.now)
   end
+  io.isoFrom = function(ms)
+    return "t" .. tostring(ms)
+  end
+  io.companions = function()
+    return io.companionList or {}
+  end
   io.parseIso = function(s)
     return tonumber(tostring(s):match("^t(%d+)$")) or clock.now
   end
@@ -700,6 +706,25 @@ check(
   NY:doorbellLive() == true and (NY:tick(true) == false or NY:heartbeatDue())
 )
 check("status says doorbell", NY:statusProperties()["Relay Connection"] == "connected · doorbell")
+NY.lastHeartbeatSentAt = 0
+ioNY.companionList = { { export = "Guest_Lamp", device_id = 4242 } }
+NY.lastRefusal = { reason = "stale revision", what = "Away", at = clock.now }
+local hb = NY:buildSync().heartbeat
+check(
+  "the heartbeat carries the health contract: doorbell, p95, pending, last refusal, companions",
+  type(hb) == "table"
+    and hb.doorbell.up == true
+    and hb.doorbell.last_ring_at == ("t" .. tostring(NY.lastDoorbellAt))
+    and hb.pending == #NY.pending
+    and hb.latency_p95_ms == NY.latency.p95_ms
+    and hb.latency_ms == NY.latency.p95_ms
+    and hb.last_refusal.reason == "stale revision"
+    and hb.last_refusal.at == ("t" .. tostring(clock.now))
+    and hb.companions[1].export == "Guest_Lamp"
+    and hb.companions[1].device_id == 4242,
+  hb and (tostring(hb.doorbell and hb.doorbell.up) .. " " .. tostring(hb.last_refusal and hb.last_refusal.reason))
+)
+NY.lastRefusal = nil
 advance(Engine.DOORBELL_TRUST_MS)
 check("a doorbell silent for ten minutes is distrusted again", NY:doorbellLive() == false and NY:tick(true) == true)
 

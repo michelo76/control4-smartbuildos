@@ -137,6 +137,10 @@ local function isoNow()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
 end
 
+local function isoFrom(ms)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ms) / 1000))
+end
+
 local function parseIso(s)
   local y, mo, d, h, mi, se = tostring(s):match("^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
   if not y then
@@ -240,6 +244,21 @@ local function buildIo()
   local io = {}
   io.now = nowMs
   io.isoNow = isoNow
+  io.isoFrom = isoFrom
+  -- The companions this bridge added and linked, for the relay's health
+  -- record: { { export = name, device_id = id }, ... } from the companion map.
+  io.companions = function()
+    local out = {}
+    for name, id in pairs(gCompanionMap or {}) do
+      if tonumber(id) then
+        out[#out + 1] = { export = tostring(name), device_id = tonumber(id) }
+      end
+    end
+    table.sort(out, function(a, b)
+      return a.export < b.export
+    end)
+    return out
+  end
   io.parseIso = parseIso
   io.formatTime = formatTime
   io.timezone = timezone

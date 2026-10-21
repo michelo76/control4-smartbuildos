@@ -804,7 +804,22 @@ function M:buildSync()
     body.snapshot = true
   end
   if self:heartbeatDue() then
-    body.heartbeat = { pending = #self.pending, latency_ms = self.latency.p95_ms }
+    -- The relay stores these per endpoint (system_link_endpoints.health) so
+    -- Studio can show Link Health and flag a missing companion. Keys are a
+    -- contract with the server, which whitelists and bounds them; latency_ms
+    -- stays for older relays.
+    local iso = function(ms)
+      return ms and self.io.isoFrom and self.io.isoFrom(ms) or nil
+    end
+    body.heartbeat = {
+      pending = #self.pending,
+      latency_ms = self.latency.p95_ms,
+      latency_p95_ms = self.latency.p95_ms,
+      doorbell = { up = self.doorbellUp == true, last_ring_at = iso(self.lastDoorbellAt) },
+      last_refusal = self.lastRefusal and { reason = tostring(self.lastRefusal.reason), at = iso(self.lastRefusal.at) }
+        or nil,
+      companions = self.io.companions and self.io.companions() or nil,
+    }
     self.lastHeartbeatSentAt = self.io.now()
   end
   -- Definitions travel before values: the relay refuses a value for an
