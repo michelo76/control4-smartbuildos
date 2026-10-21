@@ -108,6 +108,11 @@ check(
     and exports.fieldMap(media, "Source") == "device_name"
 )
 
+local scene = exports.define({ id = "s", name = "Welcome", kind = "scene", control = true }, FEATURES)
+check("a scene export needs no device and is runnable", scene ~= nil and scene.device_id == 0 and scene.control == true, scene and scene.device_id)
+check("scene routines round-trip", exports.sceneRoutine("Welcome") == "scene:Welcome" and exports.sceneFromRoutine("scene:Welcome") == "Welcome" and exports.sceneFromRoutine("Prepare_Home") == nil and exports.sceneFromRoutine("scene:9x") == nil)
+check("its two fields are text with no device variables", #exports.itemDefinitions(scene, "ep")  == 2 and exports.itemDefinitions(scene, "ep")[1].name == "Welcome_Last_Run")
+
 print("\n[3] schedules")
 local sched = {
   tz = "America/Los_Angeles",
