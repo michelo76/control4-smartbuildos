@@ -181,8 +181,13 @@ function M.install(opts)
       companion.selectExport(value)
     end
   end
+  -- Trace also turns on the shared handlers' own trace (ReceivedFromProxy,
+  -- OnPropertyChanged, ...): the one line that shows whether a Navigator
+  -- tap reached this driver at all. Bench 2026-10-21: without it, Log
+  -- Level 5 printed nothing while the owner tapped.
   OPC.Log_Level = function(value)
     log:setLogLevel(value)
+    DEBUGPRINT = tostring(value):match("^5") ~= nil
   end
   OPC.Log_Mode = function(value)
     log:setLogMode(value)

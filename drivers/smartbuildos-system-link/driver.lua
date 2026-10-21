@@ -2838,6 +2838,9 @@ end
 
 function OPC.Log_Level(value)
   log:setLogLevel(value)
+  -- Trace also turns on the shared handlers' own trace (ExecuteCommand,
+  -- ReceivedFromProxy, ...).
+  DEBUGPRINT = tostring(value):match("^5") ~= nil
 end
 function OPC.Log_Mode(value)
   log:setLogMode(value)
