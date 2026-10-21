@@ -1069,6 +1069,59 @@ check(
 )
 C4.GetDevices = savedGetDevices2
 
+print("\n[4c2] Auto Setup: every shared device gets a companion, one callback at a time")
+-- Guest_Lamp is pending again (its companion 4242 is not in the project the
+-- shim reports). Director adds one driver per callback; the callback for the
+-- first add arrives while the queue still has work.
+added = {}
+local autoCalls = 0
+function C4:AddDevice(file, callback)
+  added[#added + 1] = file
+  autoCalls = autoCalls + 1
+  callback(5000 + autoCalls)
+end
+Properties["Auto Setup"] = "not run"
+sent = {}
+EC.AUTO_SETUP()
+check(
+  "Auto Setup starts by refreshing the link",
+  Properties["Auto Setup"] == "refreshing the link…",
+  Properties["Auto Setup"]
+)
+EC.AUTO_SETUP()
+check("a second Auto Setup while one runs is refused", Properties["Last Error"] == "Auto Setup is already running")
+advance(2100) -- the sync has had its 2 s; the queue starts
+advance(1000) -- callbacks and the 250 ms step timers
+check(
+  "Auto Setup added the pending light companion and assigned it",
+  added[1] == "smartbuildos-system-link-light.c4z"
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").params.export == "Guest_Lamp",
+  tostring(added[1]) .. " / " .. tostring(Properties["Auto Setup"])
+)
+check(
+  "Auto Setup reports what it did and how many variables are mirrored",
+  (Properties["Auto Setup"] or ""):match("^done .* 1 companion%(s%) added, 0 already present, 0 failed") ~= nil
+    and (Properties["Auto Setup"] or ""):match("%d+ variable%(s%) mirrored") ~= nil,
+  Properties["Auto Setup"]
+)
+local savedGetDevices3 = C4.GetDevices
+function C4:GetDevices()
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [5001] = { driverFileName = "smartbuildos-system-link-light.c4z" },
+  }
+end
+added = {}
+EC.AUTO_SETUP()
+advance(3200)
+check(
+  "re-running Auto Setup skips the companion that is present",
+  #added == 0 and (Properties["Auto Setup"] or ""):match("0 companion%(s%) added, 1 already present") ~= nil,
+  Properties["Auto Setup"]
+)
+C4.GetDevices = savedGetDevices3
+
 print("\n[4d] scenes across the link")
 EC.Export_Device({ NAME = "Welcome", KIND = "scene", CONTROL = "Control allowed" })
 local welcomeExp = (function()
