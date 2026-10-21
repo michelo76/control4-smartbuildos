@@ -78,6 +78,12 @@ not create or edit them: all configuration is done in Composer on the bridge.
 | STRING  | STRING                 | max length 256 by default, up to 4096 |
 | CHOICE  | STRING                 | validated against the allowed values  |
 
+Export kinds: light, relay, contact, temperature, thermostat and shade present
+a device natively through a companion; **media** shares a ROOM's playing state
+(powered, source name, volume, media info) read-only through the Media Room
+companion — pick the room itself as the device. No control verb exists for a
+remote room in this release.
+
 Optional schema per item: description, group, units, allowed values,
 minimum/maximum, precision, string length, export on/off, freshness policy
 (`max_age_s`), publication filter.
@@ -228,11 +234,11 @@ state message. Defaults publish immediately.
 When an export has a schedule (Set Export Schedule), the owner publishes a
 `<Name>_Window` BOOLEAN field that it evaluates once a minute with its own
 clock, the only clock that can. The companion on the other side shows the
-schedule in **Control Window** ("Mon–Fri 07:00–22:00 (America/New_York) —
-closed now") and, while it is closed, refuses a command locally with the
-window named in **Last Result** (and fires Control Refused) instead of a
-round trip that comes back "outside the permitted schedule". The owner still
-enforces the schedule itself.
+schedule in **Control Window** ("Mon–Fri 07:00–22:00 (America/New_York) — closed
+now") and, while it is closed, refuses a command locally with the window named
+in **Last Result** (and fires Control Refused) instead of a round trip that
+comes back "outside the permitted schedule". The owner still enforces the
+schedule itself.
 
 ## Freshness and Remote System State
 

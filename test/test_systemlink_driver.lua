@@ -565,6 +565,43 @@ check(
 OnWatchedVariableChanged(41, 1001, "20")
 check("variable listener drives the field", variables["California.Porch_Light_Level"] == "20")
 
+print("\n[4b1] media export: a room's state, with the source id resolved to its name")
+local savedGDV = C4.GetDeviceVariables
+function C4:GetDeviceVariables(id)
+  if id == 61 then
+    return {
+      ["3000"] = { name = "POWER_STATE", value = "ON" },
+      ["3001"] = { name = "CURRENT_SELECTED_DEVICE", value = "77" },
+      ["3002"] = { name = "CURRENT_VOLUME", value = "32" },
+    }
+  end
+  return savedGDV(self, id)
+end
+local savedGDD = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" and id == 77 then
+    return "Kitchen TV"
+  end
+  if key == "name" and id == 61 then
+    return "Kitchen"
+  end
+  return savedGDD(self, id, key)
+end
+EC.Export_Device({ DEVICE = "61", NAME = "Kitchen_Room", KIND = "media", CONTROL = "Control allowed" })
+check(
+  "the room exports as view-only media fields with the source NAME, not its id, and media info unavailable",
+  variables["California.Kitchen_Room_Powered"] == "1"
+    and variables["California.Kitchen_Room_Source"] == "Kitchen TV"
+    and variables["California.Kitchen_Room_Volume"] == "32"
+    and gEngine:findByName("Kitchen_Room_Media") ~= nil
+    and gEngine.values[gEngine:findByName("Kitchen_Room_Media").id].tv.s == "unavailable"
+    and gEngine:findByName("Kitchen_Room_Powered").companion.control == false,
+  Properties["Last Error"] .. " / " .. tostring(variables["California.Kitchen_Room_Source"])
+)
+EC.Remove_Export({ NAME = "Kitchen_Room" })
+C4.GetDeviceVariables = savedGDV
+C4.GetDeviceData = savedGDD
+
 print("\n[3c] Device Exports properties: the bridge lists devices itself")
 local savedGetDevices = C4.GetDevices
 function C4:GetDevices()
@@ -860,7 +897,10 @@ check(
   windowItem ~= nil and windowItem.companion.field == "Window" and variables["California.Porch_Light_Window"] == "0",
   tostring(variables["California.Porch_Light_Window"])
 )
-check("the companion metadata now carries the windows for the other side to show", windowItem.companion.schedule ~= nil and windowItem.companion.schedule.windows[1].from == "00:00")
+check(
+  "the companion metadata now carries the windows for the other side to show",
+  windowItem.companion.schedule ~= nil and windowItem.companion.schedule.windows[1].from == "00:00"
+)
 EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
 check("clearing the schedule removes the field", gEngine:findByName("Porch_Light_Window") == nil)
 EC.Clear_Export_Schedule({ NAME = "Porch_Light" })

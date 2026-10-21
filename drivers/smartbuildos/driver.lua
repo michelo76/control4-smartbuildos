@@ -22,6 +22,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-temperature.c4z",
   "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-system-link-shade.c4z",
+  "smartbuildos-system-link-media.c4z",
   "unifi-protect.c4z",
   "unifi-protect-camera.c4z",
   "unifi-protect-light.c4z",
@@ -2087,6 +2088,7 @@ local SKU_FILENAMES = {
     "smartbuildos-system-link-temperature.c4z",
     "smartbuildos-system-link-thermostat.c4z",
     "smartbuildos-system-link-shade.c4z",
+    "smartbuildos-system-link-media.c4z",
   },
   SBOS_UNIFI_PROTECT = {
     "unifi-protect.c4z",

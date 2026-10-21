@@ -25,6 +25,12 @@ M.KINDS = {
   temperature = { gate = "SENSOR", control = false },
   thermostat = { gate = "THERMOSTAT", control = true },
   shade = { gate = "SHADE", control = true },
+  -- A room's media state, read-only: what's playing, volume, on/off. The
+  -- variable names are the ones Mode Composer reads from rooms in the field
+  -- (POWER_STATE, CURRENT_SELECTED_DEVICE, CURRENT_VOLUME) and the ones the
+  -- Agent observes for media info; a room that lacks them reports the field
+  -- unavailable. No control verb exists for a remote room in this release.
+  media = { gate = "BASE", control = false },
 }
 
 --- Shared-item fields per kind: name suffix, type, schema, and the device
@@ -46,6 +52,24 @@ M.FIELDS = {
   },
   contact = {
     { suffix = "Open", type = "BOOLEAN", vars = { "STATE", "CONTACT_STATE", "Opened" }, map = "contact" },
+  },
+  media = {
+    { suffix = "Powered", type = "BOOLEAN", vars = { "POWER_STATE" }, map = "bool" },
+    { suffix = "Source", type = "STRING", vars = { "CURRENT_SELECTED_DEVICE" }, map = "device_name" },
+    {
+      suffix = "Volume",
+      type = "INTEGER",
+      min = 0,
+      max = 100,
+      vars = { "CURRENT_VOLUME", "VOLUME_LEVEL" },
+      map = "int",
+    },
+    {
+      suffix = "Media",
+      type = "STRING",
+      vars = { "CURRENT MEDIA INFO", "CURRENT_MEDIA", "MEDIA WALL INFO" },
+      map = "str",
+    },
   },
   temperature = {
     {
@@ -329,6 +353,16 @@ end
 
 --- Converts a raw variable value into the field's typed value (or nil for
 --- unavailable).
+--- The map kind of a field ("bool", "int", "device_name", …) or nil.
+function M.fieldMap(exp, suffix)
+  for _, f in ipairs(M.FIELDS[exp.kind] or {}) do
+    if f.suffix == suffix then
+      return f.map
+    end
+  end
+  return nil
+end
+
 function M.mapValue(exp, suffix, raw)
   local field
   for _, f in ipairs(M.FIELDS[exp.kind] or {}) do
@@ -354,6 +388,14 @@ function M.mapValue(exp, suffix, raw)
     return n and math.floor(n + 0.5) or nil
   elseif field.map == "num" then
     return tonumber(s)
+  elseif field.map == "str" or field.map == "device_name" then
+    -- device_name: the driver resolves the id to a name before mapping;
+    -- an unresolved id still travels as text rather than as "unavailable".
+    s = s:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
+    if s == "" then
+      return nil
+    end
+    return #s > 256 and s:sub(1, 256) or s
   elseif field.map == "relay" then
     -- Relay STATE: Control4's relay hook reports CLOSED when energised.
     local l = s:lower()
