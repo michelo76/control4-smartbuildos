@@ -2182,19 +2182,95 @@ local function pushCompanionState(entry, deviceId)
   end)
 end
 
+-- ─── Export drivers (Composer Connections route) ────────────────────────────
+--
+-- An export driver (smartbuildos-system-link-export-light) carries a
+-- consumer binding of the kind's class; the dealer binds the real device to
+-- it in Connections, names the export in its properties, and the driver
+-- registers here with the BOUND device id (the proxy, which is what carries
+-- the variables). The bridge then runs the same export path as Export
+-- Selected Device: same validation, same watch, same items. Unbinding or
+-- deleting the export driver removes the export.
+
+function EC.SBOS_LINK_EXPORT_REGISTER(tParams)
+  tParams = tParams or {}
+  local requester = tonumber(tParams.requester)
+  if not requester then
+    return
+  end
+  local function answer(ok, reason)
+    pcall(function()
+      C4:SendToDevice(
+        requester,
+        "SBOS_LINK_EXPORT_RESULT",
+        { ok = ok and "true" or "false", reason = tostring(reason or ""), name = tostring(tParams.name or "") }
+      )
+    end)
+  end
+  if not gEngine or not gEngine.link then
+    answer(false, "link is not provisioned yet")
+    return
+  end
+  local name = tostring(tParams.name or "")
+  local existing = findExport(name)
+  if existing then
+    if tostring(existing.device_id) == tostring(tParams.device_id) and existing.kind == tostring(tParams.kind or "") then
+      answer(true, "already exported")
+      return
+    end
+    EC.Remove_Export({ NAME = name })
+  end
+  reportError("")
+  EC.Export_Device({
+    DEVICE = tostring(tParams.device_id or ""),
+    NAME = name,
+    KIND = tostring(tParams.kind or "light"),
+    CONTROL = tostring(tParams.control or "View only"),
+    OPS = tostring(tParams.ops or ""),
+  })
+  if findExport(name) then
+    answer(true, "exported")
+  else
+    answer(false, gDealerError or "refused")
+  end
+end
+
+function EC.SBOS_LINK_EXPORT_UNREGISTER(tParams)
+  tParams = tParams or {}
+  local name = tostring(tParams.name or "")
+  if findExport(name) then
+    EC.Remove_Export({ NAME = name })
+  end
+  local requester = tonumber(tParams.requester)
+  if requester then
+    pcall(function()
+      C4:SendToDevice(requester, "SBOS_LINK_EXPORT_RESULT", { ok = "true", reason = "removed", name = name })
+    end)
+  end
+end
+
 function EC.SBOS_LINK_COMPANION_HELLO(tParams)
   tParams = tParams or {}
   local requester = tonumber(tParams.requester)
   if not requester or not gEngine then
     return
   end
-  local list = mirroredExports(tostring(tParams.kind or ""))
-  local described = {}
+  -- A companion only ever lists exports of its own kind (bench 2026-10-21:
+  -- a light companion showing a thermostat's fields, or an empty list with
+  -- no reason, left the dealer guessing). The full list travels alongside
+  -- for Print Diagnostics, so "nothing of my kind" can still show what the
+  -- link does carry.
+  local kind = tostring(tParams.kind or "")
+  local list = mirroredExports(kind ~= "" and kind or nil)
+  local described, all = {}, {}
   for _, e in ipairs(list) do
     described[#described + 1] = { id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops }
   end
+  for _, e in ipairs(mirroredExports(nil)) do
+    all[#all + 1] = { name = e.name, kind = e.kind }
+  end
   pcall(function()
-    C4:SendToDevice(requester, "SBOS_LINK_COMPANION_EXPORTS", { exports = JSON:encode(described) })
+    C4:SendToDevice(requester, "SBOS_LINK_COMPANION_EXPORTS", { exports = JSON:encode(described), all = JSON:encode(all), kind = kind })
   end)
   local wanted = tostring(tParams.export or "")
   if wanted ~= "" then

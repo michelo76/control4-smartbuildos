@@ -195,6 +195,16 @@ check(
 EC.SBOS_LINK_COMPANION_RESULT({ export = "Porch_Light", op = "set_level", status = "accepted", reason = "" })
 check("Last Result accepted", Properties["Last Result"] == "accepted")
 
+print("\n[1a] Linked Export lists this companion's kind only; an empty list says why")
+EC.SBOS_LINK_COMPANION_EXPORTS({ exports = "[]", all = JSON:encode({ { name = "Hall_Stat", kind = "thermostat" }, { name = "Kitchen", kind = "media" } }), kind = "light" })
+check(
+  "no light exports: the list is just '-' and Bridge Link names what the link does carry",
+  Properties["Linked Export__list"] == "-" and Properties["Bridge Link"]:find("no light exports on the link yet; the link carries Hall_Stat %(thermostat%), Kitchen %(media%)") ~= nil,
+  Properties["Bridge Link"]
+)
+EC.SBOS_LINK_COMPANION_EXPORTS({ exports = JSON:encode({ { id = "x", name = "Porch_Light", kind = "light", control = true, ops = { "on", "off" } } }), all = JSON:encode({ { name = "Porch_Light", kind = "light" } }), kind = "light" })
+check("a light export lists again", Properties["Linked Export__list"] == "-,Porch_Light", Properties["Linked Export__list"])
+
 print("\n[1b] the owner's control window is shown and enforced locally")
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",
@@ -482,6 +492,43 @@ for _, c in ipairs({
   )
   C4.AddVariable, C4.SetVariable = sAdd, sSet
 end
+
+print("\n[8] export light: Composer Connections binding registers the export with the bridge")
+sent, notifies, fired = {}, {}, {}
+persisted = {}
+package.loaded["systemlink.companiondriver"] = nil
+package.loaded["systemlink.companion"] = nil
+for _, p in ipairs({ "Export Status", "Export Name", "Export Control", "Export Operations" }) do
+  Properties[p] = ""
+end
+Properties["Export Control"] = "View only"
+local savedGDD8 = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" and id == 321 then
+    return "MBR Baseboard"
+  end
+  return savedGDD8 and savedGDD8(self, id, key) or nil
+end
+dofile("drivers/smartbuildos-system-link-export-light/driver.lua")
+OnDriverInit()
+OnDriverLateInit()
+check("unbound: the status says what to do in Connections", Properties["Export Status"]:find("Bind the light") ~= nil, Properties["Export Status"])
+OnBindingChanged(5001, "LIGHT_V2", true, 321, 1)
+local reg = lastSent("SBOS_LINK_EXPORT_REGISTER")
+check(
+  "binding the light registers it with the bridge, named from the light, with the BOUND device id",
+  reg ~= nil and reg.id == 700 and reg.params.device_id == "321" and reg.params.name == "MBR_Baseboard" and reg.params.kind == "light" and Properties["Export Name"] == "MBR_Baseboard",
+  reg and (reg.params.name .. " " .. reg.params.device_id)
+)
+EC.SBOS_LINK_EXPORT_RESULT({ ok = "true", reason = "exported", name = "MBR_Baseboard" })
+check("the bridge's answer is shown", Properties["Export Status"] == "Exported as MBR_Baseboard (exported)", Properties["Export Status"])
+EC.SBOS_LINK_EXPORT_RESULT({ ok = "false", reason = "Export: name already used", name = "MBR_Baseboard" })
+check("a refusal is shown with its reason", Properties["Export Status"]:find("Refused: Export: name already used") ~= nil, Properties["Export Status"])
+sent = {}
+OnBindingChanged(5001, "LIGHT_V2", false, 321, 1)
+local unreg = lastSent("SBOS_LINK_EXPORT_UNREGISTER")
+check("unbinding removes the export", unreg ~= nil and unreg.params.name == "MBR_Baseboard" and Properties["Export Status"]:find("Unbound") ~= nil, Properties["Export Status"])
+C4.GetDeviceData = savedGDD8
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
