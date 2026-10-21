@@ -1060,7 +1060,17 @@ local function exportDeviceEntries()
       if name == "" then
         name = "device"
       end
-      local clean = name:gsub(",", " ")
+      local room = type(device) == "table" and device.roomName or nil
+      if type(room) ~= "string" or room == "" then
+        local okR, r = pcall(function()
+          return C4:GetDeviceData(id, "roomName")
+        end)
+        room = okR and type(r) == "string" and r or ""
+      end
+      local clean = (name:gsub(",", " "))
+      if room ~= "" then
+        clean = clean .. " (" .. (room:gsub(",", " ")) .. ")"
+      end
       local fit = fits(id)
       local hinted = false
       for _, hint in ipairs(hints) do
@@ -1071,6 +1081,7 @@ local function exportDeviceEntries()
       end
       local entry = {
         id = id,
+        fit = fit,
         label = fit and string.format("%s · %d", clean, id)
           or string.format("%s · %d (no %s variables)", clean, id, kind),
       }
@@ -1086,10 +1097,29 @@ local function exportDeviceEntries()
   end
   table.sort(likely, byLabel)
   table.sort(others, byLabel)
-  for _, e in ipairs(others) do
-    likely[#likely + 1] = e
+  -- Default filter: only devices that fit. A dealer who wants the flagged
+  -- ones (or whose devices report no variables at all) picks All devices.
+  local onlyFit = tostring(Properties["Export Device Filter"] or "Devices that fit the kind") ~= "All devices"
+  local out = {}
+  for _, e in ipairs(likely) do
+    if not onlyFit or e.fit then
+      out[#out + 1] = e
+    end
   end
-  return likely
+  if not onlyFit then
+    for _, e in ipairs(others) do
+      out[#out + 1] = e
+    end
+  end
+  return out
+end
+
+--- "MBR Baseboard (Master) · 41" → "MBR_Baseboard": the device name under the
+--- export-name rule (letters, digits, underscores; starts with a letter; ≤40).
+local function exportNameFromLabel(label)
+  local name = tostring(label or ""):gsub("%s*·%s*%d+.*$", ""):gsub("%s*%b()%s*$", "")
+  name = name:gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", ""):gsub("^[^%a]+", "")
+  return name:sub(1, 40)
 end
 
 local function paintExportDeviceList()
@@ -1105,6 +1135,23 @@ end
 
 function OPC.Export_Kind()
   paintExportDeviceList()
+end
+
+function OPC.Export_Device_Filter()
+  paintExportDeviceList()
+end
+
+-- Picking a device fills an empty Export Name from the device's name; a
+-- name the dealer typed is never overwritten.
+function OPC.Export_Device(value)
+  local current = tostring(Properties["Export Name"] or "")
+  if current ~= "" or tostring(value or "-") == "-" then
+    return
+  end
+  local derived = exportNameFromLabel(value)
+  if derived ~= "" then
+    UpdateProperty("Export Name", derived)
+  end
 end
 
 function EC.REFRESH_EXPORT_DEVICE_LIST()
@@ -1205,7 +1252,7 @@ end
 --- Action: the Export Device command fed from the Device Exports properties.
 function EC.EXPORT_SELECTED_DEVICE()
   local selection = tostring(Properties["Export Device"] or "-")
-  local id = selection:match("· (%d+)$")
+  local id = selection:match("· (%d+)")
   if not id then
     reportError("Export: pick a device in Export Device first (Refresh Export Device List if it is empty)")
     return

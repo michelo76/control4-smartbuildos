@@ -163,6 +163,21 @@ programming says it means. A timeout means the result was not confirmed, not
 that the work stopped; a late result is recorded in the slot but never fires a
 follow-up.
 
+## Device exports (Properties tab)
+
+A device is shared with the linked project from the **Device Exports** block
+on the bridge's Properties tab, not from a programming command: pick
+**Export Kind**, pick the device in **Export Device** (listed as
+`Name (Room) · id`; by default only devices that carry the variables the kind
+reads, so a light's physical driver, which usually shares the name, is left
+out — **Export Device Filter = All devices** shows it flagged), fill in
+**Export Name** (prefilled from the device name when empty; letters, digits
+and underscores), **Export Control** and optional **Export Operations**, then
+run **Export Selected Device**. A refusal stays in **Last Error** and is
+printed to the Lua tab with the reason. **Refresh Export Device List**
+rebuilds the list after a device is added. The `Export Device` programming
+command still exists for scripted setups.
+
 ## Publication filters
 
 Per owned item, optional: debounce/stability seconds, numeric change threshold,

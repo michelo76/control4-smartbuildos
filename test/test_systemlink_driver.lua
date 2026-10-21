@@ -563,7 +563,7 @@ local savedGetDevices = C4.GetDevices
 function C4:GetDevices()
   return {
     [900] = { driverFileName = "smartbuildos.c4z" },
-    [43] = { driverFileName = "light_v2.c4i" },
+    [43] = { driverFileName = "light_v2.c4i", roomName = "Hall" },
     [44] = { driverFileName = "relay.c4i" },
   }
 end
@@ -584,19 +584,29 @@ function C4:GetDeviceVariables(id)
   return {}
 end
 Properties["Export Kind"] = "light"
+Properties["Export Device Filter"] = "Devices that fit the kind"
 EC.REFRESH_EXPORT_DEVICE_LIST()
 local list = Properties["Export Device__list"] or ""
 check(
-  "the light is listed first, the Agent is not listed",
-  list:find("^%-,Hall Light · 43,") ~= nil and list:find("900") == nil,
+  "default filter: only the light, with its room; neither the Agent nor the relay",
+  list == "-,Hall Light (Hall) · 43",
   list
 )
+Properties["Export Device Filter"] = "All devices"
+EC.REFRESH_EXPORT_DEVICE_LIST()
+list = Properties["Export Device__list"] or ""
 check(
-  "a device without light variables is flagged in the list",
-  list:find("Gate Relay · 44 %(no light variables%)") ~= nil,
+  "All devices: the light first, the relay flagged, the Agent still not listed",
+  list:find("^%-,Hall Light %(Hall%) · 43,") ~= nil and list:find("Gate Relay · 44 %(no light variables%)") ~= nil and list:find("900") == nil,
   list
 )
-Properties["Export Device"] = "Gate Relay · 44"
+Properties["Export Name"] = ""
+OPC.Export_Device("Hall Light (Hall) · 43")
+check("picking a device fills an empty Export Name from the device name", Properties["Export Name"] == "Hall_Light", Properties["Export Name"])
+Properties["Export Name"] = "Keep_Me"
+OPC.Export_Device("Gate Relay · 44 (no light variables)")
+check("a typed Export Name is never overwritten", Properties["Export Name"] == "Keep_Me", Properties["Export Name"])
+Properties["Export Device"] = "Gate Relay · 44 (no light variables)"
 Properties["Export Name"] = "Gate"
 EC.EXPORT_SELECTED_DEVICE()
 check(
@@ -606,7 +616,7 @@ check(
     and Properties["Last Error"]:find("LIGHT_STATE") ~= nil,
   Properties["Last Error"]
 )
-Properties["Export Device"] = "Hall Light · 43"
+Properties["Export Device"] = "Hall Light (Hall) · 43"
 Properties["Export Name"] = "Hall"
 Properties["Export Kind"] = "light"
 Properties["Export Control"] = "Control allowed"
@@ -630,7 +640,7 @@ check(
   Properties["Last Error"]:find("pick a device") ~= nil,
   Properties["Last Error"]
 )
-Properties["Export Device"] = "Hall Light · 43"
+Properties["Export Device"] = "Hall Light (Hall) · 43"
 Properties["Export Name"] = "Hall Light"
 EC.EXPORT_SELECTED_DEVICE()
 check(
