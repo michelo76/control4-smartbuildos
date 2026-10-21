@@ -218,6 +218,23 @@ local function updateStatus(name, value)
   end
 end
 
+-- A refusal the dealer must read (bad export name, mirror write, missing
+-- device…). It goes to Last Error AND the Lua tab, and the engine's status
+-- repaint keeps it (gEngine.lastError) instead of blanking it a second later
+-- (bench 2026-10-20: an export was refused and nothing said why).
+gDealerError = gDealerError or nil
+local function reportError(message)
+  message = tostring(message or "")
+  gDealerError = message ~= "" and message or nil
+  updateStatus("Last Error", message)
+  if gEngine then
+    gEngine.lastError = message
+  end
+  if message ~= "" then
+    log:print("System Link: %s", message)
+  end
+end
+
 local function buildIo()
   local io = {}
   io.now = nowMs
@@ -488,6 +505,11 @@ local function paintStatus()
   for name, value in pairs(gEngine:statusProperties()) do
     updateStatus(name, value)
   end
+  if gDealerError then
+    -- The engine blanks its own lastError on every good sync; a dealer's
+    -- refusal stays until the next dealer action replaces or clears it.
+    updateStatus("Last Error", gDealerError)
+  end
   paintSelectedValue()
   if not gEngine.link then
     -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
@@ -502,6 +524,7 @@ local function paintStatus()
     end
     if gProvisionMessage then
       updateStatus("Link Authorization", gProvisionMessage)
+      -- Painted every tick: updateStatus (deduped), never reportError (prints).
       updateStatus(
         "Last Error",
         gProvisionMessage == "Asking the Agent for this system's link…" and "" or gProvisionMessage
@@ -653,7 +676,7 @@ local function registerNativeWrites()
         end
         local ok, err = gEngine:setLocal(def.id, value)
         if not ok then
-          updateStatus("Last Error", tostring(err))
+          reportError(tostring(err))
           gEngine.lastError = tostring(err)
         end
       end
@@ -738,7 +761,7 @@ end
 
 function EC.CREATE_SHARED_ITEM()
   if not gEngine or not gEngine.link then
-    updateStatus("Last Error", "Link is not provisioned yet")
+    reportError("Link is not provisioned yet")
     return
   end
   local def = {
@@ -766,13 +789,14 @@ function EC.CREATE_SHARED_ITEM()
   end
   local created, err = gEngine:createItem(def, Properties["New Item Initial Value"])
   if not created then
-    updateStatus("Last Error", "Create: " .. tostring(err))
+    reportError("Create: " .. tostring(err))
     log:warn("Create Shared Item refused: %s", tostring(err))
     return
   end
   UpdateProperty("New Item Name", "")
   UpdateProperty("New Item Initial Value", "")
   UpdateProperty("Selected Item", gEngine:variableNameFor(created))
+  reportError("")
   paintItemList()
   SetTimer(SYNC_TIMER, 100, doSync)
   log:info("Created shared item %s (%s)", gEngine:variableNameFor(created), created.type)
@@ -784,12 +808,12 @@ function EC.DELETE_SELECTED_ITEM()
     return
   end
   if def.mirror then
-    updateStatus("Last Error", "Mirrors are deleted by their owner; unshare it on the other system")
+    reportError("Mirrors are deleted by their owner; unshare it on the other system")
     return
   end
   local ok, err = gEngine:deleteItem(def.id)
   if not ok then
-    updateStatus("Last Error", "Delete: " .. tostring(err))
+    reportError("Delete: " .. tostring(err))
     return
   end
   UpdateProperty("Selected Item", "-")
@@ -817,7 +841,7 @@ function EC.RENAME_SELECTED_ITEM()
   end
   local ok, err = gEngine:renameItem(def.id, newName)
   if not ok then
-    updateStatus("Last Error", "Rename: " .. tostring(err))
+    reportError("Rename: " .. tostring(err))
     return
   end
   UpdateProperty("New Item Name", "")
@@ -833,7 +857,7 @@ function EC.APPLY_FILTER_TO_SELECTED_ITEM()
   end
   local ok, err = gEngine:updateItem(def.id, { filter = readFilterForm() })
   if not ok then
-    updateStatus("Last Error", "Filter: " .. tostring(err))
+    reportError("Filter: " .. tostring(err))
     return
   end
   log:info("Filter applied to %s", gEngine:variableNameFor(def))
@@ -1072,7 +1096,7 @@ end
 function EC.Export_Device(tParams)
   tParams = tParams or {}
   if not gEngine or not gEngine.link then
-    updateStatus("Last Error", "Export: link is not provisioned")
+    reportError("Export: link is not provisioned")
     return
   end
   local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
@@ -1097,18 +1121,18 @@ function EC.Export_Device(tParams)
     ops = ops,
   }, licenseFeatures())
   if not exp then
-    updateStatus("Last Error", "Export: " .. tostring(err))
+    reportError("Export: " .. tostring(err))
     log:warn("Export Device refused: %s", tostring(err))
     return
   end
   if findExport(exp.name) then
-    updateStatus("Last Error", "Export: name already used")
+    reportError("Export: name already used")
     return
   end
   for _, def in ipairs(exportsModel.itemDefinitions(exp, gEngine.link.endpoint)) do
     local created, cerr = gEngine:createItem(def, nil)
     if not created then
-      updateStatus("Last Error", "Export: " .. tostring(cerr))
+      reportError("Export: " .. tostring(cerr))
       return
     end
     exp.fields[def.companion.field] = { item_id = created.id }
@@ -1117,6 +1141,7 @@ function EC.Export_Device(tParams)
   saveExports()
   watchExport(exp)
   SetTimer(SYNC_TIMER, 100, doSync)
+  reportError("")
   log:print(
     "Exported %s (%s) as %s — %s",
     tostring(exp.device_name or deviceId),
@@ -1131,15 +1156,12 @@ function EC.EXPORT_SELECTED_DEVICE()
   local selection = tostring(Properties["Export Device"] or "-")
   local id = selection:match("· (%d+)$")
   if not id then
-    updateStatus(
-      "Last Error",
-      "Export: pick a device in Export Device first (Refresh Export Device List if it is empty)"
-    )
+    reportError("Export: pick a device in Export Device first (Refresh Export Device List if it is empty)")
     return
   end
   local name = tostring(Properties["Export Name"] or "")
   if name == "" then
-    updateStatus("Last Error", "Export: fill in Export Name first")
+    reportError("Export: fill in Export Name first")
     return
   end
   EC.Export_Device({
@@ -1154,7 +1176,7 @@ end
 function EC.Remove_Export(tParams)
   local exp = findExport((tParams or {}).NAME)
   if not exp then
-    updateStatus("Last Error", "Remove Export: no such export")
+    reportError("Remove Export: no such export")
     return
   end
   unwatchExport(exp)
@@ -1172,7 +1194,7 @@ function EC.Set_Export_Schedule(tParams)
   tParams = tParams or {}
   local exp = findExport(tParams.NAME)
   if not exp then
-    updateStatus("Last Error", "Schedule: no such export")
+    reportError("Schedule: no such export")
     return
   end
   local days = {}
@@ -1185,7 +1207,7 @@ function EC.Set_Export_Schedule(tParams)
   }
   local ok, err = exportsModel.validateSchedule(schedule)
   if not ok then
-    updateStatus("Last Error", "Schedule: " .. tostring(err))
+    reportError("Schedule: " .. tostring(err))
     return
   end
   exp.schedule = schedule
@@ -1417,12 +1439,12 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
   local def = selectedItem()
   local c = def and type(def.companion) == "table" and def.companion or nil
   if not def or not def.mirror or not c then
-    updateStatus("Last Error", "Select a mirrored export field first (e.g. Porch_Light_Level)")
+    reportError("Select a mirrored export field first (e.g. Porch_Light_Level)")
     return
   end
   local file = COMPANION_FILES[c.kind]
   if not file then
-    updateStatus("Last Error", "No companion driver for kind " .. tostring(c.kind))
+    reportError("No companion driver for kind " .. tostring(c.kind))
     return
   end
   local map = loadCompanionMap()
@@ -1432,16 +1454,13 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
       return C4:GetDevices({})
     end)
     if okD and type(devices) == "table" and (devices[existing] or devices[tostring(existing)]) then
-      updateStatus(
-        "Last Error",
-        "A companion for " .. c.name .. " already exists (device " .. tostring(existing) .. ")"
-      )
+      reportError("A companion for " .. c.name .. " already exists (device " .. tostring(existing) .. ")")
       return
     end
     map[c.name] = nil
   end
   if gAddCompanionInFlight then
-    updateStatus("Last Error", "A companion is still being added")
+    reportError("A companion is still being added")
     return
   end
   gAddCompanionInFlight = { name = c.name, kind = c.kind }
@@ -1450,8 +1469,7 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
   end)
   if not ok then
     gAddCompanionInFlight = nil
-    updateStatus(
-      "Last Error",
+    reportError(
       "AddDevice failed: "
         .. tostring(err)
         .. " — upload "
@@ -1581,7 +1599,7 @@ local function setLocalFromCommand(tParams, coerceValue)
   local name = tostring(tParams.ITEM or "")
   local ok, err = gEngine:setLocal(name, coerceValue(tParams.VALUE))
   if not ok then
-    updateStatus("Last Error", "Set " .. name .. ": " .. tostring(err))
+    reportError("Set " .. name .. ": " .. tostring(err))
     log:warn("Set %s refused: %s", name, tostring(err))
     return
   end
@@ -1619,7 +1637,7 @@ function EC.Emit_Named_Event(tParams)
   local ok, err =
     gEngine:emitEvent(tostring(tParams.EVENT or ""), tostring(tParams.PAYLOAD or ""), tonumber(tParams.TTL))
   if not ok then
-    updateStatus("Last Error", "Event: " .. tostring(err))
+    reportError("Event: " .. tostring(err))
     return
   end
   SetTimer(SYNC_TIMER, 100, doSync)
@@ -1630,7 +1648,7 @@ function EC.Send_Remote_Request(tParams)
   local entry, err =
     gEngine:sendRequest(tostring(tParams.ROUTINE or ""), tostring(tParams.PAYLOAD or ""), tonumber(tParams.DEADLINE))
   if not entry then
-    updateStatus("Last Error", "Request: " .. tostring(err))
+    reportError("Request: " .. tostring(err))
     return
   end
   SetTimer(SYNC_TIMER, 100, doSync)
@@ -1645,7 +1663,7 @@ local function report(tParams, status)
     tParams.RESULT and tParams.RESULT ~= "" and { text = tostring(tParams.RESULT) } or nil
   )
   if not ok then
-    updateStatus("Last Error", "Report: " .. tostring(err))
+    reportError("Report: " .. tostring(err))
     return
   end
   SetTimer(SYNC_TIMER, 100, doSync)
