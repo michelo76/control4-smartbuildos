@@ -27,7 +27,7 @@ local function fire(id)
   end)
 end
 
-local function paintList(list)
+local function paintList(list, all)
   local names = { "-" }
   for _, e in ipairs(list or {}) do
     names[#names + 1] = e.name
@@ -35,6 +35,22 @@ local function paintList(list)
   pcall(function()
     C4:UpdatePropertyList("Linked Export", table.concat(names, ","), companion.export() or "-")
   end)
+  -- The list itself cannot carry a sentence; Bridge Link says why it is empty.
+  if #names == 1 then
+    local others = {}
+    for _, e in ipairs(all or {}) do
+      others[#others + 1] = e.name .. " (" .. tostring(e.kind) .. ")"
+    end
+    UpdateProperty(
+      "Bridge Link",
+      string.format(
+        "Connected to bridge %s — no %s exports on the link yet%s",
+        tostring(companion.findBridge() or "?"),
+        tostring(state.opts.kind or "?"),
+        #others > 0 and ("; the link carries " .. table.concat(others, ", ")) or ""
+      )
+    )
+  end
 end
 
 function M.isCurrent()
@@ -136,6 +152,16 @@ function M.install(opts)
     log:print("== %s diagnostics ==", opts.logName or "System Link companion")
     log:print("  bridge: %s", tostring(companion.findBridge() or "NOT FOUND"))
     log:print("  export: %s  fresh: %s", tostring(companion.export()), companion.fresh())
+    local mine = {}
+    for _, e in ipairs(companion.exports()) do
+      mine[#mine + 1] = e.name
+    end
+    log:print("  %s exports on the link: %s", tostring(opts.kind), #mine > 0 and table.concat(mine, ", ") or "none")
+    local every = {}
+    for _, e in ipairs(companion.allExports()) do
+      every[#every + 1] = e.name .. " (" .. tostring(e.kind) .. ")"
+    end
+    log:print("  every export on the link: %s", #every > 0 and table.concat(every, ", ") or "none")
     for k, v in pairs(state.lastFields or {}) do
       log:print("  %s = %s", tostring(k), tostring(v))
     end

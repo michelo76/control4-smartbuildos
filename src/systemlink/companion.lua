@@ -57,12 +57,17 @@ function M.setup(opts)
     state.export = nil
   end
   EC.SBOS_LINK_COMPANION_EXPORTS = function(tParams)
+    tParams = tParams or {}
     local ok, list = pcall(function()
-      return JSON:decode(tostring((tParams or {}).exports or "[]"))
+      return JSON:decode(tostring(tParams.exports or "[]"))
     end)
     state.exports = ok and type(list) == "table" and list or {}
+    local okAll, all = pcall(function()
+      return JSON:decode(tostring(tParams.all or "[]"))
+    end)
+    state.allExports = okAll and type(all) == "table" and all or {}
     if state.opts.onExports then
-      pcall(state.opts.onExports, state.exports)
+      pcall(state.opts.onExports, state.exports, state.allExports)
     end
   end
   EC.SBOS_LINK_COMPANION_STATE = function(tParams)
@@ -105,7 +110,12 @@ function M.export()
 end
 
 function M.exports()
-  return state.exports
+  return state.exports or {}
+end
+
+--- Every export the link carries, any kind: { { name, kind }, ... }.
+function M.allExports()
+  return state.allExports or {}
 end
 
 function M.fields()

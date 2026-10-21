@@ -26,6 +26,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-lock.c4z",
   "smartbuildos-system-link-gate.c4z",
   "smartbuildos-system-link-fan.c4z",
+  "smartbuildos-system-link-export-light.c4z",
   "unifi-protect.c4z",
   "unifi-protect-camera.c4z",
   "unifi-protect-light.c4z",
@@ -2095,6 +2096,7 @@ local SKU_FILENAMES = {
     "smartbuildos-system-link-lock.c4z",
     "smartbuildos-system-link-gate.c4z",
     "smartbuildos-system-link-fan.c4z",
+    "smartbuildos-system-link-export-light.c4z",
   },
   SBOS_UNIFI_PROTECT = {
     "unifi-protect.c4z",

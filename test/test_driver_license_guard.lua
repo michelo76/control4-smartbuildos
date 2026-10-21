@@ -37,6 +37,7 @@ local inherited = {
   ["smartbuildos-system-link-lock"] = "smartbuildos-system-link",
   ["smartbuildos-system-link-gate"] = "smartbuildos-system-link",
   ["smartbuildos-system-link-fan"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-export-light"] = "smartbuildos-system-link",
   ["unifi-protect-camera"] = "unifi-protect",
   ["unifi-protect-light"] = "unifi-protect",
   ["unifi-protect-sensor"] = "unifi-protect",
