@@ -251,6 +251,16 @@ Updates use the existing Agent update path. Studio shows installed and available
 versions on both endpoints and refuses an update that would leave the two
 bridges on incompatible protocol versions.
 
+## Link Health (Properties tab)
+
+A read-only group with the transport facts: **Doorbell** (whether the relay's
+instant-notification channel is joined and when it last rang; "never rang"
+means the bridge relies on the poll), **Poll Interval** (20 s, or
+doorbell-driven with the poll as a backstop), **Last Relay Refusal** (the last
+message the relay refused, with reason and time), **Relay Latency** (p95 from
+local accept to relay commit) and **Pending** (updates and requests waiting).
+All of it is repainted every second from the bridge's own state.
+
 ## Diagnostics and privacy
 
 Generate Diagnostics prints a redacted summary (no variable payloads) and sends

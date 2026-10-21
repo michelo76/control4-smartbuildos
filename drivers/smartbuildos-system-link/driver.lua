@@ -37,6 +37,7 @@ local persist = require("lib.persist")
 local http = require("lib.http")
 local license = require("sbos.license")
 local Engine = require("systemlink.engine")
+local requests = require("systemlink.requests")
 local schema = require("systemlink.schema")
 local exportsModel = require("systemlink.exports")
 local RealtimeClient = require("telemetry.realtime")
@@ -498,6 +499,36 @@ local function doSync()
     end)
 end
 
+-- Link Health: the transport facts a dealer needs when "it is slow" —
+-- all from state the engine and the doorbell glue already keep.
+local function paintLinkHealth()
+  if not gEngine then
+    return
+  end
+  local e = gEngine
+  local doorbell
+  if not gDoorbell.up then
+    doorbell = "not joined" .. (e.lastDoorbellAt and (" · last rang " .. formatTime(e.lastDoorbellAt)) or "")
+  elseif e.lastDoorbellAt then
+    doorbell = (e:doorbellLive() and "joined · last rang " or "joined · silent since ") .. formatTime(e.lastDoorbellAt)
+  else
+    doorbell = "joined · never rang — polling"
+  end
+  updateStatus("Doorbell", doorbell)
+  updateStatus(
+    "Poll Interval",
+    e:doorbellLive() and string.format("doorbell-driven (poll every %d s as backstop)", Engine.POLL_FALLBACK_MS / 1000)
+      or string.format("%d s", Engine.POLL_FALLBACK_MS / 1000)
+  )
+  local r = e.lastRefusal
+  updateStatus("Last Relay Refusal", r and string.format("%s: %s · %s", tostring(r.what), tostring(r.reason), formatTime(r.at)) or "none")
+  updateStatus(
+    "Relay Latency",
+    e.latency and e.latency.p95_ms and string.format("p95 %d ms (%d samples)", e.latency.p95_ms, #e.latency.samples) or "no samples"
+  )
+  updateStatus("Pending", string.format("%d updates · %d requests", #e.pending, requests.inFlight(e.requests)))
+end
+
 local function paintStatus()
   if not gEngine then
     return
@@ -511,6 +542,7 @@ local function paintStatus()
     updateStatus("Last Error", gDealerError)
   end
   paintSelectedValue()
+  paintLinkHealth()
   -- Inbound schema changes (the peer exported a device) arrive on a sync,
   -- not on a dealer action: the lists are repainted here, deduped.
   if paintItemList then

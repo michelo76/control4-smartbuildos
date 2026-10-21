@@ -266,6 +266,12 @@
       <property><name>Schema Revision</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Last Error</name><type>STRING</type><default></default><readonly>true</readonly></property>
 
+      <property><name>Link Health</name><type>LABEL</type><default>Link Health</default></property>
+      <property><name>Doorbell</name><type>STRING</type><default>not joined</default><readonly>true</readonly><description>The relay's instant notification channel: joined and when it last rang. "never rang" means the bridge relies on the poll below.</description></property>
+      <property><name>Poll Interval</name><type>STRING</type><default>20 s</default><readonly>true</readonly></property>
+      <property><name>Last Relay Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly><description>The last message the relay refused, with the reason and time.</description></property>
+      <property><name>Relay Latency</name><type>STRING</type><default>no samples</default><readonly>true</readonly></property>
+      <property><name>Pending</name><type>STRING</type><default>0 updates · 0 requests</default><readonly>true</readonly></property>
       <property><name>Shared Items</name><type>LABEL</type><default>Shared Items</default></property>
       <property><name>Selected Item</name><type>DYNAMIC_LIST</type><default>-</default></property>
       <property><name>Selected Item Details</name><type>STRING</type><default>Select an item</default><readonly>true</readonly></property>
