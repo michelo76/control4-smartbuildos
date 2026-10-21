@@ -389,7 +389,7 @@ local function requestProvision()
   return ok
 end
 
-local startSync, doorbellConnect, doorbellStop, paintSelectedValue
+local startSync, doorbellConnect, doorbellStop, paintSelectedValue, paintPendingExports, paintItemList
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -511,6 +511,14 @@ local function paintStatus()
     updateStatus("Last Error", gDealerError)
   end
   paintSelectedValue()
+  -- Inbound schema changes (the peer exported a device) arrive on a sync,
+  -- not on a dealer action: the lists are repainted here, deduped.
+  if paintItemList then
+    paintItemList()
+  end
+  if paintPendingExports then
+    paintPendingExports()
+  end
   if not gEngine.link then
     -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
     -- handler (older build) or never got the message: say so and ask again,
@@ -710,7 +718,7 @@ paintSelectedValue = function()
   )
 end
 
-local function paintItemList()
+paintItemList = function()
   if not gEngine then
     return
   end
@@ -719,9 +727,13 @@ local function paintItemList()
   for _, def in ipairs(schema.registryItems(gEngine.registry)) do
     names[#names + 1] = gEngine:variableNameFor(def)
   end
-  pcall(function()
-    C4:UpdatePropertyList("Selected Item", table.concat(names, ","), Properties["Selected Item"] or "-")
-  end)
+  local joined = table.concat(names, ",")
+  if gLastStatus["Selected Item__list"] ~= joined then
+    gLastStatus["Selected Item__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Selected Item", joined, Properties["Selected Item"] or "-")
+    end)
+  end
   local def = selectedItem()
   if def then
     updateStatus(
@@ -1639,13 +1651,7 @@ end
 --- Dealer-initiated companion provisioning for the selected mirrored export.
 --- One instance per export; a second request for the same export is refused
 --- while the first instance is still in the project.
-function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
-  local def = selectedItem()
-  local c = def and type(def.companion) == "table" and def.companion or nil
-  if not def or not def.mirror or not c then
-    reportError("Select a mirrored export field first (e.g. Porch_Light_Level)")
-    return
-  end
+local function addCompanionFor(c)
   local file = COMPANION_FILES[c.kind]
   if not file then
     reportError("No companion driver for kind " .. tostring(c.kind))
@@ -1683,6 +1689,72 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
   end
 end
 
+function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
+  local def = selectedItem()
+  local c = def and type(def.companion) == "table" and def.companion or nil
+  if not def or not def.mirror or not c then
+    reportError("Select a mirrored export field first (e.g. Porch_Light_Level)")
+    return
+  end
+  addCompanionFor(c)
+end
+
+--- The peer's exports that have no companion device in this project (no map
+--- entry, or the mapped device is gone). "Name (kind)", sorted.
+local function pendingExports()
+  local map = loadCompanionMap()
+  local okD, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okD and type(devices) == "table" and devices or {}
+  local out = {}
+  for _, e in ipairs(mirroredExports(nil)) do
+    local existing = tonumber(map[e.name])
+    local present = existing and (devices[existing] or devices[tostring(existing)]) and true or false
+    if not present then
+      out[#out + 1] = e
+    end
+  end
+  table.sort(out, function(a, b)
+    return a.name < b.name
+  end)
+  return out
+end
+
+paintPendingExports = function()
+  if not gEngine then
+    return
+  end
+  local labels, names = {}, { "-" }
+  for _, e in ipairs(pendingExports()) do
+    labels[#labels + 1] = string.format("%s (%s)", e.name, e.kind)
+    names[#names + 1] = e.name
+  end
+  updateStatus("Pending Exports", #labels > 0 and table.concat(labels, ", ") or "none")
+  local joined = table.concat(names, ",")
+  if gLastStatus["Pending Export__list"] ~= joined then
+    gLastStatus["Pending Export__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Pending Export", joined, Properties["Pending Export"] or "-")
+    end)
+  end
+end
+
+function EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+  local want = tostring(Properties["Pending Export"] or "-")
+  if want == "-" or want == "" then
+    reportError("Pick an export in Pending Export first (Pending Exports lists what the linked project shares)")
+    return
+  end
+  for _, e in ipairs(pendingExports()) do
+    if e.name == want then
+      addCompanionFor({ id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops })
+      return
+    end
+  end
+  reportError("No pending export named " .. want .. " — it may already have a companion")
+end
+
 function OnSystemLinkCompanionAdded(deviceId)
   local pending = gAddCompanionInFlight
   gAddCompanionInFlight = nil
@@ -1700,6 +1772,7 @@ function OnSystemLinkCompanionAdded(deviceId)
   end
   loadCompanionMap()[pending.name] = deviceId
   persist:set(COMPANIONS_KEY, gCompanionMap)
+  paintPendingExports()
   pcall(function()
     C4:SendToDevice(deviceId, "SBOS_LINK_COMPANION_ASSIGN", { export = pending.name })
   end)
@@ -1712,6 +1785,8 @@ function EC.REFRESH_LINK()
   gEngine.needSnapshot = true
   gEngine.helloDone = false
   SetTimer(SYNC_TIMER, 100, doSync)
+  paintItemList()
+  paintPendingExports()
 end
 
 function EC.RUN_LINK_TEST()

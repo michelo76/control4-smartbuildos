@@ -97,6 +97,7 @@
       <action><name>Refresh Export Device List</name><command>REFRESH_EXPORT_DEVICE_LIST</command></action>
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
+      <action><name>Add Companion For Pending Export</name><command>ADD_COMPANION_FOR_PENDING_EXPORT</command></action>
       <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
       <action><name>Run Link Test</name><command>RUN_LINK_TEST</command></action>
       <action><name>Pause Remote Commands</name><command>PAUSE_COMMANDS</command></action>
@@ -276,6 +277,8 @@
       <property><name>New Item Group</name><type>STRING</type><default></default></property>
       <property><name>New Item Allowed Values</name><type>STRING</type><default></default><description>CHOICE only: comma-separated allowed values.</description></property>
       <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
+      <property><name>Pending Exports</name><type>STRING</type><default>none</default><readonly>true</readonly><description>Exports the linked project shares with this one that have no companion device here yet. Pick one in Pending Export and run Add Companion For Pending Export.</description></property>
+      <property><name>Pending Export</name><type>DYNAMIC_LIST</type><default>-</default></property>
       <property><name>Device Exports</name><type>LABEL</type><default>Device Exports</default></property>
       <property><name>Export Kind</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items><default>light</default><description>What the linked project will see this device as. Changing it refreshes the device list below.</description></property>
       <property><name>Export Device Filter</name><type>LIST</type><items><item>Devices that fit the kind</item><item>All devices</item></items><default>Devices that fit the kind</default><description>Fit = the device carries the variables the kind reads (a light's LIGHT_STATE, …). Its physical driver usually shares the name and fits nothing; All devices shows those too, flagged.</description></property>
