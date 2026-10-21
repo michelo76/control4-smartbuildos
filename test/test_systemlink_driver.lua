@@ -748,6 +748,18 @@ check(
     end)(),
   lastSent("SBOS_LINK_COMPANION_RESULT").params.reason
 )
+print("\n[4a] Link Health: the transport facts, from engine state")
+advance(1100)
+check("Doorbell says joined-but-silent or not joined, never a blank", Properties["Doorbell"] ~= "" and Properties["Doorbell"] ~= nil, Properties["Doorbell"])
+check("Poll Interval names the 20 s poll while the doorbell has not rung", Properties["Poll Interval"] == "20 s", Properties["Poll Interval"])
+check("Pending counts updates and requests", Properties["Pending"]:match("^%d+ updates · %d+ requests$") ~= nil, Properties["Pending"])
+gEngine.lastRefusal = { reason = "stale revision", what = "Away", at = gEngine.io.now() }
+advance(1100)
+check("Last Relay Refusal shows the item, the reason and a time", Properties["Last Relay Refusal"]:find("^Away: stale revision · ") ~= nil, Properties["Last Relay Refusal"])
+gEngine:onDoorbell()
+advance(1100)
+check("a ring flips the doorbell to joined-and-live wording and the poll to backstop", Properties["Poll Interval"]:find("^doorbell%-driven") ~= nil or Properties["Doorbell"]:find("last rang") ~= nil, Properties["Doorbell"] .. " / " .. Properties["Poll Interval"])
+
 print("\n[4c] Pending exports: the peer's exports with no companion here, one action to add")
 advance(1100) -- a status tick repaints the lists
 check(

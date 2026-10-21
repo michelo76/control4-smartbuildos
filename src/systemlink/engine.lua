@@ -887,6 +887,9 @@ function M:onSyncResponse(resp, rawLen)
       end
       if env.t == "state" and type(a.result) == "table" then
         for _, rej in ipairs(a.result.rejected or {}) do
+          -- Link Health shows the last refusal of any kind with its time.
+          local rdef = self.registry.items[rej.id]
+          self.lastRefusal = { reason = tostring(rej.reason), what = rdef and rdef.name or tostring(rej.id), at = now }
           if
             rej.reason == "not owner"
             and self.registry.items[rej.id]
@@ -919,6 +922,7 @@ function M:onSyncResponse(resp, rawLen)
       end
     else
       self.stats.rejected = self.stats.rejected + 1
+      self.lastRefusal = { reason = tostring(a.reason), what = env.t, at = now }
       if
         a.reason == "relay unavailable"
         or a.reason == "peer not active"

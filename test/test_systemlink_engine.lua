@@ -691,6 +691,11 @@ check(
   CA2.values[awayDef.id].rev >= relayRev,
   tostring(CA2.values[awayDef.id].rev)
 )
+check(
+  "the refusal is remembered for Link Health with the item, reason and time",
+  CA2.lastRefusal ~= nil and CA2.lastRefusal.reason == "stale revision" and CA2.lastRefusal.what == "Away" and CA2.lastRefusal.at ~= nil,
+  CA2.lastRefusal and CA2.lastRefusal.reason
+)
 sync(CA2, "ep-ca")
 check(
   "the dealer's value still reached the relay",
