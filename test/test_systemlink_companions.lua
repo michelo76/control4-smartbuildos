@@ -400,9 +400,33 @@ C4.AddVariable, C4.SetVariable = savedAddVar, savedSetVar
 
 print("\n[7] lock, gate and fan companions: status, events, gated Test actions")
 for _, c in ipairs({
-  { kind = "lock", field = "Locked", onText = "Locked", offText = "Unlocked", cond = "LOCK_LOCKED", test = "TEST_LOCK", op = "lock" },
-  { kind = "gate", field = "Open", onText = "Open", offText = "Closed", cond = "GATE_OPEN", test = "TEST_TRIGGER", op = "trigger" },
-  { kind = "fan", field = "Speed", onText = "Speed 5", offText = "Off", cond = "FAN_ON", test = "TEST_SPEED_5", op = "set_speed" },
+  {
+    kind = "lock",
+    field = "Locked",
+    onText = "Locked",
+    offText = "Unlocked",
+    cond = "LOCK_LOCKED",
+    test = "TEST_LOCK",
+    op = "lock",
+  },
+  {
+    kind = "gate",
+    field = "Open",
+    onText = "Open",
+    offText = "Closed",
+    cond = "GATE_OPEN",
+    test = "TEST_TRIGGER",
+    op = "trigger",
+  },
+  {
+    kind = "fan",
+    field = "Speed",
+    onText = "Speed 5",
+    offText = "Off",
+    cond = "FAN_ON",
+    test = "TEST_SPEED_5",
+    op = "set_speed",
+  },
 }) do
   sent, notifies, fired = {}, {}, {}
   Properties["Linked Export"] = "-"
@@ -425,13 +449,37 @@ for _, c in ipairs({
   EC.SBOS_LINK_COMPANION_ASSIGN({ export = "X_" .. c.kind })
   local onValue = c.kind == "fan" and 5 or true
   local offValue = c.kind == "fan" and 0 or false
-  EC.SBOS_LINK_COMPANION_STATE({ export = "X_" .. c.kind, fields = JSON:encode({ [c.field] = onValue }), fresh = "current", state = "Ready", control = "true" })
-  check(c.kind .. ": on state reads " .. c.onText .. " and the conditional holds", Properties["Confirmed State"] == c.onText and TC[c.cond]() == true and vars[c.field] ~= nil, Properties["Confirmed State"])
-  EC.SBOS_LINK_COMPANION_STATE({ export = "X_" .. c.kind, fields = JSON:encode({ [c.field] = offValue }), fresh = "current", state = "Ready", control = "true" })
-  check(c.kind .. ": a live change fires the off event and reads " .. c.offText, countFired(5) == 1 and Properties["Confirmed State"] == c.offText and TC[c.cond]() == false, Properties["Confirmed State"])
+  EC.SBOS_LINK_COMPANION_STATE({
+    export = "X_" .. c.kind,
+    fields = JSON:encode({ [c.field] = onValue }),
+    fresh = "current",
+    state = "Ready",
+    control = "true",
+  })
+  check(
+    c.kind .. ": on state reads " .. c.onText .. " and the conditional holds",
+    Properties["Confirmed State"] == c.onText and TC[c.cond]() == true and vars[c.field] ~= nil,
+    Properties["Confirmed State"]
+  )
+  EC.SBOS_LINK_COMPANION_STATE({
+    export = "X_" .. c.kind,
+    fields = JSON:encode({ [c.field] = offValue }),
+    fresh = "current",
+    state = "Ready",
+    control = "true",
+  })
+  check(
+    c.kind .. ": a live change fires the off event and reads " .. c.offText,
+    countFired(5) == 1 and Properties["Confirmed State"] == c.offText and TC[c.cond]() == false,
+    Properties["Confirmed State"]
+  )
   EC[c.test]()
   local ctl = lastSent("SBOS_LINK_COMPANION_CONTROL")
-  check(c.kind .. ": the Test action sends the op to the bridge (the owner decides, by licence)", ctl ~= nil and ctl.params.op == c.op, ctl and ctl.params.op)
+  check(
+    c.kind .. ": the Test action sends the op to the bridge (the owner decides, by licence)",
+    ctl ~= nil and ctl.params.op == c.op,
+    ctl and ctl.params.op
+  )
   C4.AddVariable, C4.SetVariable = sAdd, sSet
 end
 

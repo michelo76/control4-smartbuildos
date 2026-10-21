@@ -1159,42 +1159,100 @@ function C4:GetDeviceVariables(id)
   return savedGDV4(self, id)
 end
 EC.Export_Device({ DEVICE = "91", NAME = "Front_Lock", KIND = "lock", CONTROL = "Control allowed" })
-check("a lock with control is refused while LOCK is unlicensed (LEGACY never opens it)", gEngine:findByName("Front_Lock_Locked") == nil and Properties["Last Error"]:find("LOCK") ~= nil, Properties["Last Error"])
+check(
+  "a lock with control is refused while LOCK is unlicensed (LEGACY never opens it)",
+  gEngine:findByName("Front_Lock_Locked") == nil and Properties["Last Error"]:find("LOCK") ~= nil,
+  Properties["Last Error"]
+)
 EC.Export_Device({ DEVICE = "91", NAME = "Front_Lock", KIND = "lock", CONTROL = "View only" })
-check("the same lock exports status-only on BASE", variables["California.Front_Lock_Locked"] == "1" and Properties["Last Error"] == "", Properties["Last Error"])
+check(
+  "the same lock exports status-only on BASE",
+  variables["California.Front_Lock_Locked"] == "1" and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
 Properties["Selected Export"] = "Front_Lock"
 EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
-check("Allow Unlock stays off without the LOCK feature", Properties["Last Error"]:find("LOCK is not licensed") ~= nil, Properties["Last Error"])
+check(
+  "Allow Unlock stays off without the LOCK feature",
+  Properties["Last Error"]:find("LOCK is not licensed") ~= nil,
+  Properties["Last Error"]
+)
 EC.Export_Device({ NAME = "Doorbell", KIND = "button", CONTROL = "Control allowed" })
-check("a button export is refused without BUTTON", gEngine:findByName("Doorbell_Last_Pressed") == nil and Properties["Last Error"]:find("BUTTON") ~= nil, Properties["Last Error"])
+check(
+  "a button export is refused without BUTTON",
+  gEngine:findByName("Doorbell_Last_Pressed") == nil and Properties["Last Error"]:find("BUTTON") ~= nil,
+  Properties["Last Error"]
+)
 -- the Agent answers with the features: the gates open
 local lic = require("sbos.license")
 local savedStatus, savedHas = lic.status, lic.hasFeature
-lic.status = function() return "AUTHORIZED_SUBSCRIPTION" end
-lic.hasFeature = function(n) return n == "LOCK" or n == "BUTTON" end
+lic.status = function()
+  return "AUTHORIZED_SUBSCRIPTION"
+end
+lic.hasFeature = function(n)
+  return n == "LOCK" or n == "BUTTON"
+end
 EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
-local frontLock = (function() for _, e in pairs(gExports) do if e.name == "Front_Lock" then return e end end end)()
-check("with LOCK licensed, Allow Unlock is recorded on the export", frontLock.allow_unlock == true and Properties["Last Error"] == "", Properties["Last Error"])
+local frontLock = (function()
+  for _, e in pairs(gExports) do
+    if e.name == "Front_Lock" then
+      return e
+    end
+  end
+end)()
+check(
+  "with LOCK licensed, Allow Unlock is recorded on the export",
+  frontLock.allow_unlock == true and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
 EC.DISALLOW_UNLOCK_FOR_SELECTED_EXPORT()
 check("and can be taken back", frontLock.allow_unlock == false)
 EC.Export_Device({ NAME = "Doorbell", KIND = "button", CONTROL = "Control allowed" })
-check("with BUTTON licensed the button exports, starting at never, with its pressed event", variables["California.Doorbell_Last_Pressed"] == "never" and gEngine.itemEvents["button:Doorbell:pressed"] ~= nil, Properties["Last Error"])
+check(
+  "with BUTTON licensed the button exports, starting at never, with its pressed event",
+  variables["California.Doorbell_Last_Pressed"] == "never" and gEngine.itemEvents["button:Doorbell:pressed"] ~= nil,
+  Properties["Last Error"]
+)
 local firedBefore4 = #firedEvents
 gEngine.io.fireNamedEvent("button:Doorbell")
-check("a press from the peer fires 'Button Doorbell pressed' and stamps Last_Pressed", firedEvents[#firedEvents] == gEngine.itemEvents["button:Doorbell:pressed"] and #firedEvents == firedBefore4 + 1 and variables["California.Doorbell_Last_Pressed"] ~= "never")
-lic.hasFeature = function() return false end
+check(
+  "a press from the peer fires 'Button Doorbell pressed' and stamps Last_Pressed",
+  firedEvents[#firedEvents] == gEngine.itemEvents["button:Doorbell:pressed"]
+    and #firedEvents == firedBefore4 + 1
+    and variables["California.Doorbell_Last_Pressed"] ~= "never"
+)
+lic.hasFeature = function()
+  return false
+end
 firedBefore4 = #firedEvents
 gEngine.io.fireNamedEvent("button:Doorbell")
-check("a press while BUTTON is no longer licensed is ignored, and says so", #firedEvents == firedBefore4 and Properties["Last Error"]:find("not licensed") ~= nil, Properties["Last Error"])
+check(
+  "a press while BUTTON is no longer licensed is ignored, and says so",
+  #firedEvents == firedBefore4 and Properties["Last Error"]:find("not licensed") ~= nil,
+  Properties["Last Error"]
+)
 lic.status, lic.hasFeature = savedStatus, savedHas
 -- peer side: the linked project's button
 local savedCompanion4 = gEngine.registry.items["ny-occ"].companion
-gEngine.registry.items["ny-occ"].companion = { id = "bt-1", name = "Guest_Bell", kind = "button", control = true, ops = {}, field = "Last_Pressed" }
+gEngine.registry.items["ny-occ"].companion =
+  { id = "bt-1", name = "Guest_Bell", kind = "button", control = true, ops = {}, field = "Last_Pressed" }
 advance(1100)
-check("Remote Button lists the linked project's button; it is never a pending companion", (Properties["Remote Button__list"] or ""):find("Guest_Bell") ~= nil and (Properties["Pending Exports"] or ""):find("Guest_Bell") == nil, Properties["Remote Button__list"])
+check(
+  "Remote Button lists the linked project's button; it is never a pending companion",
+  (Properties["Remote Button__list"] or ""):find("Guest_Bell") ~= nil
+    and (Properties["Pending Exports"] or ""):find("Guest_Bell") == nil,
+  Properties["Remote Button__list"]
+)
 Properties["Remote Button"] = "Guest_Bell"
 EC.PRESS_REMOTE_BUTTON()
-check("Press Remote Button emits the button event for the owner", (function() for _, env in ipairs(gEngine.pending) do if env.t == "event" and env.body.def == "button:Guest_Bell" then return true end end return false end)() and Properties["Last Error"] == "", Properties["Last Error"])
+check("Press Remote Button emits the button event for the owner", (function()
+  for _, env in ipairs(gEngine.pending) do
+    if env.t == "event" and env.body.def == "button:Guest_Bell" then
+      return true
+    end
+  end
+  return false
+end)() and Properties["Last Error"] == "", Properties["Last Error"])
 gEngine.registry.items["ny-occ"].companion = savedCompanion4
 EC.Remove_Export({ NAME = "Front_Lock" })
 EC.Remove_Export({ NAME = "Doorbell" })

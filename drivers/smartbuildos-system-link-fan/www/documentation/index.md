@@ -1,6 +1,9 @@
 # SmartBuildOS System Link fan companion
 
-Presents one **fan** export of the linked project: the `Speed` (0–10) and `On` variables, **Remote Fan On / Off** events and a **Remote Fan Is On** conditional. The Test actions send on / off / speed 5; the owner refuses them unless the pair licence carries the FAN feature.
+Presents one **fan** export of the linked project: the `Speed` (0–10) and `On`
+variables, **Remote Fan On / Off** events and a **Remote Fan Is On**
+conditional. The Test actions send on / off / speed 5; the owner refuses them
+unless the pair licence carries the FAN feature.
 
 Requires **SmartBuildOS System Link** on this project (it inherits the pair
 licence) and an export of kind `fan` made on the linked project from the
