@@ -129,7 +129,10 @@ package.preload["lib.http"] = function()
         -- `nextResponse.body` lets a test drive an onOk callback that reads the
         -- response. Defaults to empty, which is what every existing test that
         -- ignores the body already expects.
-        return settled(true, { url = url, code = nextResponse.code, headers = {}, body = nextResponse.body or "" })
+        return settled(
+          true,
+          { url = url, code = nextResponse.code, headers = nextResponse.headers or {}, body = nextResponse.body or "" }
+        )
       end
       return settled(false, {
         url = url,
@@ -426,6 +429,10 @@ Properties = {
   ["Last Network Scan"] = "Never",
   ["Devices Offline"] = "0",
   ["Last Device Change"] = "",
+  ["Last Project Change"] = "",
+  ["Programming"] = "not read",
+  ["Clock Offset"] = "not measured",
+  ["Zigbee Events"] = "no events",
   ["Device Poll Interval"] = "5m",
   ["Heartbeat Interval"] = "15m",
   ["Full Sync Interval"] = "24h",
@@ -3519,6 +3526,138 @@ check(
   "still as SBOS_UNIFI_PROTECT",
   legacyRoster ~= nil and (legacyRoster.data or {}).driver_sku == "SBOS_UNIFI_PROTECT"
 )
+
+print("\n[52] Director system events are read by name and routed (docs/AGENT_TELEMETRY.md)")
+pair()
+reset()
+gSystemEventCounts = {}
+gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
+EC.SEND_HEARTBEAT()
+local depthBefore = requests[#requests].data.queued_telemetry
+OnSystemEvent('<event name="OnItemAdded" deviceid="312"/>')
+OnSystemEvent('<event name="OnItemNameChanged" deviceid="312"/>')
+check(
+  "events are counted by name for the heartbeat",
+  gSystemEventCounts.OnItemAdded == 1 and gSystemEventCounts.OnItemNameChanged == 1
+)
+check("project edits wait for the debounce", gProjectChanges.count == 0 and gProjectChanges.pending.OnItemAdded == true)
+ProjectChangeFlush()
+check(
+  "the flush counts one change for the burst, names it, and fires Project Changed",
+  gProjectChanges.count == 1
+    and gProjectChanges.last_name == "OnItemAdded,OnItemNameChanged"
+    and Properties["Last Project Change"]:find("OnItemAdded,OnItemNameChanged", 1, true) ~= nil
+    and firedEvents[#firedEvents] == "Project Changed",
+  tostring(Properties["Last Project Change"]) .. " / " .. tostring(firedEvents[#firedEvents])
+)
+EC.SEND_HEARTBEAT()
+check(
+  "the change is journaled (the heartbeat confesses one more queued event)",
+  requests[#requests].data.queued_telemetry == depthBefore + 1,
+  tostring(requests[#requests].data.queued_telemetry) .. " vs " .. tostring(depthBefore)
+)
+check(
+  "a second flush with nothing pending is a no-op",
+  (function()
+    ProjectChangeFlush()
+    return gProjectChanges.count == 1
+  end)()
+)
+
+reset()
+OnSystemEvent('<event name="OnSystemShutDown"/>')
+check(
+  "shutdown leaves a marker for the next start and sends a last event",
+  type(store["director_shutdown_seen_at"]) == "number"
+    and lastRequestTo("/event") ~= nil
+    and lastRequestTo("/event").data.name == "controller_shutting_down",
+  tostring(store["director_shutdown_seen_at"])
+)
+reset()
+OnSystemEvent('<event name="OnSystemUpdateStarted"/>')
+check(
+  "an OS update leaves its marker, fires the Composer event and tells the platform",
+  type(store["director_os_update_seen_at"]) == "number"
+    and firedEvents[#firedEvents] == "OS Update Started"
+    and lastRequestTo("/event").data.name == "os_update_started"
+)
+store["director_shutdown_seen_at"] = nil
+store["director_os_update_seen_at"] = nil
+
+OnSystemEvent('<event name="OnZigbeeNodeOffline"/>')
+OnSystemEvent('<event name="OnZigbeeNodeOffline"/>')
+OnSystemEvent('<event name="OnZigbeeMeshChanged"/>')
+check(
+  "zigbee events are counted and shown",
+  gZigbee.node_offline == 2
+    and gZigbee.mesh_changes == 1
+    and Properties["Zigbee Events"]:find("2 node offline", 1, true) ~= nil,
+  Properties["Zigbee Events"]
+)
+local okUnknown = pcall(OnSystemEvent, "<garbage/>")
+check("an unreadable payload is handled as before, never an error", okUnknown and gSystemEventCounts.unknown == 1)
+local okNil = pcall(OnSystemEvent, nil)
+check("a nil payload too", okNil)
+
+print("\n[53] The heartbeat carries the additive telemetry, and the clock is read off the answer")
+reset()
+RefreshProgrammingCensus("test")
+check(
+  "the programming census reads the shim's one disabled attachment",
+  Properties["Programming"] == "1 attachment(s) · 1 line(s) · 1 disabled",
+  Properties["Programming"]
+)
+EC.SEND_HEARTBEAT()
+local hb = requests[#requests].data
+check(
+  "agent_health: Lua heap and driver uptime are numbers",
+  type(hb.agent_health) == "table"
+    and type(hb.agent_health.lua_memory_kb) == "number"
+    and type(hb.agent_health.driver_uptime_seconds) == "number"
+)
+check("programming census rides the heartbeat", hb.programming ~= nil and hb.programming.lines == 1)
+check("system event counts ride the heartbeat", hb.system_events ~= nil and hb.system_events.OnZigbeeNodeOffline == 2)
+check("zigbee counters ride the heartbeat", hb.zigbee ~= nil and hb.zigbee.node_offline == 2)
+check("project change count rides the heartbeat", hb.project_changes_today == 1)
+check("no Date header yet: no clock offset claimed", hb.clock_offset_seconds == nil)
+check(
+  "controller vitals are absent (nil), never an empty block, when /proc is unreadable here",
+  hb.controller_vitals == nil or (type(hb.controller_vitals) == "table" and #hb.controller_vitals.readable > 0)
+)
+
+-- The platform answers with a Date five minutes ahead of this controller.
+local ahead = os.date("!%a, %d %b %Y %H:%M:%S GMT", os.time() + 300)
+nextResponse = { ok = true, code = 200, headers = { Date = ahead } }
+firedEvents = {}
+EC.SEND_HEARTBEAT()
+check(
+  "the offset is measured off the Date header (platform minus controller)",
+  gClock.offset ~= nil and gClock.offset >= 298 and gClock.offset <= 302,
+  tostring(gClock.offset)
+)
+check(
+  "drift is announced once, as a Composer event and in the property",
+  firedEvents[#firedEvents] == "Clock Drift Detected" and Properties["Clock Offset"]:find("DRIFT", 1, true) ~= nil,
+  Properties["Clock Offset"]
+)
+firedEvents = {}
+EC.SEND_HEARTBEAT()
+check("the same drift does not fire again", #firedEvents == 0)
+check("the next heartbeat carries the measured offset", requests[#requests].data.clock_offset_seconds == gClock.offset)
+nextResponse = { ok = true, code = 200, headers = { Date = os.date("!%a, %d %b %Y %H:%M:%S GMT", os.time() + 2) } }
+EC.SEND_HEARTBEAT()
+check(
+  "back within two seconds: no drift wording, flag cleared",
+  Properties["Clock Offset"]:find("DRIFT", 1, true) == nil and gClock.drifting == false,
+  Properties["Clock Offset"]
+)
+nextResponse = { ok = true, code = 200 }
+
+print("\n[54] The restart cause rides the start record")
+EC.SEND_HEARTBEAT()
+-- OnDriverLateInit (where the start is recorded) never runs under the shim,
+-- so the record is empty here: the field must then be ABSENT, never a claim.
+check("no restart cause is claimed when none was classified", requests[#requests].data.last_reload_restart == nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

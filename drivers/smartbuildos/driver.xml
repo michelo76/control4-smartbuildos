@@ -204,6 +204,11 @@
     <event><id>18</id><name>Cloud Connection Changed</name><description>When the Agent cloud connection state changes</description></event>
     <event><id>19</id><name>License Status Changed</name><description>When the Agent license state changes</description></event>
     <event><id>20</id><name>Controller Mismatch</name><description>When execution-controller evidence conflicts with the verified primary controller</description></event>
+    <event><id>21</id><name>Project Changed</name><description>Composer added, removed, renamed or rebound something in the project (debounced 30 s)</description></event>
+    <event><id>22</id><name>Clock Drift Detected</name><description>The controller clock is more than two minutes from SmartBuildOS</description></event>
+    <event><id>23</id><name>OS Update Started</name><description>Director reported that an OS update began</description></event>
+    <event><id>24</id><name>Programming Changed</name><description>Composer programming was added, removed or moved</description></event>
+    <event><id>25</id><name>Unexpected Restart</name><description>Director came back with no shutdown or OS update before it (power loss, crash, hard reset)</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"/>
@@ -682,6 +687,34 @@
           <item>Off</item>
         </items>
         <description>Email when this driver cannot deliver to SmartBuildOS</description>
+      </property>
+      <property>
+        <name>Last Project Change</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+        <description>The last Composer edit Director announced (add, remove, rename, rebind), and when</description>
+      </property>
+      <property>
+        <name>Programming</name>
+        <type>STRING</type>
+        <default>not read</default>
+        <readonly>true</readonly>
+        <description>Event attachments, programming lines and disabled lines in this project (GetAllCodeItems), refreshed daily and on programming edits</description>
+      </property>
+      <property>
+        <name>Clock Offset</name>
+        <type>STRING</type>
+        <default>not measured</default>
+        <readonly>true</readonly>
+        <description>Controller clock against SmartBuildOS, from the platform's Date header on every answer</description>
+      </property>
+      <property>
+        <name>Zigbee Events</name>
+        <type>STRING</type>
+        <default>no events</default>
+        <readonly>true</readonly>
+        <description>Zigbee node online/offline and mesh change events Director reported since this driver started</description>
       </property>
       <property>
         <name>Reporting</name>
