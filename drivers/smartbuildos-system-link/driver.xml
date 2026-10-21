@@ -103,6 +103,7 @@
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
       <action><name>Add Companion For Pending Export</name><command>ADD_COMPANION_FOR_PENDING_EXPORT</command></action>
+      <action><name>Auto Setup</name><command>AUTO_SETUP</command></action>
       <action><name>Run Remote Scene</name><command>RUN_REMOTE_SCENE</command></action>
       <action><name>Press Remote Button</name><command>PRESS_REMOTE_BUTTON</command></action>
       <action><name>Allow Unlock For Selected Export</name><command>ALLOW_UNLOCK_FOR_SELECTED_EXPORT</command></action>
@@ -312,6 +313,7 @@
       <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
       <property><name>Pending Exports</name><type>STRING</type><default>none</default><readonly>true</readonly><description>Exports the linked project shares with this one that have no companion device here yet. Pick one in Pending Export and run Add Companion For Pending Export.</description></property>
       <property><name>Pending Export</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Auto Setup</name><type>STRING</type><default>not run</default><readonly>true</readonly><description>Auto Setup refreshes the link (every shared item becomes a variable here), then adds a companion device for every shared device that has none, assigned and named after its export. Safe to re-run.</description></property>
       <property><name>Remote Button</name><type>DYNAMIC_LIST</type><default>-</default><description>A button the linked project exported. Press Remote Button (or the programming command of the same name) fires "Button &lt;name&gt; pressed" on the other side; nothing happens unless its programming reacts.</description></property>
       <property><name>Remote Scene</name><type>DYNAMIC_LIST</type><default>-</default><description>A scene the linked project exported. Run Remote Scene (or the programming command of the same name) asks the other side to run it; "Scene &lt;name&gt; completed / failed" fires here when its programming reports.</description></property>
       <property><name>New Namespace</name><type>STRING</type><default></default><description>The new Composer prefix for this system (letters, digits, underscores; starts with a letter; max 24). Preview Namespace Rename prints every variable it would touch; Rename Namespace asks the relay, and both bridges apply it on their next sync. Variable ids never change: the old names become hidden.</description></property>

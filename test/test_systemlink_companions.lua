@@ -156,6 +156,45 @@ check(
 print("\n[2] assignment, state → proxy, confirmed vs requested")
 EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
 check("assignment selects and persists the export", persisted["sl_companion_export"] == "Porch_Light")
+-- Auto-rename: the companion (and its proxy device) take the export's name,
+-- while the name is still the install default or our own last write.
+local renames = {}
+local me = C4:GetDeviceID()
+local deviceNames = { [me] = "SmartBuildOS System Link Light", [777] = "SmartBuildOS System Link Light" }
+local savedGetDeviceData = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" then
+    return deviceNames[id]
+  end
+  return nil
+end
+function C4:GetProxyDevices()
+  return 777
+end
+function C4:RenameDevice(id, name)
+  renames[#renames + 1] = { id = id, name = name }
+  deviceNames[id] = name
+end
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check(
+  "assignment renames the protocol AND proxy device after the export",
+  #renames == 2 and renames[1].name == "Porch Light" and renames[2].id == 777 and renames[2].name == "Porch Light",
+  JSON:encode(renames)
+)
+check("the auto name is remembered", persisted["sl_companion_autoname"] == "Porch Light")
+renames = {}
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check("already named: no rename", #renames == 0)
+deviceNames[me] = "Dealer's Lamp"
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check("a dealer's own name is never clobbered", #renames == 0, JSON:encode(renames))
+EC.RENAME_FROM_EXPORT()
+check(
+  "Rename From Export forces it",
+  #renames == 1 and renames[1].id == me and renames[1].name == "Porch Light",
+  JSON:encode(renames)
+)
+C4.GetDeviceData = savedGetDeviceData
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Other",
   fields = JSON:encode({ On = true, Level = 10 }),

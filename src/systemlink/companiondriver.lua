@@ -15,11 +15,72 @@
 
 local log = require("lib.logging")
 local companion = require("systemlink.companion")
+local persist = require("lib.persist")
 
 local M = {}
 
 local EVENT_CURRENT, EVENT_STALE, EVENT_REFUSED = 1, 2, 3
 local state = { opts = {}, wasCurrent = nil, requested = nil, lastFields = nil }
+
+--- Auto-rename. A companion is named after its export ("MBR_Baseboard_2"
+--- shows as "MBR Baseboard 2"), on BOTH ids: Composer's tree shows the
+--- PROXY device of a proxied companion (light, shade, thermostat), so
+--- renaming only this Lua's own id changes nothing the dealer sees. The
+--- clobber guard from the Protect children: a device is renamed only while
+--- its name is still the install default or this driver's own last write,
+--- so a dealer who typed a name keeps it. Rename From Export forces it.
+local AUTONAME_KEY = "sl_companion_autoname"
+local DEFAULT_NAME_PREFIX = "SmartBuildOS System Link"
+
+function M.displayName(exportName)
+  return (tostring(exportName or ""):gsub("_", " "))
+end
+
+local function autoName(force)
+  local export = companion.export()
+  if not export then
+    return
+  end
+  local wanted = M.displayName(export)
+  local last = persist:get(AUTONAME_KEY, false)
+  if type(last) ~= "string" then
+    last = ""
+  end
+  local ids = { C4:GetDeviceID() }
+  local okP, proxy = pcall(function()
+    return C4:GetProxyDevices()
+  end)
+  if okP and type(proxy) == "number" and proxy > 0 then
+    ids[#ids + 1] = proxy
+  end
+  local renamed = false
+  for _, id in ipairs(ids) do
+    local okN, current = pcall(function()
+      return C4:GetDeviceData(id, "name")
+    end)
+    current = okN and tostring(current or "") or ""
+    local isDefault = current == "" or current:sub(1, #DEFAULT_NAME_PREFIX) == DEFAULT_NAME_PREFIX
+    local isOurs = last ~= "" and current == last
+    if current == wanted then
+      log:debug("Device %s already named '%s'", tostring(id), wanted)
+    elseif force or isDefault or isOurs then
+      log:info("Renaming device %s: '%s' -> '%s'", tostring(id), current, wanted)
+      pcall(function()
+        C4:RenameDevice(id, wanted)
+      end)
+      renamed = true
+    else
+      log:info(
+        "NOT renaming device %s: '%s' is neither the install default nor this driver's last write — use Rename From Export to override",
+        tostring(id),
+        current
+      )
+    end
+  end
+  if renamed then
+    persist:set(AUTONAME_KEY, wanted)
+  end
+end
 
 local function fire(id)
   pcall(function()
@@ -143,7 +204,15 @@ function M.install(opts)
     if name ~= "" then
       UpdateProperty("Linked Export", name)
       companion.selectExport(name)
+      autoName(false)
     end
+  end
+  EC.RENAME_FROM_EXPORT = function()
+    if not companion.export() then
+      log:warn("Rename From Export: no export is linked yet")
+      return
+    end
+    autoName(true)
   end
   EC.REFRESH_FROM_BRIDGE = function()
     companion.hello()
@@ -179,6 +248,7 @@ function M.install(opts)
   OPC.Linked_Export = function(value)
     if gInitialized then
       companion.selectExport(value)
+      autoName(false)
     end
   end
   -- Trace also turns on the shared handlers' own trace (ReceivedFromProxy,
@@ -224,6 +294,7 @@ function M.install(opts)
     local stored = companion.export()
     if stored then
       UpdateProperty("Linked Export", stored)
+      autoName(false)
     end
     companion.hello()
     companion.armRetry()

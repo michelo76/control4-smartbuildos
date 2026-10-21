@@ -35,6 +35,7 @@
     <documentation file="www/documentation/index.html"></documentation>
     <actions>
       <action><name>Refresh From Bridge</name><command>REFRESH_FROM_BRIDGE</command></action>
+      <action><name>Rename From Export</name><command>RENAME_FROM_EXPORT</command></action>
       <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
     </actions>
     <properties>

@@ -117,6 +117,9 @@ gExports = nil
 gCompanionMap = nil
 local gCompanionSubscribers = {} -- [exportName] = { [deviceId] = true }
 local gAddCompanionInFlight = nil
+--- Auto Setup in progress: { queue = {export...}, added, failed, total }.
+local gAutoSetup = nil
+local AUTO_SETUP_TIMER = "SlAutoSetup"
 
 -- ─── Time helpers ────────────────────────────────────────────────────────────
 
@@ -438,6 +441,7 @@ end
 
 local startSync, doorbellConnect, doorbellStop, paintSelectedValue, paintPendingExports, paintItemList
 local paintRemoteScenes, mirroredExports, loadExports, saveExports, findExport, exportItemFor, licenseFeatures
+local autoSetupStep
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -2490,6 +2494,128 @@ function OnSystemLinkCompanionAdded(deviceId)
     C4:SendToDevice(deviceId, "SBOS_LINK_COMPANION_ASSIGN", { export = pending.name })
   end)
   log:print("Added %s companion for %s (device %d)", pending.kind, pending.name, deviceId)
+  if gAutoSetup then
+    gAutoSetup.added = gAutoSetup.added + 1
+    SetTimer(AUTO_SETUP_TIMER, 250, autoSetupStep)
+  end
+end
+
+-- ─── Auto Setup ──────────────────────────────────────────────────────────────
+--
+-- One action that does what a dealer otherwise does export by export: refresh
+-- the link so every item the linked project shares is mirrored as a variable
+-- here (the engine adds those on sync), then add a companion device for every
+-- shared device that has none yet, one at a time (Director adds one driver
+-- per callback), each assigned and auto-named after its export. Exports with
+-- no companion driver (scenes, buttons: they are virtual) are counted, not
+-- failed. Re-running is safe: present companions are skipped.
+
+local function mirroredVariableCount()
+  local n = 0
+  for _, def in ipairs(schema.registryItems(gEngine.registry)) do
+    if def.mirror then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function autoSetupFinish()
+  local a = gAutoSetup
+  gAutoSetup = nil
+  local text = string.format(
+    "done %s · %d companion(s) added, %d already present, %d failed, %d without a companion driver · %d variable(s) mirrored",
+    formatTime(nowMs()),
+    a.added,
+    a.present,
+    a.failed,
+    a.virtual,
+    mirroredVariableCount()
+  )
+  updateStatus("Auto Setup", text)
+  log:print("Auto Setup: %s", text)
+  paintPendingExports()
+end
+
+autoSetupStep = function()
+  local a = gAutoSetup
+  if not a then
+    return
+  end
+  if gAddCompanionInFlight then
+    -- Director has not called back for the previous one yet.
+    SetTimer(AUTO_SETUP_TIMER, 1000, autoSetupStep)
+    return
+  end
+  if a.current and loadCompanionMap()[a.current] == nil then
+    -- The previous add ended without a device (callback with id 0, or an
+    -- AddDevice refusal already reported on Last Error).
+    a.failed = a.failed + 1
+  end
+  a.current = nil
+  local e = table.remove(a.queue, 1)
+  if not e then
+    autoSetupFinish()
+    return
+  end
+  a.current = e.name
+  updateStatus("Auto Setup", string.format("adding %s (%s), %d to go", e.name, e.kind, #a.queue))
+  addCompanionFor({ id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops })
+  if not gAddCompanionInFlight then
+    SetTimer(AUTO_SETUP_TIMER, 100, autoSetupStep)
+  end
+end
+
+local function autoSetupStart()
+  local a = gAutoSetup
+  if not a then
+    return
+  end
+  local map = loadCompanionMap()
+  local okD, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okD and type(devices) == "table" and devices or {}
+  for _, e in ipairs(mirroredExports(nil)) do
+    local existing = tonumber(map[e.name])
+    local present = existing and (devices[existing] or devices[tostring(existing)]) and true or false
+    if present then
+      a.present = a.present + 1
+    elseif not COMPANION_FILES[e.kind] then
+      a.virtual = a.virtual + 1
+    else
+      a.queue[#a.queue + 1] = e
+    end
+  end
+  table.sort(a.queue, function(x, y)
+    return x.name < y.name
+  end)
+  log:print(
+    "Auto Setup: %d variable(s) mirrored; %d companion(s) to add, %d already present",
+    mirroredVariableCount(),
+    #a.queue,
+    a.present
+  )
+  autoSetupStep()
+end
+
+function EC.AUTO_SETUP()
+  if not gEngine or not gEngine.link then
+    reportError("Auto Setup: link is not provisioned yet")
+    return
+  end
+  if gAutoSetup then
+    reportError("Auto Setup is already running")
+    return
+  end
+  reportError("")
+  gAutoSetup = { queue = {}, added = 0, failed = 0, present = 0, virtual = 0, current = nil }
+  updateStatus("Auto Setup", "refreshing the link…")
+  -- Sync first so exports the linked project shared since the last tick are
+  -- mirrored before the companions are counted; the queue starts once the
+  -- answer has had time to land.
+  SetTimer(SYNC_TIMER, 100, doSync)
+  SetTimer(AUTO_SETUP_TIMER, 2000, autoSetupStart)
 end
 
 -- ─── Composer: link controls ─────────────────────────────────────────────────
