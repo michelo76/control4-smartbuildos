@@ -204,13 +204,19 @@ EC.SBOS_LINK_COMPANION_STATE({
   control = "true",
   window = "Mon–Fri 07:00–22:00 (America/New_York)",
 })
-check("Control Window shows the schedule and that it is closed", Properties["Control Window"] == "Mon–Fri 07:00–22:00 (America/New_York) — closed now", Properties["Control Window"])
+check(
+  "Control Window shows the schedule and that it is closed",
+  Properties["Control Window"] == "Mon–Fri 07:00–22:00 (America/New_York) — closed now",
+  Properties["Control Window"]
+)
 sent = {}
 local refusedBefore = countFired(3)
 RFP.ON(5001)
 check(
   "a command while the window is closed is refused here, with the window named, and nothing is sent",
-  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil and Properties["Last Result"]:find("outside the control window %(Mon–Fri") ~= nil and countFired(3) == refusedBefore + 1,
+  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil
+    and Properties["Last Result"]:find("outside the control window %(Mon–Fri") ~= nil
+    and countFired(3) == refusedBefore + 1,
   Properties["Last Result"]
 )
 table.remove(fired) -- keep the later refusal count unaffected
@@ -224,8 +230,17 @@ EC.SBOS_LINK_COMPANION_STATE({
 })
 check("open now", Properties["Control Window"]:find("open now") ~= nil, Properties["Control Window"])
 RFP.ON(5001)
-check("the command goes through once the window is open", lastSent("SBOS_LINK_COMPANION_CONTROL") ~= nil and lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on")
-EC.SBOS_LINK_COMPANION_STATE({ export = "Porch_Light", fields = JSON:encode({ On = true, Level = 40 }), fresh = "current", state = "Ready", control = "true" })
+check(
+  "the command goes through once the window is open",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") ~= nil and lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on"
+)
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40 }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+})
 check("no schedule: none", Properties["Control Window"] == "none", Properties["Control Window"])
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",
@@ -318,6 +333,70 @@ EC.SBOS_LINK_COMPANION_STATE({
 check("feedback CLOSED notifies the RELAY binding", lastNotify("CLOSED") ~= nil and TC.RELAY_CLOSED() == true)
 RFP.GET_STATE(200)
 check("GET_STATE answers STATE_CLOSED from confirmed state", lastNotify("STATE_CLOSED") ~= nil)
+
+print("\n[6] media room companion: variables, events, no control")
+sent, notifies, fired = {}, {}, {}
+Properties["Linked Export"] = "-"
+persisted = {}
+package.loaded["systemlink.companiondriver"] = nil
+package.loaded["systemlink.companion"] = nil
+local mediaVars = {}
+local savedAddVar, savedSetVar = C4.AddVariable, C4.SetVariable
+function C4:AddVariable(name, default, vtype, readOnly)
+  mediaVars[name] = { value = default, readOnly = readOnly }
+end
+function C4:SetVariable(name, value)
+  if mediaVars[name] then
+    mediaVars[name].value = value
+  end
+end
+dofile("drivers/smartbuildos-system-link-media/driver.lua")
+OnDriverInit()
+OnDriverLateInit()
+check(
+  "read-only variables exist for programming",
+  mediaVars.Powered
+    and mediaVars.Powered.readOnly == true
+    and mediaVars.Source ~= nil
+    and mediaVars.Volume ~= nil
+    and mediaVars.Media ~= nil
+)
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Kitchen_Room" })
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Kitchen_Room",
+  fields = JSON:encode({ Powered = true, Source = "Kitchen TV", Volume = 32, Media = JSON.null }),
+  fresh = "current",
+  state = "Ready",
+  control = "false",
+})
+check(
+  "confirmed state reads on · source · volume",
+  Properties["Confirmed State"] == "On · Kitchen TV · volume 32",
+  Properties["Confirmed State"]
+)
+check(
+  "variables follow the fields",
+  mediaVars.Powered.value == "1"
+    and mediaVars.Source.value == "Kitchen TV"
+    and mediaVars.Volume.value == "32"
+    and TC.ROOM_ON() == true
+)
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Kitchen_Room",
+  fields = JSON:encode({ Powered = false, Source = "", Volume = 0, Media = JSON.null }),
+  fresh = "current",
+  state = "Ready",
+  control = "false",
+})
+check(
+  "a live power change fires Remote Room Off and the state reads Off",
+  countFired(5) == 1 and Properties["Confirmed State"] == "Off" and TC.ROOM_ON() == false
+)
+check(
+  "no control verb: nothing was ever sent to the bridge as a command",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil
+)
+C4.AddVariable, C4.SetVariable = savedAddVar, savedSetVar
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

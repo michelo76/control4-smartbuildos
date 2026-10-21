@@ -33,6 +33,7 @@ local inherited = {
   ["smartbuildos-system-link-temperature"] = "smartbuildos-system-link",
   ["smartbuildos-system-link-thermostat"] = "smartbuildos-system-link",
   ["smartbuildos-system-link-shade"] = "smartbuildos-system-link",
+  ["smartbuildos-system-link-media"] = "smartbuildos-system-link",
   ["unifi-protect-camera"] = "unifi-protect",
   ["unifi-protect-light"] = "unifi-protect",
   ["unifi-protect-sensor"] = "unifi-protect",

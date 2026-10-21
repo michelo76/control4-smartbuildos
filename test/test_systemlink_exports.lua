@@ -80,6 +80,34 @@ check(
   exports.mapValue(relay, "Closed", "CLOSED") == true and exports.mapValue(relay, "Closed", "OPENED") == false
 )
 
+local media = exports.define({ id = "m", name = "Kitchen", kind = "media", device_id = 7, control = true }, FEATURES)
+check(
+  "a media export is view-only even when control is asked for",
+  media ~= nil and media.control == false,
+  media and media.control
+)
+check(
+  "a room's measured variables resolve the media fields",
+  (function()
+    local r = exports.resolveVariables(media, {
+      ["1"] = { name = "POWER_STATE" },
+      ["2"] = { name = "CURRENT_SELECTED_DEVICE" },
+      ["3"] = { name = "CURRENT_VOLUME" },
+      ["4"] = { name = "CURRENT MEDIA INFO" },
+    })
+    return r.Powered.id == 1 and r.Source.id == 2 and r.Volume.id == 3 and r.Media.id == 4
+  end)()
+)
+check(
+  "media mapping: power words, text trimmed and bounded, blank source is unavailable",
+  exports.mapValue(media, "Powered", "ON") == true
+    and exports.mapValue(media, "Powered", "OFF") == false
+    and exports.mapValue(media, "Media", "  Now   Playing  ") == "Now Playing"
+    and exports.mapValue(media, "Source", "") == nil
+    and #exports.mapValue(media, "Media", string.rep("x", 400)) == 256
+    and exports.fieldMap(media, "Source") == "device_name"
+)
+
 print("\n[3] schedules")
 local sched = {
   tz = "America/Los_Angeles",

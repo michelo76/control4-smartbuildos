@@ -215,7 +215,7 @@
         <params>
           <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
           <param><name>NAME</name><type>STRING</type></param>
-          <param><name>KIND</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items></param>
+          <param><name>KIND</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item><item>media</item></items></param>
           <param><name>CONTROL</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items></param>
           <param><name>OPS</name><type>STRING</type></param>
         </params>
@@ -299,7 +299,7 @@
       <property><name>Template</name><type>DYNAMIC_LIST</type><default>-</default><description>A setup recipe. Print Template lists what it creates and the Composer programming to write on each side; Apply Template creates the recipe's shared items on this bridge (existing names are left as they are) and prints the same steps. Exports and companions are never created by a template.</description></property>
       <property><name>Configuration Import</name><type>STRING</type><default></default><description>Paste a configuration export (from Print Configuration Export on any bridge) here, then Preview Configuration Import to see what it would create, and Apply Configuration Import to create this bridge's items. Ids are re-minted; exports and companions are never imported.</description></property>
       <property><name>Device Exports</name><type>LABEL</type><default>Device Exports</default></property>
-      <property><name>Export Kind</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items><default>light</default><description>What the linked project will see this device as. Changing it refreshes the device list below.</description></property>
+      <property><name>Export Kind</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item><item>media</item></items><default>light</default><description>What the linked project will see this device as (media = a room's playing state, read-only). Changing it refreshes the device list below.</description></property>
       <property><name>Export Device Filter</name><type>LIST</type><items><item>Devices that fit the kind</item><item>All devices</item></items><default>Devices that fit the kind</default><description>Fit = the device carries the variables the kind reads (a light's LIGHT_STATE, …). Its physical driver usually shares the name and fits nothing; All devices shows those too, flagged.</description></property>
       <property><name>Export Device</name><type>DYNAMIC_LIST</type><default>-</default><description>The local device to share with the linked project, as "Name (Room) · id". Picking one fills Export Name when it is empty. Refresh Export Device List rebuilds the list.</description></property>
       <property><name>Export Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Becomes &lt;Alias&gt;.&lt;Name&gt;_On, _Level, … on the other side.</description></property>

@@ -94,7 +94,9 @@ function M.install(opts)
       end
       UpdateProperty(
         "Control Window",
-        state.window and (state.window .. (open == false and " — closed now" or open == true and " — open now" or "")) or "none"
+        state.window
+            and (state.window .. (open == false and " — closed now" or open == true and " — open now" or ""))
+          or "none"
       )
       UpdateProperty("Bridge Link", "Connected to bridge " .. tostring(companion.findBridge() or "?"))
       local current = fresh == "current"

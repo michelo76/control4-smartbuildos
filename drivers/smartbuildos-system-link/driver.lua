@@ -108,6 +108,7 @@ local COMPANION_FILES = {
   temperature = "smartbuildos-system-link-temperature.c4z",
   thermostat = "smartbuildos-system-link-thermostat.c4z",
   shade = "smartbuildos-system-link-shade.c4z",
+  media = "smartbuildos-system-link-media.c4z",
 }
 gExports = nil
 gCompanionMap = nil
@@ -1203,6 +1204,19 @@ local function onSourceVariable(exp, suffix, value)
   if not def then
     return
   end
+  if exportsModel.fieldMap(exp, suffix) == "device_name" then
+    -- A room's CURRENT_SELECTED_DEVICE is a device id; the other side wants
+    -- the name. 0 / blank means no source.
+    local id = tonumber(value)
+    if id and id > 0 then
+      local okN, name = pcall(function()
+        return C4:GetDeviceData(id, "name")
+      end)
+      value = okN and type(name) == "string" and name ~= "" and name or tostring(id)
+    else
+      value = ""
+    end
+  end
   local mapped = exportsModel.mapValue(exp, suffix, value)
   if mapped == nil then
     local cur = gEngine.values[def.id]
@@ -1288,6 +1302,7 @@ local EXPORT_KIND_HINTS = {
   temperature = { "temperature", "thermostat" },
   thermostat = { "thermostat" },
   shade = { "blind", "shade" },
+  media = { "room" },
 }
 
 local function exportDeviceEntries()
