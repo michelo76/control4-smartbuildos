@@ -174,7 +174,7 @@ EC.SBOS_LINK_COMPANION_STATE({
 local n = lastNotify("LIGHT_BRIGHTNESS_CHANGED")
 check(
   "confirmed level shown on the proxy",
-  n and n.params.LIGHT_BRIGHTNESS_CURRENT == 40 and lastNotify("ONLINE_CHANGED").params.STATE == "TRUE",
+  n and n.params.LIGHT_BRIGHTNESS_CURRENT == 40 and lastNotify("ONLINE_CHANGED").params.STATE == true,
   n and n.params.LIGHT_BRIGHTNESS_CURRENT
 )
 check("Confirmed State property", Properties["Confirmed State"] == "On 40%", Properties["Confirmed State"])
@@ -191,6 +191,37 @@ check(
 check(
   "Requested State separate from Confirmed",
   Properties["Requested State"]:match("^75%%") and Properties["Confirmed State"] == "On 40%"
+)
+local chg = lastNotify("LIGHT_BRIGHTNESS_CHANGING")
+check(
+  "slider → LIGHT_BRIGHTNESS_CHANGING carries confirmed current, target and rate",
+  chg
+    and chg.params.LIGHT_BRIGHTNESS_CURRENT == 40
+    and chg.params.LIGHT_BRIGHTNESS_TARGET == 75
+    and chg.params.RATE == 500,
+  chg and JSON:encode(chg.params)
+)
+check(
+  "LIGHT_LEVEL still sent beside LIGHT_BRIGHTNESS_CHANGED (Hue sends both)",
+  lastNotify("LIGHT_LEVEL").params.LEVEL == 40
+)
+-- Navigator taps on OS 3 arrive as BUTTON_ACTION, not ON/OFF.
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "0", ACTION = "2" })
+check("BUTTON_ACTION top click → on", lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on")
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "1", ACTION = "2" })
+check("BUTTON_ACTION bottom click → off", lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "off")
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "2", ACTION = "2" })
+check(
+  "BUTTON_ACTION toggle click while confirmed On → off",
+  lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "off"
+)
+local before = #sent
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "0", ACTION = "1" })
+check("BUTTON_ACTION press (not click) sends no control", #sent == before)
+RFP.GET_LIGHT_LEVEL(5001)
+check(
+  "GET_LIGHT_LEVEL answers the confirmed level",
+  lastNotify("LIGHT_BRIGHTNESS_CHANGED").params.LIGHT_BRIGHTNESS_CURRENT == 40
 )
 EC.SBOS_LINK_COMPANION_RESULT({ export = "Porch_Light", op = "set_level", status = "accepted", reason = "" })
 check("Last Result accepted", Properties["Last Result"] == "accepted")
@@ -300,8 +331,8 @@ EC.SBOS_LINK_COMPANION_STATE({
   control = "false",
 })
 check(
-  "stale → ONLINE_CHANGED FALSE and Remote Value Stale event",
-  lastNotify("ONLINE_CHANGED").params.STATE == "FALSE" and countFired(2) == 1 and TC.REMOTE_CURRENT() == false
+  "stale → ONLINE_CHANGED false and Remote Value Stale event",
+  lastNotify("ONLINE_CHANGED").params.STATE == false and countFired(2) == 1 and TC.REMOTE_CURRENT() == false
 )
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",

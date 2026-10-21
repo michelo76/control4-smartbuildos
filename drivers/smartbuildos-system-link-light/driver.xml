@@ -62,11 +62,28 @@
     <proxy proxybindingid="5001" name="System Link Light" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">light_v2</proxy>
   </proxies>
   <capabilities>
-    <supports_target>true</supports_target>
-    <set_level>true</set_level>
-    <dimmer>true</dimmer>
-    <has_button_events>false</has_button_events>
-    <supports_color>false</supports_color>
+    <!-- The set the first-party light_v2 drivers declare (Philips Hue, Lutron
+         LEAP) and our hardware-tested LuminaLogic light: without on_off and
+         ramp_level Navigator showed the companion without a slider. -->
+    <dimmer>True</dimmer>
+    <on_off>True</on_off>
+    <set_level>True</set_level>
+    <ramp_level>True</ramp_level>
+    <level_target>True</level_target>
+    <supports_target>True</supports_target>
+    <min_max>False</min_max>
+    <click_rates>False</click_rates>
+    <hold_rates>False</hold_rates>
+    <cold_start>False</cold_start>
+    <has_leds>False</has_leds>
+    <has_button_events>False</has_button_events>
+    <supports_color>False</supports_color>
+    <supports_default_on>False</supports_default_on>
+    <load_group_support>True</load_group_support>
+    <advanced_scene_support>False</advanced_scene_support>
+    <buttons_are_virtual>True</buttons_are_virtual>
+    <hide_proxy_events>False</hide_proxy_events>
+    <hide_proxy_properties>False</hide_proxy_properties>
   </capabilities>
   <connections>
     <connection>
