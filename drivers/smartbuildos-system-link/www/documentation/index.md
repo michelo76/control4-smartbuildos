@@ -224,6 +224,17 @@ only; events are never filtered. The source value and the published value are
 kept apart; filter delay is reported separately from transport latency in the
 state message. Defaults publish immediately.
 
+## Control windows on companions
+
+When an export has a schedule (Set Export Schedule), the owner publishes a
+`<Name>_Window` BOOLEAN field that it evaluates once a minute with its own
+clock, the only clock that can. The companion on the other side shows the
+schedule in **Control Window** ("Mon–Fri 07:00–22:00 (America/New_York) —
+closed now") and, while it is closed, refuses a command locally with the
+window named in **Last Result** (and fires Control Refused) instead of a
+round trip that comes back "outside the permitted schedule". The owner still
+enforces the schedule itself.
+
 ## Freshness and Remote System State
 
 Each mirror tracks last source update and last confirmation. A value that has

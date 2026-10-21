@@ -47,9 +47,28 @@ end
 
 --- Sends a control request and records the desired state separately from
 --- the confirmed state (which only the owner's feedback updates).
+--- The owner's control window, as last pushed: text and whether it is open
+--- now (the owner's own verdict, from its own clock). nil = no schedule.
+local function windowState()
+  local fields = state.lastFields or {}
+  local open = fields.Window
+  if open == JSON.null then
+    open = nil
+  end
+  return state.window, open
+end
+
 function M.control(op, params, requestedText)
   if not companion.export() then
     UpdateProperty("Last Result", "no export selected")
+    return false
+  end
+  local text, open = windowState()
+  if open == false then
+    -- Refused here, with the window shown, instead of a round trip that
+    -- comes back "outside the permitted schedule".
+    UpdateProperty("Last Result", "refused: outside the control window (" .. tostring(text or "schedule") .. ")")
+    fire(EVENT_REFUSED)
     return false
   end
   state.requested = { op = op, params = params, at = os.time() }
@@ -68,6 +87,15 @@ function M.install(opts)
       UpdateProperty("Freshness", fresh)
       UpdateProperty("Remote System State", tostring(meta.remote_state or "Offline"))
       UpdateProperty("Control", meta.control and "control permitted" or "view only / suspended")
+      state.window = meta.window ~= "" and meta.window or nil
+      local open = fields.Window
+      if open == JSON.null then
+        open = nil
+      end
+      UpdateProperty(
+        "Control Window",
+        state.window and (state.window .. (open == false and " — closed now" or open == true and " — open now" or "")) or "none"
+      )
       UpdateProperty("Bridge Link", "Connected to bridge " .. tostring(companion.findBridge() or "?"))
       local current = fresh == "current"
       if state.wasCurrent ~= current then

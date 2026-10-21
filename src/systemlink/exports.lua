@@ -249,7 +249,36 @@ function M.describe(exp)
     control = exp.control,
     ops = exp.ops,
     schedule_tz = exp.schedule and exp.schedule.tz or nil,
+    -- The windows travel too (no secrets in them) so the companion can show
+    -- the control window instead of a bare refusal.
+    schedule = exp.schedule,
   }
+end
+
+local DAY_NAMES = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
+
+--- "Mon–Fri 07:00–22:00; Sat,Sun 09:00–20:00 (America/New_York)" or nil.
+function M.scheduleText(schedule)
+  if type(schedule) ~= "table" or type(schedule.windows) ~= "table" then
+    return nil
+  end
+  local parts = {}
+  for _, w in ipairs(schedule.windows) do
+    local days = {}
+    for _, d in ipairs(w.days or {}) do
+      days[#days + 1] = DAY_NAMES[d] or tostring(d)
+    end
+    local dayText
+    if #days == 7 then
+      dayText = "every day"
+    elseif #days == 5 and table.concat(days, ",") == "Mon,Tue,Wed,Thu,Fri" then
+      dayText = "Mon–Fri"
+    else
+      dayText = table.concat(days, ",")
+    end
+    parts[#parts + 1] = string.format("%s %s–%s", dayText, tostring(w.from), tostring(w.to))
+  end
+  return table.concat(parts, "; ") .. (schedule.tz and (" (" .. tostring(schedule.tz) .. ")") or "")
 end
 
 --- The shared-item definitions an export contributes.

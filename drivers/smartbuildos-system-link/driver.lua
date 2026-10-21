@@ -569,6 +569,7 @@ local function paintStatus()
   end
   paintSelectedValue()
   paintLinkHealth()
+  evaluateExportWindows(false)
   -- Inbound schema changes (the peer exported a device) arrive on a sync,
   -- not on a dealer action: the lists are repainted here, deduped.
   if paintItemList then
@@ -1661,6 +1662,54 @@ function EC.RENAME_SELECTED_EXPORT()
   reportError("")
 end
 
+-- The control window as a published BOOLEAN field "<Name>_Window": the
+-- OWNER evaluates its own schedule with its own clock (the only clock that
+-- can), publishes open/closed, and the companion on the other side shows
+-- the window and refuses locally while it is closed, instead of sending a
+-- command that comes back "outside the permitted schedule".
+function ensureWindowField(exp)
+  exp.fields = exp.fields or {}
+  if exp.fields.Window and exp.fields.Window.item_id and gEngine.registry.items[exp.fields.Window.item_id] then
+    return
+  end
+  local def = {
+    name = exp.name .. "_Window",
+    type = "BOOLEAN",
+    owner = gEngine.link.endpoint,
+    group = exp.name,
+    description = "Control window open",
+    companion = exportsModel.describe(exp),
+    export_enabled = true,
+  }
+  def.companion.field = "Window"
+  local created, err = gEngine:createItem(def, nil)
+  if not created then
+    reportError("Schedule: " .. tostring(err))
+    return
+  end
+  exp.fields.Window = { item_id = created.id }
+end
+
+-- Every tick is too often for a schedule; once a minute (or when forced).
+local gWindowsEvaluatedAt = 0
+function evaluateExportWindows(force)
+  if not gEngine or not gEngine.link then
+    return
+  end
+  local now = nowMs()
+  if not force and now - gWindowsEvaluatedAt < 60 * 1000 then
+    return
+  end
+  gWindowsEvaluatedAt = now
+  local clock = os.date("*t")
+  for _, exp in pairs(loadExports()) do
+    if exp.schedule and exp.fields and exp.fields.Window and exp.fields.Window.item_id then
+      local allowed = exportsModel.scheduleAllows(exp.schedule, clock)
+      gEngine:setLocal(exp.fields.Window.item_id, allowed and "true" or "false")
+    end
+  end
+end
+
 function EC.Set_Export_Schedule(tParams)
   tParams = tParams or {}
   local exp = findExport(tParams.NAME)
@@ -1682,14 +1731,23 @@ function EC.Set_Export_Schedule(tParams)
     return
   end
   exp.schedule = schedule
+  ensureWindowField(exp)
   saveExports()
+  gEngine:queueSchema()
+  evaluateExportWindows(true)
+  SetTimer(SYNC_TIMER, 100, doSync)
 end
 
 function EC.Clear_Export_Schedule(tParams)
   local exp = findExport((tParams or {}).NAME)
   if exp then
     exp.schedule = nil
+    if exp.fields and exp.fields.Window and exp.fields.Window.item_id then
+      gEngine:deleteItem(exp.fields.Window.item_id)
+      exp.fields.Window = nil
+    end
     saveExports()
+    SetTimer(SYNC_TIMER, 100, doSync)
   end
 end
 
@@ -1757,7 +1815,15 @@ local function mirroredExports(kind)
     if c and (kind == nil or kind == "" or c.kind == kind) then
       local entry = byName[c.name]
       if not entry then
-        entry = { id = c.id, name = c.name, kind = c.kind, control = c.control == true, ops = c.ops or {}, fields = {} }
+        entry = {
+          id = c.id,
+          name = c.name,
+          kind = c.kind,
+          control = c.control == true,
+          ops = c.ops or {},
+          fields = {},
+          window = exportsModel.scheduleText(c.schedule),
+        }
         byName[c.name] = entry
       end
       entry.fields[c.field] = def.id
@@ -1802,6 +1868,7 @@ local function pushCompanionState(entry, deviceId)
       fresh = fresh,
       state = tostring(gEngine.remoteState or "Offline"),
       control = entry.control and gEngine:commandsPermitted() and "true" or "false",
+      window = entry.window or "",
     })
   end)
 end
