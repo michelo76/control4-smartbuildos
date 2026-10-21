@@ -1032,6 +1032,19 @@ local function exportDeviceEntries()
   local me = C4:GetDeviceID()
   local kind = tostring(Properties["Export Kind"] or "light"):lower()
   local hints = EXPORT_KIND_HINTS[kind] or {}
+  -- A device fits when it carries at least one variable the kind's fields
+  -- read. A light's physical driver and the light itself share a name in
+  -- most projects; only the latter has LIGHT_STATE (bench 2026-10-20: the
+  -- wrong one was exported and every field came out "unavailable").
+  local function fits(id)
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(id)
+    end)
+    if not okV or type(vars) ~= "table" then
+      return false
+    end
+    return next(exportsModel.resolveVariables({ kind = kind }, vars)) ~= nil
+  end
   local likely, others = {}, {}
   for rawId, device in pairs(devices) do
     local id = tonumber(rawId)
@@ -1047,15 +1060,21 @@ local function exportDeviceEntries()
       if name == "" then
         name = "device"
       end
-      local entry = { id = id, label = string.format("%s · %d", name:gsub(",", " "), id) }
-      local matched = false
+      local clean = name:gsub(",", " ")
+      local fit = fits(id)
+      local hinted = false
       for _, hint in ipairs(hints) do
         if file:find(hint, 1, true) then
-          matched = true
+          hinted = true
           break
         end
       end
-      if matched then
+      local entry = {
+        id = id,
+        label = fit and string.format("%s · %d", clean, id)
+          or string.format("%s · %d (no %s variables)", clean, id, kind),
+      }
+      if fit or hinted then
         likely[#likely + 1] = entry
       else
         others[#others + 1] = entry
@@ -1128,6 +1147,38 @@ function EC.Export_Device(tParams)
   if findExport(exp.name) then
     reportError("Export: name already used")
     return
+  end
+  do
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(deviceId)
+    end)
+    local resolved = okV and type(vars) == "table" and exportsModel.resolveVariables(exp, vars) or {}
+    if next(resolved) == nil then
+      local wanted, found = {}, {}
+      for _, f in ipairs(exportsModel.FIELDS[kind] or {}) do
+        for _, cand in ipairs(f.vars) do
+          wanted[#wanted + 1] = cand
+        end
+      end
+      for _, v in pairs(okV and type(vars) == "table" and vars or {}) do
+        if type(v) == "table" and v.name then
+          found[#found + 1] = tostring(v.name)
+        end
+      end
+      table.sort(found)
+      reportError(
+        string.format(
+          "Export: %s (device %d) has none of the variables a %s export reads (%s). Pick the %s itself, not its protocol driver. It has: %s",
+          tostring(exp.device_name or "device"),
+          deviceId,
+          kind,
+          table.concat(wanted, ", "),
+          kind,
+          #found > 0 and table.concat(found, ", ") or "no variables"
+        )
+      )
+      return
+    end
   end
   for _, def in ipairs(exportsModel.itemDefinitions(exp, gEngine.link.endpoint)) do
     local created, cerr = gEngine:createItem(def, nil)
