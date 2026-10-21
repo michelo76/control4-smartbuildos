@@ -90,7 +90,7 @@
       <id>5001</id>
       <facing>6</facing>
       <connectionname>Light</connectionname>
-      <type>1</type>
+      <type>2</type>
       <consumer>False</consumer>
       <audiosource>False</audiosource>
       <videosource>False</videosource>
