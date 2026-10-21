@@ -680,6 +680,49 @@ check("applying again creates nothing new", gEngine:statusProperties()["Local Va
 EC.PRINT_TEMPLATE()
 check("Print Template leaves the registry alone", gEngine:statusProperties()["Local Variables Created"] == before)
 
+print("\n[3c2] Configuration export / import through the driver")
+local printedLines = {}
+local savedPrint = print
+print = function(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[#parts + 1] = tostring(select(i, ...))
+  end
+  printedLines[#printedLines + 1] = table.concat(parts, "\t")
+  savedPrint(...)
+end
+EC.PRINT_CONFIGURATION_EXPORT()
+print = savedPrint
+local exported = printedLines[#printedLines]
+local okDoc, exportedDoc = pcall(function()
+  return JSON:decode(exported)
+end)
+check("Print Configuration Export prints a JSON document with this bridge's items", okDoc and type(exportedDoc) == "table" and exportedDoc.version == 1 and #exportedDoc.items > 0, exported and exported:sub(1, 80))
+Properties["Configuration Import"] = "not json"
+EC.PREVIEW_CONFIGURATION_IMPORT()
+check("a non-JSON paste is refused", Properties["Last Error"]:find("not valid JSON") ~= nil, Properties["Last Error"])
+Properties["Configuration Import"] = JSON:encode({
+  version = 1,
+  items = {
+    { source_id = "s1", owner_role = gEngine.link.role, definition = { name = "Imported_Flag", type = "BOOLEAN", group = "Imported" } },
+    { source_id = "s2", owner_role = gEngine.link.role == "a" and "b" or "a", definition = { name = "Theirs", type = "STRING" } },
+    { source_id = "s3", owner_role = gEngine.link.role, definition = { name = "Away", type = "BOOLEAN" } },
+  },
+})
+EC.PREVIEW_CONFIGURATION_IMPORT()
+check("preview writes nothing", gEngine:findByName("Imported_Flag") == nil and Properties["Last Error"] == "")
+EC.APPLY_CONFIGURATION_IMPORT()
+local imported = gEngine:findByName("Imported_Flag")
+check(
+  "apply creates this bridge's items with new ids, skips existing names and the other role's items",
+  imported ~= nil and imported.id ~= "s1" and imported.group == "Imported" and gEngine:findByName("Theirs") == nil and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+Properties["Configuration Import"] = JSON:encode({ version = 1, items = {}, license = "x" })
+EC.APPLY_CONFIGURATION_IMPORT()
+check("a paste with secret-looking fields is refused", Properties["Last Error"]:find("Import refused") ~= nil, Properties["Last Error"])
+Properties["Configuration Import"] = ""
+
 print("\n[3d] Selected Export: rename and remove from the Properties block")
 check(
   "Selected Export lists the exports",
