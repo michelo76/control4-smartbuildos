@@ -478,6 +478,31 @@ assert(NY:emitEvent("Doorbell", "front"))
 sync(NY, "ep-ny")
 sync(CA, "ep-ca")
 check("two occurrences delivered as two events", countEvent(ioCA, "NAMED_EVENT_RECEIVED") == 2 and #ioCA.named == 2)
+
+print("\n[link test] ping/pong through the relay, invisible to Composer")
+local eventsBefore, namedBefore = countEvent(ioCA, "NAMED_EVENT_RECEIVED"), #ioCA.named
+local lastNameBefore = ioCA.vars["California.Last_Event_Name"] and ioCA.vars["California.Last_Event_Name"].value
+check("a dealer cannot emit a reserved name", select(1, NY:emitEvent("__sl_ping", {}, 30)) == false)
+assert(NY:startLinkTest())
+check("the test starts running", NY:linkTestState() == "running")
+sync(NY, "ep-ny") -- ping goes up
+sync(CA, "ep-ca") -- CA receives the ping and queues the pong
+sync(CA, "ep-ca") -- pong goes up
+advance(700)
+sync(NY, "ep-ny") -- NY receives the pong
+local st, rtt = NY:linkTestState()
+check(
+  "the round trip completes with a measured time",
+  st == "done" and type(rtt) == "number" and rtt > 0,
+  tostring(st) .. " " .. tostring(rtt)
+)
+check(
+  "the peer saw no Composer event and no Last_Event change from the ping",
+  countEvent(ioCA, "NAMED_EVENT_RECEIVED") == eventsBefore
+    and #ioCA.named == namedBefore
+    and (ioCA.vars["California.Last_Event_Name"] and ioCA.vars["California.Last_Event_Name"].value) == lastNameBefore
+)
+NY.linkTest = nil
 check(
   "last event variables set with origin and timezone",
   varValue(ioCA, "California.Last_Event_Name") == "Doorbell"
@@ -693,7 +718,10 @@ check(
 )
 check(
   "the refusal is remembered for Link Health with the item, reason and time",
-  CA2.lastRefusal ~= nil and CA2.lastRefusal.reason == "stale revision" and CA2.lastRefusal.what == "Away" and CA2.lastRefusal.at ~= nil,
+  CA2.lastRefusal ~= nil
+    and CA2.lastRefusal.reason == "stale revision"
+    and CA2.lastRefusal.what == "Away"
+    and CA2.lastRefusal.at ~= nil,
   CA2.lastRefusal and CA2.lastRefusal.reason
 )
 sync(CA2, "ep-ca")
