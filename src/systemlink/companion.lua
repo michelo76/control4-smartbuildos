@@ -80,7 +80,7 @@ function M.setup(opts)
         state.opts.onState,
         state.fields,
         state.fresh,
-        { remote_state = tParams.state, control = tParams.control == "true" }
+        { remote_state = tParams.state, control = tParams.control == "true", window = tostring(tParams.window or "") }
       )
     end
   end

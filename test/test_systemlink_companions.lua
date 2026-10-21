@@ -126,6 +126,7 @@ for _, p in ipairs({
   "Last Result",
   "Driver Status",
   "Driver Version",
+  "Control Window",
 }) do
   Properties[p] = ""
 end
@@ -193,6 +194,39 @@ check(
 )
 EC.SBOS_LINK_COMPANION_RESULT({ export = "Porch_Light", op = "set_level", status = "accepted", reason = "" })
 check("Last Result accepted", Properties["Last Result"] == "accepted")
+
+print("\n[1b] the owner's control window is shown and enforced locally")
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40, Window = false }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+  window = "Mon–Fri 07:00–22:00 (America/New_York)",
+})
+check("Control Window shows the schedule and that it is closed", Properties["Control Window"] == "Mon–Fri 07:00–22:00 (America/New_York) — closed now", Properties["Control Window"])
+sent = {}
+local refusedBefore = countFired(3)
+RFP.ON(5001)
+check(
+  "a command while the window is closed is refused here, with the window named, and nothing is sent",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil and Properties["Last Result"]:find("outside the control window %(Mon–Fri") ~= nil and countFired(3) == refusedBefore + 1,
+  Properties["Last Result"]
+)
+table.remove(fired) -- keep the later refusal count unaffected
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40, Window = true }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+  window = "Mon–Fri 07:00–22:00 (America/New_York)",
+})
+check("open now", Properties["Control Window"]:find("open now") ~= nil, Properties["Control Window"])
+RFP.ON(5001)
+check("the command goes through once the window is open", lastSent("SBOS_LINK_COMPANION_CONTROL") ~= nil and lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on")
+EC.SBOS_LINK_COMPANION_STATE({ export = "Porch_Light", fields = JSON:encode({ On = true, Level = 40 }), fresh = "current", state = "Ready", control = "true" })
+check("no schedule: none", Properties["Control Window"] == "none", Properties["Control Window"])
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",
   fields = JSON:encode({ On = true, Level = 75 }),

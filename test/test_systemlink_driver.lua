@@ -854,6 +854,15 @@ check("variable NOT written by the command (feedback only)", variables["Californ
 EC.Set_Export_Schedule({ NAME = "Porch_Light", DAYS = "1", FROM = "00:00", TO = "00:01" })
 local okSched, whySched = OnSystemLinkCommand({ routine = "light.on", target = exp.id }, "cmd-2")
 check("schedule refuses outside the window", not okSched and tostring(whySched):match("schedule"), whySched)
+local windowItem = gEngine:findByName("Porch_Light_Window")
+check(
+  "a schedule publishes a <Name>_Window field the owner evaluates with its own clock (closed now)",
+  windowItem ~= nil and windowItem.companion.field == "Window" and variables["California.Porch_Light_Window"] == "0",
+  tostring(variables["California.Porch_Light_Window"])
+)
+check("the companion metadata now carries the windows for the other side to show", windowItem.companion.schedule ~= nil and windowItem.companion.schedule.windows[1].from == "00:00")
+EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
+check("clearing the schedule removes the field", gEngine:findByName("Porch_Light_Window") == nil)
 EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
 check(
   "thermostat export refused without the gated feature",
