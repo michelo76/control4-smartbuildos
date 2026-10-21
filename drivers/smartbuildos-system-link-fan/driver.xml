@@ -1,0 +1,71 @@
+<devicedata>
+  <name>SmartBuildOS System Link Fan</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>System Link Fan</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>10/21/2026 12:00 AM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Others</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>REMOTE_CURRENT</name>
+      <type>BOOL</type>
+      <condition_statement>Remote Value Is Current</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>current</true_text>
+      <false_text>not current</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>FAN_ON</name>
+      <type>BOOL</type>
+      <condition_statement>Remote Fan Is On</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>on</true_text>
+      <false_text>off</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Remote Value Current</name><description>The export's values became current.</description></event>
+    <event><id>2</id><name>Remote Value Stale</name><description>The export's values are stale, unknown or unavailable.</description></event>
+    <event><id>3</id><name>Control Refused</name><description>The owner refused a control request (see Last Result).</description></event>
+    <event><id>4</id><name>Remote Fan On</name><description>The remote fan reported a speed above 0.</description></event>
+    <event><id>5</id><name>Remote Fan Off</name><description>The remote fan reported speed 0.</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Bridge</name><command>REFRESH_FROM_BRIDGE</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Test: Remote On</name><command>TEST_ON</command></action>
+      <action><name>Test: Remote Off</name><command>TEST_OFF</command></action>
+      <action><name>Test: Remote Speed 5</name><command>TEST_SPEED_5</command></action>
+    </actions>
+    <properties>
+      <property><name>Linked Export</name><type>DYNAMIC_LIST</type><default>-</default><description>Which fan export of the linked project this instance presents. The list is filled by the System Link bridge.</description></property>
+      <property><name>Bridge Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
+      <property><name>Remote System State</name><type>STRING</type><default>Offline</default><readonly>true</readonly></property>
+      <property><name>Freshness</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
+      <property><name>Control Window</name><type>STRING</type><default>none</default><readonly>true</readonly><description>The owner's control schedule for this export, and whether it is open now. Commands are refused here while it is closed.</description></property>
+      <property><name>Confirmed State</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Requested State</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <connections></connections>
+</devicedata>
