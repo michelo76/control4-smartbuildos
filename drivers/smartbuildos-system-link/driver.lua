@@ -1016,7 +1016,14 @@ function EC.PRINT_CONFIGURATION_EXPORT()
     return
   end
   reportError("")
-  print(string.format("Configuration export (version %d, %d items, %d groups). Paste the next line into Configuration Import on the other bridge or keep it with the project:", doc.version, #doc.items, #doc.groups))
+  print(
+    string.format(
+      "Configuration export (version %d, %d items, %d groups). Paste the next line into Configuration Import on the other bridge or keep it with the project:",
+      doc.version,
+      #doc.items,
+      #doc.groups
+    )
+  )
   print(JSON:encode(doc))
 end
 
@@ -1044,17 +1051,26 @@ local function printDraft(draft, myRole)
     print("Import warning: " .. w)
   end
   for _, i in ipairs(draft.items) do
-    print(string.format(
-      "Import item %s (%s, owner role %s%s): %s",
-      tostring(i.definition.name),
-      tostring(i.definition.type),
-      i.owner_role,
-      i.owner_role == myRole and " = this bridge" or "",
-      i.verdict
-    ))
+    print(
+      string.format(
+        "Import item %s (%s, owner role %s%s): %s",
+        tostring(i.definition.name),
+        tostring(i.definition.type),
+        i.owner_role,
+        i.owner_role == myRole and " = this bridge" or "",
+        i.verdict
+      )
+    )
   end
   for _, c in ipairs(draft.required_companions) do
-    print(string.format("Import needs a companion on role %s: %s (%s) — not created by the import", c.on_role, c.name, c.kind))
+    print(
+      string.format(
+        "Import needs a companion on role %s: %s (%s) — not created by the import",
+        c.on_role,
+        c.name,
+        c.kind
+      )
+    )
   end
   for _, r in ipairs(draft.requires) do
     print("Import requires: " .. r)
@@ -1068,7 +1084,9 @@ function EC.PREVIEW_CONFIGURATION_IMPORT()
   end
   reportError("")
   printDraft(draft, gEngine and gEngine.link and gEngine.link.role or "?")
-  print(draft.ok and "Import preview: ready to apply (nothing written yet)" or "Import preview: cannot be applied as is")
+  print(
+    draft.ok and "Import preview: ready to apply (nothing written yet)" or "Import preview: cannot be applied as is"
+  )
 end
 
 function EC.APPLY_CONFIGURATION_IMPORT()
@@ -1104,11 +1122,13 @@ function EC.APPLY_CONFIGURATION_IMPORT()
     SetTimer(SYNC_TIMER, 100, doSync)
   end
   reportError("")
-  print(string.format(
-    "Import applied: created %s; left as is %s",
-    #created > 0 and table.concat(created, ", ") or "nothing",
-    #skipped > 0 and table.concat(skipped, ", ") or "nothing"
-  ))
+  print(
+    string.format(
+      "Import applied: created %s; left as is %s",
+      #created > 0 and table.concat(created, ", ") or "nothing",
+      #skipped > 0 and table.concat(skipped, ", ") or "nothing"
+    )
+  )
 end
 
 function EC.PRINT_SHARED_ITEMS()
@@ -2015,6 +2035,89 @@ function OnSystemLinkCompanionAdded(deviceId)
 end
 
 -- ─── Composer: link controls ─────────────────────────────────────────────────
+
+-- ─── Namespace rename and whole-link pause (relay-owned, asked on the next sync)
+
+function EC.PREVIEW_NAMESPACE_RENAME()
+  local to = tostring(Properties["New Namespace"] or "")
+  if not gEngine or not gEngine.link then
+    reportError("Rename namespace: link is not provisioned yet")
+    return
+  end
+  local ok, err = gEngine:validateNamespace(to)
+  if not ok then
+    reportError("Rename namespace: " .. tostring(err))
+    return
+  end
+  reportError("")
+  local lines = gEngine:namespacePreview(to, nil)
+  print(
+    string.format(
+      "Namespace rename effect: %s → %s, %d variable(s). Ids stay; the old names become hidden and programming keeps pointing at them. The linked project sees its mirrors move too.",
+      tostring(gEngine.link.namespace),
+      to,
+      #lines
+    )
+  )
+  for _, line in ipairs(lines) do
+    print("  " .. line)
+  end
+end
+
+function EC.RENAME_NAMESPACE()
+  local to = tostring(Properties["New Namespace"] or "")
+  if not gEngine or not gEngine.link then
+    reportError("Rename namespace: link is not provisioned yet")
+    return
+  end
+  EC.PREVIEW_NAMESPACE_RENAME()
+  if gDealerError then
+    return
+  end
+  local ok, err = gEngine:requestNamespaceRename(to)
+  if not ok then
+    reportError("Rename namespace: " .. tostring(err))
+    return
+  end
+  print("Namespace rename requested; it applies here and on the linked bridge at the next sync.")
+  UpdateProperty("New Namespace", "")
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+local function linkControl(op)
+  if not gEngine or not gEngine.link then
+    reportError((op == "pause" and "Pause" or "Resume") .. " link: link is not provisioned yet")
+    return
+  end
+  local minutes = tonumber(Properties["Link Pause Minutes"]) or 0
+  local ok, err = gEngine:requestLinkControl(op, op == "pause" and minutes > 0 and minutes or nil, nil)
+  if not ok then
+    reportError(tostring(err))
+    return
+  end
+  reportError("")
+  if op == "pause" then
+    print(
+      minutes > 0
+          and string.format(
+            "Pause link requested for %d minute(s): both bridges stop publishing and refuse remote commands; mirrors keep their last values and go stale.",
+            minutes
+          )
+        or "Pause link requested until resumed: both bridges stop publishing and refuse remote commands; mirrors keep their last values and go stale."
+    )
+  else
+    print("Resume link requested.")
+  end
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.PAUSE_LINK()
+  linkControl("pause")
+end
+
+function EC.RESUME_LINK()
+  linkControl("resume")
+end
 
 function EC.REFRESH_LINK()
   gEngine.needSnapshot = true

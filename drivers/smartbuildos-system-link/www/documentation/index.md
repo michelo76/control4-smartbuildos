@@ -172,9 +172,9 @@ read-only sensors, gate request with feedback). **Print Template** prints what
 the recipe creates and the Composer programming to write on each side, with
 `<Owner>` replaced by this bridge's prefix. **Apply Template** creates the
 recipe's shared items on this bridge (names already present are left as they
-are) and prints the same steps. A template never writes Composer programming
-and never creates an export or a companion: those stay deliberate actions,
-named in the printed steps. Recipes that involve control say so.
+are) and prints the same steps. A template never writes Composer programming and
+never creates an export or a companion: those stay deliberate actions, named in
+the printed steps. Recipes that involve control say so.
 
 ## Configuration export and import (Properties tab)
 
@@ -182,13 +182,12 @@ named in the printed steps. Recipes that involve control say so.
 configuration as this bridge knows it: aliases and namespaces, groups, every
 item definition (its own and the peer's mirrors, by owner role) and the
 companion kinds the other side needs. It carries no credential, invitation,
-licence, controller assignment or customer field, and refuses to print if
-any such field is present. Paste it into **Configuration Import** on a
-bridge and run **Preview Configuration Import** (prints what would be
-created, per item verdict, nothing written) or **Apply Configuration Import**
-(creates the items whose owner role is this bridge's, with new ids; names
-already present are left as they are). Exports and companions are never
-imported; the preview says so.
+licence, controller assignment or customer field, and refuses to print if any
+such field is present. Paste it into **Configuration Import** on a bridge and
+run **Preview Configuration Import** (prints what would be created, per item
+verdict, nothing written) or **Apply Configuration Import** (creates the items
+whose owner role is this bridge's, with new ids; names already present are left
+as they are). Exports and companions are never imported; the preview says so.
 
 ## Device exports (Properties tab)
 
@@ -276,6 +275,24 @@ replacement: it revokes the endpoint and needs a new invitation.
 Updates use the existing Agent update path. Studio shows installed and available
 versions on both endpoints and refuses an update that would leave the two
 bridges on incompatible protocol versions.
+
+## Namespace rename and pausing the link
+
+The namespace (the Composer prefix, frozen at approval) is owned by the relay.
+**New Namespace** + **Preview Namespace Rename** prints every variable the
+change would touch on this bridge (items, the mirrors' `.STATE` twins, request
+slots and `Last_Event_*`); **Rename Namespace** asks the relay on the next sync,
+and both bridges apply the change when they see it: the old names become hidden
+tombstones (ids never change, programming keeps pointing at them), the new names
+get new ids with the current values, and **Schema Attention** fires on both
+sides. A relay that refuses the name says why in Last Error; an older relay that
+cannot answer is reported too.
+
+**Pause Link** asks the relay to pause the whole link (both bridges stop
+publishing and refuse remote commands; mirrors keep their last values and go
+stale) until **Resume Link**, or for **Link Pause Minutes** when set above 0.
+Both bridges see the change on their next sync and fire **Link Paused** / **Link
+Resumed**. Pause/Resume Remote Commands remain the lighter, local option.
 
 ## Link Health (Properties tab)
 

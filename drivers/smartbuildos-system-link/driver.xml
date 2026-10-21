@@ -103,6 +103,10 @@
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
       <action><name>Add Companion For Pending Export</name><command>ADD_COMPANION_FOR_PENDING_EXPORT</command></action>
+      <action><name>Preview Namespace Rename</name><command>PREVIEW_NAMESPACE_RENAME</command></action>
+      <action><name>Rename Namespace</name><command>RENAME_NAMESPACE</command></action>
+      <action><name>Pause Link</name><command>PAUSE_LINK</command></action>
+      <action><name>Resume Link</name><command>RESUME_LINK</command></action>
       <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
       <action><name>Run Link Test</name><command>RUN_LINK_TEST</command></action>
       <action><name>Pause Remote Commands</name><command>PAUSE_COMMANDS</command></action>
@@ -290,6 +294,7 @@
       <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
       <property><name>Pending Exports</name><type>STRING</type><default>none</default><readonly>true</readonly><description>Exports the linked project shares with this one that have no companion device here yet. Pick one in Pending Export and run Add Companion For Pending Export.</description></property>
       <property><name>Pending Export</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>New Namespace</name><type>STRING</type><default></default><description>The new Composer prefix for this system (letters, digits, underscores; starts with a letter; max 24). Preview Namespace Rename prints every variable it would touch; Rename Namespace asks the relay, and both bridges apply it on their next sync. Variable ids never change: the old names become hidden.</description></property>
       <property><name>Templates</name><type>LABEL</type><default>Templates</default></property>
       <property><name>Template</name><type>DYNAMIC_LIST</type><default>-</default><description>A setup recipe. Print Template lists what it creates and the Composer programming to write on each side; Apply Template creates the recipe's shared items on this bridge (existing names are left as they are) and prints the same steps. Exports and companions are never created by a template.</description></property>
       <property><name>Configuration Import</name><type>STRING</type><default></default><description>Paste a configuration export (from Print Configuration Export on any bridge) here, then Preview Configuration Import to see what it would create, and Apply Configuration Import to create this bridge's items. Ids are re-minted; exports and companions are never imported.</description></property>
@@ -310,6 +315,7 @@
       <property><name>Request Slots</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>4</default><description>Concurrent request contexts exposed as Request_N_* variables. Applies after the next Director restart.</description></property>
       <property><name>Evaluate State After Initial Sync</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Yes fires the per-item live events once right after Initial Sync Complete, so programming can evaluate current remote state.</description></property>
       <property><name>Pause Minutes</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>43200</maximum><default>60</default></property>
+      <property><name>Link Pause Minutes</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>43200</maximum><default>0</default><description>For Pause Link: 0 pauses the whole link until Resume Link; otherwise it resumes by itself after this many minutes.</description></property>
 
       <property><name>Diagnostics</name><type>LABEL</type><default>Diagnostics</default></property>
       <property>

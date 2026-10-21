@@ -32,7 +32,8 @@ local FORBIDDEN_KEYS = {
   "address",
 }
 
-local STRIP = { id = true, owner = true, order = true, schema_rev = true, created_at = true, deleted_at = true, mirror = true }
+local STRIP =
+  { id = true, owner = true, order = true, schema_rev = true, created_at = true, deleted_at = true, mirror = true }
 
 local function copyDefinition(def)
   local out = {}
@@ -119,7 +120,8 @@ function M.buildExport(input)
     { role = myRole, alias = link.alias or "", namespace = link.namespace or "", timezone = input.timezone or "" },
   }
   if link.peer_namespace then
-    endpoints[#endpoints + 1] = { role = peerRole, alias = link.peer_alias or "", namespace = link.peer_namespace, timezone = "" }
+    endpoints[#endpoints + 1] =
+      { role = peerRole, alias = link.peer_alias or "", namespace = link.peer_namespace, timezone = "" }
   end
   local doc = {
     version = M.EXPORT_VERSION,
@@ -140,7 +142,8 @@ end
 
 --- Parses a decoded export into a reviewable draft. Nothing is written.
 function M.parseImport(raw)
-  local draft = { ok = false, errors = {}, warnings = {}, endpoints = {}, items = {}, required_companions = {}, requires = {} }
+  local draft =
+    { ok = false, errors = {}, warnings = {}, endpoints = {}, items = {}, required_companions = {}, requires = {} }
   if type(raw) ~= "table" then
     draft.errors[#draft.errors + 1] = "Not a System Link export."
     return draft
@@ -155,7 +158,9 @@ function M.parseImport(raw)
     for i = 1, math.min(5, #secrets) do
       shown[i] = secrets[i]
     end
-    draft.errors[#draft.errors + 1] = "The file carries fields that are never imported: " .. table.concat(shown, ", ") .. "."
+    draft.errors[#draft.errors + 1] = "The file carries fields that are never imported: "
+      .. table.concat(shown, ", ")
+      .. "."
   end
   for _, e in ipairs(type(raw.endpoints) == "table" and raw.endpoints or {}) do
     if type(e) == "table" and (e.role == "a" or e.role == "b") then
@@ -163,7 +168,11 @@ function M.parseImport(raw)
     end
   end
   for _, item in ipairs(type(raw.items) == "table" and raw.items or {}) do
-    if type(item) ~= "table" or (item.owner_role ~= "a" and item.owner_role ~= "b") or type(item.definition) ~= "table" then
+    if
+      type(item) ~= "table"
+      or (item.owner_role ~= "a" and item.owner_role ~= "b")
+      or type(item.definition) ~= "table"
+    then
       draft.warnings[#draft.warnings + 1] = "An item without a valid owner role was skipped."
     else
       local def = copyDefinition(item.definition)
