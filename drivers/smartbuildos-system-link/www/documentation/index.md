@@ -210,10 +210,10 @@ added. The `Export Device` programming command still exists for scripted setups.
 
 **Lights, the Composer Connections way.** Add a **SmartBuildOS System Link
 Export Light** driver, bind the real light to its **Light** connection in
-Connections, name the export in its properties, and it registers with the
-bridge using the bound device (the light's proxy, which carries the state), so
-there is nothing to guess between a physical driver and its proxy. Unbinding
-or deleting it removes the export. Other kinds keep the Device Exports block.
+Connections, name the export in its properties, and it registers with the bridge
+using the bound device (the light's proxy, which carries the state), so there is
+nothing to guess between a physical driver and its proxy. Unbinding or deleting
+it removes the export. Other kinds keep the Device Exports block.
 
 A companion's **Linked Export** list shows exports of its own kind only; when
 there are none, **Bridge Link** says so and names what the link does carry.
