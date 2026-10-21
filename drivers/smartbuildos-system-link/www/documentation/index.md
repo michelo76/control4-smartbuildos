@@ -229,6 +229,20 @@ only; events are never filtered. The source value and the published value are
 kept apart; filter delay is reported separately from transport latency in the
 state message. Defaults publish immediately.
 
+## Scenes across the link
+
+A **scene** export is a name, no device. On the owner: Export Kind = scene,
+Export Name, Export Control = Control allowed → Export Selected Device. The
+other side lists it in **Remote Scene**; **Run Remote Scene** (action, or the
+programming command of the same name with `SCENE`) sends a request with the
+routine `scene:<Name>`. On the owner, **Scene <Name> requested** fires: the
+dealer's programming performs the scene, then **Report Request Success /
+Failure** on the slot, and the result lands in `<Name>_Last_Run` /
+`<Name>_Last_Result`, mirrored on the other side. There, **Scene <Name>
+completed / failed** fires when the report arrives (a timeout means the
+outcome was not confirmed, as with any request). Nothing runs unless the
+owner's programming runs it.
+
 ## Control windows on companions
 
 When an export has a schedule (Set Export Schedule), the owner publishes a

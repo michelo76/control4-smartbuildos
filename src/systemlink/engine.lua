@@ -233,6 +233,26 @@ end
 
 -- ── item events (dynamic, per item) ─────────────────────────────────────────
 
+--- A dynamic Composer event by key, allocated once and frozen forever
+--- (ids are never reused: a deleted key keeps its id). Items use their id
+--- as the key; scenes use "scene:<name>:<requested|completed|failed>".
+function M:ensureNamedEvent(key, name, description)
+  local id = self.itemEvents[key]
+  if not id then
+    local max = M.ITEM_EVENT_ID_START - 1
+    for _, v in pairs(self.itemEvents) do
+      if v > max then
+        max = v
+      end
+    end
+    id = max + 1
+    self.itemEvents[key] = id
+    self.io.save("sl_events", self.itemEvents)
+  end
+  self.io.addEvent(id, name, description)
+  return id
+end
+
 function M:ensureItemEvent(def)
   local id = self.itemEvents[def.id]
   if not id then
@@ -1565,6 +1585,9 @@ function M:applyInbound(env, rawLen)
           self.io.fireEvent("REQUEST_COMPLETED")
         elseif status == "failed" then
           self.io.fireEvent("REQUEST_FAILED")
+        end
+        if not updated.late and (status == "completed" or status == "failed") and self.io.onRequestOutcome then
+          self.io.onRequestOutcome(updated, status)
         end
       end
     end

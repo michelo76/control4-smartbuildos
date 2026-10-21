@@ -31,6 +31,10 @@ M.KINDS = {
   -- Agent observes for media info; a room that lacks them reports the field
   -- unavailable. No control verb exists for a remote room in this release.
   media = { gate = "BASE", control = false },
+  -- A scene: no device, no state of its own. The owner names it; the other
+  -- side runs it through a request (routine "scene:<name>") and the owner's
+  -- programming reports the result, which lands in the two fields below.
+  scene = { gate = "BASE", control = true, virtual = true },
 }
 
 --- Shared-item fields per kind: name suffix, type, schema, and the device
@@ -52,6 +56,10 @@ M.FIELDS = {
   },
   contact = {
     { suffix = "Open", type = "BOOLEAN", vars = { "STATE", "CONTACT_STATE", "Opened" }, map = "contact" },
+  },
+  scene = {
+    { suffix = "Last_Run", type = "STRING", vars = {}, map = "str" },
+    { suffix = "Last_Result", type = "STRING", vars = {}, map = "str" },
   },
   media = {
     { suffix = "Powered", type = "BOOLEAN", vars = { "POWER_STATE" }, map = "bool" },
@@ -207,6 +215,16 @@ M.OPS = {
   },
 }
 
+--- The routine a request carries to run a scene export on its owner, and
+--- the export name it names (nil when the routine is not a scene).
+M.SCENE_ROUTINE_PREFIX = "scene:"
+function M.sceneRoutine(name)
+  return M.SCENE_ROUTINE_PREFIX .. tostring(name)
+end
+function M.sceneFromRoutine(routine)
+  return tostring(routine or ""):match("^scene:([A-Za-z][A-Za-z0-9_]*)$")
+end
+
 --- Non-idempotent operations: never retried, never replayed (spec §29).
 M.NON_IDEMPOTENT = { toggle = true, trigger = true, stop = true }
 
@@ -224,7 +242,9 @@ function M.define(opts, features)
     return nil, "export name must be letters, digits and underscores (max 40)"
   end
   local deviceId = tonumber(opts.device_id)
-  if not deviceId or deviceId <= 0 then
+  if kind.virtual then
+    deviceId = 0
+  elseif not deviceId or deviceId <= 0 then
     return nil, "a source device is required"
   end
   local control = opts.control == true and kind.control

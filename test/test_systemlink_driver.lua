@@ -1068,6 +1068,49 @@ check(
   Properties["Pending Exports"]
 )
 C4.GetDevices = savedGetDevices2
+
+print("\n[4d] scenes across the link")
+EC.Export_Device({ NAME = "Welcome", KIND = "scene", CONTROL = "Control allowed" })
+local welcomeExp = (function() for _, e in pairs(gExports) do if e.name == "Welcome" then return e end end end)()
+check(
+  "a scene exports with no device: two fields starting at never / none, and a 'requested' event allocated",
+  welcomeExp ~= nil and welcomeExp.device_id == 0 and variables["California.Welcome_Last_Run"] == "never" and variables["California.Welcome_Last_Result"] == "none"
+    and gEngine.itemEvents["scene:Welcome:requested"] ~= nil and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+local requestsLib = require("systemlink.requests")
+local sceneReq = requestsLib.open(gEngine.requests, { id = "req-scene-1", routine = "scene:Welcome", direction = "in", payload = "", origin_ep = "ep-ny" }, gEngine.io.now())
+requestsLib.transition(gEngine.requests, sceneReq.id, "delivered", nil, gEngine.io.now())
+local firedBefore = #firedEvents
+gEngine.io.fireRoutineEvent("scene:Welcome")
+check("an inbound scene request fires 'Scene Welcome requested'", firedEvents[#firedEvents] == gEngine.itemEvents["scene:Welcome:requested"] and #firedEvents == firedBefore + 1)
+EC.Report_Request_Success({ SLOT = sceneReq.slot, RESULT = "lights on" })
+check(
+  "the dealer's report lands in the scene's fields for the other side to see",
+  variables["California.Welcome_Last_Result"] == "completed: lights on" and variables["California.Welcome_Last_Run"] ~= "never",
+  tostring(variables["California.Welcome_Last_Result"])
+)
+-- peer side: a scene the linked project exported
+local savedCompanion = gEngine.registry.items["ny-occ"].companion
+gEngine.registry.items["ny-occ"].companion = { id = "sc-1", name = "Guest_Arrive", kind = "scene", control = true, ops = {}, field = "Last_Run" }
+advance(1100)
+check("Remote Scene lists the linked project's scene and its events exist", (Properties["Remote Scene__list"] or ""):find("Guest_Arrive") ~= nil and gEngine.itemEvents["scene:Guest_Arrive:completed"] ~= nil, Properties["Remote Scene__list"])
+check("a scene is never a pending companion", (Properties["Pending Exports"] or ""):find("Guest_Arrive") == nil, Properties["Pending Exports"])
+Properties["Remote Scene"] = "Nope"
+EC.RUN_REMOTE_SCENE()
+check("an unknown scene is refused", Properties["Last Error"]:find("no scene named Nope") ~= nil, Properties["Last Error"])
+Properties["Remote Scene"] = "Guest_Arrive"
+EC.RUN_REMOTE_SCENE()
+check(
+  "Run Remote Scene sends a request with the scene routine",
+  (function() for _, env in ipairs(gEngine.pending) do if env.t == "request" and env.body.routine == "scene:Guest_Arrive" then return true end end return false end)() and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+firedBefore = #firedEvents
+gEngine.io.onRequestOutcome({ routine = "scene:Guest_Arrive" }, "completed")
+check("the owner's report fires 'Scene Guest_Arrive completed' here", firedEvents[#firedEvents] == gEngine.itemEvents["scene:Guest_Arrive:completed"] and #firedEvents == firedBefore + 1)
+gEngine.registry.items["ny-occ"].companion = savedCompanion
+EC.Remove_Export({ NAME = "Welcome" })
 EC.Remove_Export({ NAME = "Porch_Light" })
 check("remove export tombstones its items", gEngine:findByName("Porch_Light_On") == nil)
 

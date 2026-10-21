@@ -243,6 +243,8 @@ local function reportError(message)
   end
 end
 
+local fireSceneEvent -- defined with the scene helpers below; used by the io hooks
+
 local function buildIo()
   local io = {}
   io.now = nowMs
@@ -324,6 +326,18 @@ local function buildIo()
   end
   io.onMirrorApplied = function(def, tv, kind)
     OnSystemLinkMirrorApplied(def, tv, kind)
+  end
+  io.fireRoutineEvent = function(routine)
+    local scene = exportsModel.sceneFromRoutine(routine)
+    if scene then
+      fireSceneEvent(scene, "requested")
+    end
+  end
+  io.onRequestOutcome = function(entry, status)
+    local scene = exportsModel.sceneFromRoutine(entry and entry.routine)
+    if scene then
+      fireSceneEvent(scene, status == "completed" and "completed" or "failed")
+    end
   end
   io.onCommandResult = function(id, cmd, status, reason)
     OnSystemLinkCommandResult(id, cmd, status, reason)
@@ -413,6 +427,7 @@ local function requestProvision()
 end
 
 local startSync, doorbellConnect, doorbellStop, paintSelectedValue, paintPendingExports, paintItemList
+local paintRemoteScenes, mirroredExports, loadExports
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -579,6 +594,7 @@ local function paintStatus()
   if paintPendingExports then
     paintPendingExports()
   end
+  paintRemoteScenes()
   if not gEngine.link then
     -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
     -- handler (older build) or never got the message: say so and ask again,
@@ -936,6 +952,100 @@ function EC.APPLY_FILTER_TO_SELECTED_ITEM()
   SetTimer(SYNC_TIMER, 100, doSync)
 end
 
+-- ─── Scenes across the link ──────────────────────────────────────────────────
+--
+-- Owner side: a scene export is a name. When the other side asks for it,
+-- "Scene <name> requested" fires here, the dealer's programming performs it
+-- and reports with Report Request Success / Failure on the slot; the result
+-- lands in <name>_Last_Run / _Last_Result, which the other side mirrors.
+-- Peer side: Remote Scene lists the owner's scenes; Run Remote Scene (action
+-- or programming command) sends the request; "Scene <name> completed /
+-- failed" fires when the report comes back.
+
+local function sceneEventKey(name, phase)
+  return "scene:" .. tostring(name) .. ":" .. phase
+end
+
+function registerSceneEvents()
+  if not gEngine then
+    return
+  end
+  for _, exp in pairs(loadExports()) do
+    if exp.kind == "scene" then
+      gEngine:ensureNamedEvent(
+        sceneEventKey(exp.name, "requested"),
+        "Scene " .. exp.name .. " requested",
+        "The linked project asked for scene " .. exp.name .. ". Perform it, then Report Request Success / Failure on the slot."
+      )
+    end
+  end
+  for _, e in ipairs(mirroredExports("scene")) do
+    gEngine:ensureNamedEvent(sceneEventKey(e.name, "completed"), "Scene " .. e.name .. " completed", "The linked project reported scene " .. e.name .. " done.")
+    gEngine:ensureNamedEvent(sceneEventKey(e.name, "failed"), "Scene " .. e.name .. " failed", "The linked project reported scene " .. e.name .. " failed (see the request slot).")
+  end
+end
+
+fireSceneEvent = function(name, phase)
+  local id = gEngine and gEngine.itemEvents[sceneEventKey(name, phase)]
+  if id then
+    pcall(function()
+      C4:FireEventByID(id)
+    end)
+  end
+end
+
+paintRemoteScenes = function()
+  if not gEngine then
+    return
+  end
+  local names = { "-" }
+  for _, e in ipairs(mirroredExports("scene")) do
+    names[#names + 1] = e.name
+  end
+  local joined = table.concat(names, ",")
+  if gLastStatus["Remote Scene__list"] ~= joined then
+    gLastStatus["Remote Scene__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Remote Scene", joined, Properties["Remote Scene"] or "-")
+    end)
+    registerSceneEvents()
+  end
+end
+
+local function runRemoteScene(name)
+  name = tostring(name or "")
+  if name == "" or name == "-" then
+    reportError("Run Remote Scene: pick a scene in Remote Scene first")
+    return
+  end
+  local known = false
+  for _, e in ipairs(mirroredExports("scene")) do
+    if e.name == name then
+      known = true
+    end
+  end
+  if not known then
+    reportError("Run Remote Scene: the linked project has no scene named " .. name)
+    return
+  end
+  local entry, err = gEngine:sendRequest(exportsModel.sceneRoutine(name), "", 120)
+  if not entry then
+    reportError("Run Remote Scene: " .. tostring(err))
+    return
+  end
+  reportError("")
+  print(string.format("Scene %s requested from the linked project (slot %s); 'Scene %s completed / failed' fires when it reports.", name, tostring(entry.slot), name))
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.RUN_REMOTE_SCENE()
+  runRemoteScene(Properties["Remote Scene"])
+end
+
+function EC.Run_Remote_Scene(tParams)
+  runRemoteScene((tParams or {}).SCENE)
+end
+
 -- ─── Templates ───────────────────────────────────────────────────────────────
 
 local function paintTemplateList()
@@ -1171,7 +1281,7 @@ local function licenseFeatures()
   return set
 end
 
-local function loadExports()
+loadExports = function()
   if gExports == nil then
     gExports = persist:get(EXPORTS_KEY, {}) or {}
   end
@@ -1460,8 +1570,11 @@ function EC.Export_Device(tParams)
     reportError("Export: link is not provisioned")
     return
   end
-  local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
   local kind = tostring(tParams.KIND or "light"):lower()
+  local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
+  if exportsModel.KINDS[kind] and exportsModel.KINDS[kind].virtual then
+    deviceId = 0
+  end
   local ops
   if tParams.OPS and tostring(tParams.OPS) ~= "" then
     ops = {}
@@ -1470,7 +1583,7 @@ function EC.Export_Device(tParams)
     end
   end
   local okName, deviceName = pcall(function()
-    return C4:GetDeviceData(deviceId, "name")
+    return deviceId > 0 and C4:GetDeviceData(deviceId, "name") or nil
   end)
   local exp, err = exportsModel.define({
     id = uuid(),
@@ -1490,7 +1603,7 @@ function EC.Export_Device(tParams)
     reportError("Export: name already used")
     return
   end
-  do
+  if not exportsModel.KINDS[kind].virtual then
     local okV, vars = pcall(function()
       return C4:GetDeviceVariables(deviceId)
     end)
@@ -1532,7 +1645,20 @@ function EC.Export_Device(tParams)
   end
   loadExports()[exp.id] = exp
   saveExports()
-  watchExport(exp)
+  if exportsModel.KINDS[kind].virtual then
+    -- A scene has no device to watch; its fields start as "never".
+    local lastRun = exportItemFor(exp, "Last_Run")
+    local lastResult = exportItemFor(exp, "Last_Result")
+    if lastRun then
+      gEngine:setLocal(lastRun.id, "never")
+    end
+    if lastResult then
+      gEngine:setLocal(lastResult.id, "none")
+    end
+    registerSceneEvents()
+  else
+    watchExport(exp)
+  end
   paintExportList()
   SetTimer(SYNC_TIMER, 100, doSync)
   reportError("")
@@ -1549,6 +1675,10 @@ end
 function EC.EXPORT_SELECTED_DEVICE()
   local selection = tostring(Properties["Export Device"] or "-")
   local id = selection:match("· (%d+)")
+  local kindNow = tostring(Properties["Export Kind"] or "light"):lower()
+  if exportsModel.KINDS[kindNow] and exportsModel.KINDS[kindNow].virtual then
+    id = "0"
+  end
   if not id then
     reportError("Export: pick a device in Export Device first (Refresh Export Device List if it is empty)")
     return
@@ -1823,7 +1953,7 @@ local function loadCompanionMap()
 end
 
 --- Mirrored exports, grouped by companion kind, from the peer's definitions.
-local function mirroredExports(kind)
+mirroredExports = function(kind)
   local byName = {}
   for _, def in ipairs(schema.registryItems(gEngine.registry)) do
     local c = def.mirror and type(def.companion) == "table" and def.companion or nil
@@ -2048,7 +2178,7 @@ local function pendingExports()
   for _, e in ipairs(mirroredExports(nil)) do
     local existing = tonumber(map[e.name])
     local present = existing and (devices[existing] or devices[tostring(existing)]) and true or false
-    if not present then
+    if not present and COMPANION_FILES[e.kind] then
       out[#out + 1] = e
     end
   end
@@ -2377,6 +2507,7 @@ end
 local function report(tParams, status)
   tParams = tParams or {}
   local slot = tonumber(tParams.SLOT) or 1
+  local before = gEngine.requests.slots[slot]
   local ok, err = gEngine:reportRequest(
     slot,
     status,
@@ -2385,6 +2516,19 @@ local function report(tParams, status)
   if not ok then
     reportError("Report: " .. tostring(err))
     return
+  end
+  local scene = type(before) == "table" and exportsModel.sceneFromRoutine(before.routine) or nil
+  if scene and (status == "completed" or status == "failed") then
+    local exp = findExport(scene)
+    if exp and exp.kind == "scene" then
+      local lastRun, lastResult = exportItemFor(exp, "Last_Run"), exportItemFor(exp, "Last_Result")
+      if lastRun then
+        gEngine:setLocal(lastRun.id, isoNow())
+      end
+      if lastResult then
+        gEngine:setLocal(lastResult.id, status .. (tParams.RESULT and tParams.RESULT ~= "" and (": " .. tostring(tParams.RESULT)) or ""))
+      end
+    end
   end
   SetTimer(SYNC_TIMER, 100, doSync)
 end
@@ -2528,6 +2672,7 @@ function OnDriverLateInit()
   paintTemplateList()
   restoreExports()
   paintExportList()
+  registerSceneEvents()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
   -- phases start when the relay answers.
   if gEngine.link then
