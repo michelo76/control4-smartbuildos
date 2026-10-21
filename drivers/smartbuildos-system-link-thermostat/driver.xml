@@ -36,6 +36,10 @@
     <actions>
       <action><name>Refresh From Bridge</name><command>REFRESH_FROM_BRIDGE</command></action>
       <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Test: Heat Setpoint 68</name><command>TEST_HEAT_68</command></action>
+      <action><name>Test: Cool Setpoint 76</name><command>TEST_COOL_76</command></action>
+      <action><name>Test: Mode Heat</name><command>TEST_MODE_HEAT</command></action>
+      <action><name>Test: Mode Off</name><command>TEST_MODE_OFF</command></action>
     </actions>
     <properties>
       <property><name>Linked Export</name><type>DYNAMIC_LIST</type><default>-</default><description>Which export of the linked project this instance presents. The list is filled by the System Link bridge.</description></property>
