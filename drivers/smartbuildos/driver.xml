@@ -1,26 +1,29 @@
 <devicedata>
-  <!-- Added to the project as a normal driver (combo/self-proxy), one per
-       project. A true DriverWorks <agent> did not reliably surface in Composer's
-       Agents panel for this third-party driver in the field (2026-08-29), so it
-       stays a project driver — added via Add or Update Driver, not the Agents
-       panel. It is still the singular SmartBuildOS Agent: the licensing
+  <!-- A true DriverWorks Agent (OS 3.1.3+), in the shape third-party agents
+       that do surface in Composer's Agents panel use (Chowmain Project Agent,
+       2025-07): <agent>true</agent> + <combo>true</combo> + a self-proxy named
+       after the .c4z basename, with no <controlmethod> and no
+       <composer_categories>. The 2026-08-29 attempt declared <agent>true</agent>
+       but left <proxies/> empty and kept the ip controlmethod and a Utility
+       category, which is why it never appeared under Agents; that attempt was
+       incomplete, not disproved. Added from the Agents tab in Composer Pro,
+       one per project; an instance that already sits under System Design must
+       be removed there and re-added under Agents (Pairing Backup restores the
+       pairing). It is still the singular SmartBuildOS Agent: the licensing
        authority every SmartBuildOS driver depends on. -->
+  <agent>true</agent>
   <name>SmartBuildOS Agent</name>
   <version/>
   <manufacturer>SmartBuildOS</manufacturer>
   <model>SmartBuildOS Agent</model>
   <creator>SmartBuildOS</creator>
   <control>lua_gen</control>
-  <controlmethod>ip</controlmethod>
   <driver>DriverWorks</driver>
   <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
   <created>08/15/2026 12:00:00 PM</created>
   <modified/>
   <combo>true</combo>
   <minimum_os_version>3.3.1</minimum_os_version>
-  <composer_categories>
-    <category>Utility</category>
-  </composer_categories>
   <conditionals>
     <conditional>
       <id>1</id>
@@ -793,6 +796,8 @@
     </properties>
   </config>
   <capabilities/>
-  <proxies/>
+  <proxies>
+    <proxy>smartbuildos</proxy>
+  </proxies>
   <connections/>
 </devicedata>
