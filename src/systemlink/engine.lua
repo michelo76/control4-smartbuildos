@@ -576,7 +576,15 @@ function M:queueSchema()
   )
 end
 
-function M:emitEvent(defName, payload, ttlS)
+-- Named events whose name starts with this prefix belong to the driver
+-- (link test ping/pong): dealers cannot emit them, and they never reach
+-- Composer as events or Last_Event_* variables.
+M.RESERVED_EVENT_PREFIX = "__sl_"
+
+function M:emitEvent(defName, payload, ttlS, internal)
+  if not internal and tostring(defName):sub(1, #M.RESERVED_EVENT_PREFIX) == M.RESERVED_EVENT_PREFIX then
+    return false, "event names starting with " .. M.RESERVED_EVENT_PREFIX .. " are reserved for the driver"
+  end
   if not self.link then
     return false, "not provisioned"
   end
@@ -725,6 +733,53 @@ function M:ensureRequestSlotVariables()
 end
 
 -- ── sync (one round trip) ───────────────────────────────────────────────────
+
+-- ── Link test: a round trip through the relay with no programming ──────────
+--
+-- The originator emits "__sl_ping" with a nonce; the peer answers "__sl_pong"
+-- with the same nonce from inside the driver; the originator measures the
+-- round trip. Nothing about it is visible in Composer.
+
+M.LINK_TEST_TIMEOUT_MS = 30 * 1000
+
+function M:startLinkTest()
+  local nonce = self.io.uuid()
+  local ok, err = self:emitEvent(M.RESERVED_EVENT_PREFIX .. "ping", { nonce = nonce }, 30, true)
+  if not ok then
+    return false, err
+  end
+  self.linkTest = { nonce = nonce, started = self.io.now(), rtt_ms = nil }
+  return true
+end
+
+function M:onReservedEvent(name, payload)
+  local nonce = type(payload) == "table" and payload.nonce or nil
+  if name == M.RESERVED_EVENT_PREFIX .. "ping" then
+    if nonce then
+      self:emitEvent(M.RESERVED_EVENT_PREFIX .. "pong", { nonce = nonce }, 30, true)
+    end
+  elseif name == M.RESERVED_EVENT_PREFIX .. "pong" then
+    local t = self.linkTest
+    if t and nonce == t.nonce and not t.rtt_ms then
+      t.rtt_ms = self.io.now() - t.started
+    end
+  end
+end
+
+--- "running" | "done" (with rtt_ms) | "timeout" | "idle"
+function M:linkTestState()
+  local t = self.linkTest
+  if not t then
+    return "idle"
+  end
+  if t.rtt_ms then
+    return "done", t.rtt_ms
+  end
+  if self.io.now() - t.started > M.LINK_TEST_TIMEOUT_MS then
+    return "timeout"
+  end
+  return "running"
+end
 
 function M:heartbeatDue()
   return not self.lastHeartbeatSentAt or self.io.now() - self.lastHeartbeatSentAt >= M.HEARTBEAT_MS
@@ -1178,6 +1233,10 @@ function M:applyInbound(env, rawLen)
       -- before sync completes is still LIVE (it was emitted after we
       -- connected) — but one older than our restore window is not. The
       -- relay already stamped expiry, so anything here is within TTL.
+    end
+    if tostring(env.body.def or ""):sub(1, #M.RESERVED_EVENT_PREFIX) == M.RESERVED_EVENT_PREFIX then
+      self:onReservedEvent(tostring(env.body.def), env.body.payload)
+      return
     end
     local ns = self.link.namespace
     local payload = env.body.payload

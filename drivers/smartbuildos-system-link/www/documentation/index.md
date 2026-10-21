@@ -165,31 +165,30 @@ follow-up.
 
 ## Device exports (Properties tab)
 
-A device is shared with the linked project from the **Device Exports** block
-on the bridge's Properties tab, not from a programming command: pick
-**Export Kind**, pick the device in **Export Device** (listed as
-`Name (Room) · id`; by default only devices that carry the variables the kind
-reads, so a light's physical driver, which usually shares the name, is left
-out — **Export Device Filter = All devices** shows it flagged), fill in
-**Export Name** (prefilled from the device name when empty; letters, digits
-and underscores), **Export Control** and optional **Export Operations**, then
-run **Export Selected Device**. A refusal stays in **Last Error** and is
-printed to the Lua tab with the reason. **Refresh Export Device List**
-rebuilds the list after a device is added. The `Export Device` programming
-command still exists for scripted setups.
+A device is shared with the linked project from the **Device Exports** block on
+the bridge's Properties tab, not from a programming command: pick **Export
+Kind**, pick the device in **Export Device** (listed as `Name (Room) · id`; by
+default only devices that carry the variables the kind reads, so a light's
+physical driver, which usually shares the name, is left out — **Export Device
+Filter = All devices** shows it flagged), fill in **Export Name** (prefilled
+from the device name when empty; letters, digits and underscores), **Export
+Control** and optional **Export Operations**, then run **Export Selected
+Device**. A refusal stays in **Last Error** and is printed to the Lua tab with
+the reason. **Refresh Export Device List** rebuilds the list after a device is
+added. The `Export Device` programming command still exists for scripted setups.
 
-Existing exports are listed in **Selected Export**. **Rename Selected
-Export** renames the selected one to **Export Name** (every field variable
-keeps its id; the old names become hidden tombstones; the companion on the
-linked project must be re-linked to the new name) and **Remove Selected
-Export** stops sharing it (its variables stay hidden and are never reused).
-Both print their effect to the Lua tab first.
+Existing exports are listed in **Selected Export**. **Rename Selected Export**
+renames the selected one to **Export Name** (every field variable keeps its id;
+the old names become hidden tombstones; the companion on the linked project must
+be re-linked to the new name) and **Remove Selected Export** stops sharing it
+(its variables stay hidden and are never reused). Both print their effect to the
+Lua tab first.
 
 On the receiving project, **Pending Exports** lists what the linked project
-shares that has no companion device here yet (`MBR_Baseboard (light)`). Pick
-it in **Pending Export** and run **Add Companion For Pending Export**: the
-bridge adds the matching companion driver and links it to the export in one
-step. The list follows the link, so a new export shows up within a sync.
+shares that has no companion device here yet (`MBR_Baseboard (light)`). Pick it
+in **Pending Export** and run **Add Companion For Pending Export**: the bridge
+adds the matching companion driver and links it to the export in one step. The
+list follows the link, so a new export shows up within a sync.
 
 ## Publication filters
 
@@ -254,12 +253,19 @@ bridges on incompatible protocol versions.
 ## Link Health (Properties tab)
 
 A read-only group with the transport facts: **Doorbell** (whether the relay's
-instant-notification channel is joined and when it last rang; "never rang"
-means the bridge relies on the poll), **Poll Interval** (20 s, or
-doorbell-driven with the poll as a backstop), **Last Relay Refusal** (the last
-message the relay refused, with reason and time), **Relay Latency** (p95 from
-local accept to relay commit) and **Pending** (updates and requests waiting).
-All of it is repainted every second from the bridge's own state.
+instant-notification channel is joined and when it last rang; "never rang" means
+the bridge relies on the poll), **Poll Interval** (20 s, or doorbell-driven with
+the poll as a backstop), **Last Relay Refusal** (the last message the relay
+refused, with reason and time), **Relay Latency** (p95 from local accept to
+relay commit) and **Pending** (updates and requests waiting). All of it is
+repainted every second from the bridge's own state.
+
+**Run Link Test** (Actions) reports the first failure it hits — not provisioned,
+relay disconnected, peer offline — or sends a ping through the relay to the
+other bridge, which answers from inside its driver (no programming on either
+side), and prints the round trip, whether the doorbell drove it, and the licence
+state. Event names starting with `__sl_` are reserved for this and cannot be
+emitted from programming.
 
 ## Diagnostics and privacy
 

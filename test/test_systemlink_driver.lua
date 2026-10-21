@@ -604,12 +604,18 @@ EC.REFRESH_EXPORT_DEVICE_LIST()
 list = Properties["Export Device__list"] or ""
 check(
   "All devices: the light first, the relay flagged, the Agent still not listed",
-  list:find("^%-,Hall Light %(Hall%) · 43,") ~= nil and list:find("Gate Relay · 44 %(no light variables%)") ~= nil and list:find("900") == nil,
+  list:find("^%-,Hall Light %(Hall%) · 43,") ~= nil
+    and list:find("Gate Relay · 44 %(no light variables%)") ~= nil
+    and list:find("900") == nil,
   list
 )
 Properties["Export Name"] = ""
 OPC.Export_Device("Hall Light (Hall) · 43")
-check("picking a device fills an empty Export Name from the device name", Properties["Export Name"] == "Hall_Light", Properties["Export Name"])
+check(
+  "picking a device fills an empty Export Name from the device name",
+  Properties["Export Name"] == "Hall_Light",
+  Properties["Export Name"]
+)
 Properties["Export Name"] = "Keep_Me"
 OPC.Export_Device("Gate Relay · 44 (no light variables)")
 check("a typed Export Name is never overwritten", Properties["Export Name"] == "Keep_Me", Properties["Export Name"])
@@ -656,35 +662,74 @@ check(
   Properties["Last Error"]
 )
 print("\n[3d] Selected Export: rename and remove from the Properties block")
-check("Selected Export lists the exports", (Properties["Selected Export__list"] or ""):find("Hall") ~= nil, Properties["Selected Export__list"])
+check(
+  "Selected Export lists the exports",
+  (Properties["Selected Export__list"] or ""):find("Hall") ~= nil,
+  Properties["Selected Export__list"]
+)
 Properties["Selected Export"] = "Hall"
 Properties["Export Name"] = "Hall Way"
 EC.RENAME_SELECTED_EXPORT()
-check("rename refuses a bad name", Properties["Last Error"]:find("letters, digits and underscores") ~= nil and gEngine:findByName("Hall_On") ~= nil, Properties["Last Error"])
+check(
+  "rename refuses a bad name",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil and gEngine:findByName("Hall_On") ~= nil,
+  Properties["Last Error"]
+)
 Properties["Export Name"] = "Porch_Light"
 EC.RENAME_SELECTED_EXPORT()
-check("rename refuses a name already used", Properties["Last Error"]:find("already used") ~= nil, Properties["Last Error"])
+check(
+  "rename refuses a name already used",
+  Properties["Last Error"]:find("already used") ~= nil,
+  Properties["Last Error"]
+)
 Properties["Export Name"] = "Hallway"
 EC.RENAME_SELECTED_EXPORT()
 local renamed = gEngine:findByName("Hallway_On")
 check(
   "rename moves every field, keeps the companion name in step, hides the old variables",
-  renamed ~= nil and gEngine:findByName("Hallway_Level") ~= nil and gEngine:findByName("Hall_On") == nil
-    and renamed.companion.name == "Hallway" and renamed.group == "Hallway"
-    and varMeta["California.Hall_On"] ~= nil and varMeta["California.Hall_On"].hidden == true
-    and Properties["Selected Export"] == "Hallway" and Properties["Export Name"] == "",
+  renamed ~= nil
+    and gEngine:findByName("Hallway_Level") ~= nil
+    and gEngine:findByName("Hall_On") == nil
+    and renamed.companion.name == "Hallway"
+    and renamed.group == "Hallway"
+    and varMeta["California.Hall_On"] ~= nil
+    and varMeta["California.Hall_On"].hidden == true
+    and Properties["Selected Export"] == "Hallway"
+    and Properties["Export Name"] == "",
   Properties["Last Error"]
 )
-check("the export record carries the new name", (function() for _, e in pairs(gExports) do if e.name == "Hallway" then return true end end return false end)())
+check(
+  "the export record carries the new name",
+  (function()
+    for _, e in pairs(gExports) do
+      if e.name == "Hallway" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
 Properties["Selected Export"] = "-"
 EC.REMOVE_SELECTED_EXPORT()
-check("remove without a selection: a clear message", Properties["Last Error"]:find("pick an export") ~= nil, Properties["Last Error"])
+check(
+  "remove without a selection: a clear message",
+  Properties["Last Error"]:find("pick an export") ~= nil,
+  Properties["Last Error"]
+)
 Properties["Selected Export"] = "Hallway"
 EC.REMOVE_SELECTED_EXPORT()
 check(
   "Remove Selected Export stops sharing and clears the selection",
-  (function() for _, e in pairs(gExports) do if e.name == "Hallway" then return false end end return true end)()
-    and Properties["Selected Export"] == "-" and (Properties["Selected Export__list"] or ""):find("Hallway") == nil,
+  (function()
+    for _, e in pairs(gExports) do
+      if e.name == "Hallway" then
+        return false
+      end
+    end
+    return true
+  end)()
+    and Properties["Selected Export"] == "-"
+    and (Properties["Selected Export__list"] or ""):find("Hallway") == nil,
   Properties["Selected Export__list"]
 )
 C4.GetDevices = savedGetDevices
@@ -750,26 +795,68 @@ check(
 )
 print("\n[4a] Link Health: the transport facts, from engine state")
 advance(1100)
-check("Doorbell says joined-but-silent or not joined, never a blank", Properties["Doorbell"] ~= "" and Properties["Doorbell"] ~= nil, Properties["Doorbell"])
-check("Poll Interval names the 20 s poll while the doorbell has not rung", Properties["Poll Interval"] == "20 s", Properties["Poll Interval"])
-check("Pending counts updates and requests", Properties["Pending"]:match("^%d+ updates · %d+ requests$") ~= nil, Properties["Pending"])
+check(
+  "Doorbell says joined-but-silent or not joined, never a blank",
+  Properties["Doorbell"] ~= "" and Properties["Doorbell"] ~= nil,
+  Properties["Doorbell"]
+)
+check(
+  "Poll Interval names the 20 s poll while the doorbell has not rung",
+  Properties["Poll Interval"] == "20 s",
+  Properties["Poll Interval"]
+)
+check(
+  "Pending counts updates and requests",
+  Properties["Pending"]:match("^%d+ updates · %d+ requests$") ~= nil,
+  Properties["Pending"]
+)
 gEngine.lastRefusal = { reason = "stale revision", what = "Away", at = gEngine.io.now() }
 advance(1100)
-check("Last Relay Refusal shows the item, the reason and a time", Properties["Last Relay Refusal"]:find("^Away: stale revision · ") ~= nil, Properties["Last Relay Refusal"])
+check(
+  "Last Relay Refusal shows the item, the reason and a time",
+  Properties["Last Relay Refusal"]:find("^Away: stale revision · ") ~= nil,
+  Properties["Last Relay Refusal"]
+)
 gEngine:onDoorbell()
 advance(1100)
-check("a ring flips the doorbell to joined-and-live wording and the poll to backstop", Properties["Poll Interval"]:find("^doorbell%-driven") ~= nil or Properties["Doorbell"]:find("last rang") ~= nil, Properties["Doorbell"] .. " / " .. Properties["Poll Interval"])
+check(
+  "a ring flips the doorbell to joined-and-live wording and the poll to backstop",
+  Properties["Poll Interval"]:find("^doorbell%-driven") ~= nil or Properties["Doorbell"]:find("last rang") ~= nil,
+  Properties["Doorbell"] .. " / " .. Properties["Poll Interval"]
+)
+
+print("\n[4b2] Run Link Test: first failure, or a measured round trip")
+local savedPeer = gEngine.peerState
+gEngine.peerState = "offline"
+EC.RUN_LINK_TEST()
+check("peer offline: the test stops there and sends nothing", gEngine.linkTest == nil)
+gEngine.peerState = "online"
+EC.RUN_LINK_TEST()
+check(
+  "peer online: a ping is queued and the test runs",
+  gEngine.linkTest ~= nil and gEngine:linkTestState() == "running"
+)
+gEngine:onReservedEvent("__sl_pong", { nonce = gEngine.linkTest.nonce })
+check("the pong with the right nonce completes it", gEngine:linkTestState() == "done")
+advance(1100)
+check("the poll reports and clears the test", gEngine.linkTest == nil)
+gEngine.peerState = savedPeer
 
 print("\n[4c] Pending exports: the peer's exports with no companion here, one action to add")
 advance(1100) -- a status tick repaints the lists
 check(
   "Pending Exports lists the mirrored export that has no companion",
-  Properties["Pending Exports"] == "Guest_Lamp (light)" and (Properties["Pending Export__list"] or ""):find("Guest_Lamp") ~= nil,
+  Properties["Pending Exports"] == "Guest_Lamp (light)"
+    and (Properties["Pending Export__list"] or ""):find("Guest_Lamp") ~= nil,
   tostring(Properties["Pending Exports"]) .. " / " .. tostring(Properties["Pending Export__list"])
 )
 Properties["Pending Export"] = "-"
 EC.ADD_COMPANION_FOR_PENDING_EXPORT()
-check("no pending export picked: a clear message", Properties["Last Error"]:find("Pick an export in Pending Export") ~= nil, Properties["Last Error"])
+check(
+  "no pending export picked: a clear message",
+  Properties["Last Error"]:find("Pick an export in Pending Export") ~= nil,
+  Properties["Last Error"]
+)
 local added = {}
 function C4:AddDevice(file, callback)
   added[#added + 1] = file
@@ -781,16 +868,24 @@ EC.ADD_COMPANION_FOR_PENDING_EXPORT()
 check(
   "Add Companion For Pending Export adds the light companion and links it to the export",
   added[1] == "smartbuildos-system-link-light.c4z"
-    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil and lastSent("SBOS_LINK_COMPANION_ASSIGN").id == 4242
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").id == 4242
     and lastSent("SBOS_LINK_COMPANION_ASSIGN").params.export == "Guest_Lamp",
   Properties["Last Error"]
 )
 local savedGetDevices2 = C4.GetDevices
 function C4:GetDevices()
-  return { [900] = { driverFileName = "smartbuildos.c4z" }, [4242] = { driverFileName = "smartbuildos-system-link-light.c4z" } }
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [4242] = { driverFileName = "smartbuildos-system-link-light.c4z" },
+  }
 end
 advance(1100)
-check("once the companion exists the export is no longer pending", Properties["Pending Exports"] == "none", Properties["Pending Exports"])
+check(
+  "once the companion exists the export is no longer pending",
+  Properties["Pending Exports"] == "none",
+  Properties["Pending Exports"]
+)
 C4.GetDevices = savedGetDevices2
 EC.Remove_Export({ NAME = "Porch_Light" })
 check("remove export tombstones its items", gEngine:findByName("Porch_Light_On") == nil)

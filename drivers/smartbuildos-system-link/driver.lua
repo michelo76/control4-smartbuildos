@@ -510,7 +510,8 @@ local function paintLinkHealth()
   if not gDoorbell.up then
     doorbell = "not joined" .. (e.lastDoorbellAt and (" · last rang " .. formatTime(e.lastDoorbellAt)) or "")
   elseif e.lastDoorbellAt then
-    doorbell = (e:doorbellLive() and "joined · last rang " or "joined · silent since ") .. formatTime(e.lastDoorbellAt)
+    doorbell = (e:doorbellLive() and "joined · last rang " or "joined · silent since ")
+      .. formatTime(e.lastDoorbellAt)
   else
     doorbell = "joined · never rang — polling"
   end
@@ -521,10 +522,14 @@ local function paintLinkHealth()
       or string.format("%d s", Engine.POLL_FALLBACK_MS / 1000)
   )
   local r = e.lastRefusal
-  updateStatus("Last Relay Refusal", r and string.format("%s: %s · %s", tostring(r.what), tostring(r.reason), formatTime(r.at)) or "none")
+  updateStatus(
+    "Last Relay Refusal",
+    r and string.format("%s: %s · %s", tostring(r.what), tostring(r.reason), formatTime(r.at)) or "none"
+  )
   updateStatus(
     "Relay Latency",
-    e.latency and e.latency.p95_ms and string.format("p95 %d ms (%d samples)", e.latency.p95_ms, #e.latency.samples) or "no samples"
+    e.latency and e.latency.p95_ms and string.format("p95 %d ms (%d samples)", e.latency.p95_ms, #e.latency.samples)
+      or "no samples"
   )
   updateStatus("Pending", string.format("%d updates · %d requests", #e.pending, requests.inFlight(e.requests)))
 end
@@ -1821,35 +1826,56 @@ function EC.REFRESH_LINK()
   paintPendingExports()
 end
 
+-- Run Link Test: the first failure it hits, or a real round trip. The ping
+-- travels through the relay to the peer bridge, which answers from inside
+-- its driver (no programming on either side), and the answer comes back the
+-- same way; the time is the dealer-visible latency, both directions.
+local LINK_TEST_TIMER = "SlLinkTestPoll"
+
 function EC.RUN_LINK_TEST()
   if not gEngine or not gEngine.link then
-    print("Link test: not provisioned")
+    print("Link test: not provisioned — approve the link in System Studio")
     return
   end
-  local started = nowMs()
-  local marker = gEngine:createItem(
-    { name = "Link_Test_" .. tostring(math.random(1000, 9999)), type = "INTEGER", export_enabled = false },
-    "1"
-  )
-  if marker then
-    gEngine:deleteItem(marker.id)
+  if gEngine.transport ~= "connected" then
+    print("Link test: relay disconnected (" .. tostring(gEngine.lastError or "") .. ")")
+    return
   end
-  gEngine.needSnapshot = true
-  doSync()
-  SetTimer("SlLinkTestReport", 5 * ONE_SECOND, function()
-    local st = gEngine:statusProperties()
+  if gEngine.peerState ~= "online" then
     print(
-      string.format(
-        "Link test: relay=%s peer=%s sync=%s remote=%s latency=%s elapsed=%dms",
-        st["Relay Connection"],
-        st["Peer Status"],
-        st["Sync Status"],
-        st["Remote System State"],
-        st["Measured Latency"],
-        nowMs() - started
-      )
+      "Link test: peer " .. tostring(gEngine.peerState) .. " — the other bridge has not sent a heartbeat recently"
     )
-  end)
+    return
+  end
+  local licensed = license.status() ~= "NOT_ENTITLED" and license.status() ~= "ENTITLEMENT_EXPIRED"
+  local ok, err = gEngine:startLinkTest()
+  if not ok then
+    print("Link test: could not send the ping (" .. tostring(err) .. ")")
+    return
+  end
+  print("Link test: ping sent, waiting for the peer…")
+  SetTimer(SYNC_TIMER, 100, doSync)
+  CancelTimer(LINK_TEST_TIMER)
+  SetTimer(LINK_TEST_TIMER, ONE_SECOND, function()
+    local state, rtt = gEngine:linkTestState()
+    if state == "running" then
+      return
+    end
+    CancelTimer(LINK_TEST_TIMER)
+    if state == "done" then
+      print(
+        string.format(
+          "Link test: round trip %.1f s (doorbell %s), peer online, %s",
+          rtt / 1000,
+          gEngine:doorbellLive() and "yes" or "no — polling",
+          licensed and "licensed" or ("licence " .. tostring(license.status()))
+        )
+      )
+    else
+      print("Link test: no answer within 30 s — the peer bridge may be on an older build or its relay poll is down")
+    end
+    gEngine.linkTest = nil
+  end, true)
 end
 
 function EC.PAUSE_COMMANDS()
