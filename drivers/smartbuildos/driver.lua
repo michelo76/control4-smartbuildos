@@ -66,6 +66,8 @@ local Rooms = require("telemetry.rooms")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 local sbosUpdater = require("lib.sbos-updater")
+-- Global on purpose: the main chunk is at Lua's 200-local ceiling.
+AgentTelemetry = require("sbos.agenttelemetry")
 --#endif
 
 --- Interval labels mapped to seconds.
@@ -171,6 +173,15 @@ local RELOAD_COUNT_KEY = "director_reload_count"
 local RELOAD_AT_KEY = "director_reload_at"
 local RELOAD_VERSION_KEY = "director_reload_version"
 local RELOAD_KIND_KEY = "director_reload_kind"
+--- How the last reload came about (clean | os-update | unexpected), and the
+--- markers Director's shutdown / update-started events leave behind for the
+--- next start to read (docs/AGENT_TELEMETRY.md, "restart cause").
+-- One global table, not three locals: the main chunk is at the 200-local limit.
+RESTART_KEYS = {
+  restart = "director_reload_restart",
+  shutdown = "director_shutdown_seen_at",
+  os_update = "director_os_update_seen_at",
+}
 --- Versioned System Studio Agent state. Configuration and runtime state are
 --- separate documents: replacing a settings revision must never reset startup
 --- history, and a runtime write must never masquerade as a configuration save.
@@ -310,7 +321,24 @@ local gThermostatSnapshot = {}
 local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- What this driver start was: count, timestamp, and cause.
 --- @type table
-local gStart = { count = 0, at = nil, kind = nil }
+local gStart = { count = 0, at = nil, kind = nil, restart = nil }
+--- Every Director system event seen since this start, by name. Shipped on
+--- the heartbeat so the fleet tells us which events each OS actually fires.
+gSystemEventCounts = {}
+--- Project edits (Composer adds/removes/renames/rebinds): a per-day count,
+--- the last one, and the names pending the next debounced flush.
+gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
+--- The programming census (AgentTelemetry.programmingCensus) and when it was
+--- read; refreshed on OnCodeItem* events and at most daily otherwise.
+gProgramming = { census = nil, at = nil }
+--- Zigbee mesh events since this start.
+gZigbee = { node_offline = 0, node_online = 0, mesh_changes = 0 }
+--- Controller clock against the platform's Date header (seconds; nil until
+--- the first answer), and whether drift has been announced.
+gClock = { offset = nil, at = nil, drifting = false }
+--- Heartbeat timer punctuality: how late the last tick fired (ms).
+gHeartbeatTick = { last_ms = nil, lag_ms = nil }
+gDriverStartedAt = os.time()
 --- System Studio Agent Contract v1 runtime state. Restored during late init so
 --- a malformed persisted document cannot prevent the normal connector startup.
 local gAgentConfig = select(1, AgentContract.validateConfig({}))
@@ -431,9 +459,26 @@ local function recordStart()
   local count = kind == "reload" and previousCount + 1 or previousCount
   local at = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
+  -- WHY it reloaded, from the markers Director's own shutdown and
+  -- update-started events left before it went down. No marker at all on a
+  -- reload is the case a dealer wants to hear about: power loss, crash or a
+  -- hard reset. Markers are consumed here so a stale one cannot explain a
+  -- later, unrelated restart.
+  local function markerAt(key)
+    local v = persist:get(key, false)
+    return type(v) == "number" and v or nil
+  end
+  local markers = { shutdown_at = markerAt(RESTART_KEYS.shutdown), os_update_at = markerAt(RESTART_KEYS.os_update) }
+  local restart = AgentTelemetry.classifyRestart(kind, markers, os.time())
+  persist:delete(RESTART_KEYS.shutdown)
+  persist:delete(RESTART_KEYS.os_update)
+
   persist:set(RELOAD_COUNT_KEY, count)
   persist:set(RELOAD_AT_KEY, at)
   persist:set(RELOAD_KIND_KEY, kind)
+  if restart ~= nil then
+    persist:set(RESTART_KEYS.restart, restart)
+  end
   if currentVersion ~= nil then
     persist:set(RELOAD_VERSION_KEY, currentVersion)
   end
@@ -442,6 +487,7 @@ local function recordStart()
     count = count,
     at = at,
     kind = kind,
+    restart = restart,
     previous_version = previousVersion,
     version = currentVersion,
   }
@@ -487,7 +533,12 @@ local function announceStart()
     UpdateProperty("Director Reloads", tostring(gStart.count))
     UpdateProperty(
       "Last Reload",
-      string.format("%s (%s)", (gStart.at or ""):gsub("T", " "):gsub("Z", " UTC"), gStart.kind or "unknown")
+      string.format(
+        "%s (%s%s)",
+        (gStart.at or ""):gsub("T", " "):gsub("Z", " UTC"),
+        gStart.kind or "unknown",
+        gStart.restart and (", " .. gStart.restart) or ""
+      )
     )
     C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
     C4:SetVariable("LAST_RELOAD", gStart.at)
@@ -505,6 +556,12 @@ local function announceStart()
 
   local firedOk, fireErr = pcall(function()
     C4:FireEvent("Director Reloaded")
+    -- A reload with no shutdown or update marker before it: the controller
+    -- did not go down on purpose. Wired to the Notification Agent, this is
+    -- the "your controller restarted unexpectedly" a dealer asks for.
+    if gStart.restart == "unexpected" then
+      C4:FireEvent("Unexpected Restart")
+    end
   end)
   if not firedOk then
     log:warn("Could not fire the Director Reloaded event: %s", tostring(fireErr))
@@ -515,8 +572,9 @@ local function announceStart()
       send("event", {
         kind = "event",
         name = "director_reloaded",
-        detail = string.format("Director reload #%d", gStart.count),
+        detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
         director_reloads = gStart.count,
+        restart = gStart.restart,
         last_reload_at = gStart.at,
         alerts = alertPreferences(),
       }, "director reload")
@@ -857,6 +915,88 @@ local function bodyText(body)
   return tostring(body)
 end
 
+--- Reads the platform's Date header off an answer and keeps the controller's
+--- clock offset (docs/AGENT_TELEMETRY.md, "clock"). Drift is announced on
+--- the TRANSITION only, through a Composer event and the journal; the
+--- heartbeat carries the figure every beat.
+function NoteClock(headers)
+  local offset = AgentTelemetry.clockOffsetSeconds(headers, os.time())
+  if offset == nil then
+    return
+  end
+  gClock.offset = offset
+  gClock.at = os.time()
+  UpdateProperty("Clock Offset", AgentTelemetry.clockOffsetText(offset))
+  pcall(function()
+    C4:SetVariable("CLOCK_OFFSET_SECONDS", offset)
+  end)
+  local drifting = math.abs(offset) >= AgentTelemetry.CLOCK_DRIFT_SECONDS
+  if drifting and not gClock.drifting then
+    log:warn("Controller clock is %+d s from the platform", offset)
+    pcall(function()
+      C4:FireEvent("Clock Drift Detected")
+    end)
+    if gTelemetry then
+      gTelemetry:add("SYSTEM", {
+        subcategory = "clock_drift",
+        source_type = "controller",
+        event_type = "transition",
+        value_numeric = offset,
+        unit = "s",
+        privacy_class = "INTEGRATOR_ONLY",
+      })
+    end
+  elseif not drifting and gClock.drifting then
+    log:info("Controller clock is back within %d s of the platform (%+d s)", AgentTelemetry.CLOCK_DRIFT_SECONDS, offset)
+  end
+  -- Hysteresis: announced at 120 s, cleared under 60 s, so a clock that
+  -- hovers at the line does not fire on every beat.
+  if drifting then
+    gClock.drifting = true
+  elseif math.abs(offset) < AgentTelemetry.CLOCK_DRIFT_SECONDS / 2 then
+    gClock.drifting = false
+  end
+end
+
+--- Reads a kernel file, or nil. The Lua io library is present on the
+--- controller (shipped drivers read their own files with it); whether /proc is
+--- readable from a driver is a PROBE, so every failure is a quiet nil.
+function ReadProcFile(path)
+  local ok, text = pcall(function()
+    local f = io.open(path, "r")
+    if not f then
+      return nil
+    end
+    local t = f:read("*a")
+    f:close()
+    return t
+  end)
+  if ok and type(text) == "string" and text ~= "" then
+    return text
+  end
+  return nil
+end
+
+--- The programming census, read now. Global so a Composer action and a test
+--- can ask for it; the heartbeat refreshes it at most daily on its own.
+function RefreshProgrammingCensus(reason)
+  local okC, items = pcall(function()
+    return C4:GetAllCodeItems()
+  end)
+  if not okC or type(items) ~= "table" then
+    UpdateProperty("Programming", "GetAllCodeItems unavailable on this OS")
+    return nil
+  end
+  local census = AgentTelemetry.programmingCensus(items)
+  gProgramming = { census = census, at = os.time() }
+  UpdateProperty("Programming", AgentTelemetry.programmingText(census))
+  pcall(function()
+    C4:SetVariable("PROGRAMMING_DISABLED_LINES", census.disabled or 0)
+  end)
+  log:info("Programming census (%s): %s", tostring(reason or "scheduled"), AgentTelemetry.programmingText(census))
+  return census
+end
+
 local function send(path, payload, description, onOk, onDelivered)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
@@ -900,6 +1040,7 @@ local function send(path, payload, description, onOk, onDelivered)
   log:debug("Sending %s to %s", description, url)
   http:post(url, payload, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
+    pcall(NoteClock, response.headers)
     -- A request can still be in flight when the driver unpairs: the unpair
     -- notice itself always is, because EC.UNPAIR wipes the pairing right after
     -- sending it. Its answer must not repaint an unpaired driver as
@@ -2824,6 +2965,34 @@ local function sendHeartbeat()
       director_reloads = gStart.count,
       last_reload_at = gStart.at,
       last_reload_kind = gStart.kind,
+      last_reload_restart = gStart.restart,
+      -- ── Additive telemetry (docs/AGENT_TELEMETRY.md). The platform may
+      -- ignore any of these; absence is an older Agent. ──────────────────
+      -- Controller clock against the platform, from the previous answer's
+      -- Date header. Programming and schedules run off this clock.
+      clock_offset_seconds = gClock.offset,
+      -- Which Director system events this OS actually fires, counted since
+      -- start: the fleet measures the API instead of us assuming it.
+      system_events = next(gSystemEventCounts) ~= nil and gSystemEventCounts or nil,
+      project_changes_today = gProjectChanges.count,
+      last_project_change_at = gProjectChanges.last_at,
+      -- The programming census, at most daily unless Composer edited it.
+      programming = (function()
+        if gProgramming.census == nil or (os.time() - (gProgramming.at or 0)) > 86400 then
+          pcall(RefreshProgrammingCensus, "heartbeat")
+        end
+        return gProgramming.census
+      end)(),
+      -- Zigbee mesh churn since start (node online/offline, mesh changes).
+      zigbee = (gZigbee.node_offline + gZigbee.node_online + gZigbee.mesh_changes) > 0 and gZigbee or nil,
+      -- PROBE: /proc and thermal, when the sandbox lets a driver read them.
+      controller_vitals = AgentTelemetry.readVitals(ReadProcFile),
+      -- This driver's own health: Lua heap, timer punctuality, time up.
+      agent_health = {
+        lua_memory_kb = math.floor(collectgarbage("count")),
+        heartbeat_lag_ms = gHeartbeatTick.lag_ms,
+        driver_uptime_seconds = os.time() - gDriverStartedAt,
+      },
       -- The server may ignore this additive object until its status reader is
       -- deployed. That is intentional forward compatibility: absence is an
       -- old Agent; presence is the Agent's own claim, never inferred from a
@@ -3405,7 +3574,19 @@ function scheduleTimers()
   local poll = INTERVALS[Properties["Device Poll Interval"] or ""] or INTERVALS["5m"]
   local fullSync = INTERVALS[Properties["Full Sync Interval"] or ""] or INTERVALS["24h"]
 
-  SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, sendHeartbeat, true)
+  SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, function()
+    -- How late the tick fired: Director under load delays timers, and a
+    -- heartbeat that arrives 20 s after its slot is the first sign of it.
+    local okT, nowMs = pcall(function()
+      return C4:GetTickCount()
+    end)
+    nowMs = okT and tonumber(nowMs) or os.time() * 1000
+    if gHeartbeatTick.last_ms ~= nil then
+      gHeartbeatTick.lag_ms = math.max(0, (nowMs - gHeartbeatTick.last_ms) - heartbeat * 1000)
+    end
+    gHeartbeatTick.last_ms = nowMs
+    sendHeartbeat()
+  end, true)
   -- Hourly CHECK, server-tuned ACTION: the tick refreshes entitlements only
   -- once the cache is past the platform's revalidate window.
   CancelTimer(ENTITLEMENT_TIMER)
@@ -5130,6 +5311,9 @@ function registerBridgeVariables()
     { "CLOUD_CONNECTED", false, "BOOL" },
     { "REPORT_STATUS", "not-requested", "STRING" },
     { "LICENSE_STATE", "Not reported", "STRING" },
+    { "LAST_PROJECT_CHANGE", "", "STRING" },
+    { "CLOCK_OFFSET_SECONDS", 0, "NUMBER" },
+    { "PROGRAMMING_DISABLED_LINES", 0, "NUMBER" },
   }) do
     pcall(function()
       C4:AddVariable(v[1], v[2], v[3] or "STRING", true)
@@ -5153,6 +5337,11 @@ function registerBridgeVariables()
     { 18, "Cloud Connection Changed", "The Agent cloud connection state changed" },
     { 19, "License Status Changed", "The Agent license state changed" },
     { 20, "Controller Mismatch", "The execution controller did not match the verified primary controller" },
+    { 21, "Project Changed", "Composer added, removed, renamed or rebound something in the project" },
+    { 22, "Clock Drift Detected", "The controller clock is more than two minutes from SmartBuildOS" },
+    { 23, "OS Update Started", "Director reported that an OS update began" },
+    { 24, "Programming Changed", "Composer programming was added, removed or moved" },
+    { 25, "Unexpected Restart", "Director came back with no shutdown or update before it" },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -5303,13 +5492,9 @@ end
 --- 17/18 cover a binding being added or removed — a device joining or leaving
 --- the project — and 78 is SDDP, which is how Control4 learns about announcing
 --- devices in the first place.
-local SYSTEM_EVENTS = {
-  [17] = "OnNetworkBindingAdded",
-  [18] = "OnNetworkBindingRemoved",
-  [48] = "OnDeviceOnline",
-  [49] = "OnDeviceOffline",
-  [78] = "OnSDDPDeviceStatus",
-}
+--- Every Director system event the Agent listens for; ids and names in
+--- AgentTelemetry.SYSTEM_EVENT_NAMES (vendored C4SystemEvents table).
+local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
 local function registerSystemEvents()
   if C4.RegisterSystemEvent == nil then
@@ -5337,11 +5522,144 @@ end
 --- try to parse it: it debounces into a single poll, which reads the authorative
 --- state for the whole project anyway. A burst of twenty devices coming back
 --- after a switch reboots therefore costs one sync, not twenty.
+--- Flushes the pending project edits: one count, one event, one journal
+--- line for a burst of Composer work, then a re-discovery so a device added
+--- today is monitored today, not after the next driver reload.
+function ProjectChangeFlush()
+  local today = os.date("!%Y-%m-%d")
+  if gProjectChanges.day ~= today then
+    gProjectChanges.day = today
+    gProjectChanges.count = 0
+  end
+  local names = {}
+  for name in pairs(gProjectChanges.pending) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  gProjectChanges.pending = {}
+  if #names == 0 then
+    return
+  end
+  gProjectChanges.count = gProjectChanges.count + 1
+  gProjectChanges.last_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  gProjectChanges.last_name = table.concat(names, ",")
+  local text = string.format("%s %s", os.date("%Y-%m-%d %H:%M:%S"), gProjectChanges.last_name)
+  UpdateProperty("Last Project Change", text)
+  pcall(function()
+    C4:SetVariable("LAST_PROJECT_CHANGE", text)
+  end)
+  pcall(function()
+    C4:FireEvent("Project Changed")
+  end)
+  if gTelemetry then
+    gTelemetry:add("SYSTEM", {
+      subcategory = "project_changed",
+      source_type = "composer",
+      event_type = "transition",
+      value_text = gProjectChanges.last_name:sub(1, 200),
+      privacy_class = "INTEGRATOR_ONLY",
+    })
+  end
+  log:info("Project changed (%s); re-discovering in 60 s", gProjectChanges.last_name)
+  SetTimer("ProjectRediscover", 60 * ONE_SECOND, function()
+    if not isPaired() then
+      return
+    end
+    local okD, errD = pcall(applyDiscovery)
+    if not okD then
+      log:warn("Re-discovery after a project change failed: %s", tostring(errD))
+    end
+    if gMonitor.enabled then
+      pcall(sendCatalogue)
+    end
+  end)
+end
+
+--- Director calls this for every event registered above.
+---
+--- The payload is documented as event-specific and "in most cases can be
+--- ignored"; shipped drivers read its `name="..."` attribute, and so does
+--- AgentTelemetry.eventNameFrom. An event whose name cannot be read is
+--- handled as every event was before (one debounced poll), so nothing an
+--- older OS sends is lost. The routes, in docs/AGENT_TELEMETRY.md:
+---
+---   device      online/offline/binding → the existing debounced poll
+---   project     Composer edits → ProjectChangeFlush (30 s) + the poll
+---   programming OnCodeItem* → programming census (30 s)
+---   zigbee      counters on the heartbeat and the Zigbee Events property
+---   shutdown    marker for the next start's restart cause + a last event
+---   os_update   marker + Composer event + a last event
+---   identity    IP / timezone / locale changed → a heartbeat in 5 s
 function OnSystemEvent(data)
   log:debug("OnSystemEvent(%s)", tostring(data))
+  local name = AgentTelemetry.eventNameFrom(data)
+  local class = AgentTelemetry.classifySystemEvent(name)
+  gSystemEventCounts[name] = (gSystemEventCounts[name] or 0) + 1
+
+  if class == "shutdown" then
+    persist:set(RESTART_KEYS.shutdown, os.time())
+    log:info("Director is shutting down")
+    if isPaired() then
+      pcall(send, "event", { kind = "event", name = "controller_shutting_down", detail = name }, "shutdown notice")
+    end
+    return
+  elseif class == "os_update" then
+    persist:set(RESTART_KEYS.os_update, os.time())
+    log:info("OS update started")
+    pcall(function()
+      C4:FireEvent("OS Update Started")
+    end)
+    if isPaired() then
+      pcall(send, "event", { kind = "event", name = "os_update_started", detail = name }, "OS update notice")
+    end
+    return
+  elseif class == "zigbee" then
+    if name == "OnZigbeeNodeOffline" then
+      gZigbee.node_offline = gZigbee.node_offline + 1
+    elseif name == "OnZigbeeNodeOnline" then
+      gZigbee.node_online = gZigbee.node_online + 1
+    else
+      gZigbee.mesh_changes = gZigbee.mesh_changes + 1
+    end
+    UpdateProperty("Zigbee Events", AgentTelemetry.zigbeeText(gZigbee))
+    return
+  elseif class == "controller_disabled" then
+    log:warn("Director reported OnControllerDisabled")
+    if gTelemetry then
+      gTelemetry:add("SYSTEM", {
+        subcategory = "controller_disabled",
+        source_type = "controller",
+        event_type = "transition",
+        privacy_class = "INTEGRATOR_ONLY",
+      })
+    end
+    return
+  elseif class == "composer" then
+    -- Project lock taken or released: counted (heartbeat), nothing else.
+    return
+  end
+
   if not isPaired() then
     return
   end
+
+  if class == "programming" then
+    SetTimer("ProgrammingCensusDebounce", 30 * ONE_SECOND, function()
+      RefreshProgrammingCensus(name)
+      pcall(function()
+        C4:FireEvent("Programming Changed")
+      end)
+    end)
+    return
+  elseif class == "identity" then
+    SetTimer("IdentityRefresh", 5 * ONE_SECOND, sendHeartbeat)
+    return
+  elseif class == "project" then
+    gProjectChanges.pending[name] = true
+    SetTimer("ProjectChangeDebounce", 30 * ONE_SECOND, ProjectChangeFlush)
+    -- fall through: an added or rebound device is also a device to poll.
+  end
+
   CancelTimer("SystemEventDebounce")
   SetTimer("SystemEventDebounce", 5 * ONE_SECOND, function()
     log:info("Director reported a device state change; polling")
@@ -6009,6 +6327,20 @@ local function diagnose(lines)
   end)
   probe("GetUname", function()
     return C4:GetUname()
+  end)
+  -- PROBE: can a driver read the kernel's own files? Composer shows CPU and
+  -- memory on the Director page and no documented call exposes them.
+  for label, path in pairs(AgentTelemetry.VITALS_FILES) do
+    probe("read " .. path, function()
+      local text = ReadProcFile(path)
+      return text ~= nil and (label .. " readable: " .. text:gsub("%s+", " "):sub(1, 120)) or "not readable"
+    end)
+  end
+  probe("controller vitals", function()
+    return AgentTelemetry.vitalsText(AgentTelemetry.readVitals(ReadProcFile))
+  end)
+  probe("clock offset", function()
+    return AgentTelemetry.clockOffsetText(gClock.offset)
   end)
 
   -- Is the reported name the SCRAPE or the fallback? `directorIdentity` uses
