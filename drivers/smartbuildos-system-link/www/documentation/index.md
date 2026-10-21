@@ -186,6 +186,12 @@ linked project must be re-linked to the new name) and **Remove Selected
 Export** stops sharing it (its variables stay hidden and are never reused).
 Both print their effect to the Lua tab first.
 
+On the receiving project, **Pending Exports** lists what the linked project
+shares that has no companion device here yet (`MBR_Baseboard (light)`). Pick
+it in **Pending Export** and run **Add Companion For Pending Export**: the
+bridge adds the matching companion driver and links it to the export in one
+step. The list follows the link, so a new export shows up within a sync.
+
 ## Publication filters
 
 Per owned item, optional: debounce/stability seconds, numeric change threshold,

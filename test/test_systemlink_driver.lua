@@ -290,6 +290,13 @@ for _, p in ipairs({
   "Schema Revision",
   "Last Error",
   "Selected Item Details",
+  "Selected Item Value",
+  "Pending Exports",
+  "Doorbell",
+  "Poll Interval",
+  "Last Relay Refusal",
+  "Relay Latency",
+  "Pending",
 }) do
   Properties[p] = Properties[p] or ""
 end
@@ -741,6 +748,38 @@ check(
     end)(),
   lastSent("SBOS_LINK_COMPANION_RESULT").params.reason
 )
+print("\n[4c] Pending exports: the peer's exports with no companion here, one action to add")
+advance(1100) -- a status tick repaints the lists
+check(
+  "Pending Exports lists the mirrored export that has no companion",
+  Properties["Pending Exports"] == "Guest_Lamp (light)" and (Properties["Pending Export__list"] or ""):find("Guest_Lamp") ~= nil,
+  tostring(Properties["Pending Exports"]) .. " / " .. tostring(Properties["Pending Export__list"])
+)
+Properties["Pending Export"] = "-"
+EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+check("no pending export picked: a clear message", Properties["Last Error"]:find("Pick an export in Pending Export") ~= nil, Properties["Last Error"])
+local added = {}
+function C4:AddDevice(file, callback)
+  added[#added + 1] = file
+  callback(4242)
+end
+sent = {}
+Properties["Pending Export"] = "Guest_Lamp"
+EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+check(
+  "Add Companion For Pending Export adds the light companion and links it to the export",
+  added[1] == "smartbuildos-system-link-light.c4z"
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil and lastSent("SBOS_LINK_COMPANION_ASSIGN").id == 4242
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").params.export == "Guest_Lamp",
+  Properties["Last Error"]
+)
+local savedGetDevices2 = C4.GetDevices
+function C4:GetDevices()
+  return { [900] = { driverFileName = "smartbuildos.c4z" }, [4242] = { driverFileName = "smartbuildos-system-link-light.c4z" } }
+end
+advance(1100)
+check("once the companion exists the export is no longer pending", Properties["Pending Exports"] == "none", Properties["Pending Exports"])
+C4.GetDevices = savedGetDevices2
 EC.Remove_Export({ NAME = "Porch_Light" })
 check("remove export tombstones its items", gEngine:findByName("Porch_Light_On") == nil)
 
