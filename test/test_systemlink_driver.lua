@@ -661,6 +661,25 @@ check(
   Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
   Properties["Last Error"]
 )
+print("\n[3b] Templates: pick, print, apply")
+check("the Template list is painted with the catalogue", (Properties["Template__list"] or ""):find("away%-home — Away / Home coordination") ~= nil, Properties["Template__list"])
+Properties["Template"] = "-"
+EC.APPLY_TEMPLATE()
+check("no template picked: a clear message", Properties["Last Error"]:find("Pick a template") ~= nil, Properties["Last Error"])
+Properties["Template"] = "away-home — Away / Home coordination"
+EC.APPLY_TEMPLATE()
+local sysMode = gEngine:findByName("System_Mode")
+check(
+  "Apply Template creates the recipe's items with their rules, skipping the one already present (Away)",
+  gEngine:findByName("Away") ~= nil and sysMode ~= nil and sysMode.type == "CHOICE" and #sysMode.allowed_values == 3 and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+local before = gEngine:statusProperties()["Local Variables Created"]
+EC.APPLY_TEMPLATE()
+check("applying again creates nothing new", gEngine:statusProperties()["Local Variables Created"] == before)
+EC.PRINT_TEMPLATE()
+check("Print Template leaves the registry alone", gEngine:statusProperties()["Local Variables Created"] == before)
+
 print("\n[3d] Selected Export: rename and remove from the Properties block")
 check(
   "Selected Export lists the exports",

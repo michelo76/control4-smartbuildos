@@ -164,6 +164,18 @@ programming says it means. A timeout means the result was not confirmed, not
 that the work stopped; a late result is recorded in the slot but never fires a
 follow-up.
 
+## Templates (Properties tab)
+
+**Template** lists seven setup recipes (Away/Home coordination, guesthouse
+occupancy, remote light, remote thermostat, arrival request with result,
+read-only sensors, gate request with feedback). **Print Template** prints what
+the recipe creates and the Composer programming to write on each side, with
+`<Owner>` replaced by this bridge's prefix. **Apply Template** creates the
+recipe's shared items on this bridge (names already present are left as they
+are) and prints the same steps. A template never writes Composer programming
+and never creates an export or a companion: those stay deliberate actions,
+named in the printed steps. Recipes that involve control say so.
+
 ## Device exports (Properties tab)
 
 A device is shared with the linked project from the **Device Exports** block on
