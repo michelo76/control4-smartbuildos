@@ -164,6 +164,21 @@ function Relay:sync(epId, body)
   if body.heartbeat then
     ep.hb = now
   end
+  -- Dealer requests the real relay answers the same way.
+  local renameAnswer, controlAnswer
+  if type(body.rename_namespace) == "table" then
+    local to = tostring(body.rename_namespace.to or "")
+    if to == peer.ns or to:find("^Taken") or not to:match("^[A-Za-z][A-Za-z0-9_]*$") then
+      renameAnswer = { ok = false, reason = "namespace not available" }
+    else
+      ep.ns = to
+      renameAnswer = { ok = true }
+    end
+  end
+  if type(body.link_control) == "table" then
+    self.paused = body.link_control.op == "pause"
+    controlAnswer = { ok = true }
+  end
   local accepted, rejected = {}, {}
   for _, env in ipairs(body.outbound or {}) do
     if env.gen ~= ep.gen then
@@ -300,7 +315,9 @@ function Relay:sync(epId, body)
       paused = self.paused,
       commands_paused = self.commandsPaused,
     },
-    self = { id = epId, generation = ep.gen },
+    self = { id = epId, generation = ep.gen, namespace = ep.ns },
+    rename_namespace = renameAnswer,
+    link_control = controlAnswer,
     peer = {
       id = ep.peer,
       generation = peer.gen,
@@ -509,6 +526,89 @@ check(
     and (ioCA.vars["California.Last_Event_Name"] and ioCA.vars["California.Last_Event_Name"].value) == lastNameBefore
 )
 NY.linkTest = nil
+
+print("\n[namespace] rename through the relay: tombstones here, mirrors move on the peer")
+check(
+  "a bad or taken namespace is refused before asking",
+  select(2, NY:validateNamespace("9x")) ~= nil
+    and select(2, NY:validateNamespace("California")) ~= nil
+    and select(2, NY:validateNamespace("NewYork")) ~= nil
+)
+local preview = NY:namespacePreview("Big_Apple", nil)
+check("the preview names every variable the rename touches, items and fixed ones", #preview > 0 and (function()
+  local sawItem, sawFixed = false, false
+  for _, l in ipairs(preview) do
+    if l:find("^NewYork%.Occupied → Big_Apple%.Occupied$") then
+      sawItem = true
+    end
+    if l:find("^NewYork%.Last_Event_Name → Big_Apple%.Last_Event_Name$") then
+      sawFixed = true
+    end
+  end
+  return sawItem and sawFixed
+end)(), table.concat(preview, "; "))
+local occBefore = ioCA.vars["NewYork.Occupied"] and ioCA.vars["NewYork.Occupied"].value
+assert(NY:requestNamespaceRename("Big_Apple"))
+check("the request rides the next sync", NY:buildSync().rename_namespace.to == "Big_Apple")
+sync(NY, "ep-ny")
+check(
+  "the owner applies the relay's answer: old name hidden, new name live with the value, fixed variables moved",
+  NY.link.namespace == "Big_Apple"
+    and ioNY.vars["NewYork.Occupied"].hidden == true
+    and ioNY.vars["Big_Apple.Occupied"] ~= nil
+    and ioNY.vars["Big_Apple.Occupied"].hidden ~= true
+    and ioNY.vars["Big_Apple.Last_Event_Name"] ~= nil
+    and NY.pendingNamespaceRename == nil,
+  tostring(NY.link.namespace) .. " " .. tostring(NY.lastError)
+)
+sync(CA, "ep-ca")
+check(
+  "the peer moves its mirrors and their .STATE twins, keeping the value",
+  CA.link.peer_namespace == "Big_Apple"
+    and ioCA.vars["NewYork.Occupied"].hidden == true
+    and ioCA.vars["Big_Apple.Occupied"] ~= nil
+    and ioCA.vars["Big_Apple.Occupied"].value == occBefore
+    and ioCA.vars["Big_Apple.Occupied.STATE"] ~= nil
+    and ioCA.vars["NewYork.Occupied.STATE"].hidden == true,
+  tostring(CA.link.peer_namespace)
+)
+check("Schema Attention fired on both sides", hasEvent(ioNY, "SCHEMA_ATTENTION") and hasEvent(ioCA, "SCHEMA_ATTENTION"))
+assert(NY:requestNamespaceRename("NewYork"))
+sync(NY, "ep-ny")
+sync(CA, "ep-ca")
+check(
+  "renaming back restores the names (ids never reused: the hidden ones come back to life)",
+  NY.link.namespace == "NewYork"
+    and ioNY.vars["NewYork.Occupied"].hidden ~= true
+    and ioCA.vars["NewYork.Occupied"].hidden ~= true
+)
+assert(NY:requestNamespaceRename("Taken_One"))
+sync(NY, "ep-ny")
+check(
+  "the relay's refusal is reported and nothing moves",
+  tostring(NY.lastError):find("namespace rename refused: namespace not available") ~= nil
+    and NY.link.namespace == "NewYork"
+    and NY:buildSync().rename_namespace == nil,
+  tostring(NY.lastError)
+)
+NY.pendingNamespaceRename = nil
+
+print("\n[pause link] the whole link, from either bridge")
+assert(NY:requestLinkControl("pause", nil, "service"))
+check("the request rides the next sync", NY:buildSync().link_control.op == "pause")
+sync(NY, "ep-ny")
+check(
+  "the owner sees the link paused and the request is settled",
+  NY.linkPaused == true and hasEvent(ioNY, "LINK_PAUSED") and NY.pendingLinkControl == nil,
+  tostring(NY.lastError)
+)
+sync(CA, "ep-ca")
+check("the peer sees it too", CA.linkPaused == true and hasEvent(ioCA, "LINK_PAUSED"))
+check("events are refused while paused", select(2, NY:emitEvent("Doorbell", "x")) == "link paused")
+assert(NY:requestLinkControl("resume"))
+sync(NY, "ep-ny")
+sync(CA, "ep-ca")
+check("resume reaches both", NY.linkPaused == false and CA.linkPaused == false and NY.pendingLinkControl == nil)
 check(
   "last event variables set with origin and timezone",
   varValue(ioCA, "California.Last_Event_Name") == "Doorbell"

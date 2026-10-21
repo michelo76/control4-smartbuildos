@@ -732,6 +732,145 @@ function M:ensureRequestSlotVariables()
   self:ensureVariable(ns .. ".Last_Event_Age_Seconds", "0", "NUMBER", true)
 end
 
+--- Every fixed (non-item) variable name under a namespace: request slots
+--- and the Last_Event_* set, in a stable order.
+function M:fixedVariableNames(ns)
+  local out = {}
+  for i = 1, self.requests.slot_count do
+    local base = ns .. ".Request_" .. tostring(i)
+    for _, suffix in ipairs({ "_Id", "_Routine", "_Status", "_Direction", "_Payload", "_Result" }) do
+      out[#out + 1] = base .. suffix
+    end
+  end
+  for _, suffix in ipairs({ ".Last_Event_Name", ".Last_Event_Payload", ".Last_Event_Origin", ".Last_Event_Age_Seconds" }) do
+    out[#out + 1] = ns .. suffix
+  end
+  return out
+end
+
+-- ── Namespace rename ─────────────────────────────────────────────────────────
+--
+-- The namespace (the Composer prefix) is server-owned: frozen at approval,
+-- changed only through the relay so both bridges learn the new value on
+-- their next sync (resp.self.namespace / resp.peer.namespace). The bridge
+-- asks with body.rename_namespace = { to = <name> } and, like every rename
+-- here, keeps every variable id: the old names become hidden tombstones and
+-- the new names get new ids, which the preview tells the dealer first.
+
+M.NAMESPACE_PATTERN = "^[A-Za-z][A-Za-z0-9_]*$"
+M.NAMESPACE_MAX = 24
+
+function M:validateNamespace(ns)
+  ns = tostring(ns or "")
+  if not ns:match(M.NAMESPACE_PATTERN) or #ns > M.NAMESPACE_MAX then
+    return false, "namespace must be letters, digits and underscores, start with a letter, max " .. M.NAMESPACE_MAX
+  end
+  if self.link and ns == self.link.namespace then
+    return false, "that is already this system's namespace"
+  end
+  if self.link and ns == self.link.peer_namespace then
+    return false, "that is the linked system's namespace"
+  end
+  return true
+end
+
+--- "old → new" for every variable a namespace change would touch. Dry run.
+function M:namespacePreview(newSelf, newPeer)
+  local oldSelf, oldPeer = self.link and self.link.namespace, self.link and self.link.peer_namespace
+  local out = {}
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    local ns = def.mirror and oldPeer or oldSelf
+    local to = def.mirror and (newPeer or oldPeer) or (newSelf or oldSelf)
+    if ns and to and ns ~= to then
+      out[#out + 1] = schema.variableName(ns, def) .. " → " .. schema.variableName(to, def)
+      if def.mirror then
+        out[#out + 1] = schema.variableName(ns, def)
+          .. M.STATE_VAR_SUFFIX
+          .. " → "
+          .. schema.variableName(to, def)
+          .. M.STATE_VAR_SUFFIX
+      end
+    end
+  end
+  if oldSelf and newSelf and newSelf ~= oldSelf then
+    local after = self:fixedVariableNames(newSelf)
+    for i, name in ipairs(self:fixedVariableNames(oldSelf)) do
+      out[#out + 1] = name .. " → " .. after[i]
+    end
+  end
+  return out
+end
+
+--- Applies a namespace change the relay reported: tombstones the old
+--- variables, creates the new ones with the current values, and returns the
+--- effect lines. Fires Schema Attention so programming can be reviewed.
+function M:applyNamespaceChange(newSelf, newPeer)
+  if not self.link then
+    return {}
+  end
+  local effects = self:namespacePreview(newSelf, newPeer)
+  if #effects == 0 then
+    return effects
+  end
+  local oldSelf, oldPeer = self.link.namespace, self.link.peer_namespace
+  local before = {}
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    before[def.id] = self:variableNameFor(def)
+  end
+  self.link.namespace = newSelf or oldSelf
+  self.link.peer_namespace = newPeer or oldPeer
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    local after = self:variableNameFor(def)
+    if before[def.id] ~= after then
+      self.io.addVariable(before[def.id], "", "STRING", true, true)
+      local tv = self.values[def.id] and self.values[def.id].tv or schema.unknown()
+      self:ensureVariable(after, schema.toNative(def, tv), nativeType(def), def.mirror == true)
+      if def.mirror then
+        self.io.addVariable(before[def.id] .. M.STATE_VAR_SUFFIX, "", "STRING", true, true)
+        local f = self.fresh[def.id]
+        self:ensureVariable(after .. M.STATE_VAR_SUFFIX, f and f.state or "unknown", "STRING", true)
+      end
+    end
+  end
+  if newSelf and newSelf ~= oldSelf then
+    for _, name in ipairs(self:fixedVariableNames(oldSelf)) do
+      self.io.addVariable(name, "", "STRING", true, true)
+    end
+    self:ensureRequestSlotVariables()
+  end
+  self.io.save("sl_link", self.link)
+  self:persistAll()
+  self.io.fireEvent("SCHEMA_ATTENTION")
+  return effects
+end
+
+--- Asks the relay to rename this system's namespace on the next sync.
+function M:requestNamespaceRename(newNs)
+  if not self.link then
+    return false, "not provisioned"
+  end
+  local ok, err = self:validateNamespace(newNs)
+  if not ok then
+    return false, err
+  end
+  self.pendingNamespaceRename = { to = newNs, answer = nil }
+  return true
+end
+
+--- Asks the relay to pause or resume the whole link on the next sync.
+--- minutes = nil pauses until resumed.
+function M:requestLinkControl(op, minutes, reason)
+  if not self.link then
+    return false, "not provisioned"
+  end
+  if op ~= "pause" and op ~= "resume" then
+    return false, "op must be pause or resume"
+  end
+  self.pendingLinkControl =
+    { op = op, minutes = tonumber(minutes), reason = reason and tostring(reason) or nil, answer = nil }
+  return true
+end
+
 -- ── sync (one round trip) ───────────────────────────────────────────────────
 
 -- ── Link test: a round trip through the relay with no programming ──────────
@@ -802,6 +941,16 @@ function M:buildSync()
   end
   if self.needSnapshot then
     body.snapshot = true
+  end
+  if self.pendingNamespaceRename and not self.pendingNamespaceRename.answer then
+    body.rename_namespace = { to = self.pendingNamespaceRename.to }
+  end
+  if self.pendingLinkControl and not self.pendingLinkControl.answer then
+    body.link_control = {
+      op = self.pendingLinkControl.op,
+      minutes = self.pendingLinkControl.minutes,
+      reason = self.pendingLinkControl.reason,
+    }
   end
   if self:heartbeatDue() then
     -- The relay stores these per endpoint (system_link_endpoints.health) so
@@ -915,11 +1064,72 @@ function M:onSyncResponse(resp, rawLen)
       self.linkPaused = lp
       self.io.fireEvent(lp and "LINK_PAUSED" or "LINK_RESUMED")
     end
+    local pc = self.pendingLinkControl
+    if pc and pc.answer and ((pc.op == "pause" and lp) or (pc.op == "resume" and not lp) or pc.answer.ok ~= true) then
+      self.pendingLinkControl = nil
+    end
     if cp ~= self.commandsPaused then
       self.commandsPaused = cp
       self.io.fireEvent(cp and "COMMANDS_PAUSED" or "COMMANDS_RESUMED")
     end
     self.link.link_state = resp.link.state
+  end
+  -- The relay's answers to the dealer's requests (nil until it answers; an
+  -- older relay never does, and the pending request is dropped after it).
+  if type(resp.rename_namespace) == "table" and self.pendingNamespaceRename then
+    self.pendingNamespaceRename.answer = resp.rename_namespace
+    if resp.rename_namespace.ok ~= true then
+      self.lastError = "namespace rename refused: " .. tostring(resp.rename_namespace.reason or "no reason given")
+    end
+  elseif self.pendingNamespaceRename and not self.pendingNamespaceRename.answer then
+    self.pendingNamespaceRename.unanswered = (self.pendingNamespaceRename.unanswered or 0) + 1
+    if self.pendingNamespaceRename.unanswered >= 2 then
+      self.lastError = "namespace rename: the relay did not answer (older relay?)"
+      self.pendingNamespaceRename = nil
+    end
+  end
+  if type(resp.link_control) == "table" and self.pendingLinkControl then
+    local pc = self.pendingLinkControl
+    pc.answer = resp.link_control
+    if resp.link_control.ok ~= true then
+      self.lastError = "link " .. pc.op .. " refused: " .. tostring(resp.link_control.reason or "no reason given")
+    end
+    -- resp.link was applied above; a settled request is dropped now.
+    if
+      (pc.op == "pause" and self.linkPaused)
+      or (pc.op == "resume" and not self.linkPaused)
+      or resp.link_control.ok ~= true
+    then
+      self.pendingLinkControl = nil
+    end
+  elseif self.pendingLinkControl and not self.pendingLinkControl.answer then
+    self.pendingLinkControl.unanswered = (self.pendingLinkControl.unanswered or 0) + 1
+    if self.pendingLinkControl.unanswered >= 2 then
+      self.lastError = "link " .. self.pendingLinkControl.op .. ": the relay did not answer (older relay?)"
+      self.pendingLinkControl = nil
+    end
+  end
+  -- A namespace change on either side, from whatever cause, is applied the
+  -- same way: tombstones, new variables, effect lines through io.log.
+  local newSelf = type(resp.self) == "table" and resp.self.namespace or nil
+  local newPeer = type(resp.peer) == "table" and resp.peer.namespace or nil
+  if
+    (newSelf and newSelf ~= self.link.namespace)
+    or (newPeer and self.link.peer_namespace and newPeer ~= self.link.peer_namespace)
+  then
+    local effects = self:applyNamespaceChange(newSelf, newPeer)
+    if self.io.log and self.io.log.print then
+      self.io.log:print(
+        "Namespace changed: %d variable(s) renamed; the old names are hidden, programming keeps pointing at them.",
+        #effects
+      )
+      for _, line in ipairs(effects) do
+        self.io.log:print("  %s", line)
+      end
+    end
+    if self.pendingNamespaceRename and newSelf == self.pendingNamespaceRename.to then
+      self.pendingNamespaceRename = nil
+    end
   end
   if type(resp.peer) == "table" then
     self.link.peer = resp.peer.id

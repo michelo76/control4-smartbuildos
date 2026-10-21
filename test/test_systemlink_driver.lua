@@ -662,16 +662,28 @@ check(
   Properties["Last Error"]
 )
 print("\n[3b] Templates: pick, print, apply")
-check("the Template list is painted with the catalogue", (Properties["Template__list"] or ""):find("away%-home — Away / Home coordination") ~= nil, Properties["Template__list"])
+check(
+  "the Template list is painted with the catalogue",
+  (Properties["Template__list"] or ""):find("away%-home — Away / Home coordination") ~= nil,
+  Properties["Template__list"]
+)
 Properties["Template"] = "-"
 EC.APPLY_TEMPLATE()
-check("no template picked: a clear message", Properties["Last Error"]:find("Pick a template") ~= nil, Properties["Last Error"])
+check(
+  "no template picked: a clear message",
+  Properties["Last Error"]:find("Pick a template") ~= nil,
+  Properties["Last Error"]
+)
 Properties["Template"] = "away-home — Away / Home coordination"
 EC.APPLY_TEMPLATE()
 local sysMode = gEngine:findByName("System_Mode")
 check(
   "Apply Template creates the recipe's items with their rules, skipping the one already present (Away)",
-  gEngine:findByName("Away") ~= nil and sysMode ~= nil and sysMode.type == "CHOICE" and #sysMode.allowed_values == 3 and Properties["Last Error"] == "",
+  gEngine:findByName("Away") ~= nil
+    and sysMode ~= nil
+    and sysMode.type == "CHOICE"
+    and #sysMode.allowed_values == 3
+    and Properties["Last Error"] == "",
   Properties["Last Error"]
 )
 local before = gEngine:statusProperties()["Local Variables Created"]
@@ -697,15 +709,27 @@ local exported = printedLines[#printedLines]
 local okDoc, exportedDoc = pcall(function()
   return JSON:decode(exported)
 end)
-check("Print Configuration Export prints a JSON document with this bridge's items", okDoc and type(exportedDoc) == "table" and exportedDoc.version == 1 and #exportedDoc.items > 0, exported and exported:sub(1, 80))
+check(
+  "Print Configuration Export prints a JSON document with this bridge's items",
+  okDoc and type(exportedDoc) == "table" and exportedDoc.version == 1 and #exportedDoc.items > 0,
+  exported and exported:sub(1, 80)
+)
 Properties["Configuration Import"] = "not json"
 EC.PREVIEW_CONFIGURATION_IMPORT()
 check("a non-JSON paste is refused", Properties["Last Error"]:find("not valid JSON") ~= nil, Properties["Last Error"])
 Properties["Configuration Import"] = JSON:encode({
   version = 1,
   items = {
-    { source_id = "s1", owner_role = gEngine.link.role, definition = { name = "Imported_Flag", type = "BOOLEAN", group = "Imported" } },
-    { source_id = "s2", owner_role = gEngine.link.role == "a" and "b" or "a", definition = { name = "Theirs", type = "STRING" } },
+    {
+      source_id = "s1",
+      owner_role = gEngine.link.role,
+      definition = { name = "Imported_Flag", type = "BOOLEAN", group = "Imported" },
+    },
+    {
+      source_id = "s2",
+      owner_role = gEngine.link.role == "a" and "b" or "a",
+      definition = { name = "Theirs", type = "STRING" },
+    },
     { source_id = "s3", owner_role = gEngine.link.role, definition = { name = "Away", type = "BOOLEAN" } },
   },
 })
@@ -715,12 +739,20 @@ EC.APPLY_CONFIGURATION_IMPORT()
 local imported = gEngine:findByName("Imported_Flag")
 check(
   "apply creates this bridge's items with new ids, skips existing names and the other role's items",
-  imported ~= nil and imported.id ~= "s1" and imported.group == "Imported" and gEngine:findByName("Theirs") == nil and Properties["Last Error"] == "",
+  imported ~= nil
+    and imported.id ~= "s1"
+    and imported.group == "Imported"
+    and gEngine:findByName("Theirs") == nil
+    and Properties["Last Error"] == "",
   Properties["Last Error"]
 )
 Properties["Configuration Import"] = JSON:encode({ version = 1, items = {}, license = "x" })
 EC.APPLY_CONFIGURATION_IMPORT()
-check("a paste with secret-looking fields is refused", Properties["Last Error"]:find("Import refused") ~= nil, Properties["Last Error"])
+check(
+  "a paste with secret-looking fields is refused",
+  Properties["Last Error"]:find("Import refused") ~= nil,
+  Properties["Last Error"]
+)
 Properties["Configuration Import"] = ""
 
 print("\n[3d] Selected Export: rename and remove from the Properties block")
@@ -903,6 +935,44 @@ check("the pong with the right nonce completes it", gEngine:linkTestState() == "
 advance(1100)
 check("the poll reports and clears the test", gEngine.linkTest == nil)
 gEngine.peerState = savedPeer
+
+print("\n[4b3] Namespace rename and Pause/Resume Link ask the relay")
+Properties["New Namespace"] = "Bad name"
+EC.PREVIEW_NAMESPACE_RENAME()
+check(
+  "a bad namespace is refused with the rule",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
+  Properties["Last Error"]
+)
+Properties["New Namespace"] = "Cali2"
+EC.RENAME_NAMESPACE()
+check(
+  "Rename Namespace previews, then asks the relay on the next sync, and clears the field",
+  gEngine.pendingNamespaceRename ~= nil
+    and gEngine.pendingNamespaceRename.to == "Cali2"
+    and gEngine:buildSync().rename_namespace.to == "Cali2"
+    and Properties["New Namespace"] == ""
+    and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+gEngine.pendingNamespaceRename = nil
+Properties["Link Pause Minutes"] = "0"
+EC.PAUSE_LINK()
+check(
+  "Pause Link with 0 minutes asks for a pause until resumed",
+  gEngine.pendingLinkControl ~= nil
+    and gEngine.pendingLinkControl.op == "pause"
+    and gEngine.pendingLinkControl.minutes == nil
+)
+Properties["Link Pause Minutes"] = "15"
+EC.PAUSE_LINK()
+check(
+  "Pause Link with minutes carries them",
+  gEngine.pendingLinkControl.minutes == 15 and gEngine:buildSync().link_control.minutes == 15
+)
+EC.RESUME_LINK()
+check("Resume Link asks for a resume", gEngine.pendingLinkControl.op == "resume")
+gEngine.pendingLinkControl = nil
 
 print("\n[4c] Pending exports: the peer's exports with no companion here, one action to add")
 advance(1100) -- a status tick repaints the lists

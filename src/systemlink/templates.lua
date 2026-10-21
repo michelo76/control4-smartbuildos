@@ -17,7 +17,13 @@ M.TEMPLATES = {
     title = "Away / Home coordination",
     summary = "The owner publishes whether anyone is home; the other project reacts.",
     ownerItems = {
-      { name = "Away", type = "BOOLEAN", description = "Nobody is home", group = "Arrival", filter = { debounce_s = 5 } },
+      {
+        name = "Away",
+        type = "BOOLEAN",
+        description = "Nobody is home",
+        group = "Arrival",
+        filter = { debounce_s = 5 },
+      },
       {
         name = "System_Mode",
         type = "CHOICE",
@@ -45,8 +51,21 @@ M.TEMPLATES = {
     title = "Guesthouse occupancy",
     summary = "The guesthouse publishes occupancy and guest count with a stability window.",
     ownerItems = {
-      { name = "Occupied", type = "BOOLEAN", description = "Guesthouse occupied", group = "Guesthouse", filter = { debounce_s = 5 } },
-      { name = "Guest_Count", type = "INTEGER", description = "Guests expected", group = "Guesthouse", min = 0, max = 50 },
+      {
+        name = "Occupied",
+        type = "BOOLEAN",
+        description = "Guesthouse occupied",
+        group = "Guesthouse",
+        filter = { debounce_s = 5 },
+      },
+      {
+        name = "Guest_Count",
+        type = "INTEGER",
+        description = "Guests expected",
+        group = "Guesthouse",
+        min = 0,
+        max = 50,
+      },
     },
     peerItems = {},
     exports = {},
@@ -100,7 +119,9 @@ M.TEMPLATES = {
       },
     },
     programming = {
-      owner = { "Device Exports block: Export Kind=thermostat, Export Control=View only first → Export Selected Device." },
+      owner = {
+        "Device Exports block: Export Kind=thermostat, Export Control=View only first → Export Selected Device.",
+      },
       peer = { "Pending Export=Hall_Stat → Add Companion For Pending Export → System Link Thermostat." },
     },
     sensitive = true,
@@ -131,11 +152,23 @@ M.TEMPLATES = {
     ownerItems = {},
     peerItems = {},
     exports = {
-      { kind = "temperature", name = "Outdoor_Temp", control = false, note = "Units are carried as Fahrenheit and Celsius fields." },
-      { kind = "contact", name = "Front_Door", control = false, note = "A contact is a sensor, not an access-control device." },
+      {
+        kind = "temperature",
+        name = "Outdoor_Temp",
+        control = false,
+        note = "Units are carried as Fahrenheit and Celsius fields.",
+      },
+      {
+        kind = "contact",
+        name = "Front_Door",
+        control = false,
+        note = "A contact is a sensor, not an access-control device.",
+      },
     },
     programming = {
-      owner = { "Device Exports block: Export Kind=temperature, Export Name=Outdoor_Temp; then Export Kind=contact, Export Name=Front_Door." },
+      owner = {
+        "Device Exports block: Export Kind=temperature, Export Name=Outdoor_Temp; then Export Kind=contact, Export Name=Front_Door.",
+      },
       peer = { "Add Companion For Pending Export on each; bind the Temperature and Contact companions." },
     },
     sensitive = false,
@@ -243,7 +276,8 @@ function M.describe(template, ownerPrefix, created, skipped)
   end
   lines[#lines + 1] = string.format("Template %s: %s", template.title, template.summary)
   if template.sensitive then
-    lines[#lines + 1] = "This recipe involves control the dealer must enable on purpose; nothing here allows it by itself."
+    lines[#lines + 1] =
+      "This recipe involves control the dealer must enable on purpose; nothing here allows it by itself."
   end
   if created and #created > 0 then
     lines[#lines + 1] = "Created on this bridge: " .. table.concat(created, ", ")
