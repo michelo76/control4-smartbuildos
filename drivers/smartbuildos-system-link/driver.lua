@@ -41,6 +41,7 @@ local requests = require("systemlink.requests")
 local schema = require("systemlink.schema")
 local exportsModel = require("systemlink.exports")
 local templates = require("systemlink.templates")
+local exportimport = require("systemlink.exportimport")
 local RealtimeClient = require("telemetry.realtime")
 local WebSocket = require("drivers-common-public.module.websocket")
 
@@ -995,6 +996,119 @@ function EC.APPLY_TEMPLATE()
   for _, line in ipairs(templates.describe(t, ownerPrefix(), created, skipped)) do
     print(line)
   end
+end
+
+-- ─── Configuration export / import ─────────────────────────────────────────
+
+function EC.PRINT_CONFIGURATION_EXPORT()
+  if not gEngine or not gEngine.link then
+    reportError("Export: link is not provisioned yet")
+    return
+  end
+  local doc, findings = exportimport.buildExport({
+    link = gEngine.link,
+    timezone = timezone(),
+    items = schema.registryItems(gEngine.registry),
+    now_iso = isoNow(),
+  })
+  if not doc then
+    reportError("Export refused: fields that never leave the controller were found at " .. table.concat(findings, ", "))
+    return
+  end
+  reportError("")
+  print(string.format("Configuration export (version %d, %d items, %d groups). Paste the next line into Configuration Import on the other bridge or keep it with the project:", doc.version, #doc.items, #doc.groups))
+  print(JSON:encode(doc))
+end
+
+local function importDraft()
+  local raw = tostring(Properties["Configuration Import"] or "")
+  if raw:match("^%s*$") then
+    reportError("Import: paste a configuration export into Configuration Import first")
+    return nil
+  end
+  local ok, decoded = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not ok or type(decoded) ~= "table" then
+    reportError("Import: that is not valid JSON")
+    return nil
+  end
+  return exportimport.parseImport(decoded)
+end
+
+local function printDraft(draft, myRole)
+  for _, e in ipairs(draft.errors) do
+    print("Import error: " .. e)
+  end
+  for _, w in ipairs(draft.warnings) do
+    print("Import warning: " .. w)
+  end
+  for _, i in ipairs(draft.items) do
+    print(string.format(
+      "Import item %s (%s, owner role %s%s): %s",
+      tostring(i.definition.name),
+      tostring(i.definition.type),
+      i.owner_role,
+      i.owner_role == myRole and " = this bridge" or "",
+      i.verdict
+    ))
+  end
+  for _, c in ipairs(draft.required_companions) do
+    print(string.format("Import needs a companion on role %s: %s (%s) — not created by the import", c.on_role, c.name, c.kind))
+  end
+  for _, r in ipairs(draft.requires) do
+    print("Import requires: " .. r)
+  end
+end
+
+function EC.PREVIEW_CONFIGURATION_IMPORT()
+  local draft = importDraft()
+  if not draft then
+    return
+  end
+  reportError("")
+  printDraft(draft, gEngine and gEngine.link and gEngine.link.role or "?")
+  print(draft.ok and "Import preview: ready to apply (nothing written yet)" or "Import preview: cannot be applied as is")
+end
+
+function EC.APPLY_CONFIGURATION_IMPORT()
+  if not gEngine or not gEngine.link then
+    reportError("Import: link is not provisioned yet")
+    return
+  end
+  local draft = importDraft()
+  if not draft then
+    return
+  end
+  local myRole = gEngine.link.role or "a"
+  printDraft(draft, myRole)
+  if not draft.ok then
+    reportError("Import refused: " .. (draft.errors[1] or "nothing in the file validates"))
+    return
+  end
+  local created, skipped = {}, {}
+  for _, def in ipairs(exportimport.planImport(draft, myRole)) do
+    if gEngine:findByName(def.name) then
+      skipped[#skipped + 1] = def.name
+    else
+      local item, err = gEngine:createItem(def, nil)
+      if not item then
+        reportError("Import: " .. tostring(def.name) .. ": " .. tostring(err))
+        return
+      end
+      created[#created + 1] = gEngine:variableNameFor(item)
+    end
+  end
+  paintItemList()
+  if #created > 0 then
+    SetTimer(SYNC_TIMER, 100, doSync)
+  end
+  reportError("")
+  print(string.format(
+    "Import applied: created %s; left as is %s",
+    #created > 0 and table.concat(created, ", ") or "nothing",
+    #skipped > 0 and table.concat(skipped, ", ") or "nothing"
+  ))
 end
 
 function EC.PRINT_SHARED_ITEMS()
