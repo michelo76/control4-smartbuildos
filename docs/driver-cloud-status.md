@@ -46,14 +46,24 @@ _Last updated: 2026-08-29._
   operates normally. Enforcement activates per-SKU, server-controlled, never
   retroactively bricking a shipped build.
 
-- **D4 — the Agent is a project driver, not a Composer Agents-panel agent.**
-  `smartbuildos.c4z` was briefly converted to a true DriverWorks `<agent>`
-  (OS 3.1.3+), but that did not reliably surface a third-party driver in
-  Composer's Agents panel in the field (2026-08-29), so the flag was removed.
-  It is added to the project as a normal combo/self-proxy driver via **Add or
-  Update Driver**, one per project by convention. Everything else about it —
-  the licensing authority role, pairing, display, account-number auth — is
-  unchanged; only the install surface reverted.
+- **D4 — the Agent is a Composer Agents-panel agent (second attempt,
+  2026-10-21).** `smartbuildos.c4z` declares `<agent>true</agent>` in the
+  shape the one third-party agent known to surface under Agents uses (Chowmain
+  Project Agent, 2025-07): `<combo>true</combo>`, a self-proxy named after the
+  `.c4z` basename (`<proxies><proxy>smartbuildos</proxy></proxies>`), and
+  neither `<controlmethod>` nor `<composer_categories>`. The 2026-08-29
+  attempt (52b6d57, reverted in 373086c) was incomplete rather than disproved:
+  it set the flag but left `<proxies/>` empty and kept
+  `<controlmethod>ip</controlmethod>` plus a Utility category, and the Agent
+  never appeared under Agents. It is added from the **Agents** tab in Composer
+  Pro (OS 3.1.3+; `minimum_os_version` stays 3.3.1), one per project; an
+  instance already under System Design must be removed there and re-added under
+  Agents, and Pairing Backup restores the pairing. Everything else — the
+  licensing authority role, pairing, display, account-number auth — is
+  unchanged; only the install surface moves. `test_agent_driver_contract.lua`
+  section [4] holds the XML to this shape. Hardware confirmation on the bench
+  (appears under Agents, one per project, absent from Navigator, pairing
+  survives the re-add) is still owed.
 
 ## Guarantees the tests hold to
 

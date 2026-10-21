@@ -104,6 +104,28 @@ check("pending observations persist", lua:find("AGENT_PENDING_OBSERVATION_KEY") 
 check("report requests do not claim delivery", lua:find('lastReportStatus = "request%-recorded"') ~= nil)
 check("existing generic driver registration remains", lua:find("function EC.SBOS_REGISTER_DRIVER") ~= nil)
 
+print("\n[4] Composer Agents-panel shape (Chowmain Project Agent reference, 2025-07)")
+-- The 2026-08-29 conversion declared <agent>true</agent> but left <proxies/>
+-- empty and kept <controlmethod>ip</controlmethod> plus a Utility composer
+-- category, and the Agent never appeared under Agents. The one third-party
+-- agent known to surface there ships <agent>true</agent>, <combo>true</combo>,
+-- a self-proxy named after the .c4z basename, and neither a controlmethod nor
+-- composer categories. Hold the XML to that exact shape so a later tidy-up
+-- cannot quietly turn it back into a System Design driver. The header comment
+-- names the removed elements, so match against the XML with comments stripped.
+local xmlNoComments = xml:gsub("<!%-%-.-%-%->", "")
+check("declares <agent>true</agent>", xmlNoComments:find("<agent>true</agent>", 1, true) ~= nil)
+check("stays a combo (self-proxy) driver", xmlNoComments:find("<combo>true</combo>", 1, true) ~= nil)
+check(
+  "self-proxy is named after the c4z basename",
+  xmlNoComments:find("<proxies>%s*<proxy>smartbuildos</proxy>%s*</proxies>") ~= nil
+)
+check("no empty <proxies/> (the incomplete August shape)", xmlNoComments:find("<proxies/>", 1, true) == nil)
+check("no <controlmethod> element", xmlNoComments:find("<controlmethod>", 1, true) == nil)
+check("no <composer_categories> element", xmlNoComments:find("<composer_categories>", 1, true) == nil)
+check("minimum OS stays 3.3.1", xmlNoComments:find("<minimum_os_version>3.3.1</minimum_os_version>", 1, true) ~= nil)
+check("still a DriverWorks lua_gen driver", xmlNoComments:find("<control>lua_gen</control>", 1, true) ~= nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
