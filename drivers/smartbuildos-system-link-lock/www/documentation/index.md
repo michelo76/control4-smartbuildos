@@ -1,6 +1,11 @@
 # SmartBuildOS System Link lock companion
 
-Presents one **lock** export of the linked project, STATUS ONLY in this release: the `Locked` variable, **Remote Locked / Unlocked** events and a **Remote Lock Is Locked** conditional. The two Test actions send lock / unlock requests, which the owner refuses unless the pair licence carries the LOCK feature and, for unlock, the owner's dealer has run **Allow Unlock For Selected Export** on that export. Unlock is never retried.
+Presents one **lock** export of the linked project, STATUS ONLY in this release:
+the `Locked` variable, **Remote Locked / Unlocked** events and a **Remote Lock
+Is Locked** conditional. The two Test actions send lock / unlock requests, which
+the owner refuses unless the pair licence carries the LOCK feature and, for
+unlock, the owner's dealer has run **Allow Unlock For Selected Export** on that
+export. Unlock is never retried.
 
 Requires **SmartBuildOS System Link** on this project (it inherits the pair
 licence) and an export of kind `lock` made on the linked project from the

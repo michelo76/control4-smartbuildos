@@ -74,7 +74,12 @@ M.FIELDS = {
   -- Variable candidates: the names Mode Composer's adapters read in the
   -- field for locks, garage doors and fans (src/modes/adapters.lua).
   lock = {
-    { suffix = "Locked", type = "BOOLEAN", vars = { "LOCK_STATUS", "LOCK STATUS", "LOCKED", "LOCK_STATE", "LOCKSTATE" }, map = "lock" },
+    {
+      suffix = "Locked",
+      type = "BOOLEAN",
+      vars = { "LOCK_STATUS", "LOCK STATUS", "LOCKED", "LOCK_STATE", "LOCKSTATE" },
+      map = "lock",
+    },
   },
   gate = {
     { suffix = "Open", type = "BOOLEAN", vars = { "GARAGE_DOOR_STATE", "STATE", "RELAY_STATE" }, map = "garage" },
@@ -310,8 +315,13 @@ function M.define(opts, features)
   local wantsControl = opts.control == true and kind.control
   if features and not features[kind.gate] then
     if not (kind.status_gate and features[kind.status_gate] and not wantsControl) then
-      return nil, "companion kind " .. opts.kind .. " requires the " .. kind.gate .. " feature on the pair license"
-        .. (kind.status_gate and " (status only works without it: export with Control = View only)" or "")
+      return nil,
+        "companion kind "
+          .. opts.kind
+          .. " requires the "
+          .. kind.gate
+          .. " feature on the pair license"
+          .. (kind.status_gate and " (status only works without it: export with Control = View only)" or "")
     end
   end
   if type(opts.name) ~= "string" or not opts.name:match("^[A-Za-z][A-Za-z0-9_]*$") or #opts.name > 40 then

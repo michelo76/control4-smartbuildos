@@ -1,6 +1,11 @@
 # SmartBuildOS System Link gate / garage companion
 
-Presents one **gate** export of the linked project: the `Open` variable from the door's own position feedback, **Remote Gate Opened / Closed** events and a **Remote Gate Is Open** conditional. The Test actions send trigger / open / close to the relay the owner exported; the owner refuses them unless the pair licence carries the GATE feature. Acceptance of a command is not position: wait for the Opened / Closed event.
+Presents one **gate** export of the linked project: the `Open` variable from the
+door's own position feedback, **Remote Gate Opened / Closed** events and a
+**Remote Gate Is Open** conditional. The Test actions send trigger / open /
+close to the relay the owner exported; the owner refuses them unless the pair
+licence carries the GATE feature. Acceptance of a command is not position: wait
+for the Opened / Closed event.
 
 Requires **SmartBuildOS System Link** on this project (it inherits the pair
 licence) and an export of kind `gate` made on the linked project from the
