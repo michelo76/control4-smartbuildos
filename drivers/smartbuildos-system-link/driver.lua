@@ -40,6 +40,7 @@ local Engine = require("systemlink.engine")
 local requests = require("systemlink.requests")
 local schema = require("systemlink.schema")
 local exportsModel = require("systemlink.exports")
+local templates = require("systemlink.templates")
 local RealtimeClient = require("telemetry.realtime")
 local WebSocket = require("drivers-common-public.module.websocket")
 
@@ -930,6 +931,70 @@ function EC.APPLY_FILTER_TO_SELECTED_ITEM()
   end
   log:info("Filter applied to %s", gEngine:variableNameFor(def))
   SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+-- ─── Templates ───────────────────────────────────────────────────────────────
+
+local function paintTemplateList()
+  local labels = templates.labels()
+  table.insert(labels, 1, "-")
+  pcall(function()
+    C4:UpdatePropertyList("Template", table.concat(labels, ","), Properties["Template"] or "-")
+  end)
+end
+
+local function selectedTemplate()
+  local t = templates.fromLabel(Properties["Template"])
+  if not t then
+    reportError("Pick a template in Template first")
+  end
+  return t
+end
+
+local function ownerPrefix()
+  return gEngine and gEngine.link and gEngine.link.namespace or nil
+end
+
+function EC.PRINT_TEMPLATE()
+  local t = selectedTemplate()
+  if not t then
+    return
+  end
+  for _, line in ipairs(templates.describe(t, ownerPrefix())) do
+    print(line)
+  end
+end
+
+function EC.APPLY_TEMPLATE()
+  local t = selectedTemplate()
+  if not t then
+    return
+  end
+  if not gEngine or not gEngine.link then
+    reportError("Apply Template: link is not provisioned yet")
+    return
+  end
+  local created, skipped = {}, {}
+  for _, def in ipairs(templates.ownerDefinitions(t)) do
+    if gEngine:findByName(def.name) then
+      skipped[#skipped + 1] = def.name
+    else
+      local item, err = gEngine:createItem(def, nil)
+      if not item then
+        reportError("Apply Template: " .. def.name .. ": " .. tostring(err))
+        return
+      end
+      created[#created + 1] = gEngine:variableNameFor(item)
+    end
+  end
+  paintItemList()
+  if #created > 0 then
+    SetTimer(SYNC_TIMER, 100, doSync)
+  end
+  reportError("")
+  for _, line in ipairs(templates.describe(t, ownerPrefix(), created, skipped)) do
+    print(line)
+  end
 end
 
 function EC.PRINT_SHARED_ITEMS()
@@ -2161,6 +2226,7 @@ function OnDriverLateInit()
   license.setup({ sku = SKU })
   paintItemList()
   paintExportDeviceList()
+  paintTemplateList()
   restoreExports()
   paintExportList()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
