@@ -599,6 +599,20 @@ check(
   Properties["Last Error"]:find("pick a device") ~= nil,
   Properties["Last Error"]
 )
+advance(2500) -- two status repaints
+check(
+  "a dealer's refusal survives the status repaint",
+  Properties["Last Error"]:find("pick a device") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Device"] = "Hall Light · 43"
+Properties["Export Name"] = "Hall Light"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "a name with a space is refused with the rule spelled out",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
+  Properties["Last Error"]
+)
 EC.Remove_Export({ NAME = "Hall" }) -- the tests below assume Porch_Light is the only export
 C4.GetDevices = savedGetDevices
 C4.GetDeviceData = savedGetDeviceData
