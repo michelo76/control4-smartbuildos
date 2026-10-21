@@ -573,6 +573,16 @@ function C4:GetDeviceData(id, key)
     return ({ [43] = "Hall Light", [44] = "Gate Relay" })[id] or "Porch Light"
   end
 end
+local savedGetDeviceVariables = C4.GetDeviceVariables
+function C4:GetDeviceVariables(id)
+  if id == 41 or id == 43 then
+    return { ["1000"] = { name = "LIGHT_STATE", value = "1" }, ["1001"] = { name = "Brightness Percent", value = "55" } }
+  end
+  if id == 44 then
+    return { ["2000"] = { name = "STATE", value = "0" } }
+  end
+  return {}
+end
 Properties["Export Kind"] = "light"
 EC.REFRESH_EXPORT_DEVICE_LIST()
 local list = Properties["Export Device__list"] or ""
@@ -580,6 +590,21 @@ check(
   "the light is listed first, the Agent is not listed",
   list:find("^%-,Hall Light · 43,") ~= nil and list:find("900") == nil,
   list
+)
+check(
+  "a device without light variables is flagged in the list",
+  list:find("Gate Relay · 44 %(no light variables%)") ~= nil,
+  list
+)
+Properties["Export Device"] = "Gate Relay · 44"
+Properties["Export Name"] = "Gate"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "exporting the wrong device as a light is refused and says what it looked for",
+  gEngine:findByName("Gate_On") == nil
+    and Properties["Last Error"]:find("none of the variables a light export reads") ~= nil
+    and Properties["Last Error"]:find("LIGHT_STATE") ~= nil,
+  Properties["Last Error"]
 )
 Properties["Export Device"] = "Hall Light · 43"
 Properties["Export Name"] = "Hall"
@@ -616,6 +641,7 @@ check(
 EC.Remove_Export({ NAME = "Hall" }) -- the tests below assume Porch_Light is the only export
 C4.GetDevices = savedGetDevices
 C4.GetDeviceData = savedGetDeviceData
+C4.GetDeviceVariables = savedGetDeviceVariables
 local exp
 for _, e in pairs(gExports) do
   exp = e
