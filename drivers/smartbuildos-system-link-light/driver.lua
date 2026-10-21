@@ -133,3 +133,16 @@ function RFP.DO_CLICK(idBinding)
     RFP.TOGGLE(idBinding)
   end
 end
+
+-- ─── Bench actions: one click each, the same control path the proxy uses ───
+-- (Composer's Actions tab, so a dealer can prove the link controls the
+-- remote device without wiring programming first; bench 2026-10-20).
+function EC.TEST_ON()
+  base.control("on", {}, "On")
+end
+function EC.TEST_OFF()
+  base.control("off", {}, "Off")
+end
+function EC.TEST_HALF()
+  base.control("set_level", { level = 50, time_ms = 0 }, "50%")
+end
