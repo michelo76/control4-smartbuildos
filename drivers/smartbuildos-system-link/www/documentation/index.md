@@ -230,6 +230,24 @@ only; events are never filtered. The source value and the published value are
 kept apart; filter delay is reported separately from transport latency in the
 state message. Defaults publish immediately.
 
+## Locks, gates, fans and buttons (feature-gated)
+
+These kinds actuate things that no controller has validated yet, so their
+CONTROL is behind its own licence feature (`LOCK`, `GATE`, `FAN`, `BUTTON`),
+off by default (decision SL-07). Status needs nothing: a lock, gate or fan
+exported with **Export Control = View only** shares `Locked`, `Open` or
+`Speed` on any pair licence, and the Lock, Gate and Fan companions show it
+with events and conditionals. With the feature on the pair, **Control
+allowed** opens the ops (lock/unlock; trigger/open/close on the relay that
+drives the door; on/off/set_speed 0–10), checked again on every command.
+**Unlock** additionally needs **Allow Unlock For Selected Export** on the
+owner, refused while LOCK is unlicensed, and is never retried. A **button** is
+pure control: the owner exports a name, the other side's **Press Remote
+Button** (action or programming command) fires **Button <Name> pressed** on
+the owner and stamps `<Name>_Last_Pressed`; a press while BUTTON is not
+licensed is ignored and says so. The source variable names are the ones Mode
+Composer's adapters read in the field.
+
 ## Scenes across the link
 
 A **scene** export is a name, no device. On the owner: Export Kind = scene,

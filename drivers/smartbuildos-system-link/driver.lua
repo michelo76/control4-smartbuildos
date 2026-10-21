@@ -109,6 +109,9 @@ local COMPANION_FILES = {
   thermostat = "smartbuildos-system-link-thermostat.c4z",
   shade = "smartbuildos-system-link-shade.c4z",
   media = "smartbuildos-system-link-media.c4z",
+  lock = "smartbuildos-system-link-lock.c4z",
+  gate = "smartbuildos-system-link-gate.c4z",
+  fan = "smartbuildos-system-link-fan.c4z",
 }
 gExports = nil
 gCompanionMap = nil
@@ -243,7 +246,8 @@ local function reportError(message)
   end
 end
 
-local fireSceneEvent -- defined with the scene helpers below; used by the io hooks
+local fireSceneEvent, onButtonPressed -- defined with the scene/button helpers below; used by the io hooks
+local paintRemoteButtons
 
 local function buildIo()
   local io = {}
@@ -331,6 +335,12 @@ local function buildIo()
     local scene = exportsModel.sceneFromRoutine(routine)
     if scene then
       fireSceneEvent(scene, "requested")
+    end
+  end
+  io.fireNamedEvent = function(def)
+    local button = exportsModel.buttonFromEvent(def)
+    if button and onButtonPressed then
+      onButtonPressed(button)
     end
   end
   io.onRequestOutcome = function(entry, status)
@@ -427,7 +437,7 @@ local function requestProvision()
 end
 
 local startSync, doorbellConnect, doorbellStop, paintSelectedValue, paintPendingExports, paintItemList
-local paintRemoteScenes, mirroredExports, loadExports
+local paintRemoteScenes, mirroredExports, loadExports, saveExports, findExport, exportItemFor, licenseFeatures
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -595,6 +605,9 @@ local function paintStatus()
     paintPendingExports()
   end
   paintRemoteScenes()
+  if paintRemoteButtons then
+    paintRemoteButtons()
+  end
   if not gEngine.link then
     -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
     -- handler (older build) or never got the message: say so and ask again,
@@ -993,6 +1006,132 @@ function registerSceneEvents()
       "The linked project reported scene " .. e.name .. " failed (see the request slot)."
     )
   end
+  for _, exp in pairs(loadExports()) do
+    if exp.kind == "button" then
+      gEngine:ensureNamedEvent(
+        "button:" .. exp.name .. ":pressed",
+        "Button " .. exp.name .. " pressed",
+        "The linked project pressed button " .. exp.name .. "."
+      )
+    end
+  end
+end
+
+-- ─── Buttons: a press on the peer fires the owner's programming ──────────────
+
+local function fireButtonEvent(name)
+  local id = gEngine and gEngine.itemEvents["button:" .. tostring(name) .. ":pressed"]
+  if id then
+    pcall(function()
+      C4:FireEventByID(id)
+    end)
+  end
+end
+
+--- Owner side: a named event "button:<Name>" from the peer. Fails closed:
+--- the export must exist and BUTTON must be licensed right now.
+onButtonPressed = function(name)
+  local exp = findExport(name)
+  if not exp or exp.kind ~= "button" then
+    return
+  end
+  if not licenseFeatures().BUTTON then
+    reportError("Button " .. name .. ": press ignored — BUTTON is not licensed on this pair")
+    return
+  end
+  local lastPressed = exportItemFor(exp, "Last_Pressed")
+  if lastPressed then
+    gEngine:setLocal(lastPressed.id, isoNow())
+  end
+  fireButtonEvent(name)
+end
+
+paintRemoteButtons = function()
+  if not gEngine then
+    return
+  end
+  local names = { "-" }
+  for _, e in ipairs(mirroredExports("button")) do
+    names[#names + 1] = e.name
+  end
+  local joined = table.concat(names, ",")
+  if gLastStatus["Remote Button__list"] ~= joined then
+    gLastStatus["Remote Button__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Remote Button", joined, Properties["Remote Button"] or "-")
+    end)
+  end
+end
+
+local function pressRemoteButton(name)
+  name = tostring(name or "")
+  if name == "" or name == "-" then
+    reportError("Press Remote Button: pick a button in Remote Button first")
+    return
+  end
+  local known = false
+  for _, e in ipairs(mirroredExports("button")) do
+    if e.name == name then
+      known = true
+    end
+  end
+  if not known then
+    reportError("Press Remote Button: the linked project has no button named " .. name)
+    return
+  end
+  local ok, err = gEngine:emitEvent(exportsModel.buttonEvent(name), "", 30)
+  if not ok then
+    reportError("Press Remote Button: " .. tostring(err))
+    return
+  end
+  reportError("")
+  print(string.format("Button %s pressed on the linked project.", name))
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.PRESS_REMOTE_BUTTON()
+  pressRemoteButton(Properties["Remote Button"])
+end
+
+function EC.Press_Remote_Button(tParams)
+  pressRemoteButton((tParams or {}).BUTTON)
+end
+
+-- ─── Lock: unlock only by the owner's explicit, licensed choice ──────────────
+
+local function setAllowUnlock(allow)
+  local exp = findExport(Properties["Selected Export"])
+  if not exp then
+    reportError("Allow Unlock: pick an export in Selected Export first")
+    return
+  end
+  if exp.kind ~= "lock" then
+    reportError("Allow Unlock: " .. exp.name .. " is not a lock export")
+    return
+  end
+  if allow and not licenseFeatures().LOCK then
+    reportError("Allow Unlock: LOCK is not licensed on this pair; unlock stays off")
+    return
+  end
+  exp.allow_unlock = allow and true or false
+  saveExports()
+  reportError("")
+  print(
+    allow
+        and string.format(
+          "Unlock ALLOWED on %s: the linked project may now send unlock; it is never retried and needs the LOCK feature at each attempt.",
+          exp.name
+        )
+      or string.format("Unlock disallowed on %s.", exp.name)
+  )
+end
+
+function EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+  setAllowUnlock(true)
+end
+
+function EC.DISALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+  setAllowUnlock(false)
 end
 
 fireSceneEvent = function(name, phase)
@@ -1281,7 +1420,7 @@ end
 
 -- ─── Source-device exports (owner side) ─────────────────────────────────────
 
-local function licenseFeatures()
+licenseFeatures = function()
   -- Light, relay and sensor ship on every pair licence (and on a LEGACY
   -- Agent that cannot say). THERMOSTAT and SHADE are hardware-validation
   -- gates (SL-07): they open only when the entitlement names them
@@ -1289,7 +1428,7 @@ local function licenseFeatures()
   -- because the gate is about unverified behaviour, not about billing.
   local set = { BASE = true, LIGHT = true, RELAY = true, SENSOR = true }
   if license.status() ~= "LEGACY" then
-    for _, f in ipairs({ "THERMOSTAT", "SHADE" }) do
+    for _, f in ipairs({ "THERMOSTAT", "SHADE", "LOCK", "GATE", "FAN", "BUTTON" }) do
       if license.hasFeature(f) then
         set[f] = true
       end
@@ -1305,11 +1444,11 @@ loadExports = function()
   return gExports
 end
 
-local function saveExports()
+saveExports = function()
   persist:set(EXPORTS_KEY, gExports)
 end
 
-local function findExport(ref)
+findExport = function(ref)
   ref = tostring(ref or "")
   for id, exp in pairs(loadExports()) do
     if id == ref or exp.name == ref then
@@ -1319,7 +1458,7 @@ local function findExport(ref)
   return nil
 end
 
-local function exportItemFor(exp, suffix)
+exportItemFor = function(exp, suffix)
   local f = exp.fields and exp.fields[suffix]
   return f and f.item_id and gEngine.registry.items[f.item_id] or nil
 end
@@ -1430,6 +1569,10 @@ local EXPORT_KIND_HINTS = {
   thermostat = { "thermostat" },
   shade = { "blind", "shade" },
   media = { "room" },
+  lock = { "lock" },
+  gate = { "garage", "gate", "relay" },
+  fan = { "fan" },
+  button = {},
 }
 
 local function exportDeviceEntries()
@@ -1671,6 +1814,10 @@ function EC.Export_Device(tParams)
     end
     if lastResult then
       gEngine:setLocal(lastResult.id, "none")
+    end
+    local lastPressed = exportItemFor(exp, "Last_Pressed")
+    if lastPressed then
+      gEngine:setLocal(lastPressed.id, "never")
     end
     registerSceneEvents()
   else
