@@ -1152,22 +1152,58 @@ EC.Remove_Export({ NAME = "Welcome" })
 
 print("\n[4d2] an export driver registers through the bridge (Connections route)")
 sent = {}
-EC.SBOS_LINK_EXPORT_REGISTER({ requester = "555", name = "Hall_Lamp", kind = "light", device_id = "41", control = "Control allowed", ops = "" })
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "555",
+  name = "Hall_Lamp",
+  kind = "light",
+  device_id = "41",
+  control = "Control allowed",
+  ops = "",
+})
 local res = lastSent("SBOS_LINK_EXPORT_RESULT")
 check(
   "a registered light becomes a normal export and the driver is told",
-  gEngine:findByName("Hall_Lamp_On") ~= nil and res ~= nil and res.id == 555 and res.params.ok == "true" and res.params.reason == "exported",
+  gEngine:findByName("Hall_Lamp_On") ~= nil
+    and res ~= nil
+    and res.id == 555
+    and res.params.ok == "true"
+    and res.params.reason == "exported",
   res and res.params.reason
 )
 sent = {}
-EC.SBOS_LINK_EXPORT_REGISTER({ requester = "555", name = "Hall_Lamp", kind = "light", device_id = "41", control = "Control allowed", ops = "" })
-check("registering the same binding again is idempotent", lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "already exported")
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "555",
+  name = "Hall_Lamp",
+  kind = "light",
+  device_id = "41",
+  control = "Control allowed",
+  ops = "",
+})
+check(
+  "registering the same binding again is idempotent",
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "already exported"
+)
 sent = {}
-EC.SBOS_LINK_EXPORT_REGISTER({ requester = "556", name = "Bad name", kind = "light", device_id = "41", control = "View only", ops = "" })
-check("a refusal travels back with the bridge's reason", lastSent("SBOS_LINK_EXPORT_RESULT").params.ok == "false" and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason:find("letters, digits") ~= nil, lastSent("SBOS_LINK_EXPORT_RESULT").params.reason)
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "556",
+  name = "Bad name",
+  kind = "light",
+  device_id = "41",
+  control = "View only",
+  ops = "",
+})
+check(
+  "a refusal travels back with the bridge's reason",
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.ok == "false"
+    and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason:find("letters, digits") ~= nil,
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.reason
+)
 sent = {}
 EC.SBOS_LINK_EXPORT_UNREGISTER({ requester = "555", name = "Hall_Lamp" })
-check("unregister removes the export and answers", gEngine:findByName("Hall_Lamp_On") == nil and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "removed")
+check(
+  "unregister removes the export and answers",
+  gEngine:findByName("Hall_Lamp_On") == nil and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "removed"
+)
 
 print("\n[4e] batch 4: lock status-only on BASE, control and buttons behind licence features")
 local savedGDV4 = C4.GetDeviceVariables

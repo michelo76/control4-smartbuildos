@@ -58,7 +58,11 @@ local function exportName()
   local okN, raw = pcall(function()
     return C4:GetDeviceData(id, "name")
   end)
-  local derived = (okN and tostring(raw or "") or ""):gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", ""):gsub("^[^%a]+", "")
+  local derived = (okN and tostring(raw or "") or "")
+    :gsub("[^%w]+", "_")
+    :gsub("^_+", "")
+    :gsub("_+$", "")
+    :gsub("^[^%a]+", "")
   return derived:sub(1, 40)
 end
 

@@ -2214,7 +2214,9 @@ function EC.SBOS_LINK_EXPORT_REGISTER(tParams)
   local name = tostring(tParams.name or "")
   local existing = findExport(name)
   if existing then
-    if tostring(existing.device_id) == tostring(tParams.device_id) and existing.kind == tostring(tParams.kind or "") then
+    if
+      tostring(existing.device_id) == tostring(tParams.device_id) and existing.kind == tostring(tParams.kind or "")
+    then
       answer(true, "already exported")
       return
     end
@@ -2270,7 +2272,11 @@ function EC.SBOS_LINK_COMPANION_HELLO(tParams)
     all[#all + 1] = { name = e.name, kind = e.kind }
   end
   pcall(function()
-    C4:SendToDevice(requester, "SBOS_LINK_COMPANION_EXPORTS", { exports = JSON:encode(described), all = JSON:encode(all), kind = kind })
+    C4:SendToDevice(
+      requester,
+      "SBOS_LINK_COMPANION_EXPORTS",
+      { exports = JSON:encode(described), all = JSON:encode(all), kind = kind }
+    )
   end)
   local wanted = tostring(tParams.export or "")
   if wanted ~= "" then
