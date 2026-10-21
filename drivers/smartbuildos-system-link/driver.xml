@@ -92,6 +92,8 @@
       <action><name>Apply Filter To Selected Item</name><command>APPLY_FILTER_TO_SELECTED_ITEM</command></action>
       <action><name>Print Shared Items</name><command>PRINT_SHARED_ITEMS</command></action>
       <action><name>Export Selected Device</name><command>EXPORT_SELECTED_DEVICE</command></action>
+      <action><name>Rename Selected Export</name><command>RENAME_SELECTED_EXPORT</command></action>
+      <action><name>Remove Selected Export</name><command>REMOVE_SELECTED_EXPORT</command></action>
       <action><name>Refresh Export Device List</name><command>REFRESH_EXPORT_DEVICE_LIST</command></action>
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
@@ -280,6 +282,7 @@
       <property><name>Export Device</name><type>DYNAMIC_LIST</type><default>-</default><description>The local device to share with the linked project, as "Name (Room) · id". Picking one fills Export Name when it is empty. Refresh Export Device List rebuilds the list.</description></property>
       <property><name>Export Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Becomes &lt;Alias&gt;.&lt;Name&gt;_On, _Level, … on the other side.</description></property>
       <property><name>Export Control</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items><default>View only</default></property>
+      <property><name>Selected Export</name><type>DYNAMIC_LIST</type><default>-</default><description>An existing export of this project. Rename Selected Export renames it to Export Name; Remove Selected Export stops sharing it (its variables stay hidden, never reused).</description></property>
       <property><name>Export Operations</name><type>STRING</type><default></default><description>Optional, comma-separated: which operations the linked project may send (e.g. on,off,set_level). Blank allows the kind's defaults.</description></property>
       <property><name>Filter Debounce Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
       <property><name>Filter Change Threshold</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>1000000</maximum><default>0</default></property>

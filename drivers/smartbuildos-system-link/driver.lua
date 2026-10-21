@@ -1122,6 +1122,18 @@ local function exportNameFromLabel(label)
   return name:sub(1, 40)
 end
 
+local function paintExportList()
+  local names = {}
+  for _, exp in pairs(loadExports()) do
+    names[#names + 1] = exp.name
+  end
+  table.sort(names)
+  table.insert(names, 1, "-")
+  pcall(function()
+    C4:UpdatePropertyList("Selected Export", table.concat(names, ","), Properties["Selected Export"] or "-")
+  end)
+end
+
 local function paintExportDeviceList()
   local labels = { "-" }
   for _, e in ipairs(exportDeviceEntries()) do
@@ -1238,6 +1250,7 @@ function EC.Export_Device(tParams)
   loadExports()[exp.id] = exp
   saveExports()
   watchExport(exp)
+  paintExportList()
   SetTimer(SYNC_TIMER, 100, doSync)
   reportError("")
   log:print(
@@ -1285,7 +1298,100 @@ function EC.Remove_Export(tParams)
   end
   loadExports()[exp.id] = nil
   saveExports()
+  paintExportList()
   SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+--- Properties-block twins of Remove Export / a rename. Both print the effect
+--- first, like Rename Selected Item does; a rename keeps every variable id
+--- (the old names become hidden tombstones, the new names get new ids) and
+--- the companion on the linked project must be re-linked to the new name.
+function EC.REMOVE_SELECTED_EXPORT()
+  local exp = findExport(Properties["Selected Export"])
+  if not exp then
+    reportError("Remove: pick an export in Selected Export first")
+    return
+  end
+  local vars = {}
+  for suffix, f in pairs(exp.fields or {}) do
+    local def = f.item_id and gEngine and gEngine.registry.items[f.item_id]
+    vars[#vars + 1] = def and gEngine:variableNameFor(def) or (exp.name .. "_" .. suffix)
+  end
+  table.sort(vars)
+  log:print(
+    "Remove effect: %s stops being shared; %s become hidden and are never reused; the linked project's companion for %s goes unavailable.",
+    exp.name,
+    table.concat(vars, ", "),
+    exp.name
+  )
+  EC.Remove_Export({ NAME = exp.name })
+  UpdateProperty("Selected Export", "-")
+  reportError("")
+end
+
+function EC.RENAME_SELECTED_EXPORT()
+  local exp = findExport(Properties["Selected Export"])
+  local newName = tostring(Properties["Export Name"] or "")
+  if not exp then
+    reportError("Rename: pick an export in Selected Export first")
+    return
+  end
+  if newName == "" then
+    reportError("Rename: fill in Export Name with the new name first")
+    return
+  end
+  if not newName:match("^[A-Za-z][A-Za-z0-9_]*$") or #newName > 40 then
+    reportError("Rename: export name must be letters, digits and underscores (max 40)")
+    return
+  end
+  if newName == exp.name then
+    reportError("Rename: that is already the export's name")
+    return
+  end
+  if findExport(newName) then
+    reportError("Rename: name already used")
+    return
+  end
+  local effects = {}
+  for suffix, f in pairs(exp.fields or {}) do
+    local preview = f.item_id and gEngine and gEngine:renamePreview(f.item_id, newName .. "_" .. suffix)
+    if preview then
+      effects[#effects + 1] = preview.from .. " → " .. preview.to
+    end
+  end
+  table.sort(effects)
+  log:print(
+    "Rename effect: %s → %s. %s. Variable ids stay the same; the old names become hidden. Re-link the companion on the linked project to %s.",
+    exp.name,
+    newName,
+    table.concat(effects, "; "),
+    newName
+  )
+  for suffix, f in pairs(exp.fields or {}) do
+    if f.item_id then
+      local ok, err = gEngine:renameItem(f.item_id, newName .. "_" .. suffix)
+      if not ok then
+        reportError("Rename: " .. tostring(err))
+        return
+      end
+      local def = gEngine.registry.items[f.item_id]
+      if def then
+        def.group = newName
+        if type(def.companion) == "table" then
+          def.companion.name = newName
+        end
+      end
+    end
+  end
+  exp.name = newName
+  saveExports()
+  gEngine:queueSchema()
+  gEngine:persistAll()
+  UpdateProperty("Export Name", "")
+  UpdateProperty("Selected Export", newName)
+  paintExportList()
+  SetTimer(SYNC_TIMER, 100, doSync)
+  reportError("")
 end
 
 function EC.Set_Export_Schedule(tParams)
@@ -1904,6 +2010,7 @@ function OnDriverLateInit()
   paintItemList()
   paintExportDeviceList()
   restoreExports()
+  paintExportList()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
   -- phases start when the relay answers.
   if gEngine.link then
