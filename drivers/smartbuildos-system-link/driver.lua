@@ -975,13 +975,23 @@ function registerSceneEvents()
       gEngine:ensureNamedEvent(
         sceneEventKey(exp.name, "requested"),
         "Scene " .. exp.name .. " requested",
-        "The linked project asked for scene " .. exp.name .. ". Perform it, then Report Request Success / Failure on the slot."
+        "The linked project asked for scene "
+          .. exp.name
+          .. ". Perform it, then Report Request Success / Failure on the slot."
       )
     end
   end
   for _, e in ipairs(mirroredExports("scene")) do
-    gEngine:ensureNamedEvent(sceneEventKey(e.name, "completed"), "Scene " .. e.name .. " completed", "The linked project reported scene " .. e.name .. " done.")
-    gEngine:ensureNamedEvent(sceneEventKey(e.name, "failed"), "Scene " .. e.name .. " failed", "The linked project reported scene " .. e.name .. " failed (see the request slot).")
+    gEngine:ensureNamedEvent(
+      sceneEventKey(e.name, "completed"),
+      "Scene " .. e.name .. " completed",
+      "The linked project reported scene " .. e.name .. " done."
+    )
+    gEngine:ensureNamedEvent(
+      sceneEventKey(e.name, "failed"),
+      "Scene " .. e.name .. " failed",
+      "The linked project reported scene " .. e.name .. " failed (see the request slot)."
+    )
   end
 end
 
@@ -1034,7 +1044,14 @@ local function runRemoteScene(name)
     return
   end
   reportError("")
-  print(string.format("Scene %s requested from the linked project (slot %s); 'Scene %s completed / failed' fires when it reports.", name, tostring(entry.slot), name))
+  print(
+    string.format(
+      "Scene %s requested from the linked project (slot %s); 'Scene %s completed / failed' fires when it reports.",
+      name,
+      tostring(entry.slot),
+      name
+    )
+  )
   SetTimer(SYNC_TIMER, 100, doSync)
 end
 
@@ -2526,7 +2543,10 @@ local function report(tParams, status)
         gEngine:setLocal(lastRun.id, isoNow())
       end
       if lastResult then
-        gEngine:setLocal(lastResult.id, status .. (tParams.RESULT and tParams.RESULT ~= "" and (": " .. tostring(tParams.RESULT)) or ""))
+        gEngine:setLocal(
+          lastResult.id,
+          status .. (tParams.RESULT and tParams.RESULT ~= "" and (": " .. tostring(tParams.RESULT)) or "")
+        )
       end
     end
   end

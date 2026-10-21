@@ -79,8 +79,8 @@ not create or edit them: all configuration is done in Composer on the bridge.
 | STRING  | STRING                 | max length 256 by default, up to 4096 |
 | CHOICE  | STRING                 | validated against the allowed values  |
 
-Export kinds: light, relay, contact, temperature, thermostat and shade present
-a device natively through a companion; **media** shares a ROOM's playing state
+Export kinds: light, relay, contact, temperature, thermostat and shade present a
+device natively through a companion; **media** shares a ROOM's playing state
 (powered, source name, volume, media info) read-only through the Media Room
 companion — pick the room itself as the device. No control verb exists for a
 remote room in this release.
@@ -240,9 +240,9 @@ routine `scene:<Name>`. On the owner, **Scene <Name> requested** fires: the
 dealer's programming performs the scene, then **Report Request Success /
 Failure** on the slot, and the result lands in `<Name>_Last_Run` /
 `<Name>_Last_Result`, mirrored on the other side. There, **Scene <Name>
-completed / failed** fires when the report arrives (a timeout means the
-outcome was not confirmed, as with any request). Nothing runs unless the
-owner's programming runs it.
+completed / failed** fires when the report arrives (a timeout means the outcome
+was not confirmed, as with any request). Nothing runs unless the owner's
+programming runs it.
 
 ## Control windows on companions
 
