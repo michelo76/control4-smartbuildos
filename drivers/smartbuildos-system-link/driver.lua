@@ -567,11 +567,9 @@ local function paintLinkHealth()
     doorbell = "joined · never rang — polling"
   end
   updateStatus("Doorbell", doorbell)
-  updateStatus(
-    "Poll Interval",
-    e:doorbellLive() and string.format("doorbell-driven (poll every %d s as backstop)", Engine.POLL_FALLBACK_MS / 1000)
-      or string.format("%d s", Engine.POLL_FALLBACK_MS / 1000)
-  )
+  -- Adaptive: "poll 3 s (active)" while either side is busy, "poll 1 s
+  -- (awaiting result)" right after a command, "poll 20 s (idle)" otherwise.
+  updateStatus("Poll Interval", e:pollLabel())
   local r = e.lastRefusal
   updateStatus(
     "Last Relay Refusal",

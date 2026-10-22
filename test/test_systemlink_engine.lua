@@ -797,7 +797,11 @@ print("\n[doorbell] a joined but silent doorbell does not switch the poll off")
 sync(NY, "ep-ny")
 advance(25 * 1000)
 check("doorbell joined, never rang: poll is due after 20 s", NY:tick(true) == true)
-check("status says polling", NY:statusProperties()["Relay Connection"] == "connected · polling every 20 s")
+check(
+  "status says polling",
+  NY:statusProperties()["Relay Connection"]:find("^connected · poll %d+ s %(") ~= nil,
+  NY:statusProperties()["Relay Connection"]
+)
 sync(NY, "ep-ny")
 NY:onDoorbell()
 advance(25 * 1000)
@@ -805,7 +809,11 @@ check(
   "doorbell rang recently: trusted, the ring drives the sync",
   NY:doorbellLive() == true and (NY:tick(true) == false or NY:heartbeatDue())
 )
-check("status says doorbell", NY:statusProperties()["Relay Connection"] == "connected · doorbell")
+check(
+  "status says doorbell",
+  NY:statusProperties()["Relay Connection"]:find("^connected · doorbell") ~= nil,
+  NY:statusProperties()["Relay Connection"]
+)
 NY.lastHeartbeatSentAt = 0
 ioNY.companionList = { { export = "Guest_Lamp", device_id = 4242 } }
 NY.lastRefusal = { reason = "stale revision", what = "Away", at = clock.now }
@@ -816,6 +824,8 @@ check(
     and hb.doorbell.up == true
     and hb.doorbell.last_ring_at == ("t" .. tostring(NY.lastDoorbellAt))
     and hb.pending == #NY.pending
+    and hb.poll_ms == Engine.POLL_FALLBACK_MS
+    and hb.poll_mode == "doorbell"
     and hb.latency_p95_ms == NY.latency.p95_ms
     and hb.latency_ms == NY.latency.p95_ms
     and hb.last_refusal.reason == "stale revision"
@@ -827,6 +837,142 @@ check(
 NY.lastRefusal = nil
 advance(Engine.DOORBELL_TRUST_MS)
 check("a doorbell silent for ten minutes is distrusted again", NY:doorbellLive() == false and NY:tick(true) == true)
+
+print("\n[poll] the poll adapts to traffic: 3 s active, 1 s awaiting a result, 20 s idle or backed off")
+-- Both sides quiet, doorbells distrusted, heartbeats not due: only the poll decides.
+local function quiet(e)
+  e.lastHeartbeatSentAt = clock.now
+  e.lastDoorbellAt = nil
+  e.pollBackoffUntil = nil
+end
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+advance(Engine.ACTIVE_WINDOW_MS + 1000)
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+quiet(CA2)
+quiet(NY)
+local pollMs, pollMode = CA2:pollInterval()
+check("idle after the window: 20 s", pollMs == Engine.POLL_FALLBACK_MS and pollMode == "idle", pollMode)
+check("idle status wording", CA2:pollLabel() == "poll 20 s (idle)", CA2:pollLabel())
+advance(Engine.POLL_FALLBACK_MS - 1000)
+check("idle: no poll before 20 s", CA2:tick(false) == false)
+advance(1000)
+check("idle: poll due at 20 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+quiet(CA2)
+-- A local publish makes this side active.
+local pollAway = CA2:findByName("Away")
+local pollWas = CA2.values[pollAway.id] and CA2.values[pollAway.id].tv.v
+assert(CA2:setLocal(pollAway.id, pollWas == true and "false" or "true"))
+CA2:flushFilters()
+check(
+  "a local publish is activity: 3 s",
+  select(2, CA2:pollInterval()) == "active" and CA2:pollInterval() == Engine.POLL_ACTIVE_MS,
+  select(2, CA2:pollInterval()) .. " pending=" .. #CA2.pending
+)
+check("active status wording", CA2:pollLabel() == "poll 3 s (active)", CA2:pollLabel())
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(Engine.POLL_ACTIVE_MS - 1000)
+check("active: no poll before 3 s", CA2:tick(false) == false)
+advance(1000)
+check("active: poll due at 3 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+-- The peer's tap keeps the other side fast too.
+check("the peer side was idle", select(2, NY:pollInterval()) == "idle", select(2, NY:pollInterval()))
+sync(NY, "ep-ny")
+quiet(NY)
+check(
+  "delivery from the peer makes this side active",
+  select(2, NY:pollInterval()) == "active",
+  select(2, NY:pollInterval())
+)
+-- A command of ours: 1 s until the result lands, at most 10 s.
+local cmdId = assert(CA2:sendCommand("light.on", "Guest_Lamp", {}, 30))
+check(
+  "a sent command polls at 1 s",
+  CA2:pollInterval() == Engine.POLL_RESULT_MS and select(2, CA2:pollInterval()) == "result"
+)
+check("awaiting-result wording", CA2:pollLabel() == "poll 1 s (awaiting result)", CA2:pollLabel())
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(1000)
+check("awaiting result: poll due every second", CA2:tick(false) == true)
+sync(NY, "ep-ny")
+NY.io.events = {}
+-- The owner side reports the command's outcome (as the driver does through reportRequest/command_update).
+NY:onSyncResponse({ inbound = {}, next_seq = NY.cursor.since_seq })
+local cmdInbound
+for _, m in ipairs(relay.messages) do
+  if m.t == "command" and m.id == cmdId then
+    cmdInbound = m
+  end
+end
+check("the command reached the relay", cmdInbound ~= nil)
+local upd = NY:envelope("command_update", { request_id = cmdId, status = "completed", result = { ok = true } })
+table.insert(NY.pending, upd)
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+quiet(CA2)
+check(
+  "the result arrived",
+  CA2.commands[cmdId].status == "completed",
+  CA2.commands[cmdId] and CA2.commands[cmdId].status
+)
+check(
+  "with the result in, the poll relaxes to 3 s (active)",
+  select(2, CA2:pollInterval()) == "active",
+  select(2, CA2:pollInterval())
+)
+local cmd2 = assert(CA2:sendCommand("light.off", "Guest_Lamp", {}, 30))
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(Engine.RESULT_WAIT_MS + 1)
+check(
+  "a result that never comes stops the 1 s poll after 10 s",
+  select(2, CA2:pollInterval()) == "active",
+  select(2, CA2:pollInterval())
+)
+-- Relay failure: back off to 20 s, nothing out before, cleared by the next good sync.
+relay.down = true
+sync(CA2, "ep-ca")
+relay.down = false
+check(
+  "after a relay failure the poll is backed off",
+  select(2, CA2:pollInterval()) == "backoff" and CA2:pollInterval() == Engine.POLL_FALLBACK_MS
+)
+check("backoff wording", CA2:pollLabel() == "poll 20 s (backoff)", CA2:pollLabel())
+advance(Engine.POLL_FALLBACK_MS - 1000)
+check("backoff: no retry before 20 s, even with the hello/snapshot pending", CA2:tick(false) == false)
+advance(1000)
+check("backoff: retry at 20 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+check("a good sync clears the backoff", CA2.pollBackoffUntil == nil and select(2, CA2:pollInterval()) ~= "backoff")
+-- Floor and heartbeat.
+local savedResult = Engine.POLL_RESULT_MS
+Engine.POLL_RESULT_MS = 200
+CA2:sendCommand("light.on", "Guest_Lamp", {}, 30)
+check("never below 1 s", CA2:pollInterval() == Engine.POLL_MIN_MS, tostring(CA2:pollInterval()))
+Engine.POLL_RESULT_MS = savedResult
+CA2.lastHeartbeatSentAt = 0
+local hb2 = CA2:buildSync().heartbeat
+check(
+  "the heartbeat carries the current poll interval",
+  hb2.poll_ms == Engine.POLL_RESULT_MS and hb2.poll_mode == "result",
+  tostring(hb2.poll_ms)
+)
+check("diagnostics carry the poll interval", CA2:diagnostics().poll_ms == Engine.POLL_RESULT_MS)
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+-- The doorbell, when trusted, wins over all of it.
+CA2.doorbellUp = true
+CA2:onDoorbell()
+check("a trusted doorbell wins: backstop only", select(2, CA2:pollInterval()) == "doorbell" and CA2:tick(true) == false)
+CA2.doorbellUp = false
+CA2.lastDoorbellAt = nil
 
 print("\n[stale] a value refused as stale is resent above the adopted revision")
 local awayDef = CA2:findByName("Away")
