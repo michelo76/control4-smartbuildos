@@ -258,10 +258,6 @@
         <name>Probe Capabilities</name>
         <command>PROBE_CAPABILITIES</command>
       </action>
-      <action>
-        <name>Generate Touchpanel URL</name>
-        <command>GENERATE_DISPLAY_URL</command>
-      </action>
       <action><name>Generate System Report</name><command>GENERATE_SYSTEM_REPORT</command></action>
       <action><name>Send System Report</name><command>SEND_SYSTEM_REPORT</command></action>
       <action><name>Send Test Notification</name><command>SEND_TEST_NOTIFICATION</command></action>
@@ -509,24 +505,6 @@
         <type>STRING</type>
         <default>Never</default>
         <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Touchpanel Display</name>
-        <type>LABEL</type>
-        <default>Touchpanel Display</default>
-      </property>
-      <property>
-        <name>Touchpanel Name</name>
-        <type>STRING</type>
-        <default>Touchpanel</default>
-        <description>Names the panel this URL is for, e.g. "Kitchen T4". Shown in SmartBuildOS so the right one can be revoked later.</description>
-      </property>
-      <property>
-        <name>Touchpanel URL</name>
-        <type>STRING</type>
-        <default>Not generated</default>
-        <readonly>true</readonly>
-        <description>Read-only page for a touchpanel: what is playing, temperatures and system health. Run Actions &gt; Generate Touchpanel URL, then paste this into a Web View driver. Each run creates a NEW panel URL and does not affect ones already installed.</description>
       </property>
       <property>
         <name>Monitoring</name>
