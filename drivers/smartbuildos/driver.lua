@@ -63,6 +63,12 @@ local http = require("lib.http")
 local persist = require("lib.persist")
 local AgentContract = require("sbos.agent_contract")
 local Rooms = require("telemetry.rooms")
+-- Shared module services (contract v1). Globals on purpose: the main chunk
+-- is at Lua's 200-local ceiling.
+Modules = require("sbos.modules")
+EventQueue = require("sbos.eventqueue")
+Envelope = require("sbos.envelope")
+SlProtocol = require("systemlink.protocol")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 local sbosUpdater = require("lib.sbos-updater")
@@ -339,6 +345,15 @@ gClock = { offset = nil, at = nil, drifting = false }
 --- Heartbeat timer punctuality: how late the last tick fired (ms).
 gHeartbeatTick = { last_ms = nil, lag_ms = nil }
 gDriverStartedAt = os.time()
+--- Module registry, the shared durable event queue, dedup rings and the
+--- restricted command ledger (built in ModulesInit; see the module section).
+gModules = nil
+gEvents = nil
+gEventDedup = SlProtocol.newDedup(2048)
+gCommandDedup = SlProtocol.newDedup(256)
+gModuleCommands = {}
+gModuleCommandsOrder = {}
+gAgentEventSeq = 0
 --- System Studio Agent Contract v1 runtime state. Restored during late init so
 --- a malformed persisted document cannot prevent the normal connector startup.
 local gAgentConfig = select(1, AgentContract.validateConfig({}))
@@ -563,6 +578,14 @@ local function announceStart()
       C4:FireEvent("Unexpected Restart")
     end
   end)
+  pcall(
+    ModulesNotifyEvent,
+    "director_reloaded",
+    { count = gStart.count, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
+  )
+  if gStart.restart == "unexpected" then
+    pcall(ModulesNotifyEvent, "unexpected_restart", { count = gStart.count, at = gStart.at })
+  end
   if not firedOk then
     log:warn("Could not fire the Director Reloaded event: %s", tostring(fireErr))
   end
@@ -842,6 +865,14 @@ local function setConnected(connected, status)
     if PublishAgentStatus ~= nil then
       pcall(PublishAgentStatus)
     end
+    -- Modules see the transition; the event queue recovers staggered.
+    if ModulesBroadcastState ~= nil then
+      pcall(ModulesBroadcastState)
+      pcall(ModulesNotifyEvent, connected and "cloud_connected" or "cloud_disconnected", { status = status })
+    end
+    if connected and gEvents ~= nil then
+      gEvents:resume(30)
+    end
   end
 end
 
@@ -936,6 +967,7 @@ function NoteClock(headers)
     pcall(function()
       C4:FireEvent("Clock Drift Detected")
     end)
+    pcall(ModulesNotifyEvent, "clock_drift", { offset_seconds = offset })
     if gTelemetry then
       gTelemetry:add("SYSTEM", {
         subcategory = "clock_drift",
@@ -997,16 +1029,22 @@ function RefreshProgrammingCensus(reason)
   return census
 end
 
-local function send(path, payload, description, onOk, onDelivered)
+local function send(path, payload, description, onOk, onDelivered, onFailed)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
     setConnected(false, "Not paired")
+    if onFailed then
+      pcall(onFailed, "not paired")
+    end
     return
   end
 
   local url = ingestUrl(path)
   if not url then
     setConnected(false, "API URL is not set")
+    if onFailed then
+      pcall(onFailed, "API URL is not set")
+    end
     return
   end
 
@@ -1076,6 +1114,9 @@ local function send(path, payload, description, onOk, onDelivered)
       -- Unpaired while this was in flight (see the success path): the
       -- connection it was reporting on no longer exists.
       log:info("%s failed after unpairing; ignored: %s", description, tostring(err and (err.error or err.code) or err))
+      if onFailed then
+        pcall(onFailed, "unpaired")
+      end
       return
     end
     gFailures = gFailures + 1
@@ -1115,6 +1156,9 @@ local function send(path, payload, description, onOk, onDelivered)
         name = "sync failed",
         detail = string.format("%s: %s", description, reason):sub(1, 400),
       }, "sync failure report")
+    end
+    if onFailed then
+      pcall(onFailed, reason)
     end
   end)
 end
@@ -2205,6 +2249,11 @@ local function pollDeviceState()
         )
         C4:FireEvent(device.online and "Device Came Online" or "Device Went Offline")
         log:info("Device %s %s", tostring(device.name), device.online and "came online" or "went offline")
+        pcall(
+          ModulesNotifyEvent,
+          device.online and "device_online" or "device_offline",
+          { key = key, name = device.name, room = device.room }
+        )
         -- Mirrored into the telemetry queue (T-2.1). The delta above is
         -- CURRENT STATE and a failed delta is only healed by the next full
         -- sync; the queued event survives an outage and replays with its
@@ -2301,6 +2350,10 @@ function driverCapabilities()
     "notify_v1",
     "realtime_v1",
     "agent_contract_v1",
+    -- Shared module services: registration, the event pipeline, restricted
+    -- module commands (MODULE_COMMAND) and on-request variable discovery.
+    "modules_v1",
+    "flight_recorder_v1",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -2603,6 +2656,7 @@ end
 --- that predates a driver must never guess at filenames.
 local SKU_FILENAMES = {
   SBOS_ATMOSPHERE = { "smartbuildos-atmosphere.c4z" },
+  SBOS_FLIGHT_RECORDER = { "smartbuildos-flight-recorder.c4z" },
   SBOS_MODE_COMPOSER = { "smartbuildos-mode-composer.c4z", "smartbuildos-mode-button.c4z" },
   SBOS_SYSTEM_LINK = {
     "smartbuildos-system-link.c4z",
@@ -2993,6 +3047,12 @@ local function sendHeartbeat()
         heartbeat_lag_ms = gHeartbeatTick.lag_ms,
         driver_uptime_seconds = os.time() - gDriverStartedAt,
       },
+      -- Shared module services: registrations (no tokens) and the durable
+      -- event queue's own account of itself (depth, bytes, oldest age,
+      -- drops with sequence ranges, upload failures, last ack, limits).
+      modules = ModulesHeartbeatBlock(),
+      event_pipeline = gEvents and gEvents:health() or nil,
+      module_protocol = { min = Modules.PROTOCOL_MIN, max = Modules.PROTOCOL_MAX },
       -- The server may ignore this additive object until its status reader is
       -- deployed. That is intentional forward compatibility: absence is an
       -- old Agent; presence is the Agent's own claim, never inferred from a
@@ -3450,6 +3510,20 @@ local COMMAND_RUNNERS = {
     postCameraSnapshot(key, url, tostring(payload.request_id or ""))
     return string.format("camera %s: snapshot requested", key)
   end,
+
+  -- ── MODULE SERVICES (contract v1) ───────────────────────────────────────
+  -- One gateway, not two: a restricted module operation rides the same
+  -- command path with the same ack. The vocabulary is closed
+  -- (MODULE_COMMANDS below): Flight Recorder's five operations today. No
+  -- arbitrary Lua, no equipment control.
+  MODULE_COMMAND = function(payload)
+    return ModuleCommandDispatch(payload)
+  end,
+  -- Variable discovery for the Studio source browser: 1..25 named devices,
+  -- on request, never the whole project.
+  DISCOVER_VARIABLES = function(payload)
+    return ModuleDiscoverVariables(payload)
+  end,
 }
 
 --- Executes whatever a response carried and acknowledges every outcome.
@@ -3555,6 +3629,676 @@ flushTelemetry = function()
   )
 end
 
+-- ─── Shared module services (contract v1) ─────────────────────────────────────
+--
+-- Optional SmartBuildOS drivers ("modules" — Flight Recorder first; Guardian,
+-- Commissioning Inspector, Home State and Property Bridge reserved) register
+-- here and use this Agent's pairing, transport, durable event queue,
+-- versioned configuration delivery and restricted command gateway. Wire
+-- vocabulary and limits: docs/flight-recorder/PROTOCOL.md. Pure rules:
+-- sbos.modules, sbos.envelope, sbos.eventqueue (all tested without a
+-- controller). Everything here is a GLOBAL: the main chunk is at Lua's
+-- 200-local ceiling.
+--
+-- Trust: ExecuteCommand carries no sender identity, so a registration is
+-- answered with a token sent TO THE CLAIMED DEVICE ID, and every later
+-- frame must carry it. Local registration is not authorization: the
+-- platform still decides tenant/property ownership from this Agent's own
+-- credential, never from anything a module says.
+
+EVENTS_TIMER = "SmartBuildOSEvents"
+EVENTS_FAST_TIMER = "SmartBuildOSEventsFast"
+MODULES_KEY = "sbos_modules_v1"
+EVENT_JOURNAL_KEY = "sbos_event_journal_v1"
+AGENT_EVENT_SEQ_KEY = "sbos_agent_event_seq"
+--- The closed vocabulary of restricted module operations, per module.
+MODULE_COMMANDS = {
+  flight_recorder = { apply_config = true, pause = true, resume = true, capture_snapshot = true, refresh_status = true },
+}
+MODULE_COMMAND_TTL = 10 * 60
+MODULE_COMMAND_LEDGER = 100
+MODULE_SNAPSHOT_MAX_BYTES = 256 * 1024
+
+function ModuleToken()
+  local parts = {}
+  for i = 1, 4 do
+    parts[i] = string.format("%08x", math.random(0, 0x7fffffff))
+  end
+  return table.concat(parts)
+end
+
+function ModulesInit()
+  if gModules ~= nil then
+    return
+  end
+  pcall(function()
+    math.randomseed((os.time() + (tonumber(C4:GetTickCount()) or 0)) % 2147483647)
+  end)
+  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), { now = os.time, newToken = ModuleToken })
+  gEvents = EventQueue.restore(persist:get(EVENT_JOURNAL_KEY, false), {
+    now = os.time,
+    saveJournal = function(journal)
+      persist:set(EVENT_JOURNAL_KEY, journal)
+    end,
+  })
+  if gEvents.stats.journal_recovered then
+    log:warn("Event journal was unreadable or partly unreadable; the queue started with what could be recovered")
+  end
+  gAgentEventSeq = tointeger(persist:get(AGENT_EVENT_SEQ_KEY, 0)) or 0
+  log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
+end
+
+--- Monotonic sequence for the Agent's own pipeline events (stride-persisted).
+function AgentEventSequence()
+  gAgentEventSeq = gAgentEventSeq + 1
+  if gAgentEventSeq % 25 == 1 then
+    persist:set(AGENT_EVENT_SEQ_KEY, gAgentEventSeq + 25)
+  end
+  return gAgentEventSeq
+end
+
+function ModulesPersist()
+  if gModules ~= nil then
+    persist:set(MODULES_KEY, gModules:serialize())
+  end
+end
+
+function ModuleSend(instanceId, command, params)
+  local id = tonumber(instanceId)
+  if id == nil then
+    return false
+  end
+  local ok = pcall(function()
+    C4:SendToDevice(id, command, params)
+  end)
+  return ok
+end
+
+--- What a module learns about this Agent (strings: SendToDevice params).
+function ModuleAgentState()
+  local installation = systemId()
+  if installation == "" then
+    installation = propertyId()
+  end
+  return {
+    paired = isPaired() and "true" or "false",
+    connected = gConnected and "true" or "false",
+    installation_id = installation,
+    boot_id = tostring(SafeAgentBootId() or ""),
+    agent_version = tostring(AgentVersion() or ""),
+    protocol = tostring(Modules.PROTOCOL_MAX),
+  }
+end
+
+function ModulesAgentForDisplay()
+  return {
+    paired = isPaired(),
+    connected = gConnected,
+    licence = function(sku)
+      local status = ModuleLicenceStatus(sku)
+      return status
+    end,
+    enforce = function(sku)
+      local _, enforcement = ModuleLicenceStatus(sku)
+      return enforcement == "enforce"
+    end,
+  }
+end
+
+function ModulesHeartbeatBlock()
+  if gModules == nil then
+    return nil
+  end
+  local block = gModules:heartbeatBlock(ModulesAgentForDisplay())
+  if #block == 0 then
+    return nil
+  end
+  return block
+end
+
+function ModulesBroadcastState()
+  if gModules == nil then
+    return
+  end
+  local state = ModuleAgentState()
+  for _, e in ipairs(gModules:list()) do
+    ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_STATE", state)
+  end
+end
+
+--- On every Agent start: modules that registered before this Agent came up
+--- re-register (their registration may predate a token this Agent forgot).
+function ModulesHello()
+  if gModules == nil then
+    return
+  end
+  for _, e in ipairs(gModules:list()) do
+    ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_HELLO", { agent_version = tostring(AgentVersion() or "") })
+  end
+end
+
+--- Agent-classified events, offered to every live module (a module records
+--- only what its configuration selected).
+function ModulesNotifyEvent(name, detail)
+  if gModules == nil then
+    return
+  end
+  local okE, encoded = pcall(function()
+    return JSON:encode(detail or {})
+  end)
+  for _, e in ipairs(gModules:list()) do
+    if not gModules:isStale(e) then
+      ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_EVENT", { name = tostring(name), detail = okE and encoded or "{}" })
+    end
+  end
+end
+
+--- Re-sends the last configuration the platform forwarded for a SKU to one
+--- instance (a module that registered after the heartbeat carried it).
+function ResendDriverConfig(sku, instanceId)
+  local stored = persist:get("sbos_driver_config_fwd_" .. tostring(sku):lower(), "")
+  if type(stored) ~= "string" or stored == "" then
+    return false
+  end
+  local version, encoded = stored:match("^([^|]*)|(.*)$")
+  if encoded == nil then
+    return false
+  end
+  return ModuleSend(instanceId, "SBOS_DRIVER_CONFIG", {
+    sku = sku,
+    settings = encoded,
+    settings_version = version,
+    requester = tostring(C4:GetDeviceID()),
+  })
+end
+
+function EC.SBOS_MODULE_REGISTER(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local ok, reply, entry = gModules:register(tParams)
+  for k, v in pairs(ModuleAgentState()) do
+    reply[k] = v
+  end
+  reply.agent_protocol_min = tostring(Modules.PROTOCOL_MIN)
+  reply.agent_protocol_max = tostring(Modules.PROTOCOL_MAX)
+  ModuleSend(reply.instance_id, "SBOS_MODULE_REGISTERED", reply)
+  if ok then
+    ModulesPersist()
+    log:info(
+      "module registered: %s@%s v%s (protocol %s, %d registration(s))",
+      entry.module_id,
+      tostring(entry.instance_id),
+      entry.driver_version,
+      tostring(entry.protocol),
+      entry.registrations
+    )
+    for _, sku in ipairs(entry.entitlements or {}) do
+      pcall(ResendDriverConfig, sku, entry.instance_id)
+    end
+  else
+    log:warn(
+      "module registration refused: %s@%s (%s)",
+      tostring(reply.module_id),
+      tostring(reply.instance_id),
+      tostring(reply.reason)
+    )
+  end
+end
+
+function EC.SBOS_MODULE_STATUS(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  if entry == nil then
+    log:debug("module status ignored: %s", tostring(why))
+    return
+  end
+  local counters = nil
+  if type(tParams.counters) == "string" then
+    local okD, decoded = pcall(function()
+      return JSON:decode(tParams.counters)
+    end)
+    if okD and type(decoded) == "table" then
+      counters = decoded
+    end
+  end
+  gModules:touch(entry, {
+    status = tParams.status,
+    detail = tParams.detail,
+    config_version = tParams.config_version,
+    applied_config_version = tParams.applied_config_version,
+    config_error = tParams.config_error,
+    counters = counters,
+  })
+  ModulesPersist()
+end
+
+function EC.SBOS_MODULE_UNREGISTER(tParams)
+  ModulesInit()
+  local entry = gModules:authenticate(tParams or {})
+  if entry == nil then
+    return
+  end
+  gModules:remove(entry.module_id, entry.instance_id)
+  ModulesPersist()
+  log:info("module unregistered: %s@%s", entry.module_id, tostring(entry.instance_id))
+end
+
+function EventsQueueBrief()
+  if gEvents == nil then
+    return {}
+  end
+  local h = gEvents:health()
+  return {
+    depth = h.depth,
+    dropped = h.dropped,
+    last_ack_at = h.last_ack_at,
+    backoff_seconds = h.backoff_seconds,
+    limit_status = h.limit_status,
+    last_error = h.last_error,
+  }
+end
+
+--- A module's event frame: authenticated, validated per event (schema,
+--- prefix ownership, instance), deduplicated by event id, stamped with the
+--- installation and boot identity, queued durably, acknowledged with counts.
+function EC.SBOS_MODULE_EVENTS(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  local batchId = tostring(tParams.batch_id or "")
+  if entry == nil then
+    -- No ack: an unauthenticated sender learns nothing from this Agent.
+    log:warn("module event frame ignored: %s", tostring(why))
+    return
+  end
+  local raw = tostring(tParams.events or "")
+  local function ack(accepted, rejected, duplicates, reason)
+    ModuleSend(entry.instance_id, "SBOS_MODULE_EVENTS_ACK", {
+      batch_id = batchId,
+      accepted = tostring(accepted),
+      rejected = tostring(rejected),
+      duplicates = tostring(duplicates),
+      reason = reason or "",
+      queue = JSON:encode(EventsQueueBrief()),
+    })
+  end
+  if #raw > Envelope.LIMITS.frame_bytes then
+    ack(0, -1, 0, "oversized frame")
+    return
+  end
+  local okD, list = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not okD or type(list) ~= "table" then
+    ack(0, -1, 0, "malformed frame")
+    return
+  end
+  local accepted, rejected, duplicates, reason = 0, 0, 0, nil
+  local state = ModuleAgentState()
+  for i, env in ipairs(list) do
+    if i > Envelope.LIMITS.batch then
+      rejected = rejected + 1
+      reason = "batch_limit"
+    else
+      local okV, whyV = Envelope.validate(env, entry.module_id)
+      if not okV then
+        rejected = rejected + 1
+        reason = whyV
+      elseif tostring(env.source_driver_instance_id) ~= tostring(entry.instance_id) then
+        rejected = rejected + 1
+        reason = "instance_mismatch"
+      elseif not gEventDedup:accept(env.event_id) then
+        -- A resend after a lost ack: already queued or uploaded. Accepted
+        -- from the module's point of view (it may drop its copy).
+        duplicates = duplicates + 1
+        accepted = accepted + 1
+      else
+        env.installation_id = state.installation_id
+        if env.boot_id == nil and state.boot_id ~= "" then
+          env.boot_id = state.boot_id
+        end
+        local okP, whyP = gEvents:push(env)
+        if okP then
+          accepted = accepted + 1
+        else
+          rejected = rejected + 1
+          reason = whyP
+        end
+      end
+    end
+  end
+  gModules:touch(entry, {})
+  gEvents:checkpoint(false)
+  ack(accepted, rejected, duplicates, reason)
+  if accepted > 0 then
+    SetTimer(EVENTS_FAST_TIMER, 5 * ONE_SECOND, FlushEvents)
+  end
+end
+
+--- Uploads one batch of the shared queue. Ack = the server's verdict per
+--- event; a 2xx whose body carries no verdict is a failure (and the batch is
+--- resent later — the server dedups on event_id). Transport failure and the
+--- 90 s silence both nack with backoff + jitter (eventqueue.lua).
+function FlushEvents()
+  if gEvents == nil then
+    return
+  end
+  gEvents:expireInflight()
+  gEvents:checkpoint(false)
+  if not isPaired() then
+    return
+  end
+  local batch = gEvents:takeBatch()
+  if batch == nil then
+    return
+  end
+  send(
+    "events",
+    { kind = "events", events = batch, pipeline = gEvents:health() },
+    string.format("event batch of %d", #batch),
+    function(body)
+      if type(body.accepted) == "table" or type(body.rejected) == "table" then
+        gEvents:ack(body)
+      else
+        gEvents:nack("acknowledgment carried no verdict")
+      end
+      gEvents:checkpoint(true)
+      if gEvents:canSend() then
+        -- Drain a backlog in bounded steps rather than waiting out the tick.
+        SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+      end
+    end,
+    nil,
+    function(reason)
+      gEvents:nack(reason)
+      gEvents:checkpoint(false)
+    end
+  )
+end
+
+--- Restricted command ledger + the `agent.command_state` events Studio reads.
+function ModuleCommandRecord(requestId, entry, command, stateName, detail, expiresAt)
+  local rec = gModuleCommands[requestId]
+  if rec == nil then
+    rec = {
+      request_id = requestId,
+      module_id = entry and entry.module_id or nil,
+      instance_id = entry and tostring(entry.instance_id) or nil,
+      command = command,
+      issued_at = os.time(),
+      expires_at = expiresAt,
+    }
+    gModuleCommands[requestId] = rec
+    gModuleCommandsOrder[#gModuleCommandsOrder + 1] = requestId
+    while #gModuleCommandsOrder > MODULE_COMMAND_LEDGER do
+      local old = table.remove(gModuleCommandsOrder, 1)
+      gModuleCommands[old] = nil
+    end
+  end
+  rec.state = stateName
+  rec.detail = tostring(detail or ""):sub(1, 400)
+  rec.updated_at = os.time()
+  if gEvents == nil then
+    return rec
+  end
+  local env = Envelope.build({
+    event_type = "agent.command_state",
+    evidence_source = "derived",
+    severity = (stateName == "Failed" or stateName == "Expired" or stateName == "Unverified") and "warning" or "info",
+    correlation_id = requestId,
+    label = tostring(command) .. " " .. stateName,
+    payload = {
+      request_id = requestId,
+      module_id = rec.module_id,
+      instance_id = rec.instance_id,
+      command = command,
+      state = stateName,
+      detail = rec.detail,
+      expires_at = expiresAt,
+    },
+  }, {
+    module_id = "agent",
+    instance_id = tostring(C4:GetDeviceID()),
+    observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    boot_id = SafeAgentBootId(),
+    sequence = AgentEventSequence(),
+    installation_id = ModuleAgentState().installation_id,
+  })
+  if env ~= nil then
+    gEvents:push(env)
+  end
+  return rec
+end
+
+--- The MODULE_COMMAND runner: validates vocabulary, request id (duplicates
+--- refused), expiry, target instance and the instance's registered command
+--- list, then forwards with the instance's token. "Accepted" is what the
+--- platform's command ack carries; the terminal state arrives as an event.
+function ModuleCommandDispatch(payload)
+  ModulesInit()
+  payload = type(payload) == "table" and payload or {}
+  local moduleId = tostring(payload.module_id or "")
+  local command = tostring(payload.command or "")
+  local requestId = tostring(payload.request_id or "")
+  if requestId == "" then
+    error("module command needs a request_id")
+  end
+  local allowed = MODULE_COMMANDS[moduleId]
+  if allowed == nil or not allowed[command] then
+    error(
+      string.format("%s is not a restricted operation of %s", command, moduleId ~= "" and moduleId or "(no module)")
+    )
+  end
+  if not gCommandDedup:accept(requestId) then
+    error("duplicate request id " .. requestId)
+  end
+  local expiresAt = tonumber(payload.expires_at) or (os.time() + MODULE_COMMAND_TTL)
+  if expiresAt <= os.time() then
+    ModuleCommandRecord(requestId, nil, command, "Expired", "expired before dispatch", expiresAt)
+    error("request " .. requestId .. " expired before dispatch")
+  end
+  local target = nil
+  for _, e in ipairs(gModules:instances(moduleId)) do
+    if payload.instance_id == nil or tostring(e.instance_id) == tostring(payload.instance_id) then
+      target = e
+    end
+  end
+  if target == nil then
+    ModuleCommandRecord(requestId, nil, command, "Failed", "no live " .. moduleId .. " instance registered", expiresAt)
+    error("no live " .. moduleId .. " instance is registered with this Agent")
+  end
+  local registered = false
+  for _, c in ipairs(target.commands or {}) do
+    if c == command then
+      registered = true
+    end
+  end
+  if not registered then
+    ModuleCommandRecord(requestId, target, command, "Failed", "instance does not register " .. command, expiresAt)
+    error(string.format("%s@%s does not register the command %s", moduleId, tostring(target.instance_id), command))
+  end
+  local args = type(payload.args) == "table" and payload.args or {}
+  ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
+    module_id = moduleId,
+    instance_id = tostring(target.instance_id),
+    token = target.token,
+    request_id = requestId,
+    command = command,
+    args = JSON:encode(args),
+    expires_at = tostring(expiresAt),
+    issued_at = tostring(os.time()),
+  })
+  ModuleCommandRecord(
+    requestId,
+    target,
+    command,
+    "Accepted",
+    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
+    expiresAt
+  )
+  SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
+    local rec = gModuleCommands[requestId]
+    if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
+      ModuleCommandRecord(
+        requestId,
+        target,
+        command,
+        "Unverified",
+        "no terminal result from the module before expiry",
+        expiresAt
+      )
+      SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+    end
+  end)
+  SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+  return string.format(
+    "accepted: %s forwarded to %s@%s (request %s)",
+    command,
+    moduleId,
+    tostring(target.instance_id),
+    requestId
+  )
+end
+
+MODULE_COMMAND_STATES =
+  { Accepted = true, Executing = true, Completed = true, Failed = true, Expired = true, Unverified = true }
+
+function EC.SBOS_MODULE_COMMAND_RESULT(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry = gModules:authenticate(tParams)
+  if entry == nil then
+    return
+  end
+  local requestId = tostring(tParams.request_id or "")
+  local rec = gModuleCommands[requestId]
+  -- A module reports only on commands addressed to IT.
+  if rec == nil or rec.instance_id ~= tostring(entry.instance_id) then
+    return
+  end
+  local stateName = tostring(tParams.state or "")
+  if not MODULE_COMMAND_STATES[stateName] then
+    return
+  end
+  if rec.state == "Completed" or rec.state == "Failed" or rec.state == "Expired" then
+    return -- terminal is terminal
+  end
+  ModuleCommandRecord(requestId, entry, rec.command, stateName, tParams.detail, rec.expires_at)
+  if stateName ~= "Accepted" and stateName ~= "Executing" then
+    CancelTimer("ModuleCommandExpiry:" .. requestId)
+  end
+  SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+end
+
+--- A module's finished diagnostic snapshot: bounded, re-redacted, uploaded
+--- on its own path, acknowledged either way.
+function EC.SBOS_MODULE_SNAPSHOT(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry = gModules:authenticate(tParams)
+  if entry == nil then
+    return
+  end
+  local jobId = tostring(tParams.job_id or "")
+  if jobId == "" then
+    return
+  end
+  local function ack(ok, reason, snapshotId)
+    ModuleSend(entry.instance_id, "SBOS_MODULE_SNAPSHOT_ACK", {
+      job_id = jobId,
+      ok = ok and "true" or "false",
+      reason = tostring(reason or ""),
+      snapshot_id = tostring(snapshotId or ""),
+    })
+  end
+  local raw = tostring(tParams.document or "")
+  if #raw > MODULE_SNAPSHOT_MAX_BYTES then
+    ack(false, "document exceeds 256 KB")
+    return
+  end
+  local okD, doc = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not okD or type(doc) ~= "table" then
+    ack(false, "malformed document")
+    return
+  end
+  if not isPaired() then
+    ack(false, "Agent is not paired")
+    return
+  end
+  send(
+    "snapshots",
+    {
+      kind = "snapshot",
+      module_id = entry.module_id,
+      instance_id = tostring(entry.instance_id),
+      job_id = jobId,
+      request_id = tostring(tParams.request_id or ""),
+      status = tostring(tParams.status or "completed"),
+      document = Envelope.redact(doc),
+    },
+    "snapshot " .. jobId,
+    function(body)
+      ack(body.ok ~= false, body.error, body.snapshot_id)
+    end,
+    nil,
+    function(reason)
+      ack(false, reason)
+    end
+  )
+end
+
+--- On-request variable discovery for the Studio source browser (1..25
+--- devices per request). Ships as a PARTIAL catalogue so the platform
+--- merges rather than prunes.
+function ModuleDiscoverVariables(payload)
+  payload = type(payload) == "table" and payload or {}
+  local ids = type(payload.device_ids) == "table" and payload.device_ids or {}
+  if #ids == 0 or #ids > 25 then
+    error("device_ids must list 1..25 device ids")
+  end
+  local okDev, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okDev and type(devices) == "table" and devices or {}
+  local observables = {}
+  for _, rawId in ipairs(ids) do
+    local id = tointeger(rawId)
+    local d = id and (devices[id] or devices[tostring(id)]) or nil
+    if id ~= nil and type(d) == "table" then
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(id)
+      end)
+      if okV and type(vars) == "table" then
+        for varId, v in pairs(vars) do
+          local vid = tointeger(varId)
+          if vid ~= nil and type(v) == "table" and type(v.name) == "string" then
+            observables[#observables + 1] = {
+              kind = "device",
+              source_id = id,
+              source_name = d.deviceName,
+              room_id = tointeger(d.roomId),
+              room_name = d.roomName,
+              variable_id = vid,
+              variable_name = v.name,
+              sample_value = tostring(v.value or ""):sub(1, 120),
+              readonly = tostring(v.readonly) == "True",
+            }
+          end
+        end
+      end
+    end
+  end
+  send(
+    "telemetry",
+    { kind = "catalogue", observables = observables, partial = true },
+    string.format("variable discovery for %d device(s)", #ids)
+  )
+  return string.format("discovered %d variable(s) across %d device(s)", #observables, #ids)
+end
+
 --- The check-in interval actually in force: the platform's monitor config
 --- wins, the Composer property is the fallback. Global so the heartbeat can
 --- REPORT it — cadence should be a stated fact on the platform, not a
@@ -3594,6 +4338,7 @@ function scheduleTimers()
   SetTimer(DEVICE_POLL_TIMER, poll * ONE_SECOND, pollDeviceState, true)
   SetTimer(FULL_SYNC_TIMER, fullSync * ONE_SECOND, sendFullSync, true)
   SetTimer(TELEMETRY_QUEUE_TIMER, 45 * ONE_SECOND, flushTelemetry, true)
+  SetTimer(EVENTS_TIMER, 30 * ONE_SECOND, FlushEvents, true)
 
   -- Off by DEFAULT, and stays off until somebody chooses it. A subnet sweep is
   -- the one thing this driver does that touches addresses nobody put in the
@@ -4937,6 +5682,9 @@ end
 
 --- Reflects the current pairing state into the read-only properties.
 showPairingState = function()
+  if ModulesBroadcastState ~= nil then
+    pcall(ModulesBroadcastState)
+  end
   if isPaired() then
     -- Name and ADDRESS. The uuid is the last resort, not the default: it is
     -- the one thing here that answers nothing for somebody at a rack trying to
@@ -5357,6 +6105,7 @@ function OnDriverLateInit(reason)
 
   RestoreAgentState()
   ArmAgentServiceModeTimer()
+  pcall(ModulesInit)
   gAgentInitReason = reason
   restorePairingFromBackup()
 
@@ -5381,6 +6130,8 @@ function OnDriverLateInit(reason)
       or (gStart.kind == "first" and "DIT_ADDING" or "DIT_STARTUP")
   end
   PublishAgentStatus()
+  -- Modules that started before this Agent re-register on this hello.
+  pcall(ModulesHello)
 
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
@@ -5551,6 +6302,7 @@ function ProjectChangeFlush()
   pcall(function()
     C4:FireEvent("Project Changed")
   end)
+  pcall(ModulesNotifyEvent, "project_changed", { names = gProjectChanges.last_name })
   if gTelemetry then
     gTelemetry:add("SYSTEM", {
       subcategory = "project_changed",
@@ -5609,6 +6361,7 @@ function OnSystemEvent(data)
     pcall(function()
       C4:FireEvent("OS Update Started")
     end)
+    pcall(ModulesNotifyEvent, "os_update_started", { event = name })
     if isPaired() then
       pcall(send, "event", { kind = "event", name = "os_update_started", detail = name }, "OS update notice")
     end
@@ -5649,6 +6402,7 @@ function OnSystemEvent(data)
       pcall(function()
         C4:FireEvent("Programming Changed")
       end)
+      pcall(ModulesNotifyEvent, "programming_changed", { event = name })
     end)
     return
   elseif class == "identity" then
@@ -5669,6 +6423,15 @@ end
 
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
+  -- The event journal is checkpointed on the way out: a reload must not
+  -- cost the last 30 s of a module's evidence.
+  if gEvents ~= nil then
+    pcall(function()
+      gEvents:checkpoint(true)
+    end)
+  end
+  CancelTimer(EVENTS_TIMER)
+  CancelTimer(EVENTS_FAST_TIMER)
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -7884,6 +8647,15 @@ local gAnswered = {}
 --- statuses behind it. Every caller and the protocol shape are unchanged.
 --- @param requester number The asking driver's device id.
 --- @param sku string The driver SKU.
+--- The module registry's view of a SKU's licence (status, enforcement).
+function ModuleLicenceStatus(sku)
+  local okS, answer = pcall(statusForSku, sku)
+  if not okS or type(answer) ~= "table" then
+    return nil, "observe"
+  end
+  return answer.status, answer.enforcement
+end
+
 local function answerEntitlement(requester, sku)
   local answer = statusForSku(sku)
   gAnswered[sku] = answer.status
