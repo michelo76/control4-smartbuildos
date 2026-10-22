@@ -78,6 +78,12 @@ not create or edit them: all configuration is done in Composer on the bridge.
 | STRING  | STRING                 | max length 256 by default, up to 4096 |
 | CHOICE  | STRING                 | validated against the allowed values  |
 
+Export kinds: light, relay, contact, temperature, thermostat and shade present a
+device natively through a companion; **media** shares a ROOM's playing state
+(powered, source name, volume, media info) read-only through the Media Room
+companion — pick the room itself as the device. No control verb exists for a
+remote room in this release.
+
 Optional schema per item: description, group, units, allowed values,
 minimum/maximum, precision, string length, export on/off, freshness policy
 (`max_age_s`), publication filter.
@@ -163,6 +169,68 @@ programming says it means. A timeout means the result was not confirmed, not
 that the work stopped; a late result is recorded in the slot but never fires a
 follow-up.
 
+## Templates (Properties tab)
+
+**Template** lists seven setup recipes (Away/Home coordination, guesthouse
+occupancy, remote light, remote thermostat, arrival request with result,
+read-only sensors, gate request with feedback). **Print Template** prints what
+the recipe creates and the Composer programming to write on each side, with
+`<Owner>` replaced by this bridge's prefix. **Apply Template** creates the
+recipe's shared items on this bridge (names already present are left as they
+are) and prints the same steps. A template never writes Composer programming and
+never creates an export or a companion: those stay deliberate actions, named in
+the printed steps. Recipes that involve control say so.
+
+## Configuration export and import (Properties tab)
+
+**Print Configuration Export** prints one JSON line describing the link's
+configuration as this bridge knows it: aliases and namespaces, groups, every
+item definition (its own and the peer's mirrors, by owner role) and the
+companion kinds the other side needs. It carries no credential, invitation,
+licence, controller assignment or customer field, and refuses to print if any
+such field is present. Paste it into **Configuration Import** on a bridge and
+run **Preview Configuration Import** (prints what would be created, per item
+verdict, nothing written) or **Apply Configuration Import** (creates the items
+whose owner role is this bridge's, with new ids; names already present are left
+as they are). Exports and companions are never imported; the preview says so.
+
+## Device exports (Properties tab)
+
+A device is shared with the linked project from the **Device Exports** block on
+the bridge's Properties tab, not from a programming command: pick **Export
+Kind**, pick the device in **Export Device** (listed as `Name (Room) · id`; by
+default only devices that carry the variables the kind reads, so a light's
+physical driver, which usually shares the name, is left out — **Export Device
+Filter = All devices** shows it flagged), fill in **Export Name** (prefilled
+from the device name when empty; letters, digits and underscores), **Export
+Control** and optional **Export Operations**, then run **Export Selected
+Device**. A refusal stays in **Last Error** and is printed to the Lua tab with
+the reason. **Refresh Export Device List** rebuilds the list after a device is
+added. The `Export Device` programming command still exists for scripted setups.
+
+**Lights, the Composer Connections way.** Add a **SmartBuildOS System Link
+Export Light** driver, bind the real light to its **Light** connection in
+Connections, name the export in its properties, and it registers with the bridge
+using the bound device (the light's proxy, which carries the state), so there is
+nothing to guess between a physical driver and its proxy. Unbinding or deleting
+it removes the export. Other kinds keep the Device Exports block.
+
+A companion's **Linked Export** list shows exports of its own kind only; when
+there are none, **Bridge Link** says so and names what the link does carry.
+
+Existing exports are listed in **Selected Export**. **Rename Selected Export**
+renames the selected one to **Export Name** (every field variable keeps its id;
+the old names become hidden tombstones; the companion on the linked project must
+be re-linked to the new name) and **Remove Selected Export** stops sharing it
+(its variables stay hidden and are never reused). Both print their effect to the
+Lua tab first.
+
+On the receiving project, **Pending Exports** lists what the linked project
+shares that has no companion device here yet (`MBR_Baseboard (light)`). Pick it
+in **Pending Export** and run **Add Companion For Pending Export**: the bridge
+adds the matching companion driver and links it to the export in one step. The
+list follows the link, so a new export shows up within a sync.
+
 ## Publication filters
 
 Per owned item, optional: debounce/stability seconds, numeric change threshold,
@@ -170,6 +238,49 @@ minimum publication interval, maximum silence (refresh). Filters apply to state
 only; events are never filtered. The source value and the published value are
 kept apart; filter delay is reported separately from transport latency in the
 state message. Defaults publish immediately.
+
+## Locks, gates, fans and buttons (feature-gated)
+
+These kinds actuate things that no controller has validated yet, so their
+CONTROL is behind its own licence feature (`LOCK`, `GATE`, `FAN`, `BUTTON`), off
+by default (decision SL-07). Status needs nothing: a lock, gate or fan exported
+with **Export Control = View only** shares `Locked`, `Open` or `Speed` on any
+pair licence, and the Lock, Gate and Fan companions show it with events and
+conditionals. With the feature on the pair, **Control allowed** opens the ops
+(lock/unlock; trigger/open/close on the relay that drives the door;
+on/off/set_speed 0–10), checked again on every command. **Unlock** additionally
+needs **Allow Unlock For Selected Export** on the owner, refused while LOCK is
+unlicensed, and is never retried. A **button** is pure control: the owner
+exports a name, the other side's **Press Remote Button** (action or programming
+command) fires **Button <Name> pressed** on the owner and stamps
+`<Name>_Last_Pressed`; a press while BUTTON is not licensed is ignored and says
+so. The source variable names are the ones Mode Composer's adapters read in the
+field.
+
+## Scenes across the link
+
+A **scene** export is a name, no device. On the owner: Export Kind = scene,
+Export Name, Export Control = Control allowed → Export Selected Device. The
+other side lists it in **Remote Scene**; **Run Remote Scene** (action, or the
+programming command of the same name with `SCENE`) sends a request with the
+routine `scene:<Name>`. On the owner, **Scene <Name> requested** fires: the
+dealer's programming performs the scene, then **Report Request Success /
+Failure** on the slot, and the result lands in `<Name>_Last_Run` /
+`<Name>_Last_Result`, mirrored on the other side. There, **Scene <Name>
+completed / failed** fires when the report arrives (a timeout means the outcome
+was not confirmed, as with any request). Nothing runs unless the owner's
+programming runs it.
+
+## Control windows on companions
+
+When an export has a schedule (Set Export Schedule), the owner publishes a
+`<Name>_Window` BOOLEAN field that it evaluates once a minute with its own
+clock, the only clock that can. The companion on the other side shows the
+schedule in **Control Window** ("Mon–Fri 07:00–22:00 (America/New_York) — closed
+now") and, while it is closed, refuses a command locally with the window named
+in **Last Result** (and fires Control Refused) instead of a round trip that
+comes back "outside the permitted schedule". The owner still enforces the
+schedule itself.
 
 ## Freshness and Remote System State
 
@@ -222,6 +333,45 @@ replacement: it revokes the endpoint and needs a new invitation.
 Updates use the existing Agent update path. Studio shows installed and available
 versions on both endpoints and refuses an update that would leave the two
 bridges on incompatible protocol versions.
+
+## Namespace rename and pausing the link
+
+The namespace (the Composer prefix, frozen at approval) is owned by the relay.
+**New Namespace** + **Preview Namespace Rename** prints every variable the
+change would touch on this bridge (items, the mirrors' `.STATE` twins, request
+slots and `Last_Event_*`); **Rename Namespace** asks the relay on the next sync,
+and both bridges apply the change when they see it: the old names become hidden
+tombstones (ids never change, programming keeps pointing at them), the new names
+get new ids with the current values, and **Schema Attention** fires on both
+sides. A relay that refuses the name says why in Last Error; an older relay that
+cannot answer is reported too.
+
+**Pause Link** asks the relay to pause the whole link (both bridges stop
+publishing and refuse remote commands; mirrors keep their last values and go
+stale) until **Resume Link**, or for **Link Pause Minutes** when set above 0.
+Both bridges see the change on their next sync and fire **Link Paused** / **Link
+Resumed**. Pause/Resume Remote Commands remain the lighter, local option.
+
+## Link Health (Properties tab)
+
+A read-only group with the transport facts: **Doorbell** (whether the relay's
+instant-notification channel is joined and when it last rang; "never rang" means
+the bridge relies on the poll), **Poll Interval** (adaptive: `poll 3 s (active)`
+for five minutes after either side published, sent a command or request, or
+delivered anything new; `poll 1 s (awaiting result)` for up to 10 s after a
+command of ours goes out; `poll 20 s (idle)` otherwise; `poll 20 s (backoff)`
+after a relay refusal or failure; or doorbell-driven with the poll as a
+backstop), **Last Relay Refusal** (the last message the relay refused, with
+reason and time), **Relay Latency** (p95 from local accept to relay commit) and
+**Pending** (updates and requests waiting). All of it is repainted every second
+from the bridge's own state.
+
+**Run Link Test** (Actions) reports the first failure it hits — not provisioned,
+relay disconnected, peer offline — or sends a ping through the relay to the
+other bridge, which answers from inside its driver (no programming on either
+side), and prints the round trip, whether the doorbell drove it, and the licence
+state. Event names starting with `__sl_` are reserved for this and cannot be
+emitted from programming.
 
 ## Diagnostics and privacy
 

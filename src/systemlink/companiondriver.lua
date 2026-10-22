@@ -15,11 +15,72 @@
 
 local log = require("lib.logging")
 local companion = require("systemlink.companion")
+local persist = require("lib.persist")
 
 local M = {}
 
 local EVENT_CURRENT, EVENT_STALE, EVENT_REFUSED = 1, 2, 3
 local state = { opts = {}, wasCurrent = nil, requested = nil, lastFields = nil }
+
+--- Auto-rename. A companion is named after its export ("MBR_Baseboard_2"
+--- shows as "MBR Baseboard 2"), on BOTH ids: Composer's tree shows the
+--- PROXY device of a proxied companion (light, shade, thermostat), so
+--- renaming only this Lua's own id changes nothing the dealer sees. The
+--- clobber guard from the Protect children: a device is renamed only while
+--- its name is still the install default or this driver's own last write,
+--- so a dealer who typed a name keeps it. Rename From Export forces it.
+local AUTONAME_KEY = "sl_companion_autoname"
+local DEFAULT_NAME_PREFIX = "SmartBuildOS System Link"
+
+function M.displayName(exportName)
+  return (tostring(exportName or ""):gsub("_", " "))
+end
+
+local function autoName(force)
+  local export = companion.export()
+  if not export then
+    return
+  end
+  local wanted = M.displayName(export)
+  local last = persist:get(AUTONAME_KEY, false)
+  if type(last) ~= "string" then
+    last = ""
+  end
+  local ids = { C4:GetDeviceID() }
+  local okP, proxy = pcall(function()
+    return C4:GetProxyDevices()
+  end)
+  if okP and type(proxy) == "number" and proxy > 0 then
+    ids[#ids + 1] = proxy
+  end
+  local renamed = false
+  for _, id in ipairs(ids) do
+    local okN, current = pcall(function()
+      return C4:GetDeviceData(id, "name")
+    end)
+    current = okN and tostring(current or "") or ""
+    local isDefault = current == "" or current:sub(1, #DEFAULT_NAME_PREFIX) == DEFAULT_NAME_PREFIX
+    local isOurs = last ~= "" and current == last
+    if current == wanted then
+      log:debug("Device %s already named '%s'", tostring(id), wanted)
+    elseif force or isDefault or isOurs then
+      log:info("Renaming device %s: '%s' -> '%s'", tostring(id), current, wanted)
+      pcall(function()
+        C4:RenameDevice(id, wanted)
+      end)
+      renamed = true
+    else
+      log:info(
+        "NOT renaming device %s: '%s' is neither the install default nor this driver's last write — use Rename From Export to override",
+        tostring(id),
+        current
+      )
+    end
+  end
+  if renamed then
+    persist:set(AUTONAME_KEY, wanted)
+  end
+end
 
 local function fire(id)
   pcall(function()
@@ -27,7 +88,7 @@ local function fire(id)
   end)
 end
 
-local function paintList(list)
+local function paintList(list, all)
   local names = { "-" }
   for _, e in ipairs(list or {}) do
     names[#names + 1] = e.name
@@ -35,6 +96,22 @@ local function paintList(list)
   pcall(function()
     C4:UpdatePropertyList("Linked Export", table.concat(names, ","), companion.export() or "-")
   end)
+  -- The list itself cannot carry a sentence; Bridge Link says why it is empty.
+  if #names == 1 then
+    local others = {}
+    for _, e in ipairs(all or {}) do
+      others[#others + 1] = e.name .. " (" .. tostring(e.kind) .. ")"
+    end
+    UpdateProperty(
+      "Bridge Link",
+      string.format(
+        "Connected to bridge %s — no %s exports on the link yet%s",
+        tostring(companion.findBridge() or "?"),
+        tostring(state.opts.kind or "?"),
+        #others > 0 and ("; the link carries " .. table.concat(others, ", ")) or ""
+      )
+    )
+  end
 end
 
 function M.isCurrent()
@@ -47,9 +124,28 @@ end
 
 --- Sends a control request and records the desired state separately from
 --- the confirmed state (which only the owner's feedback updates).
+--- The owner's control window, as last pushed: text and whether it is open
+--- now (the owner's own verdict, from its own clock). nil = no schedule.
+local function windowState()
+  local fields = state.lastFields or {}
+  local open = fields.Window
+  if open == JSON.null then
+    open = nil
+  end
+  return state.window, open
+end
+
 function M.control(op, params, requestedText)
   if not companion.export() then
     UpdateProperty("Last Result", "no export selected")
+    return false
+  end
+  local text, open = windowState()
+  if open == false then
+    -- Refused here, with the window shown, instead of a round trip that
+    -- comes back "outside the permitted schedule".
+    UpdateProperty("Last Result", "refused: outside the control window (" .. tostring(text or "schedule") .. ")")
+    fire(EVENT_REFUSED)
     return false
   end
   state.requested = { op = op, params = params, at = os.time() }
@@ -68,6 +164,17 @@ function M.install(opts)
       UpdateProperty("Freshness", fresh)
       UpdateProperty("Remote System State", tostring(meta.remote_state or "Offline"))
       UpdateProperty("Control", meta.control and "control permitted" or "view only / suspended")
+      state.window = meta.window ~= "" and meta.window or nil
+      local open = fields.Window
+      if open == JSON.null then
+        open = nil
+      end
+      UpdateProperty(
+        "Control Window",
+        state.window
+            and (state.window .. (open == false and " — closed now" or open == true and " — open now" or ""))
+          or "none"
+      )
       UpdateProperty("Bridge Link", "Connected to bridge " .. tostring(companion.findBridge() or "?"))
       local current = fresh == "current"
       if state.wasCurrent ~= current then
@@ -97,7 +204,15 @@ function M.install(opts)
     if name ~= "" then
       UpdateProperty("Linked Export", name)
       companion.selectExport(name)
+      autoName(false)
     end
+  end
+  EC.RENAME_FROM_EXPORT = function()
+    if not companion.export() then
+      log:warn("Rename From Export: no export is linked yet")
+      return
+    end
+    autoName(true)
   end
   EC.REFRESH_FROM_BRIDGE = function()
     companion.hello()
@@ -106,6 +221,16 @@ function M.install(opts)
     log:print("== %s diagnostics ==", opts.logName or "System Link companion")
     log:print("  bridge: %s", tostring(companion.findBridge() or "NOT FOUND"))
     log:print("  export: %s  fresh: %s", tostring(companion.export()), companion.fresh())
+    local mine = {}
+    for _, e in ipairs(companion.exports()) do
+      mine[#mine + 1] = e.name
+    end
+    log:print("  %s exports on the link: %s", tostring(opts.kind), #mine > 0 and table.concat(mine, ", ") or "none")
+    local every = {}
+    for _, e in ipairs(companion.allExports()) do
+      every[#every + 1] = e.name .. " (" .. tostring(e.kind) .. ")"
+    end
+    log:print("  every export on the link: %s", #every > 0 and table.concat(every, ", ") or "none")
     for k, v in pairs(state.lastFields or {}) do
       log:print("  %s = %s", tostring(k), tostring(v))
     end
@@ -123,10 +248,16 @@ function M.install(opts)
   OPC.Linked_Export = function(value)
     if gInitialized then
       companion.selectExport(value)
+      autoName(false)
     end
   end
+  -- Trace also turns on the shared handlers' own trace (ReceivedFromProxy,
+  -- OnPropertyChanged, ...): the one line that shows whether a Navigator
+  -- tap reached this driver at all. Bench 2026-10-21: without it, Log
+  -- Level 5 printed nothing while the owner tapped.
   OPC.Log_Level = function(value)
     log:setLogLevel(value)
+    DEBUGPRINT = tostring(value):match("^5") ~= nil
   end
   OPC.Log_Mode = function(value)
     log:setLogMode(value)
@@ -163,6 +294,7 @@ function M.install(opts)
     local stored = companion.export()
     if stored then
       UpdateProperty("Linked Export", stored)
+      autoName(false)
     end
     companion.hello()
     companion.armRetry()

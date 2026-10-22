@@ -33,7 +33,14 @@ end
 local persisted = {}
 package.preload["lib.persist"] = function()
   local P = {}
+  -- Mirrors src/lib/persist.lua: a nil default becomes the library's EMPTY
+  -- table, so a missing key answers `{}`, never nil (the 2026-10-20 bench
+  -- crash: a fresh bridge loaded `{}` as its registry).
+  local EMPTY = {}
   function P:get(key, default)
+    if default == nil then
+      default = EMPTY
+    end
     if persisted[key] == nil then
       return default
     end
@@ -119,6 +126,7 @@ for _, p in ipairs({
   "Last Result",
   "Driver Status",
   "Driver Version",
+  "Control Window",
 }) do
   Properties[p] = ""
 end
@@ -148,6 +156,45 @@ check(
 print("\n[2] assignment, state → proxy, confirmed vs requested")
 EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
 check("assignment selects and persists the export", persisted["sl_companion_export"] == "Porch_Light")
+-- Auto-rename: the companion (and its proxy device) take the export's name,
+-- while the name is still the install default or our own last write.
+local renames = {}
+local me = C4:GetDeviceID()
+local deviceNames = { [me] = "SmartBuildOS System Link Light", [777] = "SmartBuildOS System Link Light" }
+local savedGetDeviceData = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" then
+    return deviceNames[id]
+  end
+  return nil
+end
+function C4:GetProxyDevices()
+  return 777
+end
+function C4:RenameDevice(id, name)
+  renames[#renames + 1] = { id = id, name = name }
+  deviceNames[id] = name
+end
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check(
+  "assignment renames the protocol AND proxy device after the export",
+  #renames == 2 and renames[1].name == "Porch Light" and renames[2].id == 777 and renames[2].name == "Porch Light",
+  JSON:encode(renames)
+)
+check("the auto name is remembered", persisted["sl_companion_autoname"] == "Porch Light")
+renames = {}
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check("already named: no rename", #renames == 0)
+deviceNames[me] = "Dealer's Lamp"
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Porch_Light" })
+check("a dealer's own name is never clobbered", #renames == 0, JSON:encode(renames))
+EC.RENAME_FROM_EXPORT()
+check(
+  "Rename From Export forces it",
+  #renames == 1 and renames[1].id == me and renames[1].name == "Porch Light",
+  JSON:encode(renames)
+)
+C4.GetDeviceData = savedGetDeviceData
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Other",
   fields = JSON:encode({ On = true, Level = 10 }),
@@ -166,7 +213,7 @@ EC.SBOS_LINK_COMPANION_STATE({
 local n = lastNotify("LIGHT_BRIGHTNESS_CHANGED")
 check(
   "confirmed level shown on the proxy",
-  n and n.params.LIGHT_BRIGHTNESS_CURRENT == 40 and lastNotify("ONLINE_CHANGED").params.STATE == "TRUE",
+  n and n.params.LIGHT_BRIGHTNESS_CURRENT == 40 and lastNotify("ONLINE_CHANGED").params.STATE == true,
   n and n.params.LIGHT_BRIGHTNESS_CURRENT
 )
 check("Confirmed State property", Properties["Confirmed State"] == "On 40%", Properties["Confirmed State"])
@@ -184,8 +231,113 @@ check(
   "Requested State separate from Confirmed",
   Properties["Requested State"]:match("^75%%") and Properties["Confirmed State"] == "On 40%"
 )
+local chg = lastNotify("LIGHT_BRIGHTNESS_CHANGING")
+check(
+  "slider → LIGHT_BRIGHTNESS_CHANGING carries confirmed current, target and rate",
+  chg
+    and chg.params.LIGHT_BRIGHTNESS_CURRENT == 40
+    and chg.params.LIGHT_BRIGHTNESS_TARGET == 75
+    and chg.params.RATE == 500,
+  chg and JSON:encode(chg.params)
+)
+check(
+  "LIGHT_LEVEL still sent beside LIGHT_BRIGHTNESS_CHANGED (Hue sends both)",
+  lastNotify("LIGHT_LEVEL").params.LEVEL == 40
+)
+-- Navigator taps on OS 3 arrive as BUTTON_ACTION, not ON/OFF.
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "0", ACTION = "2" })
+check("BUTTON_ACTION top click → on", lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on")
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "1", ACTION = "2" })
+check("BUTTON_ACTION bottom click → off", lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "off")
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "2", ACTION = "2" })
+check(
+  "BUTTON_ACTION toggle click while confirmed On → off",
+  lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "off"
+)
+local before = #sent
+RFP.BUTTON_ACTION(5001, nil, { BUTTON_ID = "0", ACTION = "1" })
+check("BUTTON_ACTION press (not click) sends no control", #sent == before)
+RFP.GET_LIGHT_LEVEL(5001)
+check(
+  "GET_LIGHT_LEVEL answers the confirmed level",
+  lastNotify("LIGHT_BRIGHTNESS_CHANGED").params.LIGHT_BRIGHTNESS_CURRENT == 40
+)
 EC.SBOS_LINK_COMPANION_RESULT({ export = "Porch_Light", op = "set_level", status = "accepted", reason = "" })
 check("Last Result accepted", Properties["Last Result"] == "accepted")
+
+print("\n[1a] Linked Export lists this companion's kind only; an empty list says why")
+EC.SBOS_LINK_COMPANION_EXPORTS({
+  exports = "[]",
+  all = JSON:encode({ { name = "Hall_Stat", kind = "thermostat" }, { name = "Kitchen", kind = "media" } }),
+  kind = "light",
+})
+check(
+  "no light exports: the list is just '-' and Bridge Link names what the link does carry",
+  Properties["Linked Export__list"] == "-"
+    and Properties["Bridge Link"]:find(
+        "no light exports on the link yet; the link carries Hall_Stat %(thermostat%), Kitchen %(media%)"
+      )
+      ~= nil,
+  Properties["Bridge Link"]
+)
+EC.SBOS_LINK_COMPANION_EXPORTS({
+  exports = JSON:encode({ { id = "x", name = "Porch_Light", kind = "light", control = true, ops = { "on", "off" } } }),
+  all = JSON:encode({ { name = "Porch_Light", kind = "light" } }),
+  kind = "light",
+})
+check(
+  "a light export lists again",
+  Properties["Linked Export__list"] == "-,Porch_Light",
+  Properties["Linked Export__list"]
+)
+
+print("\n[1b] the owner's control window is shown and enforced locally")
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40, Window = false }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+  window = "Mon–Fri 07:00–22:00 (America/New_York)",
+})
+check(
+  "Control Window shows the schedule and that it is closed",
+  Properties["Control Window"] == "Mon–Fri 07:00–22:00 (America/New_York) — closed now",
+  Properties["Control Window"]
+)
+sent = {}
+local refusedBefore = countFired(3)
+RFP.ON(5001)
+check(
+  "a command while the window is closed is refused here, with the window named, and nothing is sent",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil
+    and Properties["Last Result"]:find("outside the control window %(Mon–Fri") ~= nil
+    and countFired(3) == refusedBefore + 1,
+  Properties["Last Result"]
+)
+table.remove(fired) -- keep the later refusal count unaffected
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40, Window = true }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+  window = "Mon–Fri 07:00–22:00 (America/New_York)",
+})
+check("open now", Properties["Control Window"]:find("open now") ~= nil, Properties["Control Window"])
+RFP.ON(5001)
+check(
+  "the command goes through once the window is open",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") ~= nil and lastSent("SBOS_LINK_COMPANION_CONTROL").params.op == "on"
+)
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Porch_Light",
+  fields = JSON:encode({ On = true, Level = 40 }),
+  fresh = "current",
+  state = "Ready",
+  control = "true",
+})
+check("no schedule: none", Properties["Control Window"] == "none", Properties["Control Window"])
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",
   fields = JSON:encode({ On = true, Level = 75 }),
@@ -218,8 +370,8 @@ EC.SBOS_LINK_COMPANION_STATE({
   control = "false",
 })
 check(
-  "stale → ONLINE_CHANGED FALSE and Remote Value Stale event",
-  lastNotify("ONLINE_CHANGED").params.STATE == "FALSE" and countFired(2) == 1 and TC.REMOTE_CURRENT() == false
+  "stale → ONLINE_CHANGED false and Remote Value Stale event",
+  lastNotify("ONLINE_CHANGED").params.STATE == false and countFired(2) == 1 and TC.REMOTE_CURRENT() == false
 )
 EC.SBOS_LINK_COMPANION_STATE({
   export = "Porch_Light",
@@ -277,6 +429,213 @@ EC.SBOS_LINK_COMPANION_STATE({
 check("feedback CLOSED notifies the RELAY binding", lastNotify("CLOSED") ~= nil and TC.RELAY_CLOSED() == true)
 RFP.GET_STATE(200)
 check("GET_STATE answers STATE_CLOSED from confirmed state", lastNotify("STATE_CLOSED") ~= nil)
+
+print("\n[6] media room companion: variables, events, no control")
+sent, notifies, fired = {}, {}, {}
+Properties["Linked Export"] = "-"
+persisted = {}
+package.loaded["systemlink.companiondriver"] = nil
+package.loaded["systemlink.companion"] = nil
+local mediaVars = {}
+local savedAddVar, savedSetVar = C4.AddVariable, C4.SetVariable
+function C4:AddVariable(name, default, vtype, readOnly)
+  mediaVars[name] = { value = default, readOnly = readOnly }
+end
+function C4:SetVariable(name, value)
+  if mediaVars[name] then
+    mediaVars[name].value = value
+  end
+end
+dofile("drivers/smartbuildos-system-link-media/driver.lua")
+OnDriverInit()
+OnDriverLateInit()
+check(
+  "read-only variables exist for programming",
+  mediaVars.Powered
+    and mediaVars.Powered.readOnly == true
+    and mediaVars.Source ~= nil
+    and mediaVars.Volume ~= nil
+    and mediaVars.Media ~= nil
+)
+EC.SBOS_LINK_COMPANION_ASSIGN({ export = "Kitchen_Room" })
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Kitchen_Room",
+  fields = JSON:encode({ Powered = true, Source = "Kitchen TV", Volume = 32, Media = JSON.null }),
+  fresh = "current",
+  state = "Ready",
+  control = "false",
+})
+check(
+  "confirmed state reads on · source · volume",
+  Properties["Confirmed State"] == "On · Kitchen TV · volume 32",
+  Properties["Confirmed State"]
+)
+check(
+  "variables follow the fields",
+  mediaVars.Powered.value == "1"
+    and mediaVars.Source.value == "Kitchen TV"
+    and mediaVars.Volume.value == "32"
+    and TC.ROOM_ON() == true
+)
+EC.SBOS_LINK_COMPANION_STATE({
+  export = "Kitchen_Room",
+  fields = JSON:encode({ Powered = false, Source = "", Volume = 0, Media = JSON.null }),
+  fresh = "current",
+  state = "Ready",
+  control = "false",
+})
+check(
+  "a live power change fires Remote Room Off and the state reads Off",
+  countFired(5) == 1 and Properties["Confirmed State"] == "Off" and TC.ROOM_ON() == false
+)
+check(
+  "no control verb: nothing was ever sent to the bridge as a command",
+  lastSent("SBOS_LINK_COMPANION_CONTROL") == nil
+)
+C4.AddVariable, C4.SetVariable = savedAddVar, savedSetVar
+
+print("\n[7] lock, gate and fan companions: status, events, gated Test actions")
+for _, c in ipairs({
+  {
+    kind = "lock",
+    field = "Locked",
+    onText = "Locked",
+    offText = "Unlocked",
+    cond = "LOCK_LOCKED",
+    test = "TEST_LOCK",
+    op = "lock",
+  },
+  {
+    kind = "gate",
+    field = "Open",
+    onText = "Open",
+    offText = "Closed",
+    cond = "GATE_OPEN",
+    test = "TEST_TRIGGER",
+    op = "trigger",
+  },
+  {
+    kind = "fan",
+    field = "Speed",
+    onText = "Speed 5",
+    offText = "Off",
+    cond = "FAN_ON",
+    test = "TEST_SPEED_5",
+    op = "set_speed",
+  },
+}) do
+  sent, notifies, fired = {}, {}, {}
+  Properties["Linked Export"] = "-"
+  persisted = {}
+  package.loaded["systemlink.companiondriver"] = nil
+  package.loaded["systemlink.companion"] = nil
+  local vars = {}
+  local sAdd, sSet = C4.AddVariable, C4.SetVariable
+  function C4:AddVariable(name, default, vtype, readOnly)
+    vars[name] = { value = default, readOnly = readOnly }
+  end
+  function C4:SetVariable(name, value)
+    if vars[name] then
+      vars[name].value = value
+    end
+  end
+  dofile("drivers/smartbuildos-system-link-" .. c.kind .. "/driver.lua")
+  OnDriverInit()
+  OnDriverLateInit()
+  EC.SBOS_LINK_COMPANION_ASSIGN({ export = "X_" .. c.kind })
+  local onValue = c.kind == "fan" and 5 or true
+  local offValue = c.kind == "fan" and 0 or false
+  EC.SBOS_LINK_COMPANION_STATE({
+    export = "X_" .. c.kind,
+    fields = JSON:encode({ [c.field] = onValue }),
+    fresh = "current",
+    state = "Ready",
+    control = "true",
+  })
+  check(
+    c.kind .. ": on state reads " .. c.onText .. " and the conditional holds",
+    Properties["Confirmed State"] == c.onText and TC[c.cond]() == true and vars[c.field] ~= nil,
+    Properties["Confirmed State"]
+  )
+  EC.SBOS_LINK_COMPANION_STATE({
+    export = "X_" .. c.kind,
+    fields = JSON:encode({ [c.field] = offValue }),
+    fresh = "current",
+    state = "Ready",
+    control = "true",
+  })
+  check(
+    c.kind .. ": a live change fires the off event and reads " .. c.offText,
+    countFired(5) == 1 and Properties["Confirmed State"] == c.offText and TC[c.cond]() == false,
+    Properties["Confirmed State"]
+  )
+  EC[c.test]()
+  local ctl = lastSent("SBOS_LINK_COMPANION_CONTROL")
+  check(
+    c.kind .. ": the Test action sends the op to the bridge (the owner decides, by licence)",
+    ctl ~= nil and ctl.params.op == c.op,
+    ctl and ctl.params.op
+  )
+  C4.AddVariable, C4.SetVariable = sAdd, sSet
+end
+
+print("\n[8] export light: Composer Connections binding registers the export with the bridge")
+sent, notifies, fired = {}, {}, {}
+persisted = {}
+package.loaded["systemlink.companiondriver"] = nil
+package.loaded["systemlink.companion"] = nil
+for _, p in ipairs({ "Export Status", "Export Name", "Export Control", "Export Operations" }) do
+  Properties[p] = ""
+end
+Properties["Export Control"] = "View only"
+local savedGDD8 = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" and id == 321 then
+    return "MBR Baseboard"
+  end
+  return savedGDD8 and savedGDD8(self, id, key) or nil
+end
+dofile("drivers/smartbuildos-system-link-export-light/driver.lua")
+OnDriverInit()
+OnDriverLateInit()
+check(
+  "unbound: the status says what to do in Connections",
+  Properties["Export Status"]:find("Bind the light") ~= nil,
+  Properties["Export Status"]
+)
+OnBindingChanged(5001, "LIGHT_V2", true, 321, 1)
+local reg = lastSent("SBOS_LINK_EXPORT_REGISTER")
+check(
+  "binding the light registers it with the bridge, named from the light, with the BOUND device id",
+  reg ~= nil
+    and reg.id == 700
+    and reg.params.device_id == "321"
+    and reg.params.name == "MBR_Baseboard"
+    and reg.params.kind == "light"
+    and Properties["Export Name"] == "MBR_Baseboard",
+  reg and (reg.params.name .. " " .. reg.params.device_id)
+)
+EC.SBOS_LINK_EXPORT_RESULT({ ok = "true", reason = "exported", name = "MBR_Baseboard" })
+check(
+  "the bridge's answer is shown",
+  Properties["Export Status"] == "Exported as MBR_Baseboard (exported)",
+  Properties["Export Status"]
+)
+EC.SBOS_LINK_EXPORT_RESULT({ ok = "false", reason = "Export: name already used", name = "MBR_Baseboard" })
+check(
+  "a refusal is shown with its reason",
+  Properties["Export Status"]:find("Refused: Export: name already used") ~= nil,
+  Properties["Export Status"]
+)
+sent = {}
+OnBindingChanged(5001, "LIGHT_V2", false, 321, 1)
+local unreg = lastSent("SBOS_LINK_EXPORT_UNREGISTER")
+check(
+  "unbinding removes the export",
+  unreg ~= nil and unreg.params.name == "MBR_Baseboard" and Properties["Export Status"]:find("Unbound") ~= nil,
+  Properties["Export Status"]
+)
+C4.GetDeviceData = savedGDD8
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

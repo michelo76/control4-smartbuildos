@@ -91,8 +91,27 @@
       <action><name>Delete Selected Item</name><command>DELETE_SELECTED_ITEM</command></action>
       <action><name>Apply Filter To Selected Item</name><command>APPLY_FILTER_TO_SELECTED_ITEM</command></action>
       <action><name>Print Shared Items</name><command>PRINT_SHARED_ITEMS</command></action>
+      <action><name>Print Template</name><command>PRINT_TEMPLATE</command></action>
+      <action><name>Apply Template</name><command>APPLY_TEMPLATE</command></action>
+      <action><name>Print Configuration Export</name><command>PRINT_CONFIGURATION_EXPORT</command></action>
+      <action><name>Preview Configuration Import</name><command>PREVIEW_CONFIGURATION_IMPORT</command></action>
+      <action><name>Apply Configuration Import</name><command>APPLY_CONFIGURATION_IMPORT</command></action>
+      <action><name>Export Selected Device</name><command>EXPORT_SELECTED_DEVICE</command></action>
+      <action><name>Rename Selected Export</name><command>RENAME_SELECTED_EXPORT</command></action>
+      <action><name>Remove Selected Export</name><command>REMOVE_SELECTED_EXPORT</command></action>
+      <action><name>Refresh Export Device List</name><command>REFRESH_EXPORT_DEVICE_LIST</command></action>
       <action><name>Print Exports</name><command>PRINT_EXPORTS</command></action>
       <action><name>Add Companion For Selected Item</name><command>ADD_COMPANION_FOR_SELECTED_ITEM</command></action>
+      <action><name>Add Companion For Pending Export</name><command>ADD_COMPANION_FOR_PENDING_EXPORT</command></action>
+      <action><name>Auto Setup</name><command>AUTO_SETUP</command></action>
+      <action><name>Run Remote Scene</name><command>RUN_REMOTE_SCENE</command></action>
+      <action><name>Press Remote Button</name><command>PRESS_REMOTE_BUTTON</command></action>
+      <action><name>Allow Unlock For Selected Export</name><command>ALLOW_UNLOCK_FOR_SELECTED_EXPORT</command></action>
+      <action><name>Disallow Unlock For Selected Export</name><command>DISALLOW_UNLOCK_FOR_SELECTED_EXPORT</command></action>
+      <action><name>Preview Namespace Rename</name><command>PREVIEW_NAMESPACE_RENAME</command></action>
+      <action><name>Rename Namespace</name><command>RENAME_NAMESPACE</command></action>
+      <action><name>Pause Link</name><command>PAUSE_LINK</command></action>
+      <action><name>Resume Link</name><command>RESUME_LINK</command></action>
       <action><name>Refresh Link</name><command>REFRESH_LINK</command></action>
       <action><name>Run Link Test</name><command>RUN_LINK_TEST</command></action>
       <action><name>Pause Remote Commands</name><command>PAUSE_COMMANDS</command></action>
@@ -201,9 +220,23 @@
         <params>
           <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
           <param><name>NAME</name><type>STRING</type></param>
-          <param><name>KIND</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item></items></param>
+          <param><name>KIND</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item><item>media</item></items></param>
           <param><name>CONTROL</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items></param>
           <param><name>OPS</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Press Remote Button</name>
+        <description>Fire "Button BUTTON pressed" on the linked project (its exported button)</description>
+        <params>
+          <param><name>BUTTON</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>Run Remote Scene</name>
+        <description>Ask the linked project to run its exported scene SCENE; the result arrives as "Scene SCENE completed / failed" and in the request slot</description>
+        <params>
+          <param><name>SCENE</name><type>STRING</type></param>
         </params>
       </command>
       <command>
@@ -261,9 +294,16 @@
       <property><name>Schema Revision</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Last Error</name><type>STRING</type><default></default><readonly>true</readonly></property>
 
+      <property><name>Link Health</name><type>LABEL</type><default>Link Health</default></property>
+      <property><name>Doorbell</name><type>STRING</type><default>not joined</default><readonly>true</readonly><description>The relay's instant notification channel: joined and when it last rang. "never rang" means the bridge relies on the poll below.</description></property>
+      <property><name>Poll Interval</name><type>STRING</type><default>20 s</default><readonly>true</readonly></property>
+      <property><name>Last Relay Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly><description>The last message the relay refused, with the reason and time.</description></property>
+      <property><name>Relay Latency</name><type>STRING</type><default>no samples</default><readonly>true</readonly></property>
+      <property><name>Pending</name><type>STRING</type><default>0 updates · 0 requests</default><readonly>true</readonly></property>
       <property><name>Shared Items</name><type>LABEL</type><default>Shared Items</default></property>
       <property><name>Selected Item</name><type>DYNAMIC_LIST</type><default>-</default></property>
       <property><name>Selected Item Details</name><type>STRING</type><default>Select an item</default><readonly>true</readonly></property>
+      <property><name>Selected Item Value</name><type>STRING</type><default>—</default><readonly>true</readonly><description>The selected item's current value as the link holds it: value · revision · committed time. Mirrors show stale/unknown with the last value.</description></property>
       <property><name>New Item Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Used with Create Shared Item and Rename Selected Item.</description></property>
       <property><name>New Item Type</name><type>LIST</type><items><item>BOOLEAN</item><item>INTEGER</item><item>DECIMAL</item><item>STRING</item><item>CHOICE</item></items><default>BOOLEAN</default></property>
       <property><name>New Item Description</name><type>STRING</type><default></default></property>
@@ -271,6 +311,23 @@
       <property><name>New Item Group</name><type>STRING</type><default></default></property>
       <property><name>New Item Allowed Values</name><type>STRING</type><default></default><description>CHOICE only: comma-separated allowed values.</description></property>
       <property><name>New Item Export</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
+      <property><name>Pending Exports</name><type>STRING</type><default>none</default><readonly>true</readonly><description>Exports the linked project shares with this one that have no companion device here yet. Pick one in Pending Export and run Add Companion For Pending Export.</description></property>
+      <property><name>Pending Export</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Auto Setup</name><type>STRING</type><default>not run</default><readonly>true</readonly><description>Auto Setup refreshes the link (every shared item becomes a variable here), then adds a companion device for every shared device that has none, assigned and named after its export. Safe to re-run.</description></property>
+      <property><name>Remote Button</name><type>DYNAMIC_LIST</type><default>-</default><description>A button the linked project exported. Press Remote Button (or the programming command of the same name) fires "Button &lt;name&gt; pressed" on the other side; nothing happens unless its programming reacts.</description></property>
+      <property><name>Remote Scene</name><type>DYNAMIC_LIST</type><default>-</default><description>A scene the linked project exported. Run Remote Scene (or the programming command of the same name) asks the other side to run it; "Scene &lt;name&gt; completed / failed" fires here when its programming reports.</description></property>
+      <property><name>New Namespace</name><type>STRING</type><default></default><description>The new Composer prefix for this system (letters, digits, underscores; starts with a letter; max 24). Preview Namespace Rename prints every variable it would touch; Rename Namespace asks the relay, and both bridges apply it on their next sync. Variable ids never change: the old names become hidden.</description></property>
+      <property><name>Templates</name><type>LABEL</type><default>Templates</default></property>
+      <property><name>Template</name><type>DYNAMIC_LIST</type><default>-</default><description>A setup recipe. Print Template lists what it creates and the Composer programming to write on each side; Apply Template creates the recipe's shared items on this bridge (existing names are left as they are) and prints the same steps. Exports and companions are never created by a template.</description></property>
+      <property><name>Configuration Import</name><type>STRING</type><default></default><description>Paste a configuration export (from Print Configuration Export on any bridge) here, then Preview Configuration Import to see what it would create, and Apply Configuration Import to create this bridge's items. Ids are re-minted; exports and companions are never imported.</description></property>
+      <property><name>Device Exports</name><type>LABEL</type><default>Device Exports</default></property>
+      <property><name>Export Kind</name><type>LIST</type><items><item>light</item><item>relay</item><item>contact</item><item>temperature</item><item>thermostat</item><item>shade</item><item>media</item><item>scene</item><item>lock</item><item>gate</item><item>fan</item><item>button</item></items><default>light</default><description>What the linked project will see this device as (media = a room's playing state, read-only; scene = a named action with no device: the other side runs it, your programming performs it and reports the result). Changing it refreshes the device list below.</description></property>
+      <property><name>Export Device Filter</name><type>LIST</type><items><item>Devices that fit the kind</item><item>All devices</item></items><default>Devices that fit the kind</default><description>Fit = the device carries the variables the kind reads (a light's LIGHT_STATE, …). Its physical driver usually shares the name and fits nothing; All devices shows those too, flagged.</description></property>
+      <property><name>Export Device</name><type>DYNAMIC_LIST</type><default>-</default><description>The local device to share with the linked project, as "Name (Room) · id". Picking one fills Export Name when it is empty. Refresh Export Device List rebuilds the list.</description></property>
+      <property><name>Export Name</name><type>STRING</type><default></default><description>Letters, digits and underscores; starts with a letter. Becomes &lt;Alias&gt;.&lt;Name&gt;_On, _Level, … on the other side.</description></property>
+      <property><name>Export Control</name><type>LIST</type><items><item>View only</item><item>Control allowed</item></items><default>View only</default></property>
+      <property><name>Selected Export</name><type>DYNAMIC_LIST</type><default>-</default><description>An existing export of this project. Rename Selected Export renames it to Export Name; Remove Selected Export stops sharing it (its variables stay hidden, never reused).</description></property>
+      <property><name>Export Operations</name><type>STRING</type><default></default><description>Optional, comma-separated: which operations the linked project may send (e.g. on,off,set_level). Blank allows the kind's defaults.</description></property>
       <property><name>Filter Debounce Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
       <property><name>Filter Change Threshold</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>1000000</maximum><default>0</default></property>
       <property><name>Filter Minimum Interval Seconds</name><type>RANGED_FLOAT</type><minimum>0</minimum><maximum>86400</maximum><default>0</default></property>
@@ -280,6 +337,7 @@
       <property><name>Request Slots</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>32</maximum><default>4</default><description>Concurrent request contexts exposed as Request_N_* variables. Applies after the next Director restart.</description></property>
       <property><name>Evaluate State After Initial Sync</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Yes fires the per-item live events once right after Initial Sync Complete, so programming can evaluate current remote state.</description></property>
       <property><name>Pause Minutes</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>43200</maximum><default>60</default></property>
+      <property><name>Link Pause Minutes</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>43200</maximum><default>0</default><description>For Pause Link: 0 pauses the whole link until Resume Link; otherwise it resumes by itself after this many minutes.</description></property>
 
       <property><name>Diagnostics</name><type>LABEL</type><default>Diagnostics</default></property>
       <property>

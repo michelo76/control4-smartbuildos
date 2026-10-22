@@ -67,6 +67,24 @@ M.ITEM_EVENT_ID_START = 1000
 M.PENDING_MAX = 500
 M.HEARTBEAT_MS = 30 * 1000
 M.POLL_FALLBACK_MS = 20 * 1000
+-- Adaptive poll (bench 2026-10-22: the doorbell never rang, so a light tap
+-- across the link waited up to 20 s). The link is "active" for a window after
+-- this side published, sent a command or request, or the relay delivered
+-- anything new from the peer, and polls every 3 s meanwhile; right after a
+-- command goes out it polls every second until the result arrives (the owner
+-- watches "Last Result"). A relay failure backs the poll off to the idle
+-- interval. The doorbell, when trusted, still wins over all of this.
+M.POLL_ACTIVE_MS = 3 * 1000
+M.POLL_RESULT_MS = 1 * 1000
+M.POLL_MIN_MS = 1 * 1000
+M.ACTIVE_WINDOW_MS = 5 * 60 * 1000
+M.RESULT_WAIT_MS = 10 * 1000
+-- A doorbell socket can be joined and silent: the relay's ring failed (its
+-- broadcast endpoint down or not enabled) while the socket stays healthy.
+-- Trust the doorbell only while it has rung recently; otherwise keep the
+-- poll, or a peer's change waits for the next 30 s heartbeat (bench
+-- 2026-10-20: changes arrived "once in a while").
+M.DOORBELL_TRUST_MS = 10 * 60 * 1000
 M.STATE_VAR_SUFFIX = ".STATE"
 
 local function deepcopy(v)
@@ -115,6 +133,9 @@ function M.new(io)
   self.stats = { published = 0, applied = 0, rejected = 0, events_in = 0, events_out = 0 }
   self.commands = {} -- outbound companion commands: [id] = { routine, target, status, at }
   self.commandOrder = {}
+  self.lastActivityAt = nil -- adaptive poll: last local send or peer delivery
+  self.awaitingResults = {} -- [command id] = deadline for the 1 s result poll
+  self.pollBackoffUntil = nil -- after a relay failure: no poll before this
   return self
 end
 
@@ -226,6 +247,26 @@ function M:writeNative(def)
 end
 
 -- ── item events (dynamic, per item) ─────────────────────────────────────────
+
+--- A dynamic Composer event by key, allocated once and frozen forever
+--- (ids are never reused: a deleted key keeps its id). Items use their id
+--- as the key; scenes use "scene:<name>:<requested|completed|failed>".
+function M:ensureNamedEvent(key, name, description)
+  local id = self.itemEvents[key]
+  if not id then
+    local max = M.ITEM_EVENT_ID_START - 1
+    for _, v in pairs(self.itemEvents) do
+      if v > max then
+        max = v
+      end
+    end
+    id = max + 1
+    self.itemEvents[key] = id
+    self.io.save("sl_events", self.itemEvents)
+  end
+  self.io.addEvent(id, name, description)
+  return id
+end
 
 function M:ensureItemEvent(def)
   local id = self.itemEvents[def.id]
@@ -496,6 +537,7 @@ end
 -- ── outbound queue ──────────────────────────────────────────────────────────
 
 local function pushPending(self, env)
+  self.lastActivityAt = self.io.now()
   if #self.pending >= M.PENDING_MAX then
     table.remove(self.pending, 1)
     self.stats.rejected = self.stats.rejected + 1
@@ -570,7 +612,15 @@ function M:queueSchema()
   )
 end
 
-function M:emitEvent(defName, payload, ttlS)
+-- Named events whose name starts with this prefix belong to the driver
+-- (link test ping/pong): dealers cannot emit them, and they never reach
+-- Composer as events or Last_Event_* variables.
+M.RESERVED_EVENT_PREFIX = "__sl_"
+
+function M:emitEvent(defName, payload, ttlS, internal)
+  if not internal and tostring(defName):sub(1, #M.RESERVED_EVENT_PREFIX) == M.RESERVED_EVENT_PREFIX then
+    return false, "event names starting with " .. M.RESERVED_EVENT_PREFIX .. " are reserved for the driver"
+  end
   if not self.link then
     return false, "not provisioned"
   end
@@ -646,6 +696,7 @@ function M:sendCommand(routine, target, params, ttlS)
   env.id = id
   pushPending(self, env)
   self.commands[id] = { routine = routine, target = target, status = "accepted", at = self.io.now() }
+  self.awaitingResults[id] = self.io.now() + M.RESULT_WAIT_MS
   self.commandOrder[#self.commandOrder + 1] = id
   while #self.commandOrder > M.COMMANDS_MAX do
     local old = table.remove(self.commandOrder, 1)
@@ -718,7 +769,193 @@ function M:ensureRequestSlotVariables()
   self:ensureVariable(ns .. ".Last_Event_Age_Seconds", "0", "NUMBER", true)
 end
 
+--- Every fixed (non-item) variable name under a namespace: request slots
+--- and the Last_Event_* set, in a stable order.
+function M:fixedVariableNames(ns)
+  local out = {}
+  for i = 1, self.requests.slot_count do
+    local base = ns .. ".Request_" .. tostring(i)
+    for _, suffix in ipairs({ "_Id", "_Routine", "_Status", "_Direction", "_Payload", "_Result" }) do
+      out[#out + 1] = base .. suffix
+    end
+  end
+  for _, suffix in ipairs({ ".Last_Event_Name", ".Last_Event_Payload", ".Last_Event_Origin", ".Last_Event_Age_Seconds" }) do
+    out[#out + 1] = ns .. suffix
+  end
+  return out
+end
+
+-- ── Namespace rename ─────────────────────────────────────────────────────────
+--
+-- The namespace (the Composer prefix) is server-owned: frozen at approval,
+-- changed only through the relay so both bridges learn the new value on
+-- their next sync (resp.self.namespace / resp.peer.namespace). The bridge
+-- asks with body.rename_namespace = { to = <name> } and, like every rename
+-- here, keeps every variable id: the old names become hidden tombstones and
+-- the new names get new ids, which the preview tells the dealer first.
+
+M.NAMESPACE_PATTERN = "^[A-Za-z][A-Za-z0-9_]*$"
+M.NAMESPACE_MAX = 24
+
+function M:validateNamespace(ns)
+  ns = tostring(ns or "")
+  if not ns:match(M.NAMESPACE_PATTERN) or #ns > M.NAMESPACE_MAX then
+    return false, "namespace must be letters, digits and underscores, start with a letter, max " .. M.NAMESPACE_MAX
+  end
+  if self.link and ns == self.link.namespace then
+    return false, "that is already this system's namespace"
+  end
+  if self.link and ns == self.link.peer_namespace then
+    return false, "that is the linked system's namespace"
+  end
+  return true
+end
+
+--- "old → new" for every variable a namespace change would touch. Dry run.
+function M:namespacePreview(newSelf, newPeer)
+  local oldSelf, oldPeer = self.link and self.link.namespace, self.link and self.link.peer_namespace
+  local out = {}
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    local ns = def.mirror and oldPeer or oldSelf
+    local to = def.mirror and (newPeer or oldPeer) or (newSelf or oldSelf)
+    if ns and to and ns ~= to then
+      out[#out + 1] = schema.variableName(ns, def) .. " → " .. schema.variableName(to, def)
+      if def.mirror then
+        out[#out + 1] = schema.variableName(ns, def)
+          .. M.STATE_VAR_SUFFIX
+          .. " → "
+          .. schema.variableName(to, def)
+          .. M.STATE_VAR_SUFFIX
+      end
+    end
+  end
+  if oldSelf and newSelf and newSelf ~= oldSelf then
+    local after = self:fixedVariableNames(newSelf)
+    for i, name in ipairs(self:fixedVariableNames(oldSelf)) do
+      out[#out + 1] = name .. " → " .. after[i]
+    end
+  end
+  return out
+end
+
+--- Applies a namespace change the relay reported: tombstones the old
+--- variables, creates the new ones with the current values, and returns the
+--- effect lines. Fires Schema Attention so programming can be reviewed.
+function M:applyNamespaceChange(newSelf, newPeer)
+  if not self.link then
+    return {}
+  end
+  local effects = self:namespacePreview(newSelf, newPeer)
+  if #effects == 0 then
+    return effects
+  end
+  local oldSelf, oldPeer = self.link.namespace, self.link.peer_namespace
+  local before = {}
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    before[def.id] = self:variableNameFor(def)
+  end
+  self.link.namespace = newSelf or oldSelf
+  self.link.peer_namespace = newPeer or oldPeer
+  for _, def in ipairs(schema.registryItems(self.registry)) do
+    local after = self:variableNameFor(def)
+    if before[def.id] ~= after then
+      self.io.addVariable(before[def.id], "", "STRING", true, true)
+      local tv = self.values[def.id] and self.values[def.id].tv or schema.unknown()
+      self:ensureVariable(after, schema.toNative(def, tv), nativeType(def), def.mirror == true)
+      if def.mirror then
+        self.io.addVariable(before[def.id] .. M.STATE_VAR_SUFFIX, "", "STRING", true, true)
+        local f = self.fresh[def.id]
+        self:ensureVariable(after .. M.STATE_VAR_SUFFIX, f and f.state or "unknown", "STRING", true)
+      end
+    end
+  end
+  if newSelf and newSelf ~= oldSelf then
+    for _, name in ipairs(self:fixedVariableNames(oldSelf)) do
+      self.io.addVariable(name, "", "STRING", true, true)
+    end
+    self:ensureRequestSlotVariables()
+  end
+  self.io.save("sl_link", self.link)
+  self:persistAll()
+  self.io.fireEvent("SCHEMA_ATTENTION")
+  return effects
+end
+
+--- Asks the relay to rename this system's namespace on the next sync.
+function M:requestNamespaceRename(newNs)
+  if not self.link then
+    return false, "not provisioned"
+  end
+  local ok, err = self:validateNamespace(newNs)
+  if not ok then
+    return false, err
+  end
+  self.pendingNamespaceRename = { to = newNs, answer = nil }
+  return true
+end
+
+--- Asks the relay to pause or resume the whole link on the next sync.
+--- minutes = nil pauses until resumed.
+function M:requestLinkControl(op, minutes, reason)
+  if not self.link then
+    return false, "not provisioned"
+  end
+  if op ~= "pause" and op ~= "resume" then
+    return false, "op must be pause or resume"
+  end
+  self.pendingLinkControl =
+    { op = op, minutes = tonumber(minutes), reason = reason and tostring(reason) or nil, answer = nil }
+  return true
+end
+
 -- ── sync (one round trip) ───────────────────────────────────────────────────
+
+-- ── Link test: a round trip through the relay with no programming ──────────
+--
+-- The originator emits "__sl_ping" with a nonce; the peer answers "__sl_pong"
+-- with the same nonce from inside the driver; the originator measures the
+-- round trip. Nothing about it is visible in Composer.
+
+M.LINK_TEST_TIMEOUT_MS = 30 * 1000
+
+function M:startLinkTest()
+  local nonce = self.io.uuid()
+  local ok, err = self:emitEvent(M.RESERVED_EVENT_PREFIX .. "ping", { nonce = nonce }, 30, true)
+  if not ok then
+    return false, err
+  end
+  self.linkTest = { nonce = nonce, started = self.io.now(), rtt_ms = nil }
+  return true
+end
+
+function M:onReservedEvent(name, payload)
+  local nonce = type(payload) == "table" and payload.nonce or nil
+  if name == M.RESERVED_EVENT_PREFIX .. "ping" then
+    if nonce then
+      self:emitEvent(M.RESERVED_EVENT_PREFIX .. "pong", { nonce = nonce }, 30, true)
+    end
+  elseif name == M.RESERVED_EVENT_PREFIX .. "pong" then
+    local t = self.linkTest
+    if t and nonce == t.nonce and not t.rtt_ms then
+      t.rtt_ms = self.io.now() - t.started
+    end
+  end
+end
+
+--- "running" | "done" (with rtt_ms) | "timeout" | "idle"
+function M:linkTestState()
+  local t = self.linkTest
+  if not t then
+    return "idle"
+  end
+  if t.rtt_ms then
+    return "done", t.rtt_ms
+  end
+  if self.io.now() - t.started > M.LINK_TEST_TIMEOUT_MS then
+    return "timeout"
+  end
+  return "running"
+end
 
 function M:heartbeatDue()
   return not self.lastHeartbeatSentAt or self.io.now() - self.lastHeartbeatSentAt >= M.HEARTBEAT_MS
@@ -742,8 +979,36 @@ function M:buildSync()
   if self.needSnapshot then
     body.snapshot = true
   end
+  if self.pendingNamespaceRename and not self.pendingNamespaceRename.answer then
+    body.rename_namespace = { to = self.pendingNamespaceRename.to }
+  end
+  if self.pendingLinkControl and not self.pendingLinkControl.answer then
+    body.link_control = {
+      op = self.pendingLinkControl.op,
+      minutes = self.pendingLinkControl.minutes,
+      reason = self.pendingLinkControl.reason,
+    }
+  end
   if self:heartbeatDue() then
-    body.heartbeat = { pending = #self.pending, latency_ms = self.latency.p95_ms }
+    -- The relay stores these per endpoint (system_link_endpoints.health) so
+    -- Studio can show Link Health and flag a missing companion. Keys are a
+    -- contract with the server, which whitelists and bounds them; latency_ms
+    -- stays for older relays.
+    local iso = function(ms)
+      return ms and self.io.isoFrom and self.io.isoFrom(ms) or nil
+    end
+    local pollMs, pollMode = self:pollInterval()
+    body.heartbeat = {
+      pending = #self.pending,
+      poll_ms = pollMs,
+      poll_mode = pollMode,
+      latency_ms = self.latency.p95_ms,
+      latency_p95_ms = self.latency.p95_ms,
+      doorbell = { up = self.doorbellUp == true, last_ring_at = iso(self.lastDoorbellAt) },
+      last_refusal = self.lastRefusal and { reason = tostring(self.lastRefusal.reason), at = iso(self.lastRefusal.at) }
+        or nil,
+      companions = self.io.companions and self.io.companions() or nil,
+    }
     self.lastHeartbeatSentAt = self.io.now()
   end
   -- Definitions travel before values: the relay refuses a value for an
@@ -781,6 +1046,9 @@ end
 function M:onSyncFailed(reason)
   self.transport = "disconnected"
   self.lastError = "relay: " .. tostring(reason)
+  -- A refusal or a 5xx is not answered by polling harder: back off to the
+  -- idle interval before anything goes out again.
+  self.pollBackoffUntil = self.io.now() + M.POLL_FALLBACK_MS
   for _, env in ipairs(self.pending) do
     env.sent = nil
   end
@@ -822,6 +1090,8 @@ function M:onSyncResponse(resp, rawLen)
   self.transport = "connected"
   self.lastSyncAt = now
   self.lastError = ""
+  self.pollBackoffUntil = nil
+  local cursorBefore = self.cursor.since_seq
   if not wasConnected then
     self.io.fireEvent("LINK_CONNECTED")
   end
@@ -839,11 +1109,72 @@ function M:onSyncResponse(resp, rawLen)
       self.linkPaused = lp
       self.io.fireEvent(lp and "LINK_PAUSED" or "LINK_RESUMED")
     end
+    local pc = self.pendingLinkControl
+    if pc and pc.answer and ((pc.op == "pause" and lp) or (pc.op == "resume" and not lp) or pc.answer.ok ~= true) then
+      self.pendingLinkControl = nil
+    end
     if cp ~= self.commandsPaused then
       self.commandsPaused = cp
       self.io.fireEvent(cp and "COMMANDS_PAUSED" or "COMMANDS_RESUMED")
     end
     self.link.link_state = resp.link.state
+  end
+  -- The relay's answers to the dealer's requests (nil until it answers; an
+  -- older relay never does, and the pending request is dropped after it).
+  if type(resp.rename_namespace) == "table" and self.pendingNamespaceRename then
+    self.pendingNamespaceRename.answer = resp.rename_namespace
+    if resp.rename_namespace.ok ~= true then
+      self.lastError = "namespace rename refused: " .. tostring(resp.rename_namespace.reason or "no reason given")
+    end
+  elseif self.pendingNamespaceRename and not self.pendingNamespaceRename.answer then
+    self.pendingNamespaceRename.unanswered = (self.pendingNamespaceRename.unanswered or 0) + 1
+    if self.pendingNamespaceRename.unanswered >= 2 then
+      self.lastError = "namespace rename: the relay did not answer (older relay?)"
+      self.pendingNamespaceRename = nil
+    end
+  end
+  if type(resp.link_control) == "table" and self.pendingLinkControl then
+    local pc = self.pendingLinkControl
+    pc.answer = resp.link_control
+    if resp.link_control.ok ~= true then
+      self.lastError = "link " .. pc.op .. " refused: " .. tostring(resp.link_control.reason or "no reason given")
+    end
+    -- resp.link was applied above; a settled request is dropped now.
+    if
+      (pc.op == "pause" and self.linkPaused)
+      or (pc.op == "resume" and not self.linkPaused)
+      or resp.link_control.ok ~= true
+    then
+      self.pendingLinkControl = nil
+    end
+  elseif self.pendingLinkControl and not self.pendingLinkControl.answer then
+    self.pendingLinkControl.unanswered = (self.pendingLinkControl.unanswered or 0) + 1
+    if self.pendingLinkControl.unanswered >= 2 then
+      self.lastError = "link " .. self.pendingLinkControl.op .. ": the relay did not answer (older relay?)"
+      self.pendingLinkControl = nil
+    end
+  end
+  -- A namespace change on either side, from whatever cause, is applied the
+  -- same way: tombstones, new variables, effect lines through io.log.
+  local newSelf = type(resp.self) == "table" and resp.self.namespace or nil
+  local newPeer = type(resp.peer) == "table" and resp.peer.namespace or nil
+  if
+    (newSelf and newSelf ~= self.link.namespace)
+    or (newPeer and self.link.peer_namespace and newPeer ~= self.link.peer_namespace)
+  then
+    local effects = self:applyNamespaceChange(newSelf, newPeer)
+    if self.io.log and self.io.log.print then
+      self.io.log:print(
+        "Namespace changed: %d variable(s) renamed; the old names are hidden, programming keeps pointing at them.",
+        #effects
+      )
+      for _, line in ipairs(effects) do
+        self.io.log:print("  %s", line)
+      end
+    end
+    if self.pendingNamespaceRename and newSelf == self.pendingNamespaceRename.to then
+      self.pendingNamespaceRename = nil
+    end
   end
   if type(resp.peer) == "table" then
     self.link.peer = resp.peer.id
@@ -881,6 +1212,9 @@ function M:onSyncResponse(resp, rawLen)
       end
       if env.t == "state" and type(a.result) == "table" then
         for _, rej in ipairs(a.result.rejected or {}) do
+          -- Link Health shows the last refusal of any kind with its time.
+          local rdef = self.registry.items[rej.id]
+          self.lastRefusal = { reason = tostring(rej.reason), what = rdef and rdef.name or tostring(rej.id), at = now }
           if
             rej.reason == "not owner"
             and self.registry.items[rej.id]
@@ -902,12 +1236,18 @@ function M:onSyncResponse(resp, rawLen)
               v.rev = tonumber(rej.committed_rev) or v.rev
               self.lastError = "adopted committed revision for " .. def.name
               self.needSnapshot = true
+              -- The dealer's value is still the current one here: resend it
+              -- above the adopted revision instead of dropping it.
+              if v.tv.s == schema.STATES.CURRENT then
+                self:queueState(def, v.tv)
+              end
             end
           end
         end
       end
     else
       self.stats.rejected = self.stats.rejected + 1
+      self.lastRefusal = { reason = tostring(a.reason), what = env.t, at = now }
       if
         a.reason == "relay unavailable"
         or a.reason == "peer not active"
@@ -950,6 +1290,11 @@ function M:onSyncResponse(resp, rawLen)
   end
   if type(resp.next_seq) == "number" and resp.next_seq > self.cursor.since_seq then
     self.cursor.since_seq = resp.next_seq
+  end
+  -- Anything new from the relay (a peer tap, a result, a snapshot) keeps the
+  -- link active, so the peer's taps keep this side's poll fast too.
+  if #(resp.inbound or {}) > 0 or self.cursor.since_seq > cursorBefore or type(resp.snapshot) == "table" then
+    self.lastActivityAt = now
   end
 
   if self.reconcile.phase == "snapshot" then
@@ -1164,6 +1509,10 @@ function M:applyInbound(env, rawLen)
       -- connected) — but one older than our restore window is not. The
       -- relay already stamped expiry, so anything here is within TTL.
     end
+    if tostring(env.body.def or ""):sub(1, #M.RESERVED_EVENT_PREFIX) == M.RESERVED_EVENT_PREFIX then
+      self:onReservedEvent(tostring(env.body.def), env.body.payload)
+      return
+    end
     local ns = self.link.namespace
     local payload = env.body.payload
     self.io.setVariable(ns .. ".Last_Event_Name", tostring(env.body.def or ""))
@@ -1249,6 +1598,7 @@ function M:applyInbound(env, rawLen)
     if cmd then
       cmd.status = tostring(env.body.status or "")
       cmd.result = env.body.result
+      self.awaitingResults[id] = nil
       if self.io.onCommandResult then
         self.io.onCommandResult(id, cmd, cmd.status, type(cmd.result) == "table" and cmd.result.reason or nil)
       end
@@ -1266,6 +1616,9 @@ function M:applyInbound(env, rawLen)
           self.io.fireEvent("REQUEST_COMPLETED")
         elseif status == "failed" then
           self.io.fireEvent("REQUEST_FAILED")
+        end
+        if not updated.late and (status == "completed" or status == "failed") and self.io.onRequestOutcome then
+          self.io.onRequestOutcome(updated, status)
         end
       end
     end
@@ -1361,6 +1714,12 @@ function M:tick(doorbellUp)
     self.io.fireEvent("COMMANDS_RESUMED")
   end
   self:updateRemoteState()
+  if self.pollBackoffUntil and now < self.pollBackoffUntil then
+    -- The relay refused or failed: nothing goes out before the backoff ends,
+    -- not even the hello/snapshot retry.
+    self.doorbellUp = doorbellUp
+    return false
+  end
   local hasUnsent = false
   for _, env in ipairs(self.pending) do
     if not env.sent then
@@ -1374,10 +1733,65 @@ function M:tick(doorbellUp)
   if self:heartbeatDue() then
     return true
   end
-  if not doorbellUp and self.lastSyncAt and now - self.lastSyncAt >= M.POLL_FALLBACK_MS then
+  self.doorbellUp = doorbellUp
+  if not self:doorbellLive(now) and self.lastSyncAt and now - self.lastSyncAt >= self:pollInterval(now) then
     return true
   end
   return false
+end
+
+--- The poll interval the link is on right now, and why: ms, mode.
+--- Modes: "doorbell" (trusted ring drives the sync; the interval is only a
+--- backstop), "backoff" (the last relay call failed), "result" (a command of
+--- ours is waiting for its result), "active" (traffic within the window),
+--- "idle". Never below POLL_MIN_MS.
+function M:pollInterval(now)
+  now = now or self.io.now()
+  local ms, mode
+  if self:doorbellLive(now) then
+    ms, mode = M.POLL_FALLBACK_MS, "doorbell"
+  elseif self.pollBackoffUntil and now < self.pollBackoffUntil then
+    ms, mode = M.POLL_FALLBACK_MS, "backoff"
+  else
+    local awaiting = false
+    for id, deadline in pairs(self.awaitingResults) do
+      if now < deadline then
+        awaiting = true
+      else
+        self.awaitingResults[id] = nil
+      end
+    end
+    if awaiting then
+      ms, mode = M.POLL_RESULT_MS, "result"
+    elseif self.lastActivityAt and now - self.lastActivityAt < M.ACTIVE_WINDOW_MS then
+      ms, mode = M.POLL_ACTIVE_MS, "active"
+    else
+      ms, mode = M.POLL_FALLBACK_MS, "idle"
+    end
+  end
+  return math.max(ms, M.POLL_MIN_MS), mode
+end
+
+--- One line for Link Health / status: "doorbell", "poll 3 s (active)",
+--- "poll 20 s (idle)", "poll 1 s (awaiting result)", "poll 20 s (backoff)".
+function M:pollLabel(now)
+  local ms, mode = self:pollInterval(now)
+  if mode == "doorbell" then
+    return string.format("doorbell (poll every %d s as backstop)", ms / 1000)
+  end
+  local why = mode == "result" and "awaiting result" or mode
+  return string.format("poll %d s (%s)", ms / 1000, why)
+end
+
+--- The doorbell counts only while it is joined AND has rung recently.
+function M:doorbellLive(now)
+  now = now or self.io.now()
+  return self.doorbellUp == true and self.lastDoorbellAt ~= nil and now - self.lastDoorbellAt < M.DOORBELL_TRUST_MS
+end
+
+--- The driver calls this for every ring; the reaction (a sync) is the driver's.
+function M:onDoorbell()
+  self.lastDoorbellAt = self.io.now()
 end
 
 function M:updateRemoteState()
@@ -1510,7 +1924,7 @@ function M:statusProperties()
     ["Local Variables Created"] = tostring(owned),
     ["Remote Variables Monitored"] = tostring(mirrored),
     ["Link Authorization"] = self.link and (self.link.link_state or "unknown") or "Not provisioned",
-    ["Relay Connection"] = self.transport,
+    ["Relay Connection"] = self.transport .. (self.transport == "connected" and (" · " .. self:pollLabel()) or ""),
     ["Peer Status"] = self.peerState,
     ["Remote System State"] = (self.remoteState or "Offline")
       .. (self.remoteReason and (" — " .. self.remoteReason) or ""),
@@ -1573,6 +1987,7 @@ function M:diagnostics()
     pending = #self.pending,
     stats = self.stats,
     latency_p95_ms = self.latency.p95_ms,
+    poll_ms = (self:pollInterval()),
     suspensions = loop.suspensions(self.loopState, self.io.now()),
     requests_in_flight = requests.inFlight(self.requests),
     items = items,

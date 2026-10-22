@@ -77,7 +77,7 @@ jobs:
               unifi-protect.c4z|unifi-protect-camera.c4z|unifi-protect-light.c4z|unifi-protect-sensor.c4z|unifi-protect-viewport.c4z) echo SBOS_UNIFI_PROTECT ;;
               smartbuildos-mode-composer.c4z|smartbuildos-mode-button.c4z) echo SBOS_MODE_COMPOSER ;;
               smartbuildos-atmosphere.c4z) echo SBOS_ATMOSPHERE ;;
-              smartbuildos-system-link.c4z|smartbuildos-system-link-light.c4z|smartbuildos-system-link-relay.c4z|smartbuildos-system-link-contact.c4z|smartbuildos-system-link-temperature.c4z|smartbuildos-system-link-thermostat.c4z|smartbuildos-system-link-shade.c4z) echo SBOS_SYSTEM_LINK ;;
+              smartbuildos-system-link.c4z|smartbuildos-system-link-light.c4z|smartbuildos-system-link-relay.c4z|smartbuildos-system-link-contact.c4z|smartbuildos-system-link-temperature.c4z|smartbuildos-system-link-thermostat.c4z|smartbuildos-system-link-shade.c4z|smartbuildos-system-link-media.c4z|smartbuildos-system-link-lock.c4z|smartbuildos-system-link-gate.c4z|smartbuildos-system-link-fan.c4z|smartbuildos-system-link-export-light.c4z) echo SBOS_SYSTEM_LINK ;;
               *) echo "" ;;
             esac
           }

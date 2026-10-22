@@ -37,8 +37,11 @@ local persist = require("lib.persist")
 local http = require("lib.http")
 local license = require("sbos.license")
 local Engine = require("systemlink.engine")
+local requests = require("systemlink.requests")
 local schema = require("systemlink.schema")
 local exportsModel = require("systemlink.exports")
+local templates = require("systemlink.templates")
+local exportimport = require("systemlink.exportimport")
 local RealtimeClient = require("telemetry.realtime")
 local WebSocket = require("drivers-common-public.module.websocket")
 
@@ -105,11 +108,18 @@ local COMPANION_FILES = {
   temperature = "smartbuildos-system-link-temperature.c4z",
   thermostat = "smartbuildos-system-link-thermostat.c4z",
   shade = "smartbuildos-system-link-shade.c4z",
+  media = "smartbuildos-system-link-media.c4z",
+  lock = "smartbuildos-system-link-lock.c4z",
+  gate = "smartbuildos-system-link-gate.c4z",
+  fan = "smartbuildos-system-link-fan.c4z",
 }
 gExports = nil
 gCompanionMap = nil
 local gCompanionSubscribers = {} -- [exportName] = { [deviceId] = true }
 local gAddCompanionInFlight = nil
+--- Auto Setup in progress: { queue = {export...}, added, failed, total }.
+local gAutoSetup = nil
+local AUTO_SETUP_TIMER = "SlAutoSetup"
 
 -- ─── Time helpers ────────────────────────────────────────────────────────────
 
@@ -134,6 +144,10 @@ end
 
 local function isoNow()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
+
+local function isoFrom(ms)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ms) / 1000))
 end
 
 local function parseIso(s)
@@ -218,10 +232,45 @@ local function updateStatus(name, value)
   end
 end
 
+-- A refusal the dealer must read (bad export name, mirror write, missing
+-- device…). It goes to Last Error AND the Lua tab, and the engine's status
+-- repaint keeps it (gEngine.lastError) instead of blanking it a second later
+-- (bench 2026-10-20: an export was refused and nothing said why).
+gDealerError = gDealerError or nil
+local function reportError(message)
+  message = tostring(message or "")
+  gDealerError = message ~= "" and message or nil
+  updateStatus("Last Error", message)
+  if gEngine then
+    gEngine.lastError = message
+  end
+  if message ~= "" then
+    log:print("System Link: %s", message)
+  end
+end
+
+local fireSceneEvent, onButtonPressed -- defined with the scene/button helpers below; used by the io hooks
+local paintRemoteButtons
+
 local function buildIo()
   local io = {}
   io.now = nowMs
   io.isoNow = isoNow
+  io.isoFrom = isoFrom
+  -- The companions this bridge added and linked, for the relay's health
+  -- record: { { export = name, device_id = id }, ... } from the companion map.
+  io.companions = function()
+    local out = {}
+    for name, id in pairs(gCompanionMap or {}) do
+      if tonumber(id) then
+        out[#out + 1] = { export = tostring(name), device_id = tonumber(id) }
+      end
+    end
+    table.sort(out, function(a, b)
+      return a.export < b.export
+    end)
+    return out
+  end
   io.parseIso = parseIso
   io.formatTime = formatTime
   io.timezone = timezone
@@ -230,8 +279,11 @@ local function buildIo()
     return tostring(C4:GetDriverConfigInfo("version") or "")
   end
   io.load = function(key)
-    local v = persist:get(key, nil)
-    if v == nil then
+    -- lib.persist answers a missing key with its internal EMPTY table when
+    -- the default is nil, never with nil. Ask with `false` and map it back,
+    -- or a fresh install loads `{}` as its registry, link and requests.
+    local v = persist:get(key, false)
+    if v == false or v == nil then
       return nil
     end
     return v
@@ -282,6 +334,24 @@ local function buildIo()
   io.onMirrorApplied = function(def, tv, kind)
     OnSystemLinkMirrorApplied(def, tv, kind)
   end
+  io.fireRoutineEvent = function(routine)
+    local scene = exportsModel.sceneFromRoutine(routine)
+    if scene then
+      fireSceneEvent(scene, "requested")
+    end
+  end
+  io.fireNamedEvent = function(def)
+    local button = exportsModel.buttonFromEvent(def)
+    if button and onButtonPressed then
+      onButtonPressed(button)
+    end
+  end
+  io.onRequestOutcome = function(entry, status)
+    local scene = exportsModel.sceneFromRoutine(entry and entry.routine)
+    if scene then
+      fireSceneEvent(scene, status == "completed" and "completed" or "failed")
+    end
+  end
   io.onCommandResult = function(id, cmd, status, reason)
     OnSystemLinkCommandResult(id, cmd, status, reason)
   end
@@ -299,7 +369,7 @@ local function storeCredential(info)
 end
 
 local function loadCredential()
-  local blob = persist:get(CREDENTIAL_KEY, nil, true)
+  local blob = persist:get(CREDENTIAL_KEY, false, true)
   if type(blob) ~= "string" or blob == "" then
     blob = Properties[BACKUP_PROPERTY] or ""
   end
@@ -324,10 +394,24 @@ end
 
 -- ─── Provisioning handshake with the Agent ───────────────────────────────────
 
+-- What the dealer reads under "Link Authorization" while there is no link:
+-- the Agent's last answer (or its silence), not the engine's generic
+-- "Not provisioned", which paintStatus would otherwise repaint every second
+-- over the one message that says why.
+gProvisionMessage = gProvisionMessage or nil
+
+local function setProvisionMessage(message)
+  gProvisionMessage = message
+  updateStatus("Link Authorization", message)
+  if gEngine then
+    gEngine.lastError = message
+  end
+end
+
 local function requestProvision()
   local agent = findAgent()
   if not agent then
-    updateStatus("Link Authorization", "No SmartBuildOS Agent found — add the free Connector first")
+    setProvisionMessage("No SmartBuildOS Agent found — add the free Connector first")
     return false
   end
   if gPendingProvision and os.time() <= gPendingProvision.expires then
@@ -347,12 +431,17 @@ local function requestProvision()
   end)
   if not ok then
     gPendingProvision = nil
+    setProvisionMessage("Could not reach the SmartBuildOS Agent (SendToDevice failed)")
+    return false
   end
-  updateStatus("Link Authorization", "Asking the Agent for this system's link…")
+  gProvisionMessage = "Asking the Agent for this system's link…"
+  updateStatus("Link Authorization", gProvisionMessage)
   return ok
 end
 
-local startSync, doorbellConnect, doorbellStop
+local startSync, doorbellConnect, doorbellStop, paintSelectedValue, paintPendingExports, paintItemList
+local paintRemoteScenes, mirroredExports, loadExports, saveExports, findExport, exportItemFor, licenseFeatures
+local autoSetupStep
 
 function EC.SBOS_LINK_PROVISION(tParams)
   tParams = tParams or {}
@@ -362,8 +451,7 @@ function EC.SBOS_LINK_PROVISION(tParams)
   end
   gPendingProvision = nil
   if tParams.error and tParams.error ~= "" then
-    updateStatus("Link Authorization", tostring(tParams.error))
-    updateStatus("Last Error", tostring(tParams.error))
+    setProvisionMessage("Agent: " .. tostring(tParams.error))
     SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
     return
   end
@@ -376,8 +464,13 @@ function EC.SBOS_LINK_PROVISION(tParams)
     or tostring(info.credential or ""):find("^sbosl1%.") == nil
     or tostring(info.relay_url or ""):find("^https://") == nil
   then
-    updateStatus("Last Error", "Agent returned an unusable link provision")
+    setProvisionMessage("Agent returned an unusable link provision")
+    SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
     return
+  end
+  gProvisionMessage = nil
+  if gEngine then
+    gEngine.lastError = nil
   end
   storeCredential(info)
   gEngine:onProvisioned(info)
@@ -457,12 +550,85 @@ local function doSync()
     end)
 end
 
+-- Link Health: the transport facts a dealer needs when "it is slow" —
+-- all from state the engine and the doorbell glue already keep.
+local function paintLinkHealth()
+  if not gEngine then
+    return
+  end
+  local e = gEngine
+  local doorbell
+  if not gDoorbell.up then
+    doorbell = "not joined" .. (e.lastDoorbellAt and (" · last rang " .. formatTime(e.lastDoorbellAt)) or "")
+  elseif e.lastDoorbellAt then
+    doorbell = (e:doorbellLive() and "joined · last rang " or "joined · silent since ")
+      .. formatTime(e.lastDoorbellAt)
+  else
+    doorbell = "joined · never rang — polling"
+  end
+  updateStatus("Doorbell", doorbell)
+  -- Adaptive: "poll 3 s (active)" while either side is busy, "poll 1 s
+  -- (awaiting result)" right after a command, "poll 20 s (idle)" otherwise.
+  updateStatus("Poll Interval", e:pollLabel())
+  local r = e.lastRefusal
+  updateStatus(
+    "Last Relay Refusal",
+    r and string.format("%s: %s · %s", tostring(r.what), tostring(r.reason), formatTime(r.at)) or "none"
+  )
+  updateStatus(
+    "Relay Latency",
+    e.latency and e.latency.p95_ms and string.format("p95 %d ms (%d samples)", e.latency.p95_ms, #e.latency.samples)
+      or "no samples"
+  )
+  updateStatus("Pending", string.format("%d updates · %d requests", #e.pending, requests.inFlight(e.requests)))
+end
+
 local function paintStatus()
   if not gEngine then
     return
   end
   for name, value in pairs(gEngine:statusProperties()) do
     updateStatus(name, value)
+  end
+  if gDealerError then
+    -- The engine blanks its own lastError on every good sync; a dealer's
+    -- refusal stays until the next dealer action replaces or clears it.
+    updateStatus("Last Error", gDealerError)
+  end
+  paintSelectedValue()
+  paintLinkHealth()
+  evaluateExportWindows(false)
+  -- Inbound schema changes (the peer exported a device) arrive on a sync,
+  -- not on a dealer action: the lists are repainted here, deduped.
+  if paintItemList then
+    paintItemList()
+  end
+  if paintPendingExports then
+    paintPendingExports()
+  end
+  paintRemoteScenes()
+  if paintRemoteButtons then
+    paintRemoteButtons()
+  end
+  if not gEngine.link then
+    -- An unanswered request means the Agent has no SBOS_LINK_PROVISION_REQUEST
+    -- handler (older build) or never got the message: say so and ask again,
+    -- instead of waiting silently for a reply that cannot come.
+    if gPendingProvision and os.time() > gPendingProvision.expires then
+      gPendingProvision = nil
+      setProvisionMessage(
+        "The SmartBuildOS Agent did not answer the link request — update the Agent to a build with System Link support"
+      )
+      SetTimer(PROVISION_TIMER, PROVISION_RETRY_S * ONE_SECOND, requestProvision)
+    end
+    if gProvisionMessage then
+      updateStatus("Link Authorization", gProvisionMessage)
+      -- Painted every tick: updateStatus (deduped), never reportError (prints).
+      updateStatus(
+        "Last Error",
+        gProvisionMessage == "Asking the Agent for this system's link…" and "" or gProvisionMessage
+      )
+    end
   end
   updateStatus("License State", license.statusLabel())
   updateStatus("Installed Version", tostring(C4:GetDriverConfigInfo("version") or ""))
@@ -546,6 +712,9 @@ doorbellConnect = function(cfg)
     elseif event.type == "ping" then
       -- The relay says "there is a new sequence". The reaction is the same
       -- authenticated sync; nothing on the socket is ever acted upon.
+      if gEngine then
+        gEngine:onDoorbell()
+      end
       SetTimer(SYNC_TIMER, 100, doSync)
     elseif event.type == "closed" then
       gDoorbell.up = false
@@ -586,28 +755,84 @@ local function selectedItem()
   return gEngine and gEngine:findByName(name) or nil
 end
 
-local function paintItemList()
+-- Composer's own "variable = value" programming writes the driver's variable
+-- directly and tells the driver through OnVariableChanged; without a handler
+-- the write stays local and never publishes (bench, 2026-10-20: a dealer's
+-- first instinct). Owned items get a handler that publishes like the Set
+-- Local commands do; mirrors are read-only natives and get none. The echo
+-- of the driver's own write is the same value and publishes nothing.
+local function registerNativeWrites()
+  if not gEngine or type(OVC) ~= "table" then
+    return
+  end
+  local me = gEngine:selfEndpoint()
+  for _, def in ipairs(schema.registryItems(gEngine.registry)) do
+    local name = gEngine:variableNameFor(def)
+    if not def.mirror and (def.owner == nil or def.owner == me) then
+      OVC[name] = function(value)
+        if not gEngine then
+          return
+        end
+        local ok, err = gEngine:setLocal(def.id, value)
+        if not ok then
+          reportError(tostring(err))
+          gEngine.lastError = tostring(err)
+        end
+      end
+    else
+      OVC[name] = nil
+    end
+  end
+end
+
+-- The selected item's actual value, as the link holds it right now: the
+-- value, its freshness state, revision and when it was committed. Repainted
+-- every tick so a dealer can watch a change land without leaving Composer.
+paintSelectedValue = function()
+  local def = gEngine and selectedItem()
+  if not def then
+    updateStatus("Selected Item Value", "—")
+    return
+  end
+  local v = gEngine.values[def.id]
+  if not v or not v.tv then
+    updateStatus("Selected Item Value", "unknown · rev 0")
+    return
+  end
+  local shown = v.tv.s == "current" and tostring(v.tv.v) or v.tv.s
+  if v.tv.s ~= "current" and v.tv.v ~= nil then
+    shown = string.format("%s (last %s)", v.tv.s, tostring(v.tv.v))
+  end
+  updateStatus(
+    "Selected Item Value",
+    string.format("%s · rev %s · %s", shown, tostring(v.rev or 0), v.src_at and formatTime(v.src_at) or "never")
+  )
+end
+
+paintItemList = function()
   if not gEngine then
     return
   end
+  registerNativeWrites()
   local names = { "-" }
   for _, def in ipairs(schema.registryItems(gEngine.registry)) do
     names[#names + 1] = gEngine:variableNameFor(def)
   end
-  pcall(function()
-    C4:UpdatePropertyList("Selected Item", table.concat(names, ","), Properties["Selected Item"] or "-")
-  end)
+  local joined = table.concat(names, ",")
+  if gLastStatus["Selected Item__list"] ~= joined then
+    gLastStatus["Selected Item__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Selected Item", joined, Properties["Selected Item"] or "-")
+    end)
+  end
   local def = selectedItem()
   if def then
-    local v = gEngine.values[def.id]
     updateStatus(
       "Selected Item Details",
       string.format(
-        "%s · %s · %s · rev %s · %s%s",
+        "%s · %s · %s%s",
         def.mirror and "mirror (read-only)" or "owned",
         def.type,
-        v and v.tv.s or "unknown",
-        tostring(v and v.rev or 0),
         def.group and (def.group .. " · ") or "",
         def.description or ""
       )
@@ -615,6 +840,7 @@ local function paintItemList()
   else
     updateStatus("Selected Item Details", "Select an item")
   end
+  paintSelectedValue()
 end
 
 local function readFilterForm()
@@ -638,7 +864,7 @@ end
 
 function EC.CREATE_SHARED_ITEM()
   if not gEngine or not gEngine.link then
-    updateStatus("Last Error", "Link is not provisioned yet")
+    reportError("Link is not provisioned yet")
     return
   end
   local def = {
@@ -666,13 +892,14 @@ function EC.CREATE_SHARED_ITEM()
   end
   local created, err = gEngine:createItem(def, Properties["New Item Initial Value"])
   if not created then
-    updateStatus("Last Error", "Create: " .. tostring(err))
+    reportError("Create: " .. tostring(err))
     log:warn("Create Shared Item refused: %s", tostring(err))
     return
   end
   UpdateProperty("New Item Name", "")
   UpdateProperty("New Item Initial Value", "")
   UpdateProperty("Selected Item", gEngine:variableNameFor(created))
+  reportError("")
   paintItemList()
   SetTimer(SYNC_TIMER, 100, doSync)
   log:info("Created shared item %s (%s)", gEngine:variableNameFor(created), created.type)
@@ -684,12 +911,12 @@ function EC.DELETE_SELECTED_ITEM()
     return
   end
   if def.mirror then
-    updateStatus("Last Error", "Mirrors are deleted by their owner; unshare it on the other system")
+    reportError("Mirrors are deleted by their owner; unshare it on the other system")
     return
   end
   local ok, err = gEngine:deleteItem(def.id)
   if not ok then
-    updateStatus("Last Error", "Delete: " .. tostring(err))
+    reportError("Delete: " .. tostring(err))
     return
   end
   UpdateProperty("Selected Item", "-")
@@ -717,7 +944,7 @@ function EC.RENAME_SELECTED_ITEM()
   end
   local ok, err = gEngine:renameItem(def.id, newName)
   if not ok then
-    updateStatus("Last Error", "Rename: " .. tostring(err))
+    reportError("Rename: " .. tostring(err))
     return
   end
   UpdateProperty("New Item Name", "")
@@ -733,11 +960,445 @@ function EC.APPLY_FILTER_TO_SELECTED_ITEM()
   end
   local ok, err = gEngine:updateItem(def.id, { filter = readFilterForm() })
   if not ok then
-    updateStatus("Last Error", "Filter: " .. tostring(err))
+    reportError("Filter: " .. tostring(err))
     return
   end
   log:info("Filter applied to %s", gEngine:variableNameFor(def))
   SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+-- ─── Scenes across the link ──────────────────────────────────────────────────
+--
+-- Owner side: a scene export is a name. When the other side asks for it,
+-- "Scene <name> requested" fires here, the dealer's programming performs it
+-- and reports with Report Request Success / Failure on the slot; the result
+-- lands in <name>_Last_Run / _Last_Result, which the other side mirrors.
+-- Peer side: Remote Scene lists the owner's scenes; Run Remote Scene (action
+-- or programming command) sends the request; "Scene <name> completed /
+-- failed" fires when the report comes back.
+
+local function sceneEventKey(name, phase)
+  return "scene:" .. tostring(name) .. ":" .. phase
+end
+
+function registerSceneEvents()
+  if not gEngine then
+    return
+  end
+  for _, exp in pairs(loadExports()) do
+    if exp.kind == "scene" then
+      gEngine:ensureNamedEvent(
+        sceneEventKey(exp.name, "requested"),
+        "Scene " .. exp.name .. " requested",
+        "The linked project asked for scene "
+          .. exp.name
+          .. ". Perform it, then Report Request Success / Failure on the slot."
+      )
+    end
+  end
+  for _, e in ipairs(mirroredExports("scene")) do
+    gEngine:ensureNamedEvent(
+      sceneEventKey(e.name, "completed"),
+      "Scene " .. e.name .. " completed",
+      "The linked project reported scene " .. e.name .. " done."
+    )
+    gEngine:ensureNamedEvent(
+      sceneEventKey(e.name, "failed"),
+      "Scene " .. e.name .. " failed",
+      "The linked project reported scene " .. e.name .. " failed (see the request slot)."
+    )
+  end
+  for _, exp in pairs(loadExports()) do
+    if exp.kind == "button" then
+      gEngine:ensureNamedEvent(
+        "button:" .. exp.name .. ":pressed",
+        "Button " .. exp.name .. " pressed",
+        "The linked project pressed button " .. exp.name .. "."
+      )
+    end
+  end
+end
+
+-- ─── Buttons: a press on the peer fires the owner's programming ──────────────
+
+local function fireButtonEvent(name)
+  local id = gEngine and gEngine.itemEvents["button:" .. tostring(name) .. ":pressed"]
+  if id then
+    pcall(function()
+      C4:FireEventByID(id)
+    end)
+  end
+end
+
+--- Owner side: a named event "button:<Name>" from the peer. Fails closed:
+--- the export must exist and BUTTON must be licensed right now.
+onButtonPressed = function(name)
+  local exp = findExport(name)
+  if not exp or exp.kind ~= "button" then
+    return
+  end
+  if not licenseFeatures().BUTTON then
+    reportError("Button " .. name .. ": press ignored — BUTTON is not licensed on this pair")
+    return
+  end
+  local lastPressed = exportItemFor(exp, "Last_Pressed")
+  if lastPressed then
+    gEngine:setLocal(lastPressed.id, isoNow())
+  end
+  fireButtonEvent(name)
+end
+
+paintRemoteButtons = function()
+  if not gEngine then
+    return
+  end
+  local names = { "-" }
+  for _, e in ipairs(mirroredExports("button")) do
+    names[#names + 1] = e.name
+  end
+  local joined = table.concat(names, ",")
+  if gLastStatus["Remote Button__list"] ~= joined then
+    gLastStatus["Remote Button__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Remote Button", joined, Properties["Remote Button"] or "-")
+    end)
+  end
+end
+
+local function pressRemoteButton(name)
+  name = tostring(name or "")
+  if name == "" or name == "-" then
+    reportError("Press Remote Button: pick a button in Remote Button first")
+    return
+  end
+  local known = false
+  for _, e in ipairs(mirroredExports("button")) do
+    if e.name == name then
+      known = true
+    end
+  end
+  if not known then
+    reportError("Press Remote Button: the linked project has no button named " .. name)
+    return
+  end
+  local ok, err = gEngine:emitEvent(exportsModel.buttonEvent(name), "", 30)
+  if not ok then
+    reportError("Press Remote Button: " .. tostring(err))
+    return
+  end
+  reportError("")
+  print(string.format("Button %s pressed on the linked project.", name))
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.PRESS_REMOTE_BUTTON()
+  pressRemoteButton(Properties["Remote Button"])
+end
+
+function EC.Press_Remote_Button(tParams)
+  pressRemoteButton((tParams or {}).BUTTON)
+end
+
+-- ─── Lock: unlock only by the owner's explicit, licensed choice ──────────────
+
+local function setAllowUnlock(allow)
+  local exp = findExport(Properties["Selected Export"])
+  if not exp then
+    reportError("Allow Unlock: pick an export in Selected Export first")
+    return
+  end
+  if exp.kind ~= "lock" then
+    reportError("Allow Unlock: " .. exp.name .. " is not a lock export")
+    return
+  end
+  if allow and not licenseFeatures().LOCK then
+    reportError("Allow Unlock: LOCK is not licensed on this pair; unlock stays off")
+    return
+  end
+  exp.allow_unlock = allow and true or false
+  saveExports()
+  reportError("")
+  print(
+    allow
+        and string.format(
+          "Unlock ALLOWED on %s: the linked project may now send unlock; it is never retried and needs the LOCK feature at each attempt.",
+          exp.name
+        )
+      or string.format("Unlock disallowed on %s.", exp.name)
+  )
+end
+
+function EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+  setAllowUnlock(true)
+end
+
+function EC.DISALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+  setAllowUnlock(false)
+end
+
+fireSceneEvent = function(name, phase)
+  local id = gEngine and gEngine.itemEvents[sceneEventKey(name, phase)]
+  if id then
+    pcall(function()
+      C4:FireEventByID(id)
+    end)
+  end
+end
+
+paintRemoteScenes = function()
+  if not gEngine then
+    return
+  end
+  local names = { "-" }
+  for _, e in ipairs(mirroredExports("scene")) do
+    names[#names + 1] = e.name
+  end
+  local joined = table.concat(names, ",")
+  if gLastStatus["Remote Scene__list"] ~= joined then
+    gLastStatus["Remote Scene__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Remote Scene", joined, Properties["Remote Scene"] or "-")
+    end)
+    registerSceneEvents()
+  end
+end
+
+local function runRemoteScene(name)
+  name = tostring(name or "")
+  if name == "" or name == "-" then
+    reportError("Run Remote Scene: pick a scene in Remote Scene first")
+    return
+  end
+  local known = false
+  for _, e in ipairs(mirroredExports("scene")) do
+    if e.name == name then
+      known = true
+    end
+  end
+  if not known then
+    reportError("Run Remote Scene: the linked project has no scene named " .. name)
+    return
+  end
+  local entry, err = gEngine:sendRequest(exportsModel.sceneRoutine(name), "", 120)
+  if not entry then
+    reportError("Run Remote Scene: " .. tostring(err))
+    return
+  end
+  reportError("")
+  print(
+    string.format(
+      "Scene %s requested from the linked project (slot %s); 'Scene %s completed / failed' fires when it reports.",
+      name,
+      tostring(entry.slot),
+      name
+    )
+  )
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.RUN_REMOTE_SCENE()
+  runRemoteScene(Properties["Remote Scene"])
+end
+
+function EC.Run_Remote_Scene(tParams)
+  runRemoteScene((tParams or {}).SCENE)
+end
+
+-- ─── Templates ───────────────────────────────────────────────────────────────
+
+local function paintTemplateList()
+  local labels = templates.labels()
+  table.insert(labels, 1, "-")
+  pcall(function()
+    C4:UpdatePropertyList("Template", table.concat(labels, ","), Properties["Template"] or "-")
+  end)
+end
+
+local function selectedTemplate()
+  local t = templates.fromLabel(Properties["Template"])
+  if not t then
+    reportError("Pick a template in Template first")
+  end
+  return t
+end
+
+local function ownerPrefix()
+  return gEngine and gEngine.link and gEngine.link.namespace or nil
+end
+
+function EC.PRINT_TEMPLATE()
+  local t = selectedTemplate()
+  if not t then
+    return
+  end
+  for _, line in ipairs(templates.describe(t, ownerPrefix())) do
+    print(line)
+  end
+end
+
+function EC.APPLY_TEMPLATE()
+  local t = selectedTemplate()
+  if not t then
+    return
+  end
+  if not gEngine or not gEngine.link then
+    reportError("Apply Template: link is not provisioned yet")
+    return
+  end
+  local created, skipped = {}, {}
+  for _, def in ipairs(templates.ownerDefinitions(t)) do
+    if gEngine:findByName(def.name) then
+      skipped[#skipped + 1] = def.name
+    else
+      local item, err = gEngine:createItem(def, nil)
+      if not item then
+        reportError("Apply Template: " .. def.name .. ": " .. tostring(err))
+        return
+      end
+      created[#created + 1] = gEngine:variableNameFor(item)
+    end
+  end
+  paintItemList()
+  if #created > 0 then
+    SetTimer(SYNC_TIMER, 100, doSync)
+  end
+  reportError("")
+  for _, line in ipairs(templates.describe(t, ownerPrefix(), created, skipped)) do
+    print(line)
+  end
+end
+
+-- ─── Configuration export / import ─────────────────────────────────────────
+
+function EC.PRINT_CONFIGURATION_EXPORT()
+  if not gEngine or not gEngine.link then
+    reportError("Export: link is not provisioned yet")
+    return
+  end
+  local doc, findings = exportimport.buildExport({
+    link = gEngine.link,
+    timezone = timezone(),
+    items = schema.registryItems(gEngine.registry),
+    now_iso = isoNow(),
+  })
+  if not doc then
+    reportError("Export refused: fields that never leave the controller were found at " .. table.concat(findings, ", "))
+    return
+  end
+  reportError("")
+  print(
+    string.format(
+      "Configuration export (version %d, %d items, %d groups). Paste the next line into Configuration Import on the other bridge or keep it with the project:",
+      doc.version,
+      #doc.items,
+      #doc.groups
+    )
+  )
+  print(JSON:encode(doc))
+end
+
+local function importDraft()
+  local raw = tostring(Properties["Configuration Import"] or "")
+  if raw:match("^%s*$") then
+    reportError("Import: paste a configuration export into Configuration Import first")
+    return nil
+  end
+  local ok, decoded = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not ok or type(decoded) ~= "table" then
+    reportError("Import: that is not valid JSON")
+    return nil
+  end
+  return exportimport.parseImport(decoded)
+end
+
+local function printDraft(draft, myRole)
+  for _, e in ipairs(draft.errors) do
+    print("Import error: " .. e)
+  end
+  for _, w in ipairs(draft.warnings) do
+    print("Import warning: " .. w)
+  end
+  for _, i in ipairs(draft.items) do
+    print(
+      string.format(
+        "Import item %s (%s, owner role %s%s): %s",
+        tostring(i.definition.name),
+        tostring(i.definition.type),
+        i.owner_role,
+        i.owner_role == myRole and " = this bridge" or "",
+        i.verdict
+      )
+    )
+  end
+  for _, c in ipairs(draft.required_companions) do
+    print(
+      string.format(
+        "Import needs a companion on role %s: %s (%s) — not created by the import",
+        c.on_role,
+        c.name,
+        c.kind
+      )
+    )
+  end
+  for _, r in ipairs(draft.requires) do
+    print("Import requires: " .. r)
+  end
+end
+
+function EC.PREVIEW_CONFIGURATION_IMPORT()
+  local draft = importDraft()
+  if not draft then
+    return
+  end
+  reportError("")
+  printDraft(draft, gEngine and gEngine.link and gEngine.link.role or "?")
+  print(
+    draft.ok and "Import preview: ready to apply (nothing written yet)" or "Import preview: cannot be applied as is"
+  )
+end
+
+function EC.APPLY_CONFIGURATION_IMPORT()
+  if not gEngine or not gEngine.link then
+    reportError("Import: link is not provisioned yet")
+    return
+  end
+  local draft = importDraft()
+  if not draft then
+    return
+  end
+  local myRole = gEngine.link.role or "a"
+  printDraft(draft, myRole)
+  if not draft.ok then
+    reportError("Import refused: " .. (draft.errors[1] or "nothing in the file validates"))
+    return
+  end
+  local created, skipped = {}, {}
+  for _, def in ipairs(exportimport.planImport(draft, myRole)) do
+    if gEngine:findByName(def.name) then
+      skipped[#skipped + 1] = def.name
+    else
+      local item, err = gEngine:createItem(def, nil)
+      if not item then
+        reportError("Import: " .. tostring(def.name) .. ": " .. tostring(err))
+        return
+      end
+      created[#created + 1] = gEngine:variableNameFor(item)
+    end
+  end
+  paintItemList()
+  if #created > 0 then
+    SetTimer(SYNC_TIMER, 100, doSync)
+  end
+  reportError("")
+  print(
+    string.format(
+      "Import applied: created %s; left as is %s",
+      #created > 0 and table.concat(created, ", ") or "nothing",
+      #skipped > 0 and table.concat(skipped, ", ") or "nothing"
+    )
+  )
 end
 
 function EC.PRINT_SHARED_ITEMS()
@@ -761,7 +1422,7 @@ end
 
 -- ─── Source-device exports (owner side) ─────────────────────────────────────
 
-local function licenseFeatures()
+licenseFeatures = function()
   -- Light, relay and sensor ship on every pair licence (and on a LEGACY
   -- Agent that cannot say). THERMOSTAT and SHADE are hardware-validation
   -- gates (SL-07): they open only when the entitlement names them
@@ -769,7 +1430,7 @@ local function licenseFeatures()
   -- because the gate is about unverified behaviour, not about billing.
   local set = { BASE = true, LIGHT = true, RELAY = true, SENSOR = true }
   if license.status() ~= "LEGACY" then
-    for _, f in ipairs({ "THERMOSTAT", "SHADE" }) do
+    for _, f in ipairs({ "THERMOSTAT", "SHADE", "LOCK", "GATE", "FAN", "BUTTON" }) do
       if license.hasFeature(f) then
         set[f] = true
       end
@@ -778,18 +1439,18 @@ local function licenseFeatures()
   return set
 end
 
-local function loadExports()
+loadExports = function()
   if gExports == nil then
     gExports = persist:get(EXPORTS_KEY, {}) or {}
   end
   return gExports
 end
 
-local function saveExports()
+saveExports = function()
   persist:set(EXPORTS_KEY, gExports)
 end
 
-local function findExport(ref)
+findExport = function(ref)
   ref = tostring(ref or "")
   for id, exp in pairs(loadExports()) do
     if id == ref or exp.name == ref then
@@ -799,7 +1460,7 @@ local function findExport(ref)
   return nil
 end
 
-local function exportItemFor(exp, suffix)
+exportItemFor = function(exp, suffix)
   local f = exp.fields and exp.fields[suffix]
   return f and f.item_id and gEngine.registry.items[f.item_id] or nil
 end
@@ -810,6 +1471,19 @@ local function onSourceVariable(exp, suffix, value)
   local def = exportItemFor(exp, suffix)
   if not def then
     return
+  end
+  if exportsModel.fieldMap(exp, suffix) == "device_name" then
+    -- A room's CURRENT_SELECTED_DEVICE is a device id; the other side wants
+    -- the name. 0 / blank means no source.
+    local id = tonumber(value)
+    if id and id > 0 then
+      local okN, name = pcall(function()
+        return C4:GetDeviceData(id, "name")
+      end)
+      value = okN and type(name) == "string" and name ~= "" and name or tostring(id)
+    else
+      value = ""
+    end
   end
   local mapped = exportsModel.mapValue(exp, suffix, value)
   if mapped == nil then
@@ -881,15 +1555,188 @@ local function restoreExports()
   end
 end
 
+-- ─── Device Exports (Properties block) ───────────────────────────────────────
+--
+-- Composer's device picker on the Export Device command showed an empty tree
+-- on the bench (2026-10-20), so the bridge lists the project's devices
+-- itself: every device the Director reports, the kind's likely proxies
+-- first, as "Name · id". The action below is the Export Device command with
+-- the properties as its parameters.
+
+local EXPORT_KIND_HINTS = {
+  light = { "light" },
+  relay = { "relay" },
+  contact = { "contact" },
+  temperature = { "temperature", "thermostat" },
+  thermostat = { "thermostat" },
+  shade = { "blind", "shade" },
+  media = { "room" },
+  lock = { "lock" },
+  gate = { "garage", "gate", "relay" },
+  fan = { "fan" },
+  button = {},
+}
+
+local function exportDeviceEntries()
+  local ok, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if not ok or type(devices) ~= "table" then
+    return {}
+  end
+  local me = C4:GetDeviceID()
+  local kind = tostring(Properties["Export Kind"] or "light"):lower()
+  local hints = EXPORT_KIND_HINTS[kind] or {}
+  -- A device fits when it carries at least one variable the kind's fields
+  -- read. A light's physical driver and the light itself share a name in
+  -- most projects; only the latter has LIGHT_STATE (bench 2026-10-20: the
+  -- wrong one was exported and every field came out "unavailable").
+  local function fits(id)
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(id)
+    end)
+    if not okV or type(vars) ~= "table" then
+      return false
+    end
+    return next(exportsModel.resolveVariables({ kind = kind }, vars)) ~= nil
+  end
+  local likely, others = {}, {}
+  for rawId, device in pairs(devices) do
+    local id = tonumber(rawId)
+    local file = tostring((type(device) == "table" and device.driverFileName) or ""):lower()
+    if id and id ~= me and not AGENT_FILES[file] and not file:find("smartbuildos%-system%-link") then
+      local okName, name = pcall(function()
+        return C4:GetDeviceData(id, "name")
+      end)
+      name = okName and tostring(name or "") or ""
+      if name == "" and type(device) == "table" and device.name then
+        name = tostring(device.name)
+      end
+      if name == "" then
+        name = "device"
+      end
+      local room = type(device) == "table" and device.roomName or nil
+      if type(room) ~= "string" or room == "" then
+        local okR, r = pcall(function()
+          return C4:GetDeviceData(id, "roomName")
+        end)
+        room = okR and type(r) == "string" and r or ""
+      end
+      local clean = (name:gsub(",", " "))
+      if room ~= "" then
+        clean = clean .. " (" .. (room:gsub(",", " ")) .. ")"
+      end
+      local fit = fits(id)
+      local hinted = false
+      for _, hint in ipairs(hints) do
+        if file:find(hint, 1, true) then
+          hinted = true
+          break
+        end
+      end
+      local entry = {
+        id = id,
+        fit = fit,
+        label = fit and string.format("%s · %d", clean, id)
+          or string.format("%s · %d (no %s variables)", clean, id, kind),
+      }
+      if fit or hinted then
+        likely[#likely + 1] = entry
+      else
+        others[#others + 1] = entry
+      end
+    end
+  end
+  local byLabel = function(a, b)
+    return a.label < b.label
+  end
+  table.sort(likely, byLabel)
+  table.sort(others, byLabel)
+  -- Default filter: only devices that fit. A dealer who wants the flagged
+  -- ones (or whose devices report no variables at all) picks All devices.
+  local onlyFit = tostring(Properties["Export Device Filter"] or "Devices that fit the kind") ~= "All devices"
+  local out = {}
+  for _, e in ipairs(likely) do
+    if not onlyFit or e.fit then
+      out[#out + 1] = e
+    end
+  end
+  if not onlyFit then
+    for _, e in ipairs(others) do
+      out[#out + 1] = e
+    end
+  end
+  return out
+end
+
+--- "MBR Baseboard (Master) · 41" → "MBR_Baseboard": the device name under the
+--- export-name rule (letters, digits, underscores; starts with a letter; ≤40).
+local function exportNameFromLabel(label)
+  local name = tostring(label or ""):gsub("%s*·%s*%d+.*$", ""):gsub("%s*%b()%s*$", "")
+  name = name:gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", ""):gsub("^[^%a]+", "")
+  return name:sub(1, 40)
+end
+
+local function paintExportList()
+  local names = {}
+  for _, exp in pairs(loadExports()) do
+    names[#names + 1] = exp.name
+  end
+  table.sort(names)
+  table.insert(names, 1, "-")
+  pcall(function()
+    C4:UpdatePropertyList("Selected Export", table.concat(names, ","), Properties["Selected Export"] or "-")
+  end)
+end
+
+local function paintExportDeviceList()
+  local labels = { "-" }
+  for _, e in ipairs(exportDeviceEntries()) do
+    labels[#labels + 1] = e.label
+  end
+  local current = Properties["Export Device"] or "-"
+  pcall(function()
+    C4:UpdatePropertyList("Export Device", table.concat(labels, ","), current)
+  end)
+end
+
+function OPC.Export_Kind()
+  paintExportDeviceList()
+end
+
+function OPC.Export_Device_Filter()
+  paintExportDeviceList()
+end
+
+-- Picking a device fills an empty Export Name from the device's name; a
+-- name the dealer typed is never overwritten.
+function OPC.Export_Device(value)
+  local current = tostring(Properties["Export Name"] or "")
+  if current ~= "" or tostring(value or "-") == "-" then
+    return
+  end
+  local derived = exportNameFromLabel(value)
+  if derived ~= "" then
+    UpdateProperty("Export Name", derived)
+  end
+end
+
+function EC.REFRESH_EXPORT_DEVICE_LIST()
+  paintExportDeviceList()
+end
+
 --- Programming command: Export Device DEVICE as NAME (KIND, CONTROL, OPS).
 function EC.Export_Device(tParams)
   tParams = tParams or {}
   if not gEngine or not gEngine.link then
-    updateStatus("Last Error", "Export: link is not provisioned")
+    reportError("Export: link is not provisioned")
     return
   end
-  local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
   local kind = tostring(tParams.KIND or "light"):lower()
+  local deviceId = tonumber(tostring(tParams.DEVICE or ""):match("(%d+)"))
+  if exportsModel.KINDS[kind] and exportsModel.KINDS[kind].virtual then
+    deviceId = 0
+  end
   local ops
   if tParams.OPS and tostring(tParams.OPS) ~= "" then
     ops = {}
@@ -898,7 +1745,7 @@ function EC.Export_Device(tParams)
     end
   end
   local okName, deviceName = pcall(function()
-    return C4:GetDeviceData(deviceId, "name")
+    return deviceId > 0 and C4:GetDeviceData(deviceId, "name") or nil
   end)
   local exp, err = exportsModel.define({
     id = uuid(),
@@ -910,26 +1757,77 @@ function EC.Export_Device(tParams)
     ops = ops,
   }, licenseFeatures())
   if not exp then
-    updateStatus("Last Error", "Export: " .. tostring(err))
+    reportError("Export: " .. tostring(err))
     log:warn("Export Device refused: %s", tostring(err))
     return
   end
   if findExport(exp.name) then
-    updateStatus("Last Error", "Export: name already used")
+    reportError("Export: name already used")
     return
+  end
+  if not exportsModel.KINDS[kind].virtual then
+    local okV, vars = pcall(function()
+      return C4:GetDeviceVariables(deviceId)
+    end)
+    local resolved = okV and type(vars) == "table" and exportsModel.resolveVariables(exp, vars) or {}
+    if next(resolved) == nil then
+      local wanted, found = {}, {}
+      for _, f in ipairs(exportsModel.FIELDS[kind] or {}) do
+        for _, cand in ipairs(f.vars) do
+          wanted[#wanted + 1] = cand
+        end
+      end
+      for _, v in pairs(okV and type(vars) == "table" and vars or {}) do
+        if type(v) == "table" and v.name then
+          found[#found + 1] = tostring(v.name)
+        end
+      end
+      table.sort(found)
+      reportError(
+        string.format(
+          "Export: %s (device %d) has none of the variables a %s export reads (%s). Pick the %s itself, not its protocol driver. It has: %s",
+          tostring(exp.device_name or "device"),
+          deviceId,
+          kind,
+          table.concat(wanted, ", "),
+          kind,
+          #found > 0 and table.concat(found, ", ") or "no variables"
+        )
+      )
+      return
+    end
   end
   for _, def in ipairs(exportsModel.itemDefinitions(exp, gEngine.link.endpoint)) do
     local created, cerr = gEngine:createItem(def, nil)
     if not created then
-      updateStatus("Last Error", "Export: " .. tostring(cerr))
+      reportError("Export: " .. tostring(cerr))
       return
     end
     exp.fields[def.companion.field] = { item_id = created.id }
   end
   loadExports()[exp.id] = exp
   saveExports()
-  watchExport(exp)
+  if exportsModel.KINDS[kind].virtual then
+    -- A scene has no device to watch; its fields start as "never".
+    local lastRun = exportItemFor(exp, "Last_Run")
+    local lastResult = exportItemFor(exp, "Last_Result")
+    if lastRun then
+      gEngine:setLocal(lastRun.id, "never")
+    end
+    if lastResult then
+      gEngine:setLocal(lastResult.id, "none")
+    end
+    local lastPressed = exportItemFor(exp, "Last_Pressed")
+    if lastPressed then
+      gEngine:setLocal(lastPressed.id, "never")
+    end
+    registerSceneEvents()
+  else
+    watchExport(exp)
+  end
+  paintExportList()
   SetTimer(SYNC_TIMER, 100, doSync)
+  reportError("")
   log:print(
     "Exported %s (%s) as %s — %s",
     tostring(exp.device_name or deviceId),
@@ -939,10 +1837,36 @@ function EC.Export_Device(tParams)
   )
 end
 
+--- Action: the Export Device command fed from the Device Exports properties.
+function EC.EXPORT_SELECTED_DEVICE()
+  local selection = tostring(Properties["Export Device"] or "-")
+  local id = selection:match("· (%d+)")
+  local kindNow = tostring(Properties["Export Kind"] or "light"):lower()
+  if exportsModel.KINDS[kindNow] and exportsModel.KINDS[kindNow].virtual then
+    id = "0"
+  end
+  if not id then
+    reportError("Export: pick a device in Export Device first (Refresh Export Device List if it is empty)")
+    return
+  end
+  local name = tostring(Properties["Export Name"] or "")
+  if name == "" then
+    reportError("Export: fill in Export Name first")
+    return
+  end
+  EC.Export_Device({
+    DEVICE = id,
+    NAME = name,
+    KIND = Properties["Export Kind"] or "light",
+    CONTROL = Properties["Export Control"] or "View only",
+    OPS = Properties["Export Operations"] or "",
+  })
+end
+
 function EC.Remove_Export(tParams)
   local exp = findExport((tParams or {}).NAME)
   if not exp then
-    updateStatus("Last Error", "Remove Export: no such export")
+    reportError("Remove Export: no such export")
     return
   end
   unwatchExport(exp)
@@ -953,14 +1877,155 @@ function EC.Remove_Export(tParams)
   end
   loadExports()[exp.id] = nil
   saveExports()
+  paintExportList()
   SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+--- Properties-block twins of Remove Export / a rename. Both print the effect
+--- first, like Rename Selected Item does; a rename keeps every variable id
+--- (the old names become hidden tombstones, the new names get new ids) and
+--- the companion on the linked project must be re-linked to the new name.
+function EC.REMOVE_SELECTED_EXPORT()
+  local exp = findExport(Properties["Selected Export"])
+  if not exp then
+    reportError("Remove: pick an export in Selected Export first")
+    return
+  end
+  local vars = {}
+  for suffix, f in pairs(exp.fields or {}) do
+    local def = f.item_id and gEngine and gEngine.registry.items[f.item_id]
+    vars[#vars + 1] = def and gEngine:variableNameFor(def) or (exp.name .. "_" .. suffix)
+  end
+  table.sort(vars)
+  log:print(
+    "Remove effect: %s stops being shared; %s become hidden and are never reused; the linked project's companion for %s goes unavailable.",
+    exp.name,
+    table.concat(vars, ", "),
+    exp.name
+  )
+  EC.Remove_Export({ NAME = exp.name })
+  UpdateProperty("Selected Export", "-")
+  reportError("")
+end
+
+function EC.RENAME_SELECTED_EXPORT()
+  local exp = findExport(Properties["Selected Export"])
+  local newName = tostring(Properties["Export Name"] or "")
+  if not exp then
+    reportError("Rename: pick an export in Selected Export first")
+    return
+  end
+  if newName == "" then
+    reportError("Rename: fill in Export Name with the new name first")
+    return
+  end
+  if not newName:match("^[A-Za-z][A-Za-z0-9_]*$") or #newName > 40 then
+    reportError("Rename: export name must be letters, digits and underscores (max 40)")
+    return
+  end
+  if newName == exp.name then
+    reportError("Rename: that is already the export's name")
+    return
+  end
+  if findExport(newName) then
+    reportError("Rename: name already used")
+    return
+  end
+  local effects = {}
+  for suffix, f in pairs(exp.fields or {}) do
+    local preview = f.item_id and gEngine and gEngine:renamePreview(f.item_id, newName .. "_" .. suffix)
+    if preview then
+      effects[#effects + 1] = preview.from .. " → " .. preview.to
+    end
+  end
+  table.sort(effects)
+  log:print(
+    "Rename effect: %s → %s. %s. Variable ids stay the same; the old names become hidden. Re-link the companion on the linked project to %s.",
+    exp.name,
+    newName,
+    table.concat(effects, "; "),
+    newName
+  )
+  for suffix, f in pairs(exp.fields or {}) do
+    if f.item_id then
+      local ok, err = gEngine:renameItem(f.item_id, newName .. "_" .. suffix)
+      if not ok then
+        reportError("Rename: " .. tostring(err))
+        return
+      end
+      local def = gEngine.registry.items[f.item_id]
+      if def then
+        def.group = newName
+        if type(def.companion) == "table" then
+          def.companion.name = newName
+        end
+      end
+    end
+  end
+  exp.name = newName
+  saveExports()
+  gEngine:queueSchema()
+  gEngine:persistAll()
+  UpdateProperty("Export Name", "")
+  UpdateProperty("Selected Export", newName)
+  paintExportList()
+  SetTimer(SYNC_TIMER, 100, doSync)
+  reportError("")
+end
+
+-- The control window as a published BOOLEAN field "<Name>_Window": the
+-- OWNER evaluates its own schedule with its own clock (the only clock that
+-- can), publishes open/closed, and the companion on the other side shows
+-- the window and refuses locally while it is closed, instead of sending a
+-- command that comes back "outside the permitted schedule".
+function ensureWindowField(exp)
+  exp.fields = exp.fields or {}
+  if exp.fields.Window and exp.fields.Window.item_id and gEngine.registry.items[exp.fields.Window.item_id] then
+    return
+  end
+  local def = {
+    name = exp.name .. "_Window",
+    type = "BOOLEAN",
+    owner = gEngine.link.endpoint,
+    group = exp.name,
+    description = "Control window open",
+    companion = exportsModel.describe(exp),
+    export_enabled = true,
+  }
+  def.companion.field = "Window"
+  local created, err = gEngine:createItem(def, nil)
+  if not created then
+    reportError("Schedule: " .. tostring(err))
+    return
+  end
+  exp.fields.Window = { item_id = created.id }
+end
+
+-- Every tick is too often for a schedule; once a minute (or when forced).
+local gWindowsEvaluatedAt = 0
+function evaluateExportWindows(force)
+  if not gEngine or not gEngine.link then
+    return
+  end
+  local now = nowMs()
+  if not force and now - gWindowsEvaluatedAt < 60 * 1000 then
+    return
+  end
+  gWindowsEvaluatedAt = now
+  local clock = os.date("*t")
+  for _, exp in pairs(loadExports()) do
+    if exp.schedule and exp.fields and exp.fields.Window and exp.fields.Window.item_id then
+      local allowed = exportsModel.scheduleAllows(exp.schedule, clock)
+      gEngine:setLocal(exp.fields.Window.item_id, allowed and "true" or "false")
+    end
+  end
 end
 
 function EC.Set_Export_Schedule(tParams)
   tParams = tParams or {}
   local exp = findExport(tParams.NAME)
   if not exp then
-    updateStatus("Last Error", "Schedule: no such export")
+    reportError("Schedule: no such export")
     return
   end
   local days = {}
@@ -973,18 +2038,27 @@ function EC.Set_Export_Schedule(tParams)
   }
   local ok, err = exportsModel.validateSchedule(schedule)
   if not ok then
-    updateStatus("Last Error", "Schedule: " .. tostring(err))
+    reportError("Schedule: " .. tostring(err))
     return
   end
   exp.schedule = schedule
+  ensureWindowField(exp)
   saveExports()
+  gEngine:queueSchema()
+  evaluateExportWindows(true)
+  SetTimer(SYNC_TIMER, 100, doSync)
 end
 
 function EC.Clear_Export_Schedule(tParams)
   local exp = findExport((tParams or {}).NAME)
   if exp then
     exp.schedule = nil
+    if exp.fields and exp.fields.Window and exp.fields.Window.item_id then
+      gEngine:deleteItem(exp.fields.Window.item_id)
+      exp.fields.Window = nil
+    end
     saveExports()
+    SetTimer(SYNC_TIMER, 100, doSync)
   end
 end
 
@@ -1045,14 +2119,22 @@ local function loadCompanionMap()
 end
 
 --- Mirrored exports, grouped by companion kind, from the peer's definitions.
-local function mirroredExports(kind)
+mirroredExports = function(kind)
   local byName = {}
   for _, def in ipairs(schema.registryItems(gEngine.registry)) do
     local c = def.mirror and type(def.companion) == "table" and def.companion or nil
     if c and (kind == nil or kind == "" or c.kind == kind) then
       local entry = byName[c.name]
       if not entry then
-        entry = { id = c.id, name = c.name, kind = c.kind, control = c.control == true, ops = c.ops or {}, fields = {} }
+        entry = {
+          id = c.id,
+          name = c.name,
+          kind = c.kind,
+          control = c.control == true,
+          ops = c.ops or {},
+          fields = {},
+          window = exportsModel.scheduleText(c.schedule),
+        }
         byName[c.name] = entry
       end
       entry.fields[c.field] = def.id
@@ -1097,8 +2179,78 @@ local function pushCompanionState(entry, deviceId)
       fresh = fresh,
       state = tostring(gEngine.remoteState or "Offline"),
       control = entry.control and gEngine:commandsPermitted() and "true" or "false",
+      window = entry.window or "",
     })
   end)
+end
+
+-- ─── Export drivers (Composer Connections route) ────────────────────────────
+--
+-- An export driver (smartbuildos-system-link-export-light) carries a
+-- consumer binding of the kind's class; the dealer binds the real device to
+-- it in Connections, names the export in its properties, and the driver
+-- registers here with the BOUND device id (the proxy, which is what carries
+-- the variables). The bridge then runs the same export path as Export
+-- Selected Device: same validation, same watch, same items. Unbinding or
+-- deleting the export driver removes the export.
+
+function EC.SBOS_LINK_EXPORT_REGISTER(tParams)
+  tParams = tParams or {}
+  local requester = tonumber(tParams.requester)
+  if not requester then
+    return
+  end
+  local function answer(ok, reason)
+    pcall(function()
+      C4:SendToDevice(
+        requester,
+        "SBOS_LINK_EXPORT_RESULT",
+        { ok = ok and "true" or "false", reason = tostring(reason or ""), name = tostring(tParams.name or "") }
+      )
+    end)
+  end
+  if not gEngine or not gEngine.link then
+    answer(false, "link is not provisioned yet")
+    return
+  end
+  local name = tostring(tParams.name or "")
+  local existing = findExport(name)
+  if existing then
+    if
+      tostring(existing.device_id) == tostring(tParams.device_id) and existing.kind == tostring(tParams.kind or "")
+    then
+      answer(true, "already exported")
+      return
+    end
+    EC.Remove_Export({ NAME = name })
+  end
+  reportError("")
+  EC.Export_Device({
+    DEVICE = tostring(tParams.device_id or ""),
+    NAME = name,
+    KIND = tostring(tParams.kind or "light"),
+    CONTROL = tostring(tParams.control or "View only"),
+    OPS = tostring(tParams.ops or ""),
+  })
+  if findExport(name) then
+    answer(true, "exported")
+  else
+    answer(false, gDealerError or "refused")
+  end
+end
+
+function EC.SBOS_LINK_EXPORT_UNREGISTER(tParams)
+  tParams = tParams or {}
+  local name = tostring(tParams.name or "")
+  if findExport(name) then
+    EC.Remove_Export({ NAME = name })
+  end
+  local requester = tonumber(tParams.requester)
+  if requester then
+    pcall(function()
+      C4:SendToDevice(requester, "SBOS_LINK_EXPORT_RESULT", { ok = "true", reason = "removed", name = name })
+    end)
+  end
 end
 
 function EC.SBOS_LINK_COMPANION_HELLO(tParams)
@@ -1107,13 +2259,26 @@ function EC.SBOS_LINK_COMPANION_HELLO(tParams)
   if not requester or not gEngine then
     return
   end
-  local list = mirroredExports(tostring(tParams.kind or ""))
-  local described = {}
+  -- A companion only ever lists exports of its own kind (bench 2026-10-21:
+  -- a light companion showing a thermostat's fields, or an empty list with
+  -- no reason, left the dealer guessing). The full list travels alongside
+  -- for Print Diagnostics, so "nothing of my kind" can still show what the
+  -- link does carry.
+  local kind = tostring(tParams.kind or "")
+  local list = mirroredExports(kind ~= "" and kind or nil)
+  local described, all = {}, {}
   for _, e in ipairs(list) do
     described[#described + 1] = { id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops }
   end
+  for _, e in ipairs(mirroredExports(nil)) do
+    all[#all + 1] = { name = e.name, kind = e.kind }
+  end
   pcall(function()
-    C4:SendToDevice(requester, "SBOS_LINK_COMPANION_EXPORTS", { exports = JSON:encode(described) })
+    C4:SendToDevice(
+      requester,
+      "SBOS_LINK_COMPANION_EXPORTS",
+      { exports = JSON:encode(described), all = JSON:encode(all), kind = kind }
+    )
   end)
   local wanted = tostring(tParams.export or "")
   if wanted ~= "" then
@@ -1201,16 +2366,10 @@ end
 --- Dealer-initiated companion provisioning for the selected mirrored export.
 --- One instance per export; a second request for the same export is refused
 --- while the first instance is still in the project.
-function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
-  local def = selectedItem()
-  local c = def and type(def.companion) == "table" and def.companion or nil
-  if not def or not def.mirror or not c then
-    updateStatus("Last Error", "Select a mirrored export field first (e.g. Porch_Light_Level)")
-    return
-  end
+local function addCompanionFor(c)
   local file = COMPANION_FILES[c.kind]
   if not file then
-    updateStatus("Last Error", "No companion driver for kind " .. tostring(c.kind))
+    reportError("No companion driver for kind " .. tostring(c.kind))
     return
   end
   local map = loadCompanionMap()
@@ -1220,16 +2379,13 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
       return C4:GetDevices({})
     end)
     if okD and type(devices) == "table" and (devices[existing] or devices[tostring(existing)]) then
-      updateStatus(
-        "Last Error",
-        "A companion for " .. c.name .. " already exists (device " .. tostring(existing) .. ")"
-      )
+      reportError("A companion for " .. c.name .. " already exists (device " .. tostring(existing) .. ")")
       return
     end
     map[c.name] = nil
   end
   if gAddCompanionInFlight then
-    updateStatus("Last Error", "A companion is still being added")
+    reportError("A companion is still being added")
     return
   end
   gAddCompanionInFlight = { name = c.name, kind = c.kind }
@@ -1238,8 +2394,7 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
   end)
   if not ok then
     gAddCompanionInFlight = nil
-    updateStatus(
-      "Last Error",
+    reportError(
       "AddDevice failed: "
         .. tostring(err)
         .. " — upload "
@@ -1247,6 +2402,72 @@ function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
         .. " to the controller once via Driver > Add or Update Driver"
     )
   end
+end
+
+function EC.ADD_COMPANION_FOR_SELECTED_ITEM()
+  local def = selectedItem()
+  local c = def and type(def.companion) == "table" and def.companion or nil
+  if not def or not def.mirror or not c then
+    reportError("Select a mirrored export field first (e.g. Porch_Light_Level)")
+    return
+  end
+  addCompanionFor(c)
+end
+
+--- The peer's exports that have no companion device in this project (no map
+--- entry, or the mapped device is gone). "Name (kind)", sorted.
+local function pendingExports()
+  local map = loadCompanionMap()
+  local okD, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okD and type(devices) == "table" and devices or {}
+  local out = {}
+  for _, e in ipairs(mirroredExports(nil)) do
+    local existing = tonumber(map[e.name])
+    local present = existing and (devices[existing] or devices[tostring(existing)]) and true or false
+    if not present and COMPANION_FILES[e.kind] then
+      out[#out + 1] = e
+    end
+  end
+  table.sort(out, function(a, b)
+    return a.name < b.name
+  end)
+  return out
+end
+
+paintPendingExports = function()
+  if not gEngine then
+    return
+  end
+  local labels, names = {}, { "-" }
+  for _, e in ipairs(pendingExports()) do
+    labels[#labels + 1] = string.format("%s (%s)", e.name, e.kind)
+    names[#names + 1] = e.name
+  end
+  updateStatus("Pending Exports", #labels > 0 and table.concat(labels, ", ") or "none")
+  local joined = table.concat(names, ",")
+  if gLastStatus["Pending Export__list"] ~= joined then
+    gLastStatus["Pending Export__list"] = joined
+    pcall(function()
+      C4:UpdatePropertyList("Pending Export", joined, Properties["Pending Export"] or "-")
+    end)
+  end
+end
+
+function EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+  local want = tostring(Properties["Pending Export"] or "-")
+  if want == "-" or want == "" then
+    reportError("Pick an export in Pending Export first (Pending Exports lists what the linked project shares)")
+    return
+  end
+  for _, e in ipairs(pendingExports()) do
+    if e.name == want then
+      addCompanionFor({ id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops })
+      return
+    end
+  end
+  reportError("No pending export named " .. want .. " — it may already have a companion")
 end
 
 function OnSystemLinkCompanionAdded(deviceId)
@@ -1266,49 +2487,278 @@ function OnSystemLinkCompanionAdded(deviceId)
   end
   loadCompanionMap()[pending.name] = deviceId
   persist:set(COMPANIONS_KEY, gCompanionMap)
+  paintPendingExports()
   pcall(function()
     C4:SendToDevice(deviceId, "SBOS_LINK_COMPANION_ASSIGN", { export = pending.name })
   end)
   log:print("Added %s companion for %s (device %d)", pending.kind, pending.name, deviceId)
+  if gAutoSetup then
+    gAutoSetup.added = gAutoSetup.added + 1
+    SetTimer(AUTO_SETUP_TIMER, 250, autoSetupStep)
+  end
+end
+
+-- ─── Auto Setup ──────────────────────────────────────────────────────────────
+--
+-- One action that does what a dealer otherwise does export by export: refresh
+-- the link so every item the linked project shares is mirrored as a variable
+-- here (the engine adds those on sync), then add a companion device for every
+-- shared device that has none yet, one at a time (Director adds one driver
+-- per callback), each assigned and auto-named after its export. Exports with
+-- no companion driver (scenes, buttons: they are virtual) are counted, not
+-- failed. Re-running is safe: present companions are skipped.
+
+local function mirroredVariableCount()
+  local n = 0
+  for _, def in ipairs(schema.registryItems(gEngine.registry)) do
+    if def.mirror then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function autoSetupFinish()
+  local a = gAutoSetup
+  gAutoSetup = nil
+  local text = string.format(
+    "done %s · %d companion(s) added, %d already present, %d failed, %d without a companion driver · %d variable(s) mirrored",
+    formatTime(nowMs()),
+    a.added,
+    a.present,
+    a.failed,
+    a.virtual,
+    mirroredVariableCount()
+  )
+  updateStatus("Auto Setup", text)
+  log:print("Auto Setup: %s", text)
+  paintPendingExports()
+end
+
+autoSetupStep = function()
+  local a = gAutoSetup
+  if not a then
+    return
+  end
+  if gAddCompanionInFlight then
+    -- Director has not called back for the previous one yet.
+    SetTimer(AUTO_SETUP_TIMER, 1000, autoSetupStep)
+    return
+  end
+  if a.current and loadCompanionMap()[a.current] == nil then
+    -- The previous add ended without a device (callback with id 0, or an
+    -- AddDevice refusal already reported on Last Error).
+    a.failed = a.failed + 1
+  end
+  a.current = nil
+  local e = table.remove(a.queue, 1)
+  if not e then
+    autoSetupFinish()
+    return
+  end
+  a.current = e.name
+  updateStatus("Auto Setup", string.format("adding %s (%s), %d to go", e.name, e.kind, #a.queue))
+  addCompanionFor({ id = e.id, name = e.name, kind = e.kind, control = e.control, ops = e.ops })
+  if not gAddCompanionInFlight then
+    SetTimer(AUTO_SETUP_TIMER, 100, autoSetupStep)
+  end
+end
+
+local function autoSetupStart()
+  local a = gAutoSetup
+  if not a then
+    return
+  end
+  local map = loadCompanionMap()
+  local okD, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okD and type(devices) == "table" and devices or {}
+  for _, e in ipairs(mirroredExports(nil)) do
+    local existing = tonumber(map[e.name])
+    local present = existing and (devices[existing] or devices[tostring(existing)]) and true or false
+    if present then
+      a.present = a.present + 1
+    elseif not COMPANION_FILES[e.kind] then
+      a.virtual = a.virtual + 1
+    else
+      a.queue[#a.queue + 1] = e
+    end
+  end
+  table.sort(a.queue, function(x, y)
+    return x.name < y.name
+  end)
+  log:print(
+    "Auto Setup: %d variable(s) mirrored; %d companion(s) to add, %d already present",
+    mirroredVariableCount(),
+    #a.queue,
+    a.present
+  )
+  autoSetupStep()
+end
+
+function EC.AUTO_SETUP()
+  if not gEngine or not gEngine.link then
+    reportError("Auto Setup: link is not provisioned yet")
+    return
+  end
+  if gAutoSetup then
+    reportError("Auto Setup is already running")
+    return
+  end
+  reportError("")
+  gAutoSetup = { queue = {}, added = 0, failed = 0, present = 0, virtual = 0, current = nil }
+  updateStatus("Auto Setup", "refreshing the link…")
+  -- Sync first so exports the linked project shared since the last tick are
+  -- mirrored before the companions are counted; the queue starts once the
+  -- answer has had time to land.
+  SetTimer(SYNC_TIMER, 100, doSync)
+  SetTimer(AUTO_SETUP_TIMER, 2000, autoSetupStart)
 end
 
 -- ─── Composer: link controls ─────────────────────────────────────────────────
+
+-- ─── Namespace rename and whole-link pause (relay-owned, asked on the next sync)
+
+function EC.PREVIEW_NAMESPACE_RENAME()
+  local to = tostring(Properties["New Namespace"] or "")
+  if not gEngine or not gEngine.link then
+    reportError("Rename namespace: link is not provisioned yet")
+    return
+  end
+  local ok, err = gEngine:validateNamespace(to)
+  if not ok then
+    reportError("Rename namespace: " .. tostring(err))
+    return
+  end
+  reportError("")
+  local lines = gEngine:namespacePreview(to, nil)
+  print(
+    string.format(
+      "Namespace rename effect: %s → %s, %d variable(s). Ids stay; the old names become hidden and programming keeps pointing at them. The linked project sees its mirrors move too.",
+      tostring(gEngine.link.namespace),
+      to,
+      #lines
+    )
+  )
+  for _, line in ipairs(lines) do
+    print("  " .. line)
+  end
+end
+
+function EC.RENAME_NAMESPACE()
+  local to = tostring(Properties["New Namespace"] or "")
+  if not gEngine or not gEngine.link then
+    reportError("Rename namespace: link is not provisioned yet")
+    return
+  end
+  EC.PREVIEW_NAMESPACE_RENAME()
+  if gDealerError then
+    return
+  end
+  local ok, err = gEngine:requestNamespaceRename(to)
+  if not ok then
+    reportError("Rename namespace: " .. tostring(err))
+    return
+  end
+  print("Namespace rename requested; it applies here and on the linked bridge at the next sync.")
+  UpdateProperty("New Namespace", "")
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+local function linkControl(op)
+  if not gEngine or not gEngine.link then
+    reportError((op == "pause" and "Pause" or "Resume") .. " link: link is not provisioned yet")
+    return
+  end
+  local minutes = tonumber(Properties["Link Pause Minutes"]) or 0
+  local ok, err = gEngine:requestLinkControl(op, op == "pause" and minutes > 0 and minutes or nil, nil)
+  if not ok then
+    reportError(tostring(err))
+    return
+  end
+  reportError("")
+  if op == "pause" then
+    print(
+      minutes > 0
+          and string.format(
+            "Pause link requested for %d minute(s): both bridges stop publishing and refuse remote commands; mirrors keep their last values and go stale.",
+            minutes
+          )
+        or "Pause link requested until resumed: both bridges stop publishing and refuse remote commands; mirrors keep their last values and go stale."
+    )
+  else
+    print("Resume link requested.")
+  end
+  SetTimer(SYNC_TIMER, 100, doSync)
+end
+
+function EC.PAUSE_LINK()
+  linkControl("pause")
+end
+
+function EC.RESUME_LINK()
+  linkControl("resume")
+end
 
 function EC.REFRESH_LINK()
   gEngine.needSnapshot = true
   gEngine.helloDone = false
   SetTimer(SYNC_TIMER, 100, doSync)
+  paintItemList()
+  paintPendingExports()
 end
+
+-- Run Link Test: the first failure it hits, or a real round trip. The ping
+-- travels through the relay to the peer bridge, which answers from inside
+-- its driver (no programming on either side), and the answer comes back the
+-- same way; the time is the dealer-visible latency, both directions.
+local LINK_TEST_TIMER = "SlLinkTestPoll"
 
 function EC.RUN_LINK_TEST()
   if not gEngine or not gEngine.link then
-    print("Link test: not provisioned")
+    print("Link test: not provisioned — approve the link in System Studio")
     return
   end
-  local started = nowMs()
-  local marker = gEngine:createItem(
-    { name = "Link_Test_" .. tostring(math.random(1000, 9999)), type = "INTEGER", export_enabled = false },
-    "1"
-  )
-  if marker then
-    gEngine:deleteItem(marker.id)
+  if gEngine.transport ~= "connected" then
+    print("Link test: relay disconnected (" .. tostring(gEngine.lastError or "") .. ")")
+    return
   end
-  gEngine.needSnapshot = true
-  doSync()
-  SetTimer("SlLinkTestReport", 5 * ONE_SECOND, function()
-    local st = gEngine:statusProperties()
+  if gEngine.peerState ~= "online" then
     print(
-      string.format(
-        "Link test: relay=%s peer=%s sync=%s remote=%s latency=%s elapsed=%dms",
-        st["Relay Connection"],
-        st["Peer Status"],
-        st["Sync Status"],
-        st["Remote System State"],
-        st["Measured Latency"],
-        nowMs() - started
-      )
+      "Link test: peer " .. tostring(gEngine.peerState) .. " — the other bridge has not sent a heartbeat recently"
     )
-  end)
+    return
+  end
+  local licensed = license.status() ~= "NOT_ENTITLED" and license.status() ~= "ENTITLEMENT_EXPIRED"
+  local ok, err = gEngine:startLinkTest()
+  if not ok then
+    print("Link test: could not send the ping (" .. tostring(err) .. ")")
+    return
+  end
+  print("Link test: ping sent, waiting for the peer…")
+  SetTimer(SYNC_TIMER, 100, doSync)
+  CancelTimer(LINK_TEST_TIMER)
+  SetTimer(LINK_TEST_TIMER, ONE_SECOND, function()
+    local state, rtt = gEngine:linkTestState()
+    if state == "running" then
+      return
+    end
+    CancelTimer(LINK_TEST_TIMER)
+    if state == "done" then
+      print(
+        string.format(
+          "Link test: round trip %.1f s (doorbell %s), peer online, %s",
+          rtt / 1000,
+          gEngine:doorbellLive() and "yes" or "no — polling",
+          licensed and "licensed" or ("licence " .. tostring(license.status()))
+        )
+      )
+    else
+      print("Link test: no answer within 30 s — the peer bridge may be on an older build or its relay poll is down")
+    end
+    gEngine.linkTest = nil
+  end, true)
 end
 
 function EC.PAUSE_COMMANDS()
@@ -1369,7 +2819,7 @@ local function setLocalFromCommand(tParams, coerceValue)
   local name = tostring(tParams.ITEM or "")
   local ok, err = gEngine:setLocal(name, coerceValue(tParams.VALUE))
   if not ok then
-    updateStatus("Last Error", "Set " .. name .. ": " .. tostring(err))
+    reportError("Set " .. name .. ": " .. tostring(err))
     log:warn("Set %s refused: %s", name, tostring(err))
     return
   end
@@ -1407,7 +2857,7 @@ function EC.Emit_Named_Event(tParams)
   local ok, err =
     gEngine:emitEvent(tostring(tParams.EVENT or ""), tostring(tParams.PAYLOAD or ""), tonumber(tParams.TTL))
   if not ok then
-    updateStatus("Last Error", "Event: " .. tostring(err))
+    reportError("Event: " .. tostring(err))
     return
   end
   SetTimer(SYNC_TIMER, 100, doSync)
@@ -1418,7 +2868,7 @@ function EC.Send_Remote_Request(tParams)
   local entry, err =
     gEngine:sendRequest(tostring(tParams.ROUTINE or ""), tostring(tParams.PAYLOAD or ""), tonumber(tParams.DEADLINE))
   if not entry then
-    updateStatus("Last Error", "Request: " .. tostring(err))
+    reportError("Request: " .. tostring(err))
     return
   end
   SetTimer(SYNC_TIMER, 100, doSync)
@@ -1427,14 +2877,31 @@ end
 local function report(tParams, status)
   tParams = tParams or {}
   local slot = tonumber(tParams.SLOT) or 1
+  local before = gEngine.requests.slots[slot]
   local ok, err = gEngine:reportRequest(
     slot,
     status,
     tParams.RESULT and tParams.RESULT ~= "" and { text = tostring(tParams.RESULT) } or nil
   )
   if not ok then
-    updateStatus("Last Error", "Report: " .. tostring(err))
+    reportError("Report: " .. tostring(err))
     return
+  end
+  local scene = type(before) == "table" and exportsModel.sceneFromRoutine(before.routine) or nil
+  if scene and (status == "completed" or status == "failed") then
+    local exp = findExport(scene)
+    if exp and exp.kind == "scene" then
+      local lastRun, lastResult = exportItemFor(exp, "Last_Run"), exportItemFor(exp, "Last_Result")
+      if lastRun then
+        gEngine:setLocal(lastRun.id, isoNow())
+      end
+      if lastResult then
+        gEngine:setLocal(
+          lastResult.id,
+          status .. (tParams.RESULT and tParams.RESULT ~= "" and (": " .. tostring(tParams.RESULT)) or "")
+        )
+      end
+    end
   end
   SetTimer(SYNC_TIMER, 100, doSync)
 end
@@ -1495,6 +2962,9 @@ end
 
 function OPC.Log_Level(value)
   log:setLogLevel(value)
+  -- Trace also turns on the shared handlers' own trace (ExecuteCommand,
+  -- ReceivedFromProxy, ...).
+  DEBUGPRINT = tostring(value):match("^5") ~= nil
 end
 function OPC.Log_Mode(value)
   log:setLogMode(value)
@@ -1574,7 +3044,11 @@ function OnDriverLateInit()
   end
   license.setup({ sku = SKU })
   paintItemList()
+  paintExportDeviceList()
+  paintTemplateList()
   restoreExports()
+  paintExportList()
+  registerSceneEvents()
   -- Reconcile phase 1–2 happened in Engine.new/onProvisioned; the network
   -- phases start when the relay answers.
   if gEngine.link then

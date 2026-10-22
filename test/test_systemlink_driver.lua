@@ -71,7 +71,14 @@ end
 local persisted = {}
 package.preload["lib.persist"] = function()
   local P = {}
+  -- Mirrors src/lib/persist.lua: a nil default becomes the library's EMPTY
+  -- table, so a missing key answers `{}`, never nil (the 2026-10-20 bench
+  -- crash: a fresh bridge loaded `{}` as its registry).
+  local EMPTY = {}
   function P:get(key, default)
+    if default == nil then
+      default = EMPTY
+    end
     if persisted[key] == nil then
       return default
     end
@@ -283,6 +290,13 @@ for _, p in ipairs({
   "Schema Revision",
   "Last Error",
   "Selected Item Details",
+  "Selected Item Value",
+  "Pending Exports",
+  "Doorbell",
+  "Poll Interval",
+  "Last Relay Refusal",
+  "Relay Latency",
+  "Pending",
 }) do
   Properties[p] = Properties[p] or ""
 end
@@ -322,6 +336,25 @@ check(
   ask and ask.id
 )
 check("licence SDK registered through the Agent", lastSent("SBOS_REGISTER_DRIVER") ~= nil)
+
+print("\n[1b] the Agent's refusal stays readable and is retried")
+local askedBefore = #sent
+EC.SBOS_LINK_PROVISION({ request_id = ask.params.request_id, error = "HTTP 404" })
+advance(2500) -- two status repaints
+check(
+  "Link Authorization keeps the Agent's answer, not the generic 'Not provisioned'",
+  Properties["Link Authorization"] == "Agent: HTTP 404",
+  Properties["Link Authorization"]
+)
+check("Last Error says the same", Properties["Last Error"] == "Agent: HTTP 404", Properties["Last Error"])
+advance(61 * 1000)
+local again = lastSent("SBOS_LINK_PROVISION_REQUEST")
+check(
+  "asked the Agent again after the retry interval",
+  again ~= nil and again.params.request_id ~= ask.params.request_id and #sent > askedBefore,
+  again and again.params.request_id
+)
+ask = again
 
 print("\n[2] provisioning answer and first sync")
 EC.SBOS_LINK_PROVISION({ request_id = "wrong", info = "{}" })
@@ -368,7 +401,7 @@ advance(1000)
 check(
   "status properties painted",
   Properties["Linked System Name"] == "New York Home"
-    and Properties["Relay Connection"] == "connected"
+    and Properties["Relay Connection"]:match("^connected") ~= nil
     and Properties["Remote System State"]:match("^Ready"),
   Properties["Remote System State"]
 )
@@ -389,6 +422,26 @@ advance(200)
 check("schema and state published; relay holds the item", relay.items[gEngine:findByName("Away").id] ~= nil)
 EC.Set_Local_Boolean({ ITEM = "Away", VALUE = "True" })
 check("programming command sets the owned variable", variables["California.Away"] == "1")
+-- Composer's native "variable = value" programming: Director writes the
+-- variable and calls OnVariableChanged. It must publish exactly like the
+-- Set Local command, and the driver's own echo must publish nothing.
+Variables = Variables or variables -- Director's table of this driver's variables
+local awayId = gEngine:findByName("Away").id
+advance(200)
+local revBefore = gEngine.values[awayId].rev
+variables["California.Away"] = "0"
+OnVariableChanged("California.Away")
+advance(200)
+check(
+  "native variable write publishes the owned item",
+  gEngine.values[awayId].tv.v == false and gEngine.values[awayId].rev == revBefore + 1,
+  tostring(gEngine.values[awayId].rev)
+)
+variables["California.Away"] = "0"
+OnVariableChanged("California.Away")
+advance(200)
+check("the echo of the same value publishes nothing", gEngine.values[awayId].rev == revBefore + 1)
+check("mirrors get no native-write handler", OVC["NewYork.Occupied"] == nil)
 EC.Set_Local_Boolean({ ITEM = "NewYork.Occupied", VALUE = "False" })
 check(
   "programming cannot write a mirror",
@@ -511,6 +564,308 @@ check(
 )
 OnWatchedVariableChanged(41, 1001, "20")
 check("variable listener drives the field", variables["California.Porch_Light_Level"] == "20")
+
+print("\n[4b1] media export: a room's state, with the source id resolved to its name")
+local savedGDV = C4.GetDeviceVariables
+function C4:GetDeviceVariables(id)
+  if id == 61 then
+    return {
+      ["3000"] = { name = "POWER_STATE", value = "ON" },
+      ["3001"] = { name = "CURRENT_SELECTED_DEVICE", value = "77" },
+      ["3002"] = { name = "CURRENT_VOLUME", value = "32" },
+    }
+  end
+  return savedGDV(self, id)
+end
+local savedGDD = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" and id == 77 then
+    return "Kitchen TV"
+  end
+  if key == "name" and id == 61 then
+    return "Kitchen"
+  end
+  return savedGDD(self, id, key)
+end
+EC.Export_Device({ DEVICE = "61", NAME = "Kitchen_Room", KIND = "media", CONTROL = "Control allowed" })
+check(
+  "the room exports as view-only media fields with the source NAME, not its id, and media info unavailable",
+  variables["California.Kitchen_Room_Powered"] == "1"
+    and variables["California.Kitchen_Room_Source"] == "Kitchen TV"
+    and variables["California.Kitchen_Room_Volume"] == "32"
+    and gEngine:findByName("Kitchen_Room_Media") ~= nil
+    and gEngine.values[gEngine:findByName("Kitchen_Room_Media").id].tv.s == "unavailable"
+    and gEngine:findByName("Kitchen_Room_Powered").companion.control == false,
+  Properties["Last Error"] .. " / " .. tostring(variables["California.Kitchen_Room_Source"])
+)
+EC.Remove_Export({ NAME = "Kitchen_Room" })
+C4.GetDeviceVariables = savedGDV
+C4.GetDeviceData = savedGDD
+
+print("\n[3c] Device Exports properties: the bridge lists devices itself")
+local savedGetDevices = C4.GetDevices
+function C4:GetDevices()
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [43] = { driverFileName = "light_v2.c4i", roomName = "Hall" },
+    [44] = { driverFileName = "relay.c4i" },
+  }
+end
+local savedGetDeviceData = C4.GetDeviceData
+function C4:GetDeviceData(id, key)
+  if key == "name" then
+    return ({ [43] = "Hall Light", [44] = "Gate Relay" })[id] or "Porch Light"
+  end
+end
+local savedGetDeviceVariables = C4.GetDeviceVariables
+function C4:GetDeviceVariables(id)
+  if id == 41 or id == 43 then
+    return { ["1000"] = { name = "LIGHT_STATE", value = "1" }, ["1001"] = { name = "Brightness Percent", value = "55" } }
+  end
+  if id == 44 then
+    return { ["2000"] = { name = "STATE", value = "0" } }
+  end
+  return {}
+end
+Properties["Export Kind"] = "light"
+Properties["Export Device Filter"] = "Devices that fit the kind"
+EC.REFRESH_EXPORT_DEVICE_LIST()
+local list = Properties["Export Device__list"] or ""
+check(
+  "default filter: only the light, with its room; neither the Agent nor the relay",
+  list == "-,Hall Light (Hall) · 43",
+  list
+)
+Properties["Export Device Filter"] = "All devices"
+EC.REFRESH_EXPORT_DEVICE_LIST()
+list = Properties["Export Device__list"] or ""
+check(
+  "All devices: the light first, the relay flagged, the Agent still not listed",
+  list:find("^%-,Hall Light %(Hall%) · 43,") ~= nil
+    and list:find("Gate Relay · 44 %(no light variables%)") ~= nil
+    and list:find("900") == nil,
+  list
+)
+Properties["Export Name"] = ""
+OPC.Export_Device("Hall Light (Hall) · 43")
+check(
+  "picking a device fills an empty Export Name from the device name",
+  Properties["Export Name"] == "Hall_Light",
+  Properties["Export Name"]
+)
+Properties["Export Name"] = "Keep_Me"
+OPC.Export_Device("Gate Relay · 44 (no light variables)")
+check("a typed Export Name is never overwritten", Properties["Export Name"] == "Keep_Me", Properties["Export Name"])
+Properties["Export Device"] = "Gate Relay · 44 (no light variables)"
+Properties["Export Name"] = "Gate"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "exporting the wrong device as a light is refused and says what it looked for",
+  gEngine:findByName("Gate_On") == nil
+    and Properties["Last Error"]:find("none of the variables a light export reads") ~= nil
+    and Properties["Last Error"]:find("LIGHT_STATE") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Device"] = "Hall Light (Hall) · 43"
+Properties["Export Name"] = "Hall"
+Properties["Export Kind"] = "light"
+Properties["Export Control"] = "Control allowed"
+Properties["Export Operations"] = ""
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "Export Selected Device creates the export from the properties",
+  gEngine:findByName("Hall_On") ~= nil and gEngine:findByName("Hall_Level") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Device"] = "-"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "no device picked: a clear message",
+  Properties["Last Error"]:find("pick a device") ~= nil,
+  Properties["Last Error"]
+)
+advance(2500) -- two status repaints
+check(
+  "a dealer's refusal survives the status repaint",
+  Properties["Last Error"]:find("pick a device") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Device"] = "Hall Light (Hall) · 43"
+Properties["Export Name"] = "Hall Light"
+EC.EXPORT_SELECTED_DEVICE()
+check(
+  "a name with a space is refused with the rule spelled out",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
+  Properties["Last Error"]
+)
+print("\n[3b] Templates: pick, print, apply")
+check(
+  "the Template list is painted with the catalogue",
+  (Properties["Template__list"] or ""):find("away%-home — Away / Home coordination") ~= nil,
+  Properties["Template__list"]
+)
+Properties["Template"] = "-"
+EC.APPLY_TEMPLATE()
+check(
+  "no template picked: a clear message",
+  Properties["Last Error"]:find("Pick a template") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Template"] = "away-home — Away / Home coordination"
+EC.APPLY_TEMPLATE()
+local sysMode = gEngine:findByName("System_Mode")
+check(
+  "Apply Template creates the recipe's items with their rules, skipping the one already present (Away)",
+  gEngine:findByName("Away") ~= nil
+    and sysMode ~= nil
+    and sysMode.type == "CHOICE"
+    and #sysMode.allowed_values == 3
+    and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+local before = gEngine:statusProperties()["Local Variables Created"]
+EC.APPLY_TEMPLATE()
+check("applying again creates nothing new", gEngine:statusProperties()["Local Variables Created"] == before)
+EC.PRINT_TEMPLATE()
+check("Print Template leaves the registry alone", gEngine:statusProperties()["Local Variables Created"] == before)
+
+print("\n[3c2] Configuration export / import through the driver")
+local printedLines = {}
+local savedPrint = print
+print = function(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[#parts + 1] = tostring(select(i, ...))
+  end
+  printedLines[#printedLines + 1] = table.concat(parts, "\t")
+  savedPrint(...)
+end
+EC.PRINT_CONFIGURATION_EXPORT()
+print = savedPrint
+local exported = printedLines[#printedLines]
+local okDoc, exportedDoc = pcall(function()
+  return JSON:decode(exported)
+end)
+check(
+  "Print Configuration Export prints a JSON document with this bridge's items",
+  okDoc and type(exportedDoc) == "table" and exportedDoc.version == 1 and #exportedDoc.items > 0,
+  exported and exported:sub(1, 80)
+)
+Properties["Configuration Import"] = "not json"
+EC.PREVIEW_CONFIGURATION_IMPORT()
+check("a non-JSON paste is refused", Properties["Last Error"]:find("not valid JSON") ~= nil, Properties["Last Error"])
+Properties["Configuration Import"] = JSON:encode({
+  version = 1,
+  items = {
+    {
+      source_id = "s1",
+      owner_role = gEngine.link.role,
+      definition = { name = "Imported_Flag", type = "BOOLEAN", group = "Imported" },
+    },
+    {
+      source_id = "s2",
+      owner_role = gEngine.link.role == "a" and "b" or "a",
+      definition = { name = "Theirs", type = "STRING" },
+    },
+    { source_id = "s3", owner_role = gEngine.link.role, definition = { name = "Away", type = "BOOLEAN" } },
+  },
+})
+EC.PREVIEW_CONFIGURATION_IMPORT()
+check("preview writes nothing", gEngine:findByName("Imported_Flag") == nil and Properties["Last Error"] == "")
+EC.APPLY_CONFIGURATION_IMPORT()
+local imported = gEngine:findByName("Imported_Flag")
+check(
+  "apply creates this bridge's items with new ids, skips existing names and the other role's items",
+  imported ~= nil
+    and imported.id ~= "s1"
+    and imported.group == "Imported"
+    and gEngine:findByName("Theirs") == nil
+    and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+Properties["Configuration Import"] = JSON:encode({ version = 1, items = {}, license = "x" })
+EC.APPLY_CONFIGURATION_IMPORT()
+check(
+  "a paste with secret-looking fields is refused",
+  Properties["Last Error"]:find("Import refused") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Configuration Import"] = ""
+
+print("\n[3d] Selected Export: rename and remove from the Properties block")
+check(
+  "Selected Export lists the exports",
+  (Properties["Selected Export__list"] or ""):find("Hall") ~= nil,
+  Properties["Selected Export__list"]
+)
+Properties["Selected Export"] = "Hall"
+Properties["Export Name"] = "Hall Way"
+EC.RENAME_SELECTED_EXPORT()
+check(
+  "rename refuses a bad name",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil and gEngine:findByName("Hall_On") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Name"] = "Porch_Light"
+EC.RENAME_SELECTED_EXPORT()
+check(
+  "rename refuses a name already used",
+  Properties["Last Error"]:find("already used") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Export Name"] = "Hallway"
+EC.RENAME_SELECTED_EXPORT()
+local renamed = gEngine:findByName("Hallway_On")
+check(
+  "rename moves every field, keeps the companion name in step, hides the old variables",
+  renamed ~= nil
+    and gEngine:findByName("Hallway_Level") ~= nil
+    and gEngine:findByName("Hall_On") == nil
+    and renamed.companion.name == "Hallway"
+    and renamed.group == "Hallway"
+    and varMeta["California.Hall_On"] ~= nil
+    and varMeta["California.Hall_On"].hidden == true
+    and Properties["Selected Export"] == "Hallway"
+    and Properties["Export Name"] == "",
+  Properties["Last Error"]
+)
+check(
+  "the export record carries the new name",
+  (function()
+    for _, e in pairs(gExports) do
+      if e.name == "Hallway" then
+        return true
+      end
+    end
+    return false
+  end)()
+)
+Properties["Selected Export"] = "-"
+EC.REMOVE_SELECTED_EXPORT()
+check(
+  "remove without a selection: a clear message",
+  Properties["Last Error"]:find("pick an export") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Selected Export"] = "Hallway"
+EC.REMOVE_SELECTED_EXPORT()
+check(
+  "Remove Selected Export stops sharing and clears the selection",
+  (function()
+    for _, e in pairs(gExports) do
+      if e.name == "Hallway" then
+        return false
+      end
+    end
+    return true
+  end)()
+    and Properties["Selected Export"] == "-"
+    and (Properties["Selected Export__list"] or ""):find("Hallway") == nil,
+  Properties["Selected Export__list"]
+)
+C4.GetDevices = savedGetDevices
+C4.GetDeviceData = savedGetDeviceData
+C4.GetDeviceVariables = savedGetDeviceVariables
 local exp
 for _, e in pairs(gExports) do
   exp = e
@@ -536,6 +891,18 @@ check("variable NOT written by the command (feedback only)", variables["Californ
 EC.Set_Export_Schedule({ NAME = "Porch_Light", DAYS = "1", FROM = "00:00", TO = "00:01" })
 local okSched, whySched = OnSystemLinkCommand({ routine = "light.on", target = exp.id }, "cmd-2")
 check("schedule refuses outside the window", not okSched and tostring(whySched):match("schedule"), whySched)
+local windowItem = gEngine:findByName("Porch_Light_Window")
+check(
+  "a schedule publishes a <Name>_Window field the owner evaluates with its own clock (closed now)",
+  windowItem ~= nil and windowItem.companion.field == "Window" and variables["California.Porch_Light_Window"] == "0",
+  tostring(variables["California.Porch_Light_Window"])
+)
+check(
+  "the companion metadata now carries the windows for the other side to show",
+  windowItem.companion.schedule ~= nil and windowItem.companion.schedule.windows[1].from == "00:00"
+)
+EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
+check("clearing the schedule removes the field", gEngine:findByName("Porch_Light_Window") == nil)
 EC.Clear_Export_Schedule({ NAME = "Porch_Light" })
 check(
   "thermostat export refused without the gated feature",
@@ -569,6 +936,458 @@ check(
     end)(),
   lastSent("SBOS_LINK_COMPANION_RESULT").params.reason
 )
+print("\n[4a] Link Health: the transport facts, from engine state")
+advance(1100)
+check(
+  "Doorbell says joined-but-silent or not joined, never a blank",
+  Properties["Doorbell"] ~= "" and Properties["Doorbell"] ~= nil,
+  Properties["Doorbell"]
+)
+check(
+  "Poll Interval: right after the companion command it polls at 1 s for the result",
+  Properties["Poll Interval"] == "poll 1 s (awaiting result)",
+  Properties["Poll Interval"]
+)
+gEngine.awaitingResults = {}
+advance(1100)
+check(
+  "Poll Interval: with the result in, traffic keeps the link on the 3 s poll",
+  Properties["Poll Interval"] == "poll 3 s (active)",
+  Properties["Poll Interval"]
+)
+gEngine.lastActivityAt = nil
+advance(1100)
+check(
+  "Poll Interval names the 20 s poll once the link is idle and the doorbell has not rung",
+  Properties["Poll Interval"] == "poll 20 s (idle)",
+  Properties["Poll Interval"]
+)
+gEngine:onSyncFailed("HTTP 503")
+advance(1100)
+check(
+  "Poll Interval: a relay failure shows the 20 s backoff",
+  Properties["Poll Interval"] == "poll 20 s (backoff)",
+  Properties["Poll Interval"]
+)
+gEngine.pollBackoffUntil = nil
+advance(1100)
+check(
+  "Pending counts updates and requests",
+  Properties["Pending"]:match("^%d+ updates · %d+ requests$") ~= nil,
+  Properties["Pending"]
+)
+gEngine.lastRefusal = { reason = "stale revision", what = "Away", at = gEngine.io.now() }
+advance(1100)
+check(
+  "Last Relay Refusal shows the item, the reason and a time",
+  Properties["Last Relay Refusal"]:find("^Away: stale revision · ") ~= nil,
+  Properties["Last Relay Refusal"]
+)
+gEngine:onDoorbell()
+advance(1100)
+check(
+  "a ring flips the doorbell to joined-and-live wording and the poll to backstop",
+  Properties["Poll Interval"]:find("^doorbell%-driven") ~= nil or Properties["Doorbell"]:find("last rang") ~= nil,
+  Properties["Doorbell"] .. " / " .. Properties["Poll Interval"]
+)
+
+print("\n[4b2] Run Link Test: first failure, or a measured round trip")
+local savedPeer = gEngine.peerState
+gEngine.peerState = "offline"
+EC.RUN_LINK_TEST()
+check("peer offline: the test stops there and sends nothing", gEngine.linkTest == nil)
+gEngine.peerState = "online"
+EC.RUN_LINK_TEST()
+check(
+  "peer online: a ping is queued and the test runs",
+  gEngine.linkTest ~= nil and gEngine:linkTestState() == "running"
+)
+gEngine:onReservedEvent("__sl_pong", { nonce = gEngine.linkTest.nonce })
+check("the pong with the right nonce completes it", gEngine:linkTestState() == "done")
+advance(1100)
+check("the poll reports and clears the test", gEngine.linkTest == nil)
+gEngine.peerState = savedPeer
+
+print("\n[4b3] Namespace rename and Pause/Resume Link ask the relay")
+Properties["New Namespace"] = "Bad name"
+EC.PREVIEW_NAMESPACE_RENAME()
+check(
+  "a bad namespace is refused with the rule",
+  Properties["Last Error"]:find("letters, digits and underscores") ~= nil,
+  Properties["Last Error"]
+)
+Properties["New Namespace"] = "Cali2"
+EC.RENAME_NAMESPACE()
+check(
+  "Rename Namespace previews, then asks the relay on the next sync, and clears the field",
+  gEngine.pendingNamespaceRename ~= nil
+    and gEngine.pendingNamespaceRename.to == "Cali2"
+    and gEngine:buildSync().rename_namespace.to == "Cali2"
+    and Properties["New Namespace"] == ""
+    and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+gEngine.pendingNamespaceRename = nil
+Properties["Link Pause Minutes"] = "0"
+EC.PAUSE_LINK()
+check(
+  "Pause Link with 0 minutes asks for a pause until resumed",
+  gEngine.pendingLinkControl ~= nil
+    and gEngine.pendingLinkControl.op == "pause"
+    and gEngine.pendingLinkControl.minutes == nil
+)
+Properties["Link Pause Minutes"] = "15"
+EC.PAUSE_LINK()
+check(
+  "Pause Link with minutes carries them",
+  gEngine.pendingLinkControl.minutes == 15 and gEngine:buildSync().link_control.minutes == 15
+)
+EC.RESUME_LINK()
+check("Resume Link asks for a resume", gEngine.pendingLinkControl.op == "resume")
+gEngine.pendingLinkControl = nil
+
+print("\n[4c] Pending exports: the peer's exports with no companion here, one action to add")
+advance(1100) -- a status tick repaints the lists
+check(
+  "Pending Exports lists the mirrored export that has no companion",
+  Properties["Pending Exports"] == "Guest_Lamp (light)"
+    and (Properties["Pending Export__list"] or ""):find("Guest_Lamp") ~= nil,
+  tostring(Properties["Pending Exports"]) .. " / " .. tostring(Properties["Pending Export__list"])
+)
+Properties["Pending Export"] = "-"
+EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+check(
+  "no pending export picked: a clear message",
+  Properties["Last Error"]:find("Pick an export in Pending Export") ~= nil,
+  Properties["Last Error"]
+)
+local added = {}
+function C4:AddDevice(file, callback)
+  added[#added + 1] = file
+  callback(4242)
+end
+sent = {}
+Properties["Pending Export"] = "Guest_Lamp"
+EC.ADD_COMPANION_FOR_PENDING_EXPORT()
+check(
+  "Add Companion For Pending Export adds the light companion and links it to the export",
+  added[1] == "smartbuildos-system-link-light.c4z"
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").id == 4242
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").params.export == "Guest_Lamp",
+  Properties["Last Error"]
+)
+local savedGetDevices2 = C4.GetDevices
+function C4:GetDevices()
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [4242] = { driverFileName = "smartbuildos-system-link-light.c4z" },
+  }
+end
+advance(1100)
+check(
+  "once the companion exists the export is no longer pending",
+  Properties["Pending Exports"] == "none",
+  Properties["Pending Exports"]
+)
+C4.GetDevices = savedGetDevices2
+
+print("\n[4c2] Auto Setup: every shared device gets a companion, one callback at a time")
+-- Guest_Lamp is pending again (its companion 4242 is not in the project the
+-- shim reports). Director adds one driver per callback; the callback for the
+-- first add arrives while the queue still has work.
+added = {}
+local autoCalls = 0
+function C4:AddDevice(file, callback)
+  added[#added + 1] = file
+  autoCalls = autoCalls + 1
+  callback(5000 + autoCalls)
+end
+Properties["Auto Setup"] = "not run"
+sent = {}
+EC.AUTO_SETUP()
+check(
+  "Auto Setup starts by refreshing the link",
+  Properties["Auto Setup"] == "refreshing the link…",
+  Properties["Auto Setup"]
+)
+EC.AUTO_SETUP()
+check("a second Auto Setup while one runs is refused", Properties["Last Error"] == "Auto Setup is already running")
+advance(2100) -- the sync has had its 2 s; the queue starts
+advance(1000) -- callbacks and the 250 ms step timers
+check(
+  "Auto Setup added the pending light companion and assigned it",
+  added[1] == "smartbuildos-system-link-light.c4z"
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN") ~= nil
+    and lastSent("SBOS_LINK_COMPANION_ASSIGN").params.export == "Guest_Lamp",
+  tostring(added[1]) .. " / " .. tostring(Properties["Auto Setup"])
+)
+check(
+  "Auto Setup reports what it did and how many variables are mirrored",
+  (Properties["Auto Setup"] or ""):match("^done .* 1 companion%(s%) added, 0 already present, 0 failed") ~= nil
+    and (Properties["Auto Setup"] or ""):match("%d+ variable%(s%) mirrored") ~= nil,
+  Properties["Auto Setup"]
+)
+local savedGetDevices3 = C4.GetDevices
+function C4:GetDevices()
+  return {
+    [900] = { driverFileName = "smartbuildos.c4z" },
+    [5001] = { driverFileName = "smartbuildos-system-link-light.c4z" },
+  }
+end
+added = {}
+EC.AUTO_SETUP()
+advance(3200)
+check(
+  "re-running Auto Setup skips the companion that is present",
+  #added == 0 and (Properties["Auto Setup"] or ""):match("0 companion%(s%) added, 1 already present") ~= nil,
+  Properties["Auto Setup"]
+)
+C4.GetDevices = savedGetDevices3
+
+print("\n[4d] scenes across the link")
+EC.Export_Device({ NAME = "Welcome", KIND = "scene", CONTROL = "Control allowed" })
+local welcomeExp = (function()
+  for _, e in pairs(gExports) do
+    if e.name == "Welcome" then
+      return e
+    end
+  end
+end)()
+check(
+  "a scene exports with no device: two fields starting at never / none, and a 'requested' event allocated",
+  welcomeExp ~= nil
+    and welcomeExp.device_id == 0
+    and variables["California.Welcome_Last_Run"] == "never"
+    and variables["California.Welcome_Last_Result"] == "none"
+    and gEngine.itemEvents["scene:Welcome:requested"] ~= nil
+    and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+local requestsLib = require("systemlink.requests")
+local sceneReq = requestsLib.open(
+  gEngine.requests,
+  { id = "req-scene-1", routine = "scene:Welcome", direction = "in", payload = "", origin_ep = "ep-ny" },
+  gEngine.io.now()
+)
+requestsLib.transition(gEngine.requests, sceneReq.id, "delivered", nil, gEngine.io.now())
+local firedBefore = #firedEvents
+gEngine.io.fireRoutineEvent("scene:Welcome")
+check(
+  "an inbound scene request fires 'Scene Welcome requested'",
+  firedEvents[#firedEvents] == gEngine.itemEvents["scene:Welcome:requested"] and #firedEvents == firedBefore + 1
+)
+EC.Report_Request_Success({ SLOT = sceneReq.slot, RESULT = "lights on" })
+check(
+  "the dealer's report lands in the scene's fields for the other side to see",
+  variables["California.Welcome_Last_Result"] == "completed: lights on"
+    and variables["California.Welcome_Last_Run"] ~= "never",
+  tostring(variables["California.Welcome_Last_Result"])
+)
+-- peer side: a scene the linked project exported
+local savedCompanion = gEngine.registry.items["ny-occ"].companion
+gEngine.registry.items["ny-occ"].companion =
+  { id = "sc-1", name = "Guest_Arrive", kind = "scene", control = true, ops = {}, field = "Last_Run" }
+advance(1100)
+check(
+  "Remote Scene lists the linked project's scene and its events exist",
+  (Properties["Remote Scene__list"] or ""):find("Guest_Arrive") ~= nil
+    and gEngine.itemEvents["scene:Guest_Arrive:completed"] ~= nil,
+  Properties["Remote Scene__list"]
+)
+check(
+  "a scene is never a pending companion",
+  (Properties["Pending Exports"] or ""):find("Guest_Arrive") == nil,
+  Properties["Pending Exports"]
+)
+Properties["Remote Scene"] = "Nope"
+EC.RUN_REMOTE_SCENE()
+check(
+  "an unknown scene is refused",
+  Properties["Last Error"]:find("no scene named Nope") ~= nil,
+  Properties["Last Error"]
+)
+Properties["Remote Scene"] = "Guest_Arrive"
+EC.RUN_REMOTE_SCENE()
+check("Run Remote Scene sends a request with the scene routine", (function()
+  for _, env in ipairs(gEngine.pending) do
+    if env.t == "request" and env.body.routine == "scene:Guest_Arrive" then
+      return true
+    end
+  end
+  return false
+end)() and Properties["Last Error"] == "", Properties["Last Error"])
+firedBefore = #firedEvents
+gEngine.io.onRequestOutcome({ routine = "scene:Guest_Arrive" }, "completed")
+check(
+  "the owner's report fires 'Scene Guest_Arrive completed' here",
+  firedEvents[#firedEvents] == gEngine.itemEvents["scene:Guest_Arrive:completed"] and #firedEvents == firedBefore + 1
+)
+gEngine.registry.items["ny-occ"].companion = savedCompanion
+EC.Remove_Export({ NAME = "Welcome" })
+
+print("\n[4d2] an export driver registers through the bridge (Connections route)")
+sent = {}
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "555",
+  name = "Hall_Lamp",
+  kind = "light",
+  device_id = "41",
+  control = "Control allowed",
+  ops = "",
+})
+local res = lastSent("SBOS_LINK_EXPORT_RESULT")
+check(
+  "a registered light becomes a normal export and the driver is told",
+  gEngine:findByName("Hall_Lamp_On") ~= nil
+    and res ~= nil
+    and res.id == 555
+    and res.params.ok == "true"
+    and res.params.reason == "exported",
+  res and res.params.reason
+)
+sent = {}
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "555",
+  name = "Hall_Lamp",
+  kind = "light",
+  device_id = "41",
+  control = "Control allowed",
+  ops = "",
+})
+check(
+  "registering the same binding again is idempotent",
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "already exported"
+)
+sent = {}
+EC.SBOS_LINK_EXPORT_REGISTER({
+  requester = "556",
+  name = "Bad name",
+  kind = "light",
+  device_id = "41",
+  control = "View only",
+  ops = "",
+})
+check(
+  "a refusal travels back with the bridge's reason",
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.ok == "false"
+    and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason:find("letters, digits") ~= nil,
+  lastSent("SBOS_LINK_EXPORT_RESULT").params.reason
+)
+sent = {}
+EC.SBOS_LINK_EXPORT_UNREGISTER({ requester = "555", name = "Hall_Lamp" })
+check(
+  "unregister removes the export and answers",
+  gEngine:findByName("Hall_Lamp_On") == nil and lastSent("SBOS_LINK_EXPORT_RESULT").params.reason == "removed"
+)
+
+print("\n[4e] batch 4: lock status-only on BASE, control and buttons behind licence features")
+local savedGDV4 = C4.GetDeviceVariables
+function C4:GetDeviceVariables(id)
+  if id == 91 then
+    return { ["9100"] = { name = "LOCK_STATUS", value = "Locked" } }
+  end
+  return savedGDV4(self, id)
+end
+EC.Export_Device({ DEVICE = "91", NAME = "Front_Lock", KIND = "lock", CONTROL = "Control allowed" })
+check(
+  "a lock with control is refused while LOCK is unlicensed (LEGACY never opens it)",
+  gEngine:findByName("Front_Lock_Locked") == nil and Properties["Last Error"]:find("LOCK") ~= nil,
+  Properties["Last Error"]
+)
+EC.Export_Device({ DEVICE = "91", NAME = "Front_Lock", KIND = "lock", CONTROL = "View only" })
+check(
+  "the same lock exports status-only on BASE",
+  variables["California.Front_Lock_Locked"] == "1" and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+Properties["Selected Export"] = "Front_Lock"
+EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+check(
+  "Allow Unlock stays off without the LOCK feature",
+  Properties["Last Error"]:find("LOCK is not licensed") ~= nil,
+  Properties["Last Error"]
+)
+EC.Export_Device({ NAME = "Doorbell", KIND = "button", CONTROL = "Control allowed" })
+check(
+  "a button export is refused without BUTTON",
+  gEngine:findByName("Doorbell_Last_Pressed") == nil and Properties["Last Error"]:find("BUTTON") ~= nil,
+  Properties["Last Error"]
+)
+-- the Agent answers with the features: the gates open
+local lic = require("sbos.license")
+local savedStatus, savedHas = lic.status, lic.hasFeature
+lic.status = function()
+  return "AUTHORIZED_SUBSCRIPTION"
+end
+lic.hasFeature = function(n)
+  return n == "LOCK" or n == "BUTTON"
+end
+EC.ALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+local frontLock = (function()
+  for _, e in pairs(gExports) do
+    if e.name == "Front_Lock" then
+      return e
+    end
+  end
+end)()
+check(
+  "with LOCK licensed, Allow Unlock is recorded on the export",
+  frontLock.allow_unlock == true and Properties["Last Error"] == "",
+  Properties["Last Error"]
+)
+EC.DISALLOW_UNLOCK_FOR_SELECTED_EXPORT()
+check("and can be taken back", frontLock.allow_unlock == false)
+EC.Export_Device({ NAME = "Doorbell", KIND = "button", CONTROL = "Control allowed" })
+check(
+  "with BUTTON licensed the button exports, starting at never, with its pressed event",
+  variables["California.Doorbell_Last_Pressed"] == "never" and gEngine.itemEvents["button:Doorbell:pressed"] ~= nil,
+  Properties["Last Error"]
+)
+local firedBefore4 = #firedEvents
+gEngine.io.fireNamedEvent("button:Doorbell")
+check(
+  "a press from the peer fires 'Button Doorbell pressed' and stamps Last_Pressed",
+  firedEvents[#firedEvents] == gEngine.itemEvents["button:Doorbell:pressed"]
+    and #firedEvents == firedBefore4 + 1
+    and variables["California.Doorbell_Last_Pressed"] ~= "never"
+)
+lic.hasFeature = function()
+  return false
+end
+firedBefore4 = #firedEvents
+gEngine.io.fireNamedEvent("button:Doorbell")
+check(
+  "a press while BUTTON is no longer licensed is ignored, and says so",
+  #firedEvents == firedBefore4 and Properties["Last Error"]:find("not licensed") ~= nil,
+  Properties["Last Error"]
+)
+lic.status, lic.hasFeature = savedStatus, savedHas
+-- peer side: the linked project's button
+local savedCompanion4 = gEngine.registry.items["ny-occ"].companion
+gEngine.registry.items["ny-occ"].companion =
+  { id = "bt-1", name = "Guest_Bell", kind = "button", control = true, ops = {}, field = "Last_Pressed" }
+advance(1100)
+check(
+  "Remote Button lists the linked project's button; it is never a pending companion",
+  (Properties["Remote Button__list"] or ""):find("Guest_Bell") ~= nil
+    and (Properties["Pending Exports"] or ""):find("Guest_Bell") == nil,
+  Properties["Remote Button__list"]
+)
+Properties["Remote Button"] = "Guest_Bell"
+EC.PRESS_REMOTE_BUTTON()
+check("Press Remote Button emits the button event for the owner", (function()
+  for _, env in ipairs(gEngine.pending) do
+    if env.t == "event" and env.body.def == "button:Guest_Bell" then
+      return true
+    end
+  end
+  return false
+end)() and Properties["Last Error"] == "", Properties["Last Error"])
+gEngine.registry.items["ny-occ"].companion = savedCompanion4
+EC.Remove_Export({ NAME = "Front_Lock" })
+EC.Remove_Export({ NAME = "Doorbell" })
+C4.GetDeviceVariables = savedGDV4
 EC.Remove_Export({ NAME = "Porch_Light" })
 check("remove export tombstones its items", gEngine:findByName("Porch_Light_On") == nil)
 
