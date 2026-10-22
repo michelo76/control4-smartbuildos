@@ -1,0 +1,185 @@
+<devicedata>
+  <name>SmartBuildOS Flight Recorder</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Flight Recorder</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>10/22/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>RECORDING_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Recording is active</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>recording</true_text>
+      <false_text>not recording</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>AGENT_READY</name>
+      <type>BOOL</type>
+      <condition_statement>SmartBuildOS Agent link is ready</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>ready</true_text>
+      <false_text>not ready</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>RECORDING_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>AGENT_CONNECTION</name><type>STRING</type><default>waiting_for_agent</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>SELECTED_SOURCES</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>ACTIVE_TRACES</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>BUFFERED_EVENTS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>DROPPED_EVENTS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>LAST_UPLOAD</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>LAST_RECORDING_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3008</id><name>CONFIG_VERSION</name><type>STRING</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Recording Degraded</name><description>Recording lost the Agent, the licence, the pairing or its budget (see Last Recording Error)</description></event>
+    <event><id>2</id><name>Recording Restored</name><description>Recording is healthy again after a degraded period</description></event>
+    <event><id>3</id><name>Buffer Threshold Reached</name><description>Events waiting for the Agent reached the Buffer Warning Threshold</description></event>
+    <event><id>4</id><name>Snapshot Completed</name><description>A diagnostic snapshot was accepted by SmartBuildOS</description></event>
+    <event><id>5</id><name>Snapshot Failed</name><description>A diagnostic snapshot could not be captured or uploaded</description></event>
+    <event><id>6</id><name>Trace Completed</name><description>A programming trace was completed</description></event>
+    <event><id>7</id><name>Trace Failed</name><description>A programming trace was failed, abandoned or interrupted</description></event>
+    <event><id>8</id><name>Agent Connected</name><description>The driver registered with the SmartBuildOS Agent</description></event>
+    <event><id>9</id><name>Agent Disconnected</name><description>The driver lost its registration with the SmartBuildOS Agent</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Pause Recording</name><command>PAUSE_RECORDING_ACTION</command></action>
+      <action><name>Resume Recording</name><command>RESUME_RECORDING_ACTION</command></action>
+      <action><name>Capture Snapshot</name><command>CAPTURE_SNAPSHOT_ACTION</command></action>
+      <action><name>Apply Selected Template</name><command>APPLY_TEMPLATE</command></action>
+      <action><name>Clear Composer Sources</name><command>CLEAR_LOCAL_SOURCES</command></action>
+      <action><name>Print Recording Status</name><command>PRINT_STATUS</command></action>
+      <action><name>Print Sources</name><command>PRINT_SOURCES</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>RECORD_EVENT</name>
+        <description>Record a named event in the Flight Recorder (optionally inside a trace channel)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DETAIL</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>START_TRACE</name>
+        <description>Start a programming trace on a channel (default channel: main)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RECORD_TRACE_STEP</name>
+        <description>Record a step (a request the programming made) on a trace channel</description>
+        <params>
+          <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RECORD_TRACE_DECISION</name>
+        <description>Record a conditional decision on a trace channel</description>
+        <params>
+          <param><name>CONDITION</name><type>STRING</type></param>
+          <param><name>OUTCOME</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RECORD_EXPECTED_RESULT</name>
+        <description>Record what the programming expects to observe next (the recorder never verifies it)</description>
+        <params>
+          <param><name>EXPECTED</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+        </params>
+      </command>
+      <command>
+        <name>COMPLETE_TRACE</name>
+        <description>Complete the trace on a channel</description>
+        <params>
+          <param><name>NOTE</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>FAIL_TRACE</name>
+        <description>Fail the trace on a channel</description>
+        <params>
+          <param><name>REASON</name><type>STRING</type></param>
+          <param><name>CHANNEL</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>CAPTURE_SNAPSHOT</name>
+        <description>Capture a diagnostic snapshot (asynchronous; see Last Snapshot)</description>
+        <params>
+          <param><name>NOTE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>PAUSE_RECORDING</name>
+        <description>Pause recording (listeners are released; traces are interrupted)</description>
+        <params>
+          <param><name>REASON</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RESUME_RECORDING</name>
+        <description>Resume recording (sources are re-read as initial observations)</description>
+        <params></params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Recording Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Agent Link</name><type>STRING</type><default>Looking for the SmartBuildOS Agent</default><readonly>true</readonly></property>
+      <property><name>Agent Connection</name><type>STRING</type><default>waiting_for_agent</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Configuration</name><type>STRING</type><default>none applied</default><readonly>true</readonly></property>
+      <property><name>Selected Sources</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Active Traces</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Buffered Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Dropped Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Upload</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Recording Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Snapshot</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Template</name><type>LIST</type><items><item>-</item><item>Lighting</item><item>Contacts and openings</item><item>Motion and occupancy</item><item>Room media</item><item>SmartBuildOS events</item></items><default>-</default><description>Pick a template, then run Apply Selected Template. Only sources that exist in this project are added; System Studio shows the result as a Composer revision.</description></property>
+      <property><name>Buffer Warning Threshold</name><type>RANGED_INTEGER</type><minimum>50</minimum><maximum>300</maximum><default>200</default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>
