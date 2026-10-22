@@ -136,7 +136,7 @@ web `codex/flight-recorder` (from `main`). Status date: 2026-10-22 (end of imple
       VERIFICATION.md, this checklist; driver `www/documentation/index.md`.
 - [x] Build: `make build` produced `smartbuildos.c4z` and
       `smartbuildos-flight-recorder.c4z` (version stamps in VERIFICATION.md).
-- [ ] PRs opened (driver → `feat/agent-as-agent`; web → `main`).
+- [x] PRs opened: driver michelo76/control4-smartbuildos#33 (→ `feat/agent-as-agent`), web michelo76/smartbuildos#394 (→ `main`).
 
 ## Outstanding blockers / decisions made without the owner
 

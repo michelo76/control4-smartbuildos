@@ -39,7 +39,7 @@ testing System Link).
 | `tests/unit/flight-recorder-traces.test.mjs` | 5 tests: Good Night materialises one completed trace with 4 steps + programmed event; late starts / early steps; cursors + filters; warnings; modules + pipeline normalisation |
 | `tests/unit/flight-recorder-routes.test.mjs` | 8 source contracts: gates per route, company + system scoping, ingest ownership from the token, idempotent upsert, structured acks, redaction twice on snapshots, command verbs + DB CHECK, migration shape (tenant columns, RLS, unique event ids, no payload index, bucket, retention), heartbeat/telemetry changes, navigation/bootstrap/shell wiring |
 | guard suites (`admin-tenant-scope`, `api-route-gating`, `orphan-routes`, `schema-drift`, `self-service-gates`, `row-cap-guard`, `audit-no-secrets`, `lazy-builder-guard`) | pass with the new routes/tables classified (reasons recorded in each test) |
-| full `npm run test:unit` | see the PR description for the final count |
+| full `npm run test:unit` | 10,361 / 10,361 pass |
 
 ## The Good Night acceptance scenario
 
