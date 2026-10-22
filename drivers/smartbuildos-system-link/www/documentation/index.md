@@ -357,11 +357,15 @@ Resumed**. Pause/Resume Remote Commands remain the lighter, local option.
 
 A read-only group with the transport facts: **Doorbell** (whether the relay's
 instant-notification channel is joined and when it last rang; "never rang" means
-the bridge relies on the poll), **Poll Interval** (20 s, or doorbell-driven with
-the poll as a backstop), **Last Relay Refusal** (the last message the relay
-refused, with reason and time), **Relay Latency** (p95 from local accept to
-relay commit) and **Pending** (updates and requests waiting). All of it is
-repainted every second from the bridge's own state.
+the bridge relies on the poll), **Poll Interval** (adaptive: `poll 3 s (active)`
+for five minutes after either side published, sent a command or request, or
+delivered anything new; `poll 1 s (awaiting result)` for up to 10 s after a
+command of ours goes out; `poll 20 s (idle)` otherwise; `poll 20 s (backoff)`
+after a relay refusal or failure; or doorbell-driven with the poll as a
+backstop), **Last Relay Refusal** (the last message the relay refused, with
+reason and time), **Relay Latency** (p95 from local accept to relay commit) and
+**Pending** (updates and requests waiting). All of it is repainted every second
+from the bridge's own state.
 
 **Run Link Test** (Actions) reports the first failure it hits — not provisioned,
 relay disconnected, peer offline — or sends a ping through the relay to the

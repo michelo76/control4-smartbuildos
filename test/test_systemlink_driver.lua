@@ -944,10 +944,33 @@ check(
   Properties["Doorbell"]
 )
 check(
-  "Poll Interval names the 20 s poll while the doorbell has not rung",
-  Properties["Poll Interval"] == "20 s",
+  "Poll Interval: right after the companion command it polls at 1 s for the result",
+  Properties["Poll Interval"] == "poll 1 s (awaiting result)",
   Properties["Poll Interval"]
 )
+gEngine.awaitingResults = {}
+advance(1100)
+check(
+  "Poll Interval: with the result in, traffic keeps the link on the 3 s poll",
+  Properties["Poll Interval"] == "poll 3 s (active)",
+  Properties["Poll Interval"]
+)
+gEngine.lastActivityAt = nil
+advance(1100)
+check(
+  "Poll Interval names the 20 s poll once the link is idle and the doorbell has not rung",
+  Properties["Poll Interval"] == "poll 20 s (idle)",
+  Properties["Poll Interval"]
+)
+gEngine:onSyncFailed("HTTP 503")
+advance(1100)
+check(
+  "Poll Interval: a relay failure shows the 20 s backoff",
+  Properties["Poll Interval"] == "poll 20 s (backoff)",
+  Properties["Poll Interval"]
+)
+gEngine.pollBackoffUntil = nil
+advance(1100)
 check(
   "Pending counts updates and requests",
   Properties["Pending"]:match("^%d+ updates · %d+ requests$") ~= nil,
