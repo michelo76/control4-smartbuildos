@@ -147,6 +147,12 @@ local function findAgent()
   return nil
 end
 
+--- The Agent's device id by exact filename, for modules that share this
+--- discovery rule (sbos.moduleclient). nil when no Agent is in the project.
+function M.agentDeviceId()
+  return findAgent()
+end
+
 --- Updates an optional standardized display property, if the driver declares
 --- it. pcall so a driver that has not added the property is a silent no-op.
 local function setDisplay(name, value)
