@@ -854,12 +854,13 @@ local HEALTH_EVENT_DETAIL = {
 }
 
 local function findAgentId()
-  for rawId, device in pairs(C4:GetDevices({}) or {}) do
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    -- Exact match, never substring (smartbuildos-insights.c4z is the near-miss).
-    if file == "smartbuildos.c4z" or file == "smartbuildos.c4i" then
-      return tonumber(rawId)
-    end
+  -- The licensing SDK's rule: devices, then by driver file, then the
+  -- Agents-panel list (an Agents-panel Agent is absent from GetDevices).
+  local ok, id = pcall(function()
+    return license.agentDeviceId()
+  end)
+  if ok then
+    return id
   end
   return nil
 end

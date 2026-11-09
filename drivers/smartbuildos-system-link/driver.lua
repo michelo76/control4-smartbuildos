@@ -205,21 +205,15 @@ local function findAgent()
   if gAgentId then
     return gAgentId
   end
-  local ok, devices = pcall(function()
-    return C4:GetDevices({})
+  -- The licensing SDK's rule (devices, then by driver file, then the
+  -- Agents-panel list), so an Agents-panel Agent is found here too.
+  local ok, id = pcall(function()
+    return license.agentDeviceId()
   end)
-  if not ok or type(devices) ~= "table" then
-    return nil
+  if ok and id ~= nil then
+    gAgentId = id
   end
-  for rawId, device in pairs(devices) do
-    local id = tonumber(rawId)
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id and AGENT_FILES[file] then
-      gAgentId = id
-      return id
-    end
-  end
-  return nil
+  return gAgentId
 end
 
 -- ─── Engine io ───────────────────────────────────────────────────────────────

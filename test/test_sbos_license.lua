@@ -303,5 +303,66 @@ check(
   props["License Status"]
 )
 
+
+print("\n[N] Agents-panel Agent: absent from GetDevices, found by driver file or the AGENTS list")
+
+-- Tier 2: GetDevicesByC4iName answers when GetDevices does not list the Agent.
+PROJECT = { [901] = { deviceName = "Insights", driverFileName = "smartbuildos-insights.c4z" } }
+local byName = {}
+function C4:GetDevicesByC4iName(file)
+  return byName[file]
+end
+local agentsXml = nil
+function C4:GetProjectItems(kind)
+  if kind == "AGENTS" then
+    return agentsXml
+  end
+  return ""
+end
+byName = { ["smartbuildos.c4z"] = { [77] = { name = "SmartBuildOS Agent" } } }
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("found by driver file when GetDevices lacks it", license.agentDeviceId() == 77, license.agentDeviceId())
+check("registration went to that id", #deviceSent == 1 and deviceSent[1].device == 77)
+check("property no longer says No Agent", tostring(props["License Status"]) ~= "No SmartBuildOS Agent Found", props["License Status"])
+
+-- Tier 3: only the AGENTS list knows it (nested tree, parent id first).
+byName = {}
+agentsXml = [[<systemitems><item><id>1</id><name>Project</name><type>1</type><itemdata/><subitems>
+  <item><id>40</id><name>Scheduler</name><c4i>scheduler.c4i</c4i></item>
+  <item><id>55</id><name>SmartBuildOS Agent</name><c4i>smartbuildos.c4z</c4i></item>
+  <item><id>56</id><name>Insights-looking</name><c4i>smartbuildos-insights.c4z</c4i></item>
+</subitems></item></systemitems>]]
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("found in the AGENTS list by the id right before its c4i tag", license.agentDeviceId() == 55, license.agentDeviceId())
+check("registration went to the Agent", #deviceSent == 1 and deviceSent[1].device == 55)
+
+-- A sibling with a similar file name in the AGENTS list is never mistaken.
+agentsXml = "<systemitems><item><id>56</id><c4i>smartbuildos-insights.c4z</c4i></item></systemitems>"
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("insights sibling in AGENTS is not the Agent", license.agentDeviceId() == nil and #deviceSent == 0)
+
+-- The <driver> spelling is accepted too.
+agentsXml = "<item><id>61</id><itemdata><driver>smartbuildos.c4z</driver></itemdata></item>"
+license._reset()
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("AGENTS item with <driver> tag", license.agentDeviceId() == 61, license.agentDeviceId())
+
+-- Nothing anywhere: still loud, still legacy, nothing sent; a later answer is picked up.
+agentsXml = nil
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("nothing found → No Agent, nothing sent", license.agentDeviceId() == nil and #deviceSent == 0)
+byName = { ["smartbuildos.c4z"] = { [78] = {} } }
+check("not cached as nil: a later register finds it", license.register() == true and license.agentDeviceId() == 78)
+C4.GetDevicesByC4iName = nil
+C4.GetProjectItems = nil
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
