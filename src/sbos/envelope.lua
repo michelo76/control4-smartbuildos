@@ -63,6 +63,8 @@ M.QUALITY = {
 --- impersonate another module's events.
 M.PREFIXES = {
   flight_recorder = { "observation.", "trace.", "recorder.", "snapshot." },
+  event_tracer = { "capture.", "tracer." },
+  usage_analytics = { "usage." },
   agent = { "agent." },
   -- Reserved, not implemented (extension contracts, PROTOCOL.md §8):
   guardian = { "health." },

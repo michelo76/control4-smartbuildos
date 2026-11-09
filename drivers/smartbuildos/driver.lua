@@ -3514,7 +3514,7 @@ local COMMAND_RUNNERS = {
   -- ── MODULE SERVICES (contract v1) ───────────────────────────────────────
   -- One gateway, not two: a restricted module operation rides the same
   -- command path with the same ack. The vocabulary is closed
-  -- (MODULE_COMMANDS below): Flight Recorder's five operations today. No
+  -- (MODULE_COMMANDS below): Flight Recorder, Event Tracer, Usage Analytics. No
   -- arbitrary Lua, no equipment control.
   MODULE_COMMAND = function(payload)
     return ModuleCommandDispatch(payload)
@@ -3654,6 +3654,10 @@ AGENT_EVENT_SEQ_KEY = "sbos_agent_event_seq"
 --- The closed vocabulary of restricted module operations, per module.
 MODULE_COMMANDS = {
   flight_recorder = { apply_config = true, pause = true, resume = true, capture_snapshot = true, refresh_status = true },
+  -- Mirrors of the web repo's MODULE_OPERATIONS (src/lib/control4/flight-recorder/modules.ts)
+  -- and of each driver's own registered command list. Nothing here acts on the house.
+  event_tracer = { apply_policy = true, pause = true, resume = true, reapply = true, refresh_status = true },
+  usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100
