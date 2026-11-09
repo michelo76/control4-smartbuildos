@@ -59,6 +59,7 @@ jobs:
           STORE_UPLOAD_URL: ${{ secrets.STORE_UPLOAD_URL }}
           STORE_UPLOAD_SECRET: ${{ secrets.STORE_UPLOAD_SECRET }}
           PRERELEASE: ${{ steps.rel.outputs.prerelease }}
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
           if [ -z "${STORE_UPLOAD_URL:-}" ] || [ -z "${STORE_UPLOAD_SECRET:-}" ]; then
@@ -74,6 +75,7 @@ jobs:
           sku_for() {
             case "$1" in
               smartbuildos.c4z) echo SBOS_AGENT ;;
+              smartbuildos-system-link.c4z|smartbuildos-system-link-contact.c4z|smartbuildos-system-link-light.c4z|smartbuildos-system-link-relay.c4z|smartbuildos-system-link-shade.c4z|smartbuildos-system-link-temperature.c4z|smartbuildos-system-link-thermostat.c4z) echo SBOS_SYSTEM_LINK ;;
               unifi-protect.c4z|unifi-protect-camera.c4z|unifi-protect-light.c4z|unifi-protect-sensor.c4z|unifi-protect-viewport.c4z) echo SBOS_UNIFI_PROTECT ;;
               smartbuildos-mode-composer.c4z|smartbuildos-mode-button.c4z) echo SBOS_MODE_COMPOSER ;;
               smartbuildos-atmosphere.c4z) echo SBOS_ATMOSPHERE ;;
@@ -92,13 +94,18 @@ jobs:
             ver=$(unzip -p "$f" driver.xml | grep -oE '<version>[0-9.]+</version>' | head -1 | sed -E 's|</?version>||g')
             if [ -z "$ver" ]; then echo "skip $base (no <version> in driver.xml)"; continue; fi
 
-            echo "uploading $base v$ver ($sku, $channel)"
+            artifact_channel=$channel
+            # The System Link beta ships a stable Agent with the provisioning handler.
+            if [[ "$sku" == SBOS_AGENT && "$TAG" == system-link-beta-* ]]; then
+              artifact_channel=STABLE
+            fi
+            echo "uploading $base v$ver ($sku, $artifact_channel)"
             # base64 the .c4z to a file (stripped of newlines) and hand it to jq
             # via --rawfile: a multi-MB value passed as a jq --arg overflows
             # ARG_MAX ("Argument list too long"). For the same reason the payload
             # goes to curl as --data @file, never as an argv-sized string.
             base64 -w0 "$f" | tr -d '\n' > payload.b64
-            jq -n --arg sku "$sku" --arg fn "$base" --arg ver "$ver" --arg ch "$channel" --rawfile c payload.b64 \
+            jq -n --arg sku "$sku" --arg fn "$base" --arg ver "$ver" --arg ch "$artifact_channel" --rawfile c payload.b64 \
               '{driver_sku:$sku, filename:$fn, version:$ver, release_channel:$ch, content_base64:$c, notes:"Published by CI"}' > payload.json
             code=$(curl -sS -o resp.json -w '%{http_code}' \
               -X POST "$STORE_UPLOAD_URL" \

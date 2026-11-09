@@ -20,6 +20,13 @@ DRIVER_FILENAMES = {
   "unifi-protect-light.c4z",
   "unifi-protect-sensor.c4z",
   "unifi-protect-viewport.c4z",
+  "smartbuildos-system-link.c4z",
+  "smartbuildos-system-link-contact.c4z",
+  "smartbuildos-system-link-light.c4z",
+  "smartbuildos-system-link-relay.c4z",
+  "smartbuildos-system-link-shade.c4z",
+  "smartbuildos-system-link-temperature.c4z",
+  "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-insights.c4z",
   "bond-bridge.c4z",
   "bond-color-light.c4z",
@@ -7174,6 +7181,82 @@ local function cloudProvisioningAllowed(status)
     or status == "AUTHORIZED_PERPETUAL"
     or status == "AUTHORIZED_GRACE"
     or status == "TRIAL"
+end
+
+--- System Link: the bridge asks for its endpoint credential. The Agent trades
+--- its controller bearer for a credential scoped to ONE endpoint at ONE
+--- generation (platform: /api/driver-cloud/system-link/provision) and hands
+--- the whole provision document back as JSON. The bearer never leaves here.
+--- A request from an unlicensed bridge is still answered: provisioning is
+--- how the bridge learns whether a link exists at all.
+local gSystemLinkProvisioning = false
+function EC.SBOS_LINK_PROVISION_REQUEST(tParams)
+  tParams = tParams or {}
+  local requester = tonumber(tParams.requester)
+  local requestId = tostring(tParams.request_id or "")
+  if requester == nil or #requestId < 8 or #requestId > 128 or requestId:find("^[%w%-]+$") == nil or not isPaired() then
+    return
+  end
+  local bridgeFound = false
+  for id in pairs(C4:GetDevicesByC4iName("smartbuildos-system-link.c4z") or {}) do
+    if tonumber(id) == requester then
+      bridgeFound = true
+    end
+  end
+  if not bridgeFound then
+    return
+  end
+  if gSystemLinkProvisioning then
+    return
+  end
+  local url = driverCloudUrl("system-link/provision")
+  if not url then
+    return
+  end
+  gSystemLinkProvisioning = true
+  http
+    :post(url, {
+      driver_version = tostring(tParams.driver_version or ""),
+      protocol_min = tonumber(tParams.protocol_min) or 1,
+      protocol_max = tonumber(tParams.protocol_max) or 1,
+      timezone = tostring(tParams.timezone or ""),
+    }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+    :next(function(response)
+      gSystemLinkProvisioning = false
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
+      end
+      if type(body) ~= "table" or tostring(body.credential or ""):find("^sbosl1%.") == nil then
+        SendToDevice(
+          requester,
+          "SBOS_LINK_PROVISION",
+          { request_id = requestId, error = "Provisioning returned an unusable response" }
+        )
+        return
+      end
+      SendToDevice(requester, "SBOS_LINK_PROVISION", { request_id = requestId, info = JSON:encode(body) })
+      log:info("System Link provisioned for device %d (endpoint %s)", requester, tostring(body.endpoint_id))
+    end, function(err)
+      gSystemLinkProvisioning = false
+      local code = tonumber(err and err.code) or 0
+      local detail = ""
+      if type(err) == "table" and type(err.body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(err.body)
+        end)
+        if okDecode and type(decoded) == "table" and decoded.error then
+          detail = tostring(decoded.error)
+        end
+      end
+      local message = detail ~= "" and detail
+        or (code == 0 and "SmartBuildOS unreachable" or ("HTTP " .. tostring(code)))
+      SendToDevice(requester, "SBOS_LINK_PROVISION", { request_id = requestId, error = message })
+      log:debug("System Link provisioning failed for device %d: %s", requester, message)
+    end)
 end
 
 --- Exchanges the Agent's paired-controller bearer for a capability restricted
