@@ -179,16 +179,16 @@ project coming online at once.
   takes them from SmartBuildOS when the Agent is paired and falls back to GitHub
   otherwise; *SmartBuildOS* uses the platform only; *GitHub* uses the public
   releases. **Automatic Updates** + **Update Channel** (Production / Prerelease)
-  control the scheduled check. **Installed Driver Versions** lists the
-  detected package and version for each installed driver when the check runs.
-  Unknown versions are shown explicitly and skipped rather than guessed.
+  control the scheduled check. **Installed Driver Versions** lists the detected
+  package and version for each installed driver when the check runs. Unknown
+  versions are shown explicitly and skipped rather than guessed.
 
 For a driver-only customer, create a site in the
-[Driver Licensing Portal](https://drivers.smartbuildos.io/driver-portal) and paste
-its one-time code into **Pairing Code**. Eligible unlicensed drivers start a
-seven-day trial on their first licensing check-in. At expiry, licensed features
-stop until the Agent refreshes a valid license. Read-only security and weather
-awareness remain available where supported.
+[Driver Licensing Portal](https://drivers.smartbuildos.io/driver-portal) and
+paste its one-time code into **Pairing Code**. Eligible unlicensed drivers start
+a seven-day trial on their first licensing check-in. At expiry, licensed
+features stop until the Agent refreshes a valid license. Read-only security and
+weather awareness remain available where supported.
 
 ## Programming
 
