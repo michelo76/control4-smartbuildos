@@ -1,0 +1,220 @@
+<devicedata>
+  <name>SmartBuildOS Logic Pack</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Logic Pack</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/09/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional><id>1</id><name>COUNTER_SLOT_1</name><type>NUMBER</type><condition_statement>Counter slot 1</condition_statement><description>NAME counter slot 1 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>2</id><name>COUNTER_SLOT_2</name><type>NUMBER</type><condition_statement>Counter slot 2</condition_statement><description>NAME counter slot 2 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>3</id><name>COUNTER_SLOT_3</name><type>NUMBER</type><condition_statement>Counter slot 3</condition_statement><description>NAME counter slot 3 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>4</id><name>COUNTER_SLOT_4</name><type>NUMBER</type><condition_statement>Counter slot 4</condition_statement><description>NAME counter slot 4 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>5</id><name>COUNTER_SLOT_5</name><type>NUMBER</type><condition_statement>Counter slot 5</condition_statement><description>NAME counter slot 5 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>6</id><name>COUNTER_SLOT_6</name><type>NUMBER</type><condition_statement>Counter slot 6</condition_statement><description>NAME counter slot 6 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>7</id><name>COUNTER_SLOT_7</name><type>NUMBER</type><condition_statement>Counter slot 7</condition_statement><description>NAME counter slot 7 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>8</id><name>COUNTER_SLOT_8</name><type>NUMBER</type><condition_statement>Counter slot 8</condition_statement><description>NAME counter slot 8 is LOGIC INTEGER</description><minimum>-1000000000</minimum><maximum>1000000000</maximum></conditional>
+    <conditional><id>9</id><name>FLAG_SET</name><type>STRING</type><condition_statement>Flag is set (type the flag key; = set, != not set)</condition_statement><description>NAME flag LOGIC STRING is set</description></conditional>
+    <conditional><id>10</id><name>STATE_IS</name><type>STRING</type><condition_statement>Current state</condition_statement><description>NAME state LOGIC STRING</description></conditional>
+    <conditional><id>11</id><name>TIMER_RUNNING</name><type>STRING</type><condition_statement>Timer is running (type the timer key; = running, != not running)</condition_statement><description>NAME timer LOGIC STRING is running</description></conditional>
+    <conditional><id>12</id><name>ONCE_TODAY_DONE</name><type>STRING</type><condition_statement>Once-per-day already passed today (type the key; = passed, != not yet)</condition_statement><description>NAME once-per-day LOGIC STRING passed today</description></conditional>
+    <conditional>
+      <id>13</id>
+      <name>PACK_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Logic Pack is active (not read-only)</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>active</true_text>
+      <false_text>read-only</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>COUNTER_1</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>COUNTER_2</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>COUNTER_3</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>COUNTER_4</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>COUNTER_5</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>COUNTER_6</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>COUNTER_7</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>COUNTER_8</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3010</id><name>CURRENT_STATE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3011</id><name>PREVIOUS_STATE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3012</id><name>LAST_TRIGGER_KEY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3013</id><name>LAST_TIMER_KEY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3014</id><name>LAST_TIMER_LATE</name><type>STRING</type><default>False</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3015</id><name>LAST_COUNTER_KEY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3016</id><name>LAST_COUNTER_VALUE</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3017</id><name>LAST_FLAG_KEY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3018</id><name>LAST_FLAG_VALUE</name><type>STRING</type><default>False</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3019</id><name>ONCE_KEY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3020</id><name>PACK_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Debounced Trigger</name><description>A Debounce key stayed quiet for its window (LAST_TRIGGER_KEY says which)</description></event>
+    <event><id>2</id><name>Throttled Trigger</name><description>A Throttle key fired (LAST_TRIGGER_KEY says which)</description></event>
+    <event><id>3</id><name>Once Per Day Passed</name><description>A Once Per Day key passed for the first time today (ONCE_KEY says which)</description></event>
+    <event><id>4</id><name>Timer Expired</name><description>A named timer expired (LAST_TIMER_KEY says which; LAST_TIMER_LATE is True after a restart)</description></event>
+    <event><id>5</id><name>State Changed</name><description>The state machine moved (CURRENT_STATE and PREVIOUS_STATE)</description></event>
+    <event><id>6</id><name>Counter Changed</name><description>A counter changed (LAST_COUNTER_KEY and LAST_COUNTER_VALUE)</description></event>
+    <event><id>7</id><name>Flag Changed</name><description>A flag was set or cleared (LAST_FLAG_KEY and LAST_FLAG_VALUE)</description></event>
+    <event><id>8</id><name>Pack Read-Only</name><description>The SmartBuildOS licence halted the pack: commands are refused, reads still work</description></event>
+    <event><id>9</id><name>Pack Restored</name><description>The pack is active again after a read-only period</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print State</name><command>PRINT_STATE</command></action>
+      <action><name>Reset All Counters</name><command>RESET_COUNTERS_ACTION</command></action>
+      <action><name>Clear All Flags</name><command>RESET_FLAGS_ACTION</command></action>
+      <action><name>Cancel All Timers</name><command>CANCEL_TIMERS_ACTION</command></action>
+      <action><name>Reset Everything</name><command>RESET_EVERYTHING_ACTION</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>INCREMENT_COUNTER</name>
+        <description>Add BY (default 1) to the counter named KEY</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>BY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>DECREMENT_COUNTER</name>
+        <description>Subtract BY (default 1) from the counter named KEY</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>BY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>SET_COUNTER</name>
+        <description>Set the counter named KEY to VALUE</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RESET_COUNTER</name>
+        <description>Set the counter named KEY back to 0</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>SET_FLAG</name>
+        <description>Set the flag named KEY</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>CLEAR_FLAG</name>
+        <description>Clear the flag named KEY</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>TOGGLE_FLAG</name>
+        <description>Toggle the flag named KEY</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>SET_STATE</name>
+        <description>Move the state machine to STATE (fires State Changed only when it differs)</description>
+        <params>
+          <param><name>STATE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>DEBOUNCE</name>
+        <description>Restart the quiet timer for KEY; Debounced Trigger fires once KEY has been quiet for MILLISECONDS</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>MILLISECONDS</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>THROTTLE</name>
+        <description>Fire Throttled Trigger for KEY now unless it fired within the last MILLISECONDS</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>MILLISECONDS</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>ONCE_PER_DAY</name>
+        <description>Fire Once Per Day Passed for KEY the first time today (local calendar day)</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>START_TIMER</name>
+        <description>Start (or restart) the timer named KEY; Timer Expired fires after SECONDS</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+          <param><name>SECONDS</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>CANCEL_TIMER</name>
+        <description>Cancel the timer named KEY (nothing fires)</description>
+        <params>
+          <param><name>KEY</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>RESET_ALL</name>
+        <description>Reset counters, flags, timers or everything</description>
+        <params>
+          <param><name>WHAT</name><type>LIST</type><items><item>Counters</item><item>Flags</item><item>Timers</item><item>Everything</item></items></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Pack Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Summary</name><type>STRING</type><default>nothing yet</default><readonly>true</readonly></property>
+      <property><name>Last Trigger</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Counter Slot 1 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 2 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 3 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 4 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 5 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 6 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 7 Key</name><type>STRING</type><default></default></property>
+      <property><name>Counter Slot 8 Key</name><type>STRING</type><default></default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

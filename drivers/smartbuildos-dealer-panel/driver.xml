@@ -1,0 +1,285 @@
+<devicedata>
+  <name>SmartBuildOS Dealer Settings</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Dealer Settings</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/09/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <small image_source="c4z">www/icons/device_sm.png</small>
+  <large image_source="c4z">www/icons/device_lg.png</large>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>SETTING_1_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 1 value</condition_statement>
+      <description>NAME setting 1 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>SETTING_2_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 2 value</condition_statement>
+      <description>NAME setting 2 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>SETTING_3_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 3 value</condition_statement>
+      <description>NAME setting 3 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>SETTING_4_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 4 value</condition_statement>
+      <description>NAME setting 4 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>5</id>
+      <name>SETTING_5_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 5 value</condition_statement>
+      <description>NAME setting 5 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>6</id>
+      <name>SETTING_6_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 6 value</condition_statement>
+      <description>NAME setting 6 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>7</id>
+      <name>SETTING_7_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 7 value</condition_statement>
+      <description>NAME setting 7 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>8</id>
+      <name>SETTING_8_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 8 value</condition_statement>
+      <description>NAME setting 8 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>9</id>
+      <name>SETTING_9_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 9 value</condition_statement>
+      <description>NAME setting 9 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>10</id>
+      <name>SETTING_10_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 10 value</condition_statement>
+      <description>NAME setting 10 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>11</id>
+      <name>SETTING_11_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 11 value</condition_statement>
+      <description>NAME setting 11 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>12</id>
+      <name>SETTING_12_IS</name>
+      <type>STRING</type>
+      <condition_statement>Setting 12 value</condition_statement>
+      <description>NAME setting 12 is LOGIC STRING</description>
+    </conditional>
+    <conditional>
+      <id>13</id>
+      <name>PANEL_WRITABLE</name>
+      <type>BOOL</type>
+      <condition_statement>Dealer panel accepts writes</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>writable</true_text>
+      <false_text>read-only</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>PANEL_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>SETTINGS_CONFIGURED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>CHANGED_SETTING</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>CHANGED_VALUE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>SETTING_1</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>SETTING_1_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>SETTING_1_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>SETTING_2</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3008</id><name>SETTING_2_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3009</id><name>SETTING_2_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3010</id><name>SETTING_3</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3011</id><name>SETTING_3_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3012</id><name>SETTING_3_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3013</id><name>SETTING_4</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3014</id><name>SETTING_4_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3015</id><name>SETTING_4_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3016</id><name>SETTING_5</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3017</id><name>SETTING_5_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3018</id><name>SETTING_5_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3019</id><name>SETTING_6</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3020</id><name>SETTING_6_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3021</id><name>SETTING_6_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3022</id><name>SETTING_7</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3023</id><name>SETTING_7_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3024</id><name>SETTING_7_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3025</id><name>SETTING_8</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3026</id><name>SETTING_8_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3027</id><name>SETTING_8_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3028</id><name>SETTING_9</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3029</id><name>SETTING_9_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3030</id><name>SETTING_9_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3031</id><name>SETTING_10</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3032</id><name>SETTING_10_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3033</id><name>SETTING_10_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3034</id><name>SETTING_11</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3035</id><name>SETTING_11_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3036</id><name>SETTING_11_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3037</id><name>SETTING_12</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3038</id><name>SETTING_12_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3039</id><name>SETTING_12_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Setting Changed</name><description>A dealer setting changed (see CHANGED_SETTING and CHANGED_VALUE)</description></event>
+    <event><id>2</id><name>Setting Change Refused</name><description>A write was refused: wrong value for its type, no Dealer PIN, wrong PIN, locked or unlicensed</description></event>
+    <event><id>3</id><name>Panel Locked</name><description>Too many wrong PINs: the panel refuses writes for a minute</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Settings</name><command>PRINT_SETTINGS</command></action>
+      <action><name>Reload Web View URL</name><command>RELOAD_URL</command></action>
+      <action><name>Reset PIN Lock</name><command>RESET_LOCK</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>SET_SETTING</name>
+        <description>Set a dealer setting by name (Toggle: On/Off; Choice: one of its options)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>TOGGLE_SETTING</name>
+        <description>Flip a Toggle setting by name</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Panel Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Last Change</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Dealer PIN</name><type>STRING</type><password>true</password><default></default></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default></property>
+      <property><name>Setting 1 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 1 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 1 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 1 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 2 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 2 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 2 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 2 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 3 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 3 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 3 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 3 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 4 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 4 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 4 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 4 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 5 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 5 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 5 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 5 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 6 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 6 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 6 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 6 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 7 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 7 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 7 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 7 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 8 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 8 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 8 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 8 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 9 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 9 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 9 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 9 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 10 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 10 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 10 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 10 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 11 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 11 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 11 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 11 Options</name><type>STRING</type><default></default></property>
+      <property><name>Setting 12 Name</name><type>STRING</type><default></default></property>
+      <property><name>Setting 12 Type</name><type>LIST</type><items><item>Number</item><item>Toggle</item><item>Text</item><item>Choice</item></items><default>Number</default><description>Number uses Options as a range (0..100), Choice uses Options as the list of choices, Toggle is On/Off, Text is free text.</description></property>
+      <property><name>Setting 12 Value</name><type>STRING</type><default></default></property>
+      <property><name>Setting 12 Options</name><type>STRING</type><default></default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Dealer Settings" primary="True" image_source="c4z" large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-dealer-panel/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-dealer-panel/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-dealer-panel/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-dealer-panel/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-dealer-panel/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-dealer-panel/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -1,0 +1,109 @@
+<devicedata>
+  <name>SmartBuildOS Usage Analytics</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Usage Analytics</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/09/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>MEASURING_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Measuring is active</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>measuring</true_text>
+      <false_text>not measuring</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>AGENT_READY</name>
+      <type>BOOL</type>
+      <condition_statement>SmartBuildOS Agent link is ready</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>ready</true_text>
+      <false_text>not ready</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>MEASURING_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>AGENT_CONNECTION</name><type>STRING</type><default>waiting_for_agent</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>MEDIA_HOURS_TODAY</name><type>STRING</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>LIGHT_HOURS_TODAY</name><type>STRING</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>KEYPAD_PRESSES_TODAY</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>DAYS_RECORDED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>SOURCES</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>BUFFERED_EVENTS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3008</id><name>DROPPED_EVENTS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3009</id><name>LAST_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Measuring Degraded</name><description>Measuring lost the Agent, the licence or its sources (see Last Error)</description></event>
+    <event><id>2</id><name>Measuring Restored</name><description>Measuring is healthy again after a degraded period</description></event>
+    <event><id>3</id><name>Daily Summary Sent</name><description>Yesterday's usage summary was handed to the SmartBuildOS Agent for upload</description></event>
+    <event><id>4</id><name>Agent Connected</name><description>The driver registered with the SmartBuildOS Agent</description></event>
+    <event><id>5</id><name>Agent Disconnected</name><description>The driver lost its registration with the SmartBuildOS Agent</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Usage Report</name><command>PRINT_REPORT</command></action>
+      <action><name>Print Sources</name><command>PRINT_SOURCES</command></action>
+      <action><name>Refresh Sources</name><command>REFRESH_SOURCES</command></action>
+      <action><name>Send Summary Now</name><command>SEND_SUMMARY</command></action>
+      <action><name>Reset Statistics</name><command>RESET_STATISTICS</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>SEND_USAGE_SUMMARY</name>
+        <description>Send a usage summary for a range of days to SmartBuildOS (1, 7 or 30)</description>
+        <params>
+          <param><name>DAYS</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Measuring Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Agent Link</name><type>STRING</type><default>Looking for the SmartBuildOS Agent</default><readonly>true</readonly></property>
+      <property><name>Agent Connection</name><type>STRING</type><default>waiting_for_agent</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Sources</name><type>STRING</type><default>not planned yet</default><readonly>true</readonly></property>
+      <property><name>Today</name><type>STRING</type><default>nothing yet</default><readonly>true</readonly></property>
+      <property><name>Days Recorded</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Daily Summary</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Buffered Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Dropped Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Upload</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Measuring</name><type>LIST</type><items><item>On</item><item>Off</item></items><default>On</default><description>Off releases every listener and subscription; recorded days are kept.</description></property>
+      <property><name>Report Range</name><type>LIST</type><items><item>Today</item><item>7 days</item><item>30 days</item></items><default>7 days</default><description>The range Print Usage Report covers.</description></property>
+      <property><name>Exclude Device IDs</name><type>STRING</type><default></default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

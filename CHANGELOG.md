@@ -20,8 +20,68 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Added
+### Fixed
+- **Dealer PIN property type** (Dealer Settings Panel, Live Variable Inspector): `<type>PASSWORD</type>` made Composer Pro 2026.10.14 raise "Property Invalid … Object reference not set to an instance of an object" when the driver was added; it is now `<type>STRING</type><password>true</password>`, the form every other password property in this repo uses. Measured on Beta Site 2, 9 Nov 2026.
 
+- **Agent discovery for every dependent driver.** Since the Agent moved to
+  Composer's Agents panel (`<agent>true</agent>`, PR #31) it is no longer in
+  `C4:GetDevices`, so every SmartBuildOS driver read "No SmartBuildOS Agent
+  Found" while the Agent sat paired and connected (measured on Beta Site 2,
+  OS 4.3, 2026-11-09). `sbos.license` now finds the Agent in three tiers —
+  project devices, `C4:GetDevicesByC4iName("smartbuildos.c4z")`, then the
+  `GetProjectItems("AGENTS")` list (last `<id>` before the Agent's `<c4i>`)
+  — and `sbos.mirror`, System Link and Atmosphere delegate to it instead of
+  carrying their own copy of the old rule.
+- **Composer listing of proxy-less drivers.** Flight Recorder and Event
+  Tracer declare `<combo>true</combo>`; without it Composer imports a
+  proxy-less `lua_gen` driver and never lists it in Items → Search.
+
+### Added
+- **Studio operations for the Event Tracer and Usage Analytics** (Agent `MODULE_COMMANDS`): `event_tracer` (apply_policy, pause, resume, reapply, refresh_status) and `usage_analytics` (send_summary, reapply, refresh_status), mirroring the web repo's `MODULE_OPERATIONS`. An older Agent refuses them by name.
+- **Event Tracer: a Studio policy is written into the Composer properties.** `apply_policy` merges the keys sent over the running policy, refuses the whole change if any value is invalid, updates the properties and applies; it survives a reload and a later Composer edit wins. `tracer.applied` now reports the running policy (`payload.policy`) for Studio.
+
+- **Dealer tooling batch** (new, 8 drivers, `docs/driver-batch-20261109.md`),
+  every one licensed through the Agent by its own SKU: **Home Guide**
+  (`smartbuildos-user-manual`, SBOS_USER_MANUAL) — a personalised manual
+  generated from the project in a Navigator web view; **Guest Mode**
+  (`smartbuildos-guest-mode`, SBOS_GUEST_MODE) — iCal short-let calendars →
+  stay states, events, per-stay PIN variable; **Usage Analytics**
+  (`smartbuildos-usage-analytics`, SBOS_USAGE_ANALYTICS, module
+  `usage_analytics`, prefix `usage.`) — media hours, light on-hours, keypad
+  presses, daily rollups uploaded through the Agent; **Notification Router**
+  (`smartbuildos-notification-router`, SBOS_NOTIFICATION_ROUTER) — Telegram,
+  Pushover, Slack/Discord webhook, generic webhook, Twilio SMS with quiet
+  hours, dedupe, rate limits, retries; **Logic Pack**
+  (`smartbuildos-logic-pack`, SBOS_LOGIC_PACK) — counters, flags, state
+  machine, debounce, throttle, once-per-day, named timers for Composer
+  programming; **Solar Position** (`smartbuildos-solar`, SBOS_SOLAR) — NOAA
+  sun elevation/azimuth, day phases, four facades with hysteresis; **Dealer
+  Settings** (`smartbuildos-dealer-panel`, SBOS_DEALER_PANEL) — twelve
+  dealer-defined settings as variables, editable from a PIN-gated web view;
+  **Variable Inspector** (`smartbuildos-variable-inspector`,
+  SBOS_VARIABLE_INSPECTOR) — live device variables, watch list with history,
+  PIN-gated Set. Web views follow Atmosphere's relay pattern (ports
+  47821–47823). 1,018 new test checks; **no hardware validation yet**.
+- **Build guard** `test/test_driver_require_guard.lua`: every src `require`
+  in a driver.lua must be at module scope, or the squish step leaves the
+  module out of the .c4z (the tracer shipped without its catalogue this way).
+
+- **Event Tracer** (new): `smartbuildos-event-tracer` captures every Composer
+  event every device in the project fires, with no configuration, and keeps
+  the sequence in a local ring (printable from Composer without a Pro session)
+  and as `capture.event` envelopes through the Agent's pipeline. Event ids come
+  from a three-tier catalogue — the project XML (bench PROBE), a built-in table
+  generated from the dealer's driver library (`tools/gen-event-catalog.py`:
+  187 drivers, 1,303 events), and ids learned at run time from opt-in probe
+  subscriptions. Storm detection (one warning, then counted not recorded),
+  upload budget (the local ring is not budgeted), subscription cap with
+  per-device coverage, exclusions, Composer markers (`MARK_TIMELINE`),
+  pause/resume, Studio commands. Licensing: `SBOS_EVENT_TRACER` through the
+  Agent; a definitive denial with enforcement on releases every subscription.
+  Envelope prefixes `capture.` / `tracer.` owned by `event_tracer`. **No
+  hardware validation yet** — `docs/event-tracer/VERIFICATION.md` lists the
+  bench plan; the first question is whether `GetProjectItems` without
+  `LIMIT_DEVICE_DATA` carries `<events>`.
 - **System Link** (new, 7 drivers): `smartbuildos-system-link` bridge links two
   Control4 projects through SmartBuildOS — each project owns its shared
   variables (BOOLEAN/INTEGER/DECIMAL/STRING/CHOICE), the other sees read-only
