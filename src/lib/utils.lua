@@ -105,6 +105,9 @@ function GetDriverVersion(filename)
   if not IsEmpty(fromFile) then
     return fromFile
   end
+  if filename ~= "smartbuildos.c4z" then
+    return nil -- this API can only report the calling Agent
+  end
   local ok, reported = pcall(function()
     return C4:GetDriverConfigInfo("version")
   end)
