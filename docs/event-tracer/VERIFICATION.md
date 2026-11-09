@@ -105,3 +105,33 @@ covers before anything else is worth measuring.
 ## Bench 2026-11-09 07:05–07:25 — Beta Site 2 (OS 4.3), room Smartbuildps (id 318)
 
 Agent Link `Agent device 72 – registered`, Agent Connection `ready` (the three-tier discovery fix works against the Agents-panel Agent). License Status `Licensing Not Yet Enforced`, tier `Enterprise`, company painted. Capture Status `capturing`. Coverage `1000 subscriptions on 34 of 174 devices; 1 excluded`; Catalogue `project: 0 device(s) → 0 subs; built-in: 187 driver(s)…` (the module-scope require fix shipped the catalogue; OS 4.3 still strips `<events>` from the project XML). Events Captured 0 at 07:18 with Last Upload 07:07:17. Probe Unknown Drivers was still On, so the 1,000 cap is the probe (32 × ~32 unknown devices): turn the probe off or raise Max Subscriptions before reading real coverage.
+
+## Bench 2026-11-09 18:12 — Agent and Event Tracer updated to 20261109.203405
+
+Composer's title bar was checked first: "Beta Site 2 (Smartbuildos) (Local)".
+Both packages were imported from `dist/oss/` through Add or Update Driver or
+Agent; Composer answered "Versions are equal — overwrite?" for each (its own
+comparison, although the folder copy was the morning's 060825) and **Yes**
+updated the file and the running instance.
+
+- **Agent**: Agent Version `20261109.203405`, Pairing State `Paired`, Cloud
+  Connection State `Connected`, licence check `OK` at 18:12. Pairing survived
+  the update.
+- **Event Tracer** (device 454): Driver Version `20261109.203405`, Capture
+  Status `capturing`, Agent Link `Agent device 72 – registered`, Agent
+  Connection `ready`, Last Upload 18:13:47, Last Capture Error `none`.
+- **Bench row 8 (reload / update), first half: PASS.** After the update
+  *Last Event* still read `Samsung TV: Event 2 (07:25:37)`: the ring was
+  restored across the driver update. *Events Captured* restarted at 0, which
+  is the per-start counter, not the ring.
+- **Bench rows 3 and 4, partial.** That restored entry is an event captured
+  on hardware this morning from a PROBE subscription (unnamed, "Event 2"), so
+  registering probe ids delivered a real event and did not disturb Director
+  over eleven hours. Named first-party events are still unverified.
+- Coverage `1000 subscriptions on 35 of 186 devices; 1 excluded`: Probe
+  Unknown Drivers is still On and still fills the cap. Real coverage needs
+  the probe off or a higher limit.
+
+Not exercised: a Studio-sent `apply_policy` against this build (the web side
+is not deployed), and the policy report in `tracer.applied` as Studio reads
+it.

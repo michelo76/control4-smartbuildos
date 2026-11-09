@@ -283,7 +283,8 @@ SmartBuildOS tools). Web suite 10,375 / 10,375; nothing merged, no migration
 applied, nothing deployed.
 
 Driver changes that go with it (this branch, suite 85 files / 4,702 checks,
-packages rebuilt as `20261109.203405` in `dist/oss/`, NOT yet re-imported
-into Composer): the Agent's `MODULE_COMMANDS` gained the two modules, and
+packages rebuilt as `20261109.203405` in `dist/oss/`; the Agent and the Event
+Tracer from that build were imported on the bench at 18:12 the same day, see
+`docs/event-tracer/VERIFICATION.md`): the Agent's `MODULE_COMMANDS` gained the two modules, and
 the Event Tracer writes a Studio policy into its Composer properties and
 reports its running policy in `tracer.applied`.
