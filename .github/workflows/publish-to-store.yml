@@ -75,7 +75,7 @@ jobs:
           sku_for() {
             case "$1" in
               smartbuildos.c4z) echo SBOS_AGENT ;;
-              smartbuildos-system-link.c4z|smartbuildos-system-link-{contact,light,relay,shade,temperature,thermostat}.c4z) echo SBOS_SYSTEM_LINK ;;
+              smartbuildos-system-link.c4z|smartbuildos-system-link-contact.c4z|smartbuildos-system-link-light.c4z|smartbuildos-system-link-relay.c4z|smartbuildos-system-link-shade.c4z|smartbuildos-system-link-temperature.c4z|smartbuildos-system-link-thermostat.c4z) echo SBOS_SYSTEM_LINK ;;
               unifi-protect.c4z|unifi-protect-camera.c4z|unifi-protect-light.c4z|unifi-protect-sensor.c4z|unifi-protect-viewport.c4z) echo SBOS_UNIFI_PROTECT ;;
               smartbuildos-mode-composer.c4z|smartbuildos-mode-button.c4z) echo SBOS_MODE_COMPOSER ;;
               smartbuildos-atmosphere.c4z) echo SBOS_ATMOSPHERE ;;
