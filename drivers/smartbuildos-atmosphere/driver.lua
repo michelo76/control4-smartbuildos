@@ -977,14 +977,14 @@ function runEngine(reason, alertsResult)
     log:info("Event: %s%s", name, snapshot.simulation and " [SIMULATION]" or "")
     fireEvent(name)
   end
-  if not snapshot.simulation then
+  if not snapshot.simulation and not license.enforces() then
     forwardHealthEvents(events)
   end
   -- Cloud state mirror: ask the Agent to republish our state (it fetches
   -- from our relay on localhost and POSTs with its bearer auth).
   -- askCloudMirror is a GLOBAL assigned in the relay section below —
   -- defined by the time any engine run happens (LateInit onward).
-  if askCloudMirror ~= nil then
+  if askCloudMirror ~= nil and not license.enforces() then
     askCloudMirror(#events > 0)
   end
   publishVariables(snapshot)
@@ -1003,6 +1003,9 @@ end
 -- ─── Simulation control ───────────────────────────────────────────────────────
 
 local function startSimulation(scenario)
+  if license.enforces() then
+    return false
+  end
   local data = simulator.build(scenario, nowUtc())
   if data == nil then
     log:warn("Unknown simulation scenario: %s", tostring(scenario))
@@ -1052,6 +1055,9 @@ local function uiGetState()
 end
 
 local function uiSetSettings(tParams)
+  if license.enforces() then
+    return '{"ok":false,"error":"License required"}'
+  end
   local raw = tParams ~= nil and tParams.SETTINGS or nil
   if raw == nil then
     return '{"ok":false,"error":"no SETTINGS param"}'

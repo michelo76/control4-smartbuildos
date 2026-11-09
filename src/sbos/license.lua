@@ -23,6 +23,11 @@ local log = require("lib.logging")
 
 local M = {}
 
+-- A trial already granted must still expire after a reboot or Agent outage.
+-- Paid/otherwise valid responses clear this marker; an uncertain response
+-- never resets the clock.
+local TRIAL_MARKER = "sbos_license_trial_deadline"
+
 --- Statuses the Agent can answer with (charter vocabulary, fixed).
 M.STATUSES = {
   AUTHORIZED_SUBSCRIPTION = true,
@@ -159,20 +164,20 @@ end
 --- Relationship first — no Agent, or an Agent not linked to a registered
 --- company (#5), or linked but not yet answered — then the license state.
 local function relationshipLabel()
-  if not state.agentPresent then
+  if not state.agentPresent and not state.trialExpires then
     return REL_NO_AGENT
   end
-  if state.registrationKnown and not state.registered then
+  if state.registrationKnown and not state.registered and not state.trialExpires then
     return REL_NOT_LINKED
   end
-  if not state.answered then
+  if not state.answered and not state.trialExpires then
     return REL_CHECKING
   end
-  local label = LABELS[state.status] or state.status
+  local label = LABELS[M.status()] or M.status()
   if state.status == "AUTHORIZED_GRACE" and state.graceUntil ~= "" then
     label = label .. " (until " .. state.graceUntil .. ")"
   end
-  if state.enforcement == "enforce" and DEFINITIVE_DENY[state.status] then
+  if state.enforcement == "enforce" and DEFINITIVE_DENY[M.status()] then
     -- Enforcement is live AND the account is definitively unlicensed: make
     -- the READ-ONLY consequence explicit, not just the status.
     label = label .. " (read-only)"
@@ -200,11 +205,11 @@ function M.register()
   if agent == nil then
     -- Absent Agent = the one state that must be LOUD but not (yet)
     -- enforcement: existing installs predate the Agent requirement.
-    state.status = "LEGACY"
+    if not state.trialExpires then
+      state.status = "LEGACY"
+    end
     state.answered = false
-    pcall(function()
-      UpdateProperty(state.statusProperty, REL_NO_AGENT)
-    end)
+    publishStatus()
     log:warn("SmartBuildOS Agent not found in this project - install smartbuildos.c4z")
     return false
   end
@@ -243,6 +248,21 @@ function M.onEntitlement(tParams)
     log:warn("Unknown entitlement status '%s' - treating as CLOUD_VALIDATION_REQUIRED", status)
     status = "CLOUD_VALIDATION_REQUIRED"
   end
+  local expiry = tonumber(tParams.trial_expires_epoch)
+  local enforced = tostring(tParams.enforcement or "") == "enforce"
+  if enforced and (status == "TRIAL" or status == "ENTITLEMENT_EXPIRED") and expiry then
+    state.trialExpires = expiry
+    pcall(PersistSetValue, TRIAL_MARKER, tostring(expiry), true)
+  elseif
+    state.trialExpires
+    and (status == "CLOUD_VALIDATION_REQUIRED" or status == "AGENT_UNAUTHENTICATED" or status == "LEGACY")
+  then
+    -- Keep using the last known trial while the cloud cannot validate.
+    return
+  elseif status == "AUTHORIZED_SUBSCRIPTION" or status == "AUTHORIZED_PERPETUAL" or status == "AUTHORIZED_GRACE" then
+    state.trialExpires = nil
+    pcall(PersistDeleteValue, TRIAL_MARKER)
+  end
   state.status = status
   state.answered = true
   state.licenseType = tostring(tParams.license_type or "")
@@ -274,12 +294,21 @@ function M.setup(opts)
       state.version = tostring(C4:GetDriverConfigInfo("version"))
     end)
   end
+  local ok, stored = pcall(PersistGetValue, TRIAL_MARKER, true)
+  if ok and tonumber(stored) then
+    state.trialExpires = tonumber(stored)
+    state.status = "TRIAL"
+    state.enforcement = "enforce"
+  end
   publishStatus()
   M.register()
 end
 
 --- Current status string (charter vocabulary, or LEGACY before any answer).
 function M.status()
+  if state.trialExpires and os.time() >= state.trialExpires then
+    return "ENTITLEMENT_EXPIRED"
+  end
   return state.status
 end
 
@@ -287,7 +316,7 @@ end
 --- Drivers that adopt enforcement consult this; today every shipped driver
 --- treats false as "warn loudly", per the migration plan.
 function M.isOperational()
-  return OPERATIONAL[state.status] == true
+  return OPERATIONAL[M.status()] == true
 end
 
 --- The enforcement gate. Returns true ONLY when the server has turned
@@ -300,7 +329,7 @@ end
 --- — is false. Enforcement is opt-in by the server and blind to uncertainty.
 --- @return boolean
 function M.enforces()
-  return state.enforcement == "enforce" and DEFINITIVE_DENY[state.status] == true
+  return state.enforcement == "enforce" and DEFINITIVE_DENY[M.status()] == true
 end
 
 --- The current server-set enforcement mode ("observe" | "enforce").
@@ -310,7 +339,7 @@ end
 
 --- A human line for the property/log when enforcement denies an action.
 function M.enforcementReason()
-  local label = LABELS[state.status] or state.status
+  local label = LABELS[M.status()] or M.status()
   return string.format("%s - control disabled until licensed", label)
 end
 
@@ -390,6 +419,7 @@ function M._reset()
   state.graceUntil = ""
   state.checkedAt = ""
   state.enforcement = "observe"
+  state.trialExpires = nil
   state.statusProperty = "License Status"
 end
 

@@ -303,5 +303,34 @@ check(
   props["License Status"]
 )
 
+-- An active trial can expire offline, including after a driver reboot and
+-- while the Agent is unreachable. A real license must immediately restore it.
+local realTime = os.time
+local now = 100000
+os.time = function()
+  return now
+end
+license.onEntitlement({
+  sku = "SBOS_UNIFI_PROTECT",
+  status = "TRIAL",
+  license_type = "TRIAL",
+  enforcement = "enforce",
+  trial_expires_epoch = tostring(now + 1),
+})
+check("trial remains operational before its deadline", license.isOperational() and not license.enforces())
+now = now + 1
+check("trial stops licensed controls at the exact deadline", license.enforces() and not license.isOperational())
+license._reset()
+license.setup({ sku = "SBOS_UNIFI_PROTECT" })
+check("expired trial survives a reboot with no Agent", license.enforces())
+license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = "CLOUD_VALIDATION_REQUIRED" })
+check("cloud uncertainty cannot restart an expired trial", license.enforces())
+license.onEntitlement({ sku = "SBOS_UNIFI_PROTECT", status = "AUTHORIZED_PERPETUAL", enforcement = "enforce" })
+check("purchase restores operation", license.isOperational() and not license.enforces())
+license._reset()
+license.setup({ sku = "SBOS_UNIFI_PROTECT" })
+check("purchase clears persisted trial expiry", not license.enforces())
+os.time = realTime
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

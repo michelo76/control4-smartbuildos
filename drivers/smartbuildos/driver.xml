@@ -427,6 +427,12 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>Installed Driver Versions</name>
+        <type>STRING</type>
+        <default>Run Update Drivers to check installed versions</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
         <name>Last Successful Sync</name>
         <type>STRING</type>
         <default>Never</default>
