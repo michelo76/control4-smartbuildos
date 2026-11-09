@@ -1,0 +1,41 @@
+{
+  "comment": "Pinned verdicts shared by src/lib/system-link/schema.ts and the driver's src/systemlink/schema.lua (test/test_systemlink_parity.lua). Change both or neither.",
+  "definitions": [
+    { "id": "d1", "def": { "id": "a", "name": "Away", "type": "BOOLEAN", "owner": "ep-a" }, "ok": true },
+    { "id": "d2", "def": { "id": "b", "name": "Bad name", "type": "STRING", "owner": "ep-a" }, "ok": false },
+    { "id": "d3", "def": { "id": "c", "name": "_lead", "type": "STRING", "owner": "ep-a" }, "ok": false },
+    { "id": "d4", "def": { "id": "d", "name": "Mode", "type": "CHOICE", "owner": "ep-a", "allowed_values": ["Home", "Away", "Home"] }, "ok": false },
+    { "id": "d5", "def": { "id": "e", "name": "Mode", "type": "CHOICE", "owner": "ep-a", "allowed_values": ["Home", "Away"] }, "ok": true },
+    { "id": "d6", "def": { "id": "f", "name": "Temp", "type": "INTEGER", "owner": "ep-a", "min": 10, "max": 5 }, "ok": false },
+    { "id": "d7", "def": { "id": "g", "name": "Temp", "type": "INTEGER", "owner": "ep-a", "min": 1.5 }, "ok": false },
+    { "id": "d8", "def": { "id": "h", "name": "Temp", "type": "DECIMAL", "owner": "ep-a", "precision": 7 }, "ok": false },
+    { "id": "d9", "def": { "id": "i", "name": "Temp", "type": "DECIMAL", "owner": "ep-a", "precision": 1, "filter": { "threshold": 0.5 } }, "ok": true },
+    { "id": "d10", "def": { "id": "j", "name": "Label", "type": "STRING", "owner": "ep-a", "filter": { "threshold": 1 } }, "ok": false },
+    { "id": "d11", "def": { "id": "k", "name": "Label", "type": "STRING", "owner": "ep-a", "max_length": 5000 }, "ok": false },
+    { "id": "d12", "def": { "id": "l", "name": "Label", "type": "STRING", "owner": "ep-a", "filter": { "min_interval_s": 10, "max_silence_s": 5 } }, "ok": false },
+    { "id": "d13", "def": { "id": "m", "name": "X", "type": "FLOAT", "owner": "ep-a" }, "ok": false },
+    { "id": "d14", "def": { "id": "n", "name": "X", "type": "BOOLEAN", "owner": "" }, "ok": false },
+    { "id": "d15", "def": { "id": "o", "name": "Occ", "type": "BOOLEAN", "owner": "ep-a", "freshness": { "max_age_s": 0 } }, "ok": false }
+  ],
+  "values": [
+    { "id": "v1", "def": { "id": "a", "name": "Away", "type": "BOOLEAN", "owner": "ep-a" }, "raw": "on", "ok": true, "value": true },
+    { "id": "v2", "def": { "id": "a", "name": "Away", "type": "BOOLEAN", "owner": "ep-a" }, "raw": "0", "ok": true, "value": false },
+    { "id": "v3", "def": { "id": "a", "name": "Away", "type": "BOOLEAN", "owner": "ep-a" }, "raw": "maybe", "ok": false },
+    { "id": "v4", "def": { "id": "g", "name": "Count", "type": "INTEGER", "owner": "ep-a", "min": 0, "max": 10 }, "raw": "7", "ok": true, "value": 7 },
+    { "id": "v5", "def": { "id": "g", "name": "Count", "type": "INTEGER", "owner": "ep-a", "min": 0, "max": 10 }, "raw": 11, "ok": false },
+    { "id": "v6", "def": { "id": "g", "name": "Count", "type": "INTEGER", "owner": "ep-a" }, "raw": 2.5, "ok": false },
+    { "id": "v7", "def": { "id": "i", "name": "Temp", "type": "DECIMAL", "owner": "ep-a", "precision": 1 }, "raw": "21.26", "ok": true, "value": 21.3 },
+    { "id": "v8", "def": { "id": "i", "name": "Temp", "type": "DECIMAL", "owner": "ep-a" }, "raw": "NaN", "ok": false },
+    { "id": "v9", "def": { "id": "e", "name": "Mode", "type": "CHOICE", "owner": "ep-a", "allowed_values": ["Home", "Away"] }, "raw": "Away", "ok": true, "value": "Away" },
+    { "id": "v10", "def": { "id": "e", "name": "Mode", "type": "CHOICE", "owner": "ep-a", "allowed_values": ["Home", "Away"] }, "raw": "Party", "ok": false },
+    { "id": "v11", "def": { "id": "k", "name": "Label", "type": "STRING", "owner": "ep-a", "max_length": 3 }, "raw": "abcd", "ok": false },
+    { "id": "v12", "def": { "id": "k", "name": "Label", "type": "STRING", "owner": "ep-a" }, "raw": 42, "ok": true, "value": "42" },
+    { "id": "v13", "def": { "id": "k", "name": "Label", "type": "STRING", "owner": "ep-a" }, "raw": "", "ok": true, "value": "" }
+  ],
+  "namespaces": [
+    { "alias": "California Home", "expected": "California_Home" },
+    { "alias": "9 Lives", "expected": "Lives" },
+    { "alias": "!!!", "expected": null },
+    { "alias": "New-York Residence (Guest)", "expected": "New_York_Residence__Gues" }
+  ]
+}

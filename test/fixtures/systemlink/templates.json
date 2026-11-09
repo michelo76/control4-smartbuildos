@@ -1,0 +1,210 @@
+[
+  {
+    "id": "away-home",
+    "title": "Away / Home coordination",
+    "summary": "The owner publishes whether anyone is home; the other project reacts.",
+    "ownerItems": [
+      {
+        "name": "Away",
+        "type": "BOOLEAN",
+        "description": "Nobody is home",
+        "group": "Arrival",
+        "filter": {
+          "debounce_s": 5
+        }
+      },
+      {
+        "name": "System_Mode",
+        "type": "CHOICE",
+        "description": "Presence mode",
+        "group": "Arrival",
+        "allowed_values": [
+          "Home",
+          "Away",
+          "Vacation"
+        ]
+      }
+    ],
+    "peerItems": [],
+    "exports": [],
+    "programming": {
+      "owner": [
+        "When the house goes away \u2192 Set Local Boolean ITEM=Away VALUE=True and Set Local Choice ITEM=System_Mode VALUE=Away.",
+        "When someone arrives \u2192 Set Local Boolean ITEM=Away VALUE=False."
+      ],
+      "peer": [
+        "When <Owner>.Away changed (live) fires and <Owner>.Away is 1 and Remote System Is Ready \u2192 run the unattended scene.",
+        "Guard native variable triggers with Link Is Synchronized."
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "id": "guesthouse-occupancy",
+    "title": "Guesthouse occupancy",
+    "summary": "The guesthouse publishes occupancy and guest count with a stability window.",
+    "ownerItems": [
+      {
+        "name": "Occupied",
+        "type": "BOOLEAN",
+        "description": "Guesthouse occupied",
+        "group": "Guesthouse",
+        "filter": {
+          "debounce_s": 5
+        }
+      },
+      {
+        "name": "Guest_Count",
+        "type": "INTEGER",
+        "description": "Guests expected",
+        "group": "Guesthouse",
+        "min": 0,
+        "max": 50
+      }
+    ],
+    "peerItems": [],
+    "exports": [],
+    "programming": {
+      "owner": [
+        "When motion/occupancy changes \u2192 Set Local Boolean ITEM=Occupied.",
+        "When the guest count is set \u2192 Set Local Integer ITEM=Guest_Count."
+      ],
+      "peer": [
+        "When <Owner>.Occupied changed (live) fires \u2192 adjust HVAC/lighting presets; use Shared Item Is Current before acting."
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "id": "remote-light",
+    "title": "Remote light (native companion)",
+    "summary": "Export one light from the owner and present it natively on the other project.",
+    "ownerItems": [],
+    "peerItems": [],
+    "exports": [
+      {
+        "kind": "light",
+        "name": "Porch_Light",
+        "control": false,
+        "note": "Start view-only; switch to Control allowed after commissioning confirms feedback."
+      }
+    ],
+    "programming": {
+      "owner": [
+        "Programming tab \u2192 System Link \u2192 Export Device: DEVICE=<the light>, NAME=Porch_Light, KIND=light, CONTROL=View only (then Control allowed once verified)."
+      ],
+      "peer": [
+        "Select Porch_Light_Level on the bridge \u2192 Add Companion For Selected Item \u2192 bind the new System Link Light in a room."
+      ]
+    },
+    "sensitive": true
+  },
+  {
+    "id": "remote-thermostat",
+    "title": "Remote thermostat (feature-gated)",
+    "summary": "Export a thermostat natively. Requires the THERMOSTAT feature on the pair licence and hardware validation.",
+    "ownerItems": [],
+    "peerItems": [],
+    "exports": [
+      {
+        "kind": "thermostat",
+        "name": "Hall_Stat",
+        "control": false,
+        "note": "Gated: refused until the licence carries THERMOSTAT. Never pushes cached setpoints on restart."
+      }
+    ],
+    "programming": {
+      "owner": [
+        "Export Device: KIND=thermostat, CONTROL=View only first."
+      ],
+      "peer": [
+        "Add Companion For Selected Item on Hall_Stat_Temperature \u2192 System Link Thermostat."
+      ]
+    },
+    "sensitive": true
+  },
+  {
+    "id": "arrival-request",
+    "title": "Arrival request with result",
+    "summary": "One project asks the other to prepare the home and waits for an explicit result.",
+    "ownerItems": [],
+    "peerItems": [],
+    "exports": [],
+    "programming": {
+      "owner": [
+        "When Request Received fires and <Owner>.Request_1_Routine is Prepare_Home \u2192 run the welcome programming, then Report Request Success SLOT=1 RESULT=done.",
+        "If it cannot run \u2192 Report Request Failure SLOT=1 RESULT=<why>."
+      ],
+      "peer": [
+        "On departure \u2192 Send Remote Request ROUTINE=Prepare_Home PAYLOAD=guests=2 DEADLINE=300.",
+        "When Request Completed fires and Request Slot Status is '1 completed' \u2192 announce; when Request Expired fires \u2192 notify the dealer (the outcome was not confirmed)."
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "id": "readonly-sensors",
+    "title": "Read-only temperature and contact",
+    "summary": "Share a temperature and a door contact as read-only sensors.",
+    "ownerItems": [],
+    "peerItems": [],
+    "exports": [
+      {
+        "kind": "temperature",
+        "name": "Outdoor_Temp",
+        "control": false,
+        "note": "Units are carried as Fahrenheit and Celsius fields."
+      },
+      {
+        "kind": "contact",
+        "name": "Front_Door",
+        "control": false,
+        "note": "A contact is a sensor, not an access-control device."
+      }
+    ],
+    "programming": {
+      "owner": [
+        "Export Device: KIND=temperature NAME=Outdoor_Temp; Export Device: KIND=contact NAME=Front_Door."
+      ],
+      "peer": [
+        "Add Companion For Selected Item on each; bind the Temperature and Contact companions."
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "id": "gate-request",
+    "title": "Gate request with actual feedback",
+    "summary": "Open a gate remotely through a request, and confirm with the gate's own position feedback.",
+    "ownerItems": [
+      {
+        "name": "Gate_Open",
+        "type": "BOOLEAN",
+        "description": "Actual gate position from its sensor",
+        "group": "Gate",
+        "freshness": {
+          "max_age_s": 120
+        }
+      }
+    ],
+    "peerItems": [],
+    "exports": [
+      {
+        "kind": "relay",
+        "name": "Gate_Relay",
+        "control": true,
+        "note": "Pulse only (ops=trigger). Acceptance is not position; Gate_Open is."
+      }
+    ],
+    "programming": {
+      "owner": [
+        "Export Device: KIND=relay NAME=Gate_Relay CONTROL=Control allowed OPS=trigger; Set Export Schedule as required.",
+        "When the gate position sensor changes \u2192 Set Local Boolean ITEM=Gate_Open."
+      ],
+      "peer": [
+        "Add the Relay companion; pulse it. Then wait for <Owner>.Gate_Open changed (live) before announcing 'gate open' \u2014 never on acceptance."
+      ]
+    },
+    "sensitive": true
+  }
+]
