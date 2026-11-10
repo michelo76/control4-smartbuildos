@@ -76,7 +76,7 @@ controller.
    three relays answer `/ping` on the controller's address and the status
    property named a different one, which belongs to another Control4 device.
    `src/lib/relayhost.lua` now publishes only an address the relay itself
-   has answered on. **Built (`224431`) and suite-tested; not yet imported.**
+   has answered on. **Built (`224844`) and suite-tested; not yet imported.**
 
 ## Seen, not changed
 
@@ -105,5 +105,5 @@ Until Composer is back:
 - **Guest Mode is in a manual check-in** from the test (`occupied`,
   open-ended). Run *Clear Manual Override*.
 - **Telegram Inbound is On** on the router.
-- Build `224431` (defect 9, and the media classification) is in `dist/oss`,
+- Build `224844` (defect 9, and the media classification) is in `dist/oss`,
   not on the controller.
