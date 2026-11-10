@@ -545,7 +545,8 @@ function Tracer:_plan(policy)
     probe_range = policy.probe_range,
     max_subscriptions = policy.max_subscriptions,
   }
-  local count = 0
+  -- What each device could be subscribed to, before anything is spent.
+  local pending = {}
   for _, id in ipairs(sortedIds(devices)) do
     local d = devices[id] or devices[tostring(id)]
     local driver = tostring(d.driverFileName or "")
@@ -554,8 +555,9 @@ function Tracer:_plan(policy)
       summary.devices_excluded = summary.devices_excluded + 1
     else
       local events, tier = self.deps.catalog:eventsFor(id, driver)
+      local probe = false
       if next(events) == nil and policy.probe_unknown then
-        tier = "probe"
+        tier, probe = "probe", true
         for eid = 1, policy.probe_range do
           events[eid] = { name = "Event " .. eid, known = false }
         end
@@ -564,41 +566,61 @@ function Tracer:_plan(policy)
         summary.devices_unknown = summary.devices_unknown + 1
         coverage[id] = { label = d.deviceName, driver = driver, tier = nil, events = 0, unsubscribed = 0 }
       else
-        local cov = { label = d.deviceName, driver = driver, tier = tier, events = 0, unsubscribed = 0 }
-        local eids = {}
-        for eid in pairs(events) do
-          eids[#eids + 1] = eid
-        end
-        table.sort(eids)
-        for _, eid in ipairs(eids) do
-          if count < policy.max_subscriptions then
-            count = count + 1
-            cov.events = cov.events + 1
-            summary.by_tier[tier] = (summary.by_tier[tier] or 0) + 1
-            desired[skey(id, eid)] = {
-              device_id = id,
-              event_id = eid,
-              name = events[eid].name,
-              known = events[eid].known,
-              tier = tier,
-              driver = driver,
-              device_label = tostring(d.deviceName or ("Device " .. id)),
-              room_id = tonumber(d.roomId),
-              room_label = d.roomName,
-            }
-          else
-            cov.unsubscribed = cov.unsubscribed + 1
-            summary.unsubscribed_events = summary.unsubscribed_events + 1
-          end
-        end
-        if cov.events > 0 then
-          summary.devices_covered = summary.devices_covered + 1
-        end
-        if cov.unsubscribed > 0 then
-          summary.devices_partial = summary.devices_partial + 1
-        end
-        coverage[id] = cov
+        pending[#pending + 1] = { id = id, d = d, driver = driver, events = events, tier = tier, probe = probe }
       end
+    end
+  end
+  local count = 0
+  local function allocate(p)
+    local id, d, driver, events, tier = p.id, p.d, p.driver, p.events, p.tier
+    local cov = { label = d.deviceName, driver = driver, tier = tier, events = 0, unsubscribed = 0 }
+    local eids = {}
+    for eid in pairs(events) do
+      eids[#eids + 1] = eid
+    end
+    table.sort(eids)
+    for _, eid in ipairs(eids) do
+      if count < policy.max_subscriptions then
+        count = count + 1
+        cov.events = cov.events + 1
+        summary.by_tier[tier] = (summary.by_tier[tier] or 0) + 1
+        desired[skey(id, eid)] = {
+          device_id = id,
+          event_id = eid,
+          name = events[eid].name,
+          known = events[eid].known,
+          tier = tier,
+          driver = driver,
+          device_label = tostring(d.deviceName or ("Device " .. id)),
+          room_id = tonumber(d.roomId),
+          room_label = d.roomName,
+        }
+      else
+        cov.unsubscribed = cov.unsubscribed + 1
+        summary.unsubscribed_events = summary.unsubscribed_events + 1
+      end
+    end
+    if cov.events > 0 then
+      summary.devices_covered = summary.devices_covered + 1
+    end
+    if cov.unsubscribed > 0 then
+      summary.devices_partial = summary.devices_partial + 1
+    end
+    coverage[id] = cov
+  end
+  -- Events the catalogue KNOWS come first; guesses get what is left. In one
+  -- pass by device id, a probe (32 guesses a device) spent the whole budget
+  -- on the first thirty-odd unknown devices and every catalogued device after
+  -- them got nothing: the bench read "1000 subscriptions on 35 of 186
+  -- devices" with the probe on.
+  for _, p in ipairs(pending) do
+    if not p.probe then
+      allocate(p)
+    end
+  end
+  for _, p in ipairs(pending) do
+    if p.probe then
+      allocate(p)
     end
   end
   summary.subscriptions = count
@@ -787,9 +809,25 @@ function Tracer:activeStorms()
   return out
 end
 
+--- When an entry happened, as a dealer reads it: the time, and the day too
+--- when it was not today (the history outlives midnight and driver updates,
+--- and three times with no day read as out of order).
+--- @param t number|nil  epoch seconds
+--- @param now number|nil  epoch seconds, defaults to the clock
+function M.formatWhen(t, now)
+  if t == nil then
+    return "--:--:--"
+  end
+  t = math.floor(t)
+  if os.date("%Y-%m-%d", t) == os.date("%Y-%m-%d", math.floor(now or os.time())) then
+    return os.date("%H:%M:%S", t)
+  end
+  return os.date("%m-%d %H:%M:%S", t)
+end
+
 --- One line per entry for Director's log.
-function M.formatEntry(e)
-  local when = e.t and os.date("%H:%M:%S", math.floor(e.t)) or "--:--:--"
+function M.formatEntry(e, now)
+  local when = M.formatWhen(e.t, now)
   if e.kind == "mark" then
     return string.format(
       "%s  #%d  MARK  %s%s",

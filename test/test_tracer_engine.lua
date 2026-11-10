@@ -168,6 +168,23 @@ check(
 )
 check("ring has the mark", tr:latest().kind == "mark" and tr.counters.marks == 1)
 check("formatEntry for a mark", T.formatEntry(tr:latest()):find("MARK") ~= nil)
+do
+  local noon = os.time({ year = 2026, month = 11, day = 10, hour = 12, min = 0, sec = 0 })
+  local earlier = os.time({ year = 2026, month = 11, day = 10, hour = 7, min = 48, sec = 38 })
+  local yesterday = os.time({ year = 2026, month = 11, day = 9, hour = 7, min = 25, sec = 37 })
+  check("an entry from today shows the time", T.formatWhen(earlier, noon) == "07:48:38", T.formatWhen(earlier, noon))
+  check(
+    "an entry from another day says which day",
+    T.formatWhen(yesterday, noon) == "11-09 07:25:37",
+    T.formatWhen(yesterday, noon)
+  )
+  check("no time is dashes", T.formatWhen(nil, noon) == "--:--:--")
+  check(
+    "formatEntry carries the day",
+    T.formatEntry({ t = yesterday, seq = 1, kind = "mark", event_name = "x", detail = "" }, noon)
+      :find("^11%-09 07:25:37") ~= nil
+  )
+end
 check(
   "formatEntry for an event",
   T.formatEntry(tr:recent(2)[1]):find("Kitchen / Kitchen Pendants: Top Button Pushed", 1, true) ~= nil,
@@ -360,6 +377,58 @@ local tr2 = T.new({
 check("a restored ring continues the sequence", tr2.ring.seq == tr.ring.seq and tr2:latest() ~= nil)
 tr2:apply(T.validatePolicy({ ring_size = 60 }))
 check("apply resizes the ring to the policy", tr2.ring.capacity == 60)
+
+print("== known events are subscribed before probe guesses")
+-- Bench, 10 Nov 2026: with the probe on, the budget went to the first
+-- thirty-odd unknown devices by id and every catalogued device after them
+-- was left out ("1000 subscriptions on 35 of 186 devices").
+do
+  local reg = {}
+  local many = {
+    [999] = { deviceName = "Event Tracer", driverFileName = "smartbuildos-event-tracer.c4z" },
+    [900] = { deviceName = "Front Door", driverFileName = "contact.c4z", roomId = 1, roomName = "Entry" },
+    [901] = { deviceName = "Pendants", driverFileName = "light.c4z", roomId = 3, roomName = "Kitchen" },
+  }
+  for id = 1, 40 do
+    many[id] =
+      { deviceName = "Unknown " .. id, driverFileName = "mystery" .. id .. ".c4z", roomId = 1, roomName = "Entry" }
+  end
+  local tr3 = T.new({
+    now = deps.now,
+    register = function(d, e)
+      reg[d .. ":" .. e] = true
+      return true
+    end,
+    unregister = function(d, e)
+      reg[d .. ":" .. e] = nil
+    end,
+    devices = function()
+      return many
+    end,
+    catalog = Catalog.new({ builtin = builtin }),
+    emit = function() end,
+    selfDeviceId = 999,
+  })
+  local lowest = 20 -- the budget: five known events, fifteen left for guesses
+  local s3, cov3
+  local policy3 = T.validatePolicy({ probe_unknown = true, probe_range = 32, max_subscriptions = lowest })
+  s3 = tr3:apply(policy3)
+  cov3 = tr3.coverage or {}
+  check(
+    "the catalogued devices are fully covered, though their ids come last",
+    reg["900:1"] and reg["900:2"] and reg["901:1"] and reg["901:2"] and reg["901:3"],
+    lowest
+  )
+  check("all five known events counted in their tier", s3.by_tier.builtin == 5, s3.by_tier.builtin)
+  check(
+    "the probe gets exactly what is left of the budget",
+    s3.by_tier.probe == lowest - 5 and s3.subscriptions == lowest,
+    s3.by_tier.probe
+  )
+  check("what the probe could not have is reported, not hidden", s3.unsubscribed_events == 40 * 32 - (lowest - 5))
+  check("probing starts with the lowest device id, as before", reg["1:1"] == true)
+  tr3:stop()
+end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
