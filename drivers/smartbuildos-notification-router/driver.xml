@@ -51,6 +51,7 @@
     <event><id>5</id><name>Rate Limited</name><description>A target reached its hourly limit and a notification was dropped</description></event>
     <event><id>6</id><name>Router Degraded</name><description>Sending stopped: licence enforcement or no target configured</description></event>
     <event><id>7</id><name>Router Restored</name><description>Sending is possible again</description></event>
+    <event><id>8</id><name>Message Variable Missing</name><description>A variable in a notification could not be read and was sent as ? (see the delivery log)</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"></script>
@@ -70,21 +71,29 @@
     <commands>
       <command>
         <name>NOTIFY</name>
-        <description>Send a notification to one target (or all) with a priority</description>
+        <description>Notify PARAM1 (PARAM2): PARAM3 PARAM4</description>
         <params>
           <param><name>CHANNEL</name><type>LIST</type><items><item>All</item><item>Telegram</item><item>Pushover</item><item>Webhook</item><item>Generic Webhook</item><item>Twilio SMS</item></items></param>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
         </params>
       </command>
       <command>
         <name>NOTIFY_ALL</name>
-        <description>Send a notification to every enabled target</description>
+        <description>Notify all targets (PARAM1): PARAM2 PARAM3</description>
         <params>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
         </params>
       </command>
     </commands>

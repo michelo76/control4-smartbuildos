@@ -484,5 +484,168 @@ check("log and today's counts survive a reload", #persisted["nr_log_v1"].log == 
 EC.CLEAR_LOG()
 check("clear log", #persisted["nr_log_v1"].log == 0)
 
+print("[10] message variables: picked in the command, sent as values")
+local deviceVars = {
+  [231] = {
+    ["1000"] = { name = "STATE", value = "1" },
+    ["1001"] = { name = "LAST_USER_CODE", value = "4321" },
+    ["1002"] = { name = "Opened By", value = "Remote" },
+  },
+  [100001] = { ["7"] = { name = "Pool Temp", value = "81.46" } },
+}
+C4.GetDeviceVariables = function(_, id)
+  return deviceVars[tonumber(id)]
+end
+local baseDevices = C4.GetDevices
+C4.GetDevices = function(...)
+  local d = baseDevices(...)
+  d[231] = { deviceName = "Garage Door", roomName = "Garage", driverFileName = "relay.c4z" }
+  return d
+end
+for _, name in ipairs({ "Pushover", "Webhook", "Generic Webhook", "Twilio SMS" }) do
+  Properties[name] = "Off"
+end
+Properties["Telegram"] = "On"
+Properties["Telegram Bot Token"] = "123:ABC"
+Properties["Telegram Chat ID"] = "-100"
+Properties["Telegram Minimum Priority"] = "low"
+Properties["Telegram Quiet Start"] = ""
+Properties["Telegram Quiet End"] = ""
+Properties["Rate Limit Per Hour"] = "600"
+Properties["Dedupe Window"] = "300"
+OnPropertyChanged("Telegram")
+
+requests = {}
+fired = {}
+-- What Composer hands the driver: "deviceId,variableId" for a picked
+-- VARIABLE parameter, "" for one left empty (bench 2026-11-10).
+local garage = {
+  CHANNEL = "Telegram",
+  PRIORITY = "high",
+  TITLE = "Garage ${1|open|closed}",
+  MESSAGE = "Pool ${2|.1}°F, door ${Garage->Garage Door::STATE|open|closed}, by ${231::Opened By}",
+  ["VARIABLE 1"] = "231,1000",
+  ["VARIABLE 2"] = "100001,7",
+  ["VARIABLE 3"] = "",
+  ["VARIABLE 4"] = "",
+}
+EC.NOTIFY(garage)
+check(
+  "title and message go out with values, never names",
+  #requests == 1 and requests[1].data.text == "Garage open\nPool 81.5°F, door open, by Remote",
+  requests[1] and requests[1].data.text
+)
+check(
+  "Last Notification shows the filled title",
+  prop("Last Notification") == "Garage open (high)",
+  prop("Last Notification")
+)
+check("nothing missing: no Message Variable Missing event", countFired(8) == 0)
+EC.NOTIFY(garage)
+check("the same values again inside the window are a duplicate", #requests == 1)
+deviceVars[231]["1000"].value = "0"
+EC.NOTIFY(garage)
+check(
+  "a changed value is a different message and is sent",
+  #requests == 2 and requests[2].data.text == "Garage closed\nPool 81.5°F, door closed, by Remote",
+  requests[2] and requests[2].data.text
+)
+requests = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "normal",
+  TITLE = "Pool",
+  MESSAGE = "Temperature now:",
+  ["VARIABLE 1"] = "100001,7",
+})
+check(
+  "a variable picked but not written into the text is added at the end",
+  #requests == 1 and requests[1].data.text == "Pool\nTemperature now: 81.46",
+  requests[1] and requests[1].data.text
+)
+requests = {}
+EC.NOTIFY_ALL({ PRIORITY = "normal", TITLE = "All ${1|open|closed}", MESSAGE = "", ["VARIABLE 1"] = "231,1000" })
+check(
+  "Notify All takes the same VARIABLE parameters",
+  #requests == 1 and requests[1].data.text == "All closed",
+  requests[1] and requests[1].data.text
+)
+
+print("[11] message variables: what cannot be read never blocks the send")
+requests = {}
+fired = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "normal",
+  TITLE = "Alarm ${3}",
+  MESSAGE = 'x ${Nowhere::STATE} code ${1} {"json": 1} ${hello} {1}',
+  ["VARIABLE 1"] = "231,1001",
+  ["VARIABLE 3"] = "",
+})
+check(
+  "sent with ? and [hidden]; everything that is not a token untouched",
+  #requests == 1 and requests[1].data.text == 'Alarm ?\nx ? code [hidden] {"json": 1} ${hello} {1}',
+  requests[1] and requests[1].data.text
+)
+check("Message Variable Missing fired once for the notification", countFired(8) == 1, countFired(8))
+check(
+  "Last Router Error names the first variable and why",
+  prop("Last Router Error"):find("variable ${3}: variable 3: nothing picked in VARIABLE 3", 1, true) ~= nil,
+  prop("Last Router Error")
+)
+advance(6000)
+check(
+  "the delivery log lists each one",
+  (function()
+    local n = 0
+    for _, e in ipairs(persisted["nr_log_v1"].log) do
+      if e.status == "variable" then
+        n = n + 1
+      end
+    end
+    return n == 3
+  end)()
+)
+check(
+  "the credential's value is nowhere: not in a request, not in the log",
+  not JSON:encode(persisted["nr_log_v1"]):find("4321", 1, true)
+    and not tostring(requests[1].data.text):find("4321", 1, true)
+)
+deviceVars[231] = nil
+requests = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "normal",
+  TITLE = "Door ${1}",
+  MESSAGE = "still sends",
+  ["VARIABLE 1"] = "231,1000",
+})
+check(
+  "a device that does not answer: the notification still goes out",
+  #requests == 1 and requests[1].data.text == "Door ?\nstill sends",
+  requests[1] and requests[1].data.text
+)
+requests = {}
+EC.NOTIFY({ CHANNEL = "Telegram", PRIORITY = "normal", TITLE = "Plain", MESSAGE = "no variables here" })
+check(
+  "a notification written before this change (no VARIABLE parameters) is sent as written",
+  #requests == 1 and requests[1].data.text == "Plain\nno variables here"
+)
+
+print("[12] the command declares Composer's variable picker")
+do
+  local f = assert(io.open("drivers/smartbuildos-notification-router/driver.xml"))
+  local xml = f:read("*a")
+  f:close()
+  local pickers = 0
+  for _ in
+    xml:gmatch("<param><name>VARIABLE %d</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>")
+  do
+    pickers = pickers + 1
+  end
+  check("four pickers on Notify and four on Notify All", pickers == 8, pickers)
+  check("no variable slots left in the properties", not xml:find("<property><name>Variable ", 1, true))
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

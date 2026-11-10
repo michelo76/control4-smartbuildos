@@ -20,6 +20,48 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+- **Message variables in the Notification Router.** A notification can
+  carry the current value of any Control4 variable, value only, set up in
+  the programming window the way the Push Notification agent does it.
+  Notify and Notify All have four **VARIABLE** parameters that open
+  Composer's own *Select variable…* tree; `${1}`..`${4}` in the TITLE or
+  MESSAGE stand for them, and a picked variable that is not written into
+  the text is added at the end. `${Room->Device::VARIABLE}` written out
+  works too. `${1|Open|Closed}` words an on/off value, `${2|.1}` rounds a
+  number. A variable that cannot be read is sent as `?`, raises *Message
+  Variable Missing* and never blocks the send; a credential-named variable
+  is sent as `[hidden]`. De-duplication compares the filled-in text.
+- **driver.xml guard**: a `DEVICE_SELECTOR` property with no `<items>`
+  filter, and a `PASSWORD` property, are refused in every driver (both make
+  Composer Pro 2026.10.14 raise "Property Invalid" on import).
+
+### Fixed
+- Fixed
+
+### Changed
+- Changed
+
+### Removed
+- Removed
+-->
+
+## Unreleased
+
+### Added
+- **Message variables in the Notification Router.** A notification's TITLE
+  or MESSAGE can carry placeholders that are sent as the current value of a
+  Control4 variable, value only: `{1}`..`{8}` for a slot (a device and one
+  of its variables picked in the driver's properties, or one of the
+  project's custom variables) and `{Device:VARIABLE}` inline. `{1|Open|Closed}`
+  words an on/off value, `{2|.1}` rounds a number. A placeholder that cannot
+  be filled is sent as `?`, raises *Message Variable Missing* and never
+  blocks the send; a credential-named variable is sent as `[hidden]`.
+  De-duplication compares the filled-in text. A slot's device is picked
+  from a list the driver fills (`Name (Room) · id`): a `DEVICE_SELECTOR`
+  property with no driver filter makes Composer Pro 2026.10.14 raise
+  "Property Invalid" on import, and the driver.xml guard test now refuses it.
+
 ### Fixed
 - **Dealer PIN property type** (Dealer Settings Panel, Live Variable Inspector): `<type>PASSWORD</type>` made Composer Pro 2026.10.14 raise "Property Invalid … Object reference not set to an instance of an object" when the driver was added; it is now `<type>STRING</type><password>true</password>`, the form every other password property in this repo uses. Measured on Beta Site 2, 9 Nov 2026.
 

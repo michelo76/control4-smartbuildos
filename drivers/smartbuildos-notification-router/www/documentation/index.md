@@ -47,6 +47,67 @@ Licensing is through the **SmartBuildOS Agent** (SKU
 - **Pushover critical** is sent as an emergency that repeats every minute
   for an hour until acknowledged, as the Pushover API requires.
 
+## Message variables
+
+A notification can carry the **current value** of any Control4 variable. It
+works the way Control4's own Push Notification and Email agents do, and you
+set it up in the programming window, on the Notify command itself. Only the
+value is sent, never the variable's name.
+
+1. In programming, select the router and the **Notify** command.
+1. Next to **VARIABLE 1**, press `…`. Composer opens its *Select variable…*
+   tree: every room, device and variable of the project. Pick one.
+1. Write `${1}` in the TITLE or MESSAGE where the value should appear.
+   `${2}`, `${3}` and `${4}` are the other three pickers.
+
+| You write | VARIABLE 1 | It is sent as |
+| --- | --- | --- |
+| `Garage is ${1}` | Garage Door → STATE | `Garage is 1` |
+| `Garage is ${1\|Open\|Closed}` | Garage Door → STATE | `Garage is Open` |
+| `Pool ${1\|.1}°F` | Variables → Pool Temp | `Pool 81.5°F` |
+| `Garage:` | Garage Door → STATE | `Garage: 1` |
+
+**Picking is enough.** A variable that is picked but not written into the
+text is added at the end of the message, as in the last row.
+
+**Written out, with no picker.** The token Control4's agents use works too:
+
+- `${Garage->Garage Door::STATE}` is `Room->Device::VARIABLE`.
+- `${Garage Door::STATE}` when the device name is unique in the project.
+- `${231::STATE}` by device id, which survives a rename.
+- `${Variables::Pool Temp}` for one of the project's custom variables.
+
+Case, spaces and underscores in the names do not matter.
+
+**How the value is shown.** Add one of these after a `|`:
+
+- `${1|Open|Closed}` for on/off values: the first text when the value is 1,
+  true, on, yes or a non-zero number; the second when it is 0, false, off,
+  no or empty. Any other text is sent as it is. The second text may be left
+  empty: `${1| (door open)|}`.
+- `${2|.1}` rounds a number to that many decimals (0 to 3).
+
+**One variable as the whole text.** The TITLE and MESSAGE fields also have a
+drop-down listing every variable. Choosing one there makes that variable's
+value the entire text of the field; this is Composer's own behaviour for a
+text parameter. Use the VARIABLE pickers to mix a value with words.
+
+**What you can rely on.**
+
+- A variable that cannot be read is sent as `?` and never stops the
+  notification. *Message Variable Missing* fires, **Last Router Error** names
+  the token and the reason, and **Print Delivery Log** lists each one.
+- A variable whose name marks it as a credential (user code, PIN, password,
+  token and the like) is sent as `[hidden]`. These messages leave the house.
+- The **Dedupe Window** compares the filled-in text: the same reading twice
+  is sent once, a changed reading is a new message.
+- Only `${1}` to `${4}` and `${device::variable}` are tokens. Anything else,
+  `{braces}` and JSON included, is left exactly as written. A value is filled
+  in once; a token inside a value is not expanded again.
+- A value is one line of at most 120 characters.
+- A picked variable is stored by id, so renaming the device or the variable
+  later changes nothing.
+
 ## What is NOT claimed
 
 Delivery means the target's API accepted the message, not that a person read
@@ -65,11 +126,11 @@ during a reboot is lost and the next one is not affected.
 
 ## Programming
 
-- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, MESSAGE), **Notify All**
-  (PRIORITY, TITLE, MESSAGE).
+- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, MESSAGE, VARIABLE 1 to 4),
+  **Notify All** (PRIORITY, TITLE, MESSAGE, VARIABLE 1 to 4).
 - Events: *Notification Sent*, *Delivery Failed*, *Target Unreachable*,
   *Quiet Hours Suppressed*, *Rate Limited*, *Router Degraded*, *Router
-  Restored*.
+  Restored*, *Message Variable Missing*.
 - Conditionals: *At least one target is configured and enabled*, *Quiet
   hours are active on every enabled target*.
 - Variables: `ROUTER_STATUS`, `LAST_NOTIFICATION`, `SENT_TODAY`,
@@ -81,4 +142,6 @@ Tokens, keys and webhook URLs are password properties and never appear in
 the delivery log, the Lua output or any variable; the log records the target
 and a masked destination (for SMS the last four digits are hidden). Message
 text is whatever your programming puts in it: do not put codes or personal
-details in notifications.
+details in notifications. A message variable sends a variable's value to the
+target's service; credential-named variables are refused, but any other
+variable you pick or write out is sent as it is.

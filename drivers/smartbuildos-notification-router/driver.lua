@@ -8,9 +8,15 @@
   hourly rate limit, three attempts with backoff, a delivery log the dealer
   prints from Composer. No 4Sight dependency, no cloud of ours in the path.
 
-  Pure rules: src/notify/router.lua (decisions, log) and
-  src/notify/formatters.lua (exact request per target) — tested without a
-  controller. Licensing: the SmartBuildOS Agent (SKU SBOS_NOTIFICATION_ROUTER).
+  Message variables: a TITLE or MESSAGE may carry ${1}..${4} (the variable
+  picked in the command's VARIABLE 1..4 parameter, in the programming window)
+  or ${Room->Device::VARIABLE} written out, as Control4's Push Notification
+  agent writes it. Each is sent as the variable's live value.
+
+  Pure rules: src/notify/router.lua (decisions, log),
+  src/notify/formatters.lua (exact request per target) and
+  src/notify/template.lua (message variables) — tested without a controller.
+  Licensing: the SmartBuildOS Agent (SKU SBOS_NOTIFICATION_ROUTER).
 ============================================================================]]
 
 --#ifdef DRIVERCENTRAL
@@ -37,6 +43,7 @@ local http = require("lib.http")
 local license = require("sbos.license")
 local Router = require("notify.router")
 local Formatters = require("notify.formatters")
+local Template = require("notify.template")
 
 gInitialized = false
 
@@ -50,6 +57,7 @@ local PRINT_DEFAULT = 50
 
 local EVENT_SENT, EVENT_FAILED, EVENT_UNREACHABLE, EVENT_QUIET, EVENT_RATE, EVENT_DEGRADED, EVENT_RESTORED =
   1, 2, 3, 4, 5, 6, 7
+local EVENT_VARIABLE_MISSING = 8
 
 --- Target table: id → Composer property names and the formatter kind.
 local TARGETS = {
@@ -194,6 +202,28 @@ end
 local function minuteOfDay()
   local t = os.date("*t")
   return t.hour * 60 + t.min
+end
+
+-- ─── Message variables ──────────────────────────────────────────────────────
+
+local function readVariables(deviceId)
+  local ok, vars = pcall(function()
+    return C4:GetDeviceVariables(deviceId)
+  end)
+  if ok and type(vars) == "table" then
+    return vars
+  end
+  return nil
+end
+
+local function projectDevices()
+  local ok, list = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if ok and type(list) == "table" then
+    return list
+  end
+  return {}
 end
 
 -- ─── Status ─────────────────────────────────────────────────────────────────
@@ -451,6 +481,7 @@ local function registerComposerSurface()
     { 5, "Rate Limited", "A target reached its hourly limit" },
     { 6, "Router Degraded", "Sending stopped" },
     { 7, "Router Restored", "Sending is possible again" },
+    { 8, "Message Variable Missing", "A variable in a notification could not be read and was sent as ?" },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -555,7 +586,6 @@ for _, t in ipairs(TARGETS) do
   local key = (t.prefix == "Twilio" and "Twilio_SMS" or t.prefix:gsub(" ", "_"))
   OPC[key] = repaint
 end
-
 -- ─── Actions ────────────────────────────────────────────────────────────────
 
 function EC.REGISTER_NOW()
@@ -667,14 +697,27 @@ local CHANNEL_BY_LABEL = {
   ["twilio sms"] = "twilio",
 }
 
+--- The VARIABLE n parameter of a command: Composer's variable picker hands
+--- the driver "deviceId,variableId" (bench 2026-11-10), or "" when unset.
+local function pickedFrom(tParams)
+  return function(n)
+    return tParams["VARIABLE " .. n]
+  end
+end
+
 function EC.NOTIFY(tParams)
   tParams = tParams or {}
   local channel = CHANNEL_BY_LABEL[tostring(tParams.CHANNEL or "All"):lower()] or tostring(tParams.CHANNEL or "all")
+  -- Values are read now, each device once, and the filled-in text is what
+  -- the router trims, logs and de-duplicates.
+  local picked = pickedFrom(tParams)
+  local resolve = Template.resolver({ picked = picked, devices = projectDevices, readVariables = readVariables })
+  local title, body, problems = Template.fill(tParams.TITLE, tParams.MESSAGE, resolve, picked)
   local msg, why = Router.message({
     channel = channel,
     priority = tParams.PRIORITY,
-    title = tParams.TITLE,
-    body = tParams.MESSAGE,
+    title = title,
+    body = body,
   })
   if msg == nil then
     log:warn("NOTIFY ignored: %s", tostring(why))
@@ -682,12 +725,34 @@ function EC.NOTIFY(tParams)
     paint()
     return
   end
+  local report = #problems > 0 and gRouter ~= nil and not gLicenceHalted
+  if report then
+    for _, p in ipairs(problems) do
+      gRouter:record({
+        target = "-",
+        status = "variable",
+        title = msg.title,
+        detail = string.format("%s: %s", p.token, p.reason),
+      })
+      log:warn("variable %s not filled: %s", p.token, p.reason)
+    end
+    gRouter.counters.variable_missing = (gRouter.counters.variable_missing or 0) + #problems
+    fire(EVENT_VARIABLE_MISSING)
+  end
   dispatch(msg, "programming")
+  if report then
+    gLastError = string.format("variable %s: %s", problems[1].token, problems[1].reason)
+    paint()
+  end
 end
 
 function EC.NOTIFY_ALL(tParams)
   tParams = tParams or {}
-  EC.NOTIFY({ CHANNEL = "All", PRIORITY = tParams.PRIORITY, TITLE = tParams.TITLE, MESSAGE = tParams.MESSAGE })
+  local all = { CHANNEL = "All", PRIORITY = tParams.PRIORITY, TITLE = tParams.TITLE, MESSAGE = tParams.MESSAGE }
+  for n = 1, Template.PICKS do
+    all["VARIABLE " .. n] = tParams["VARIABLE " .. n]
+  end
+  EC.NOTIFY(all)
 end
 
 -- ─── Conditionals ───────────────────────────────────────────────────────────
