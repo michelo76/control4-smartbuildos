@@ -16,7 +16,9 @@ licence; a definitive denial with enforcement on makes the inspector read-only.
 1. Add this driver (one per project). It adds a **Variable Inspector** tile to
    Navigator (hide it from rooms the customer uses; it is a dealer tool).
 1. Set a **Dealer PIN**. Without one the page is read-only.
-1. **App Data Relay** should read `Listening :47823`. If the page cannot load
+1. **App Data Relay** should read `Listening :47823 - serving
+   http://<controller>:47823`: the address is one the driver's own relay has
+   answered on. If it says the address is unknown, or the page cannot load
    data, set **App Relay Address** to the controller's LAN address and run
    **Re-publish App URL**, then close and reopen the tile (Navigator does not
    change the URL of an open web view).

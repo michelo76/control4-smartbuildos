@@ -49,8 +49,10 @@ follow. Composer and the tile never disagree.
 - The tile reaches the driver over the controller's LAN (port 47822,
   Atmosphere's proven path) with a per-install token in the tile URL, and
   falls back to the Navigator JavaScript API. **App Data Relay** shows the
-  address in use; set **App Relay Address** if the controller's address is
-  not discovered.
+  address in use. The driver keeps only an address its own relay has
+  answered on, so another Control4 device on the network is never taken
+  for the controller; set **App Relay Address** if the status says the
+  address is unknown or that there was no answer on it.
 
 ## What is NOT claimed
 

@@ -57,6 +57,62 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **Home Guide, Dealer Settings, Variable Inspector: the tile could be
+  published at another device's address.** The controller's address was
+  taken from the first `control4_*` device with a network binding; on a
+  project with a second Control4 device on the network that was the other
+  device, and all three tiles pointed where nothing listened. An address
+  from a device binding is now only a candidate: the driver asks its own
+  relay `GET /ping` on each and publishes the one that answers by name
+  (`src/lib/relayhost.lua`). `C4:GetControllerNetworkAddress()` is tried
+  first; **App Relay Address** still overrides everything; when nothing
+  answers, no address is published and **App Data Relay** says so. Asked
+  again every 15 minutes, so a changed lease is followed. Atmosphere and
+  UniFi Protect use the older lookup and are not changed here.
+- **Every driver: a plain text value saved by the driver was lost at the
+  next restart.** Stored values are read back through Base64 and JSON so a
+  saved table can be rebuilt; a saved *string* went the same way, and one
+  the controller's decoder turns into nothing (anything with a space, comma,
+  dot, dash or underscore) came back empty. Seen on the bench in the Agent:
+  the company name was painted after a licence refresh and replaced by
+  *Registered (name syncing)* after every driver update, so every dependent
+  driver showed `-` for the company. The property name the Agent forwards,
+  its Support ID, last-reload time and version, and the three Web View relay
+  tokens were lost the same way. A stored string that is not an encoded
+  table is now returned as stored. Bench-confirmed: the company name is
+  shown straight after an update.
+- **Every licensed driver: License Status stayed on "SmartBuildOS Agent
+  Found - Checking..." after a driver update.** The licence ask sent while a
+  driver is still starting got no answer on the bench when the Agent was
+  already running, and nothing asked again; one press of *Register With
+  Agent Now* painted it at once. An unanswered ask is now repeated after 5,
+  15, 30 and 60 seconds and then every five minutes, and stops at the first
+  answer. Licensing stayed fail-open throughout: no driver stopped working.
+- **Agent: the first real Director reload would have stopped the Agent
+  starting.** The reload report to SmartBuildOS named two functions declared
+  further down the file, so it threw from `OnDriverLateInit` the first time
+  it ran. It had never run: a start was classified as "first" whenever the
+  reload count was 0, an update never adds to the count, so an Agent that
+  had only been updated read *Last Reload … (first)* for ever and never
+  reached "reload". Both are fixed: the count alone no longer decides
+  "first", and the report lives below the sender it uses.
+- **Event Tracer: the probe could starve the events it already knew.** With
+  *Probe Unknown Drivers* on, the subscription budget was spent in device-id
+  order, 32 guesses for each unknown device, and catalogued devices with
+  higher ids got nothing (bench: `1000 subscriptions on 35 of 186 devices`).
+  Known events are now subscribed first and the probe gets what is left.
+- **Event Tracer: an event from another day now says which day.** *Last
+  Event* and *Print Recent Events* showed the time alone, so a history that
+  spans midnight read as out of order.
+- **Home Guide: every device was listed twice.** Director lists a driver and
+  its proxy as two devices with one name. Entries of one room that share a
+  name are now one line; two real devices with the same name and driver are
+  one line marked `(2)`. A lamp driver is no longer classed with amplifiers,
+  nor an AV switch or a Nintendo Switch with light switches.
+- **Home Guide: Last Rebuilt moved every minute.** It was painted with the
+  clock, not with the time of the rebuild.
+- **Usage Analytics: Last Daily Summary read "none" after every update.**
+  The time the summary was sent is now kept across restarts.
 - **Notification Router: a notification with only a MESSAGE was sent
   twice over.** Its first 60 characters went out as a title line above the
   full text on Telegram, webhooks and SMS. The text is now sent once.

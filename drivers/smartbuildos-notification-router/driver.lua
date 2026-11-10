@@ -948,6 +948,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   saveNow()
   CancelTimer(POLL_TIMER)
   for id in pairs(gPending) do

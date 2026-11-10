@@ -448,7 +448,7 @@ local function sendDaily(day)
   })
   if env ~= nil then
     gLastDailyAt = os.time()
-    persist:set(LAST_DAILY_KEY, day)
+    persist:set(LAST_DAILY_KEY, { day = day, at = gLastDailyAt })
     fire(EVENT_DAILY)
   end
   return env ~= nil
@@ -568,6 +568,10 @@ end
 
 local function buildMeter()
   local deps = { now = now, dayOf = dayOf, deviceLabel = deviceLabel }
+  -- When the last daily summary went out: without this the property read
+  -- "none" after every driver update, whatever had been sent.
+  local lastDaily = persist:get(LAST_DAILY_KEY, false)
+  gLastDailyAt = type(lastDaily) == "table" and tonumber(lastDaily.at) or nil
   local stored = persist:get(METER_KEY, false)
   if type(stored) == "table" then
     local restored, ok = Meter.restore(deps, stored)
@@ -678,6 +682,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   releaseAll()
   checkpoint(true)
   client.flush()
@@ -793,7 +798,7 @@ function EC.RESET_STATISTICS()
   releaseAll()
   gMeter = Meter.new({ now = now, dayOf = dayOf, deviceLabel = deviceLabel })
   persist:set(METER_KEY, gMeter:serialize())
-  persist:set(LAST_DAILY_KEY, "")
+  persist:delete(LAST_DAILY_KEY)
   gLastDailyAt = nil
   applyPlan()
   paint()

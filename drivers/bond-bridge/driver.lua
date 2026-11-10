@@ -1175,6 +1175,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   CancelTimer(POLL_TIMER)
   CancelTimer(PROVISION_RENAME_TIMER)
   stopPush()

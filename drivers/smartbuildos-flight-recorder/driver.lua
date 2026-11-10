@@ -777,6 +777,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   if gTraces then
     gTraces:interruptAll("driver removed or reloaded")
   end

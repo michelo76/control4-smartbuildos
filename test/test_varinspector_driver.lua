@@ -179,7 +179,7 @@ C4.GetVersionInfo = function()
   return { version = "4.2.0.0" }
 end
 C4.GetNetworkBindingsByDevice = function()
-  return { bindings = { { addr = "192.168.1.190" } } }
+  return { bindings = { { addr = "192.168.7.20" } } }
 end
 C4.CreateServer = function(_, port, _, _, identifier)
   serverCreated = { port = port, identifier = identifier }
@@ -213,6 +213,21 @@ do
     local name = block:match("<name>(.-)</name>")
     local default = block:match("<default>(.-)</default>") or ""
     Properties[name] = default
+  end
+end
+
+-- The relay's own address check (lib.relayhost): a candidate address is
+-- published only once THIS relay has answered /ping on it. Here the relay
+-- answers on the controller's address and nowhere else.
+RELAY_ANSWERS_ON = { ["192.168.7.20"] = true }
+RELAY_PINGS = {}
+require("lib.relayhost").get = function(url, done)
+  RELAY_PINGS[#RELAY_PINGS + 1] = url
+  local host = url:match("^http://([%d%.]+):")
+  if RELAY_ANSWERS_ON[host] then
+    done(true, '{"ok":true,"service":"variable-inspector"}')
+  else
+    done(false)
   end
 end
 
@@ -286,13 +301,15 @@ check(
 )
 check(
   "relay listening on 47823",
-  serverCreated ~= nil and serverCreated.port == 47823 and prop("App Data Relay") == "Listening :47823",
+  serverCreated ~= nil
+    and serverCreated.port == 47823
+    and prop("App Data Relay") == "Listening :47823 - serving http://192.168.7.20:47823 to the app",
   prop("App Data Relay")
 )
 local url = lastUrl()
 check(
   "same-origin app URL with token published",
-  url ~= nil and url:find("^http://192%.168%.1%.190:47823/app%?k=%w+$") ~= nil,
+  url ~= nil and url:find("^http://192%.168%.7%.20:47823/app%?k=%w+$") ~= nil,
   url
 )
 local TOKEN = url:match("k=(%w+)$")

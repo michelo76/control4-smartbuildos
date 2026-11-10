@@ -36,6 +36,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local RelayHost = require("lib.relayhost")
+local gHost = nil -- the relay address resolver, built once publishWebViewUrl exists
 local Ring = require("tracer.ring")
 local Config = require("flightrecorder.config")
 local Model = require("varinspector.model")
@@ -136,7 +138,7 @@ local function relayLine()
   if gRelayPort == nil then
     return string.format("Not listening - port %d unavailable", UI_RELAY_PORT)
   end
-  return string.format("Listening :%d", gRelayPort)
+  return gHost ~= nil and gHost:statusLine() or string.format("Listening :%d", gRelayPort)
 end
 
 local function paint()
@@ -162,55 +164,14 @@ end
 
 -- ─── Relay (Atmosphere's pattern) ───────────────────────────────────────────
 
-local function findAddrDeep(node, depth, seen)
-  if type(node) ~= "table" or depth > 6 or seen[node] then
-    return nil
-  end
-  seen[node] = true
-  local addr = tostring(node.addr or "")
-  if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
-    return addr
-  end
-  for _, child in pairs(node) do
-    if type(child) == "table" then
-      local found = findAddrDeep(child, depth + 1, seen)
-      if found ~= nil then
-        return found
-      end
-    end
-  end
-  return nil
-end
-
+--- The controller's LAN address, from lib.relayhost: the App Relay Address
+--- property, else an address this relay has answered on. An address read
+--- off another device's binding is never published on trust.
 local function relayHost()
-  local configured = tostring(Properties["App Relay Address"] or ""):gsub("%s+", "")
-  if configured ~= "" and configured:lower() ~= "auto" then
-    return configured
-  end
-  local ok, devices = pcall(function()
-    return C4:GetDevices({})
-  end)
-  if not ok or type(devices) ~= "table" then
+  if gHost == nil then
     return ""
   end
-  for rawId, device in pairs(devices) do
-    local id = tonumber(rawId)
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id ~= nil and file:find("^control4_") ~= nil then
-      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
-        local okB, raw = pcall(function()
-          return C4[api](C4, id)
-        end)
-        if okB and type(raw) == "table" then
-          local found = findAddrDeep(raw, 0, {})
-          if found ~= nil then
-            return found
-          end
-        end
-      end
-    end
-  end
-  return ""
+  return (gHost:host())
 end
 
 local function relayToken()
@@ -390,6 +351,19 @@ local function publishWebViewUrl(reason)
   log:debug("WebView URL published (%s): %s", tostring(reason), (url:gsub("k=[%w]+", "k=[token]")))
 end
 
+gHost = RelayHost.new({
+  port = UI_RELAY_PORT,
+  service = "variable-inspector",
+  configured = function()
+    return Properties["App Relay Address"]
+  end,
+  onChange = function()
+    if gInitialized then
+      publishWebViewUrl("address confirmed")
+    end
+  end,
+})
+
 -- ─── Lifecycle ──────────────────────────────────────────────────────────────
 
 local function registerComposerSurface()
@@ -517,16 +491,23 @@ function OnDriverLateInit(reason)
   end)
 
   startUiRelay()
+  gHost:check()
   publishWebViewUrl("late-init")
   -- A notify sent before project start is lost: republish once later.
   SetTimer(URL_TIMER, 60 * ONE_SECOND, function()
     publishWebViewUrl("late-init+60s")
   end)
-  SetTimer(STATUS_TIMER, 60 * ONE_SECOND, paint, true)
+  SetTimer(STATUS_TIMER, 60 * ONE_SECOND, function()
+    if gRelayPort ~= nil then
+      gHost:checkIfDue()
+    end
+    paint()
+  end, true)
   paint()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   if gInspector then
     persistWatches()
     gInspector:stop()
@@ -572,6 +553,7 @@ end
 
 function OPC.App_Relay_Address()
   if gInitialized then
+    gHost:check()
     publishWebViewUrl("relay address changed")
     paint()
   end

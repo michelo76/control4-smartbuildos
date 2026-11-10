@@ -343,6 +343,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   if gEngine then
     save()
     gEngine:stop()

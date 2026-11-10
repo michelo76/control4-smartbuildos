@@ -2485,6 +2485,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   CancelTimer(SCHEDULE_TIMER)
   CancelTimer(PULSE_TIMER)
   KillAllTimers()

@@ -30,6 +30,11 @@ check("motion sensor", Manual.classify("MotionSensor_zb_nyce_3041.c4i", "x") == 
 check("apple tv", Manual.classify("appleTV.c4z", "x") == "media")
 check("receiver", Manual.classify("receiver_Anthem_MRX_740.c4z", "x") == "media")
 check("sonos", Manual.classify("sonos.c4z", "x") == "media")
+check("a lamp driver is lighting, not an amplifier", Manual.classify("lamp_driver.c4z", "x") == "lighting")
+check("an AV switch is media, not a light switch", Manual.classify("avswitch_hdmi_4x4.c4z", "x") == "media")
+check("a Nintendo Switch is media, not a light switch", Manual.classify("uibutton_nintendo_switch.c4z", "x") == "media")
+check("a wall switch is still lighting", Manual.classify("control4_lux_switch.c4i", "x") == "lighting")
+check("an amplifier is still media", Manual.classify("amp_triad_one.c4z", "x") == "media")
 check("name fallback: lamp", Manual.classify("mystery.c4z", "Reading Lamp") == "lighting")
 check("name fallback: tv", Manual.classify("mystery.c4z", "Bedroom TV") == "media")
 check("nothing matches → other", Manual.classify("mystery.c4z", "Thing") == "other")
@@ -207,6 +212,49 @@ check(
   end)()
 )
 check("exclusions line last", lines[#lines]:find("^Not in the manual:") ~= nil, lines[#lines])
+
+print("== one line per device: a driver and its proxy share a name")
+do
+  local doc = Manual.build({
+    devices = {
+      [383] = { deviceName = "PlayStation 5", driverFileName = "icon_console.c4z", roomId = 7, roomName = "Den" },
+      [384] = { deviceName = "PlayStation 5", driverFileName = "uibutton.c4i", roomId = 7, roomName = "Den" },
+      [400] = { deviceName = "Reading Lamp", driverFileName = "lamp_driver.c4z", roomId = 7, roomName = "Den" },
+      [401] = { deviceName = "Reading Lamp", driverFileName = "light_v2.c4i", roomId = 7, roomName = "Den" },
+      [402] = { deviceName = "Reading Lamp", driverFileName = "lamp_driver.c4z", roomId = 7, roomName = "Den" },
+      [403] = { deviceName = "Reading Lamp", driverFileName = "light_v2.c4i", roomId = 7, roomName = "Den" },
+      [410] = { deviceName = "Thing", driverFileName = "mystery.c4z", roomId = 7, roomName = "Den" },
+      [411] = { deviceName = "thing ", driverFileName = "appleTV.c4z", roomId = 7, roomName = "Den" },
+      [420] = { deviceName = "PlayStation 5", driverFileName = "uibutton.c4i", roomId = 8, roomName = "Loft" },
+    },
+  })
+  local den, loft
+  for _, r in ipairs(doc.rooms) do
+    if r.name == "Den" then
+      den = r
+    elseif r.name == "Loft" then
+      loft = r
+    end
+  end
+  local names = {}
+  for _, g in ipairs(den.groups) do
+    for _, d in ipairs(g.devices) do
+      names[#names + 1] = g.category .. ":" .. d.name .. ":" .. tostring(d.id)
+    end
+  end
+  table.sort(names)
+  local joined = table.concat(names, " | ")
+  check("driver + proxy is one line", select(2, joined:gsub("PlayStation 5", "")) == 1, joined)
+  check("two real lamps are one line that says two", joined:find("lighting:Reading Lamp (2):", 1, true) ~= nil, joined)
+  check(
+    "the entry that names a category wins, whatever its case or spacing",
+    joined:find("media:Thing:411", 1, true) ~= nil,
+    joined
+  )
+  check("the room counts real devices", den.device_count == 4, den.device_count)
+  check("the same name in another room is its own line", loft ~= nil and loft.device_count == 1)
+  check("the total counts real devices", doc.counts.devices == 5, doc.counts.devices)
+end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

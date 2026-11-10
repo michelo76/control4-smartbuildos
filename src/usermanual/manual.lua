@@ -135,7 +135,11 @@ local FILE_RULES = {
   { "hingesensor", "sensors" },
   { "sensor", "sensors" },
   { "light", "lighting" },
+  { "lamp", "lighting" }, -- before "amp": a lamp driver is not an amplifier
   { "dimmer", "lighting" },
+  -- Before "switch": neither of these is a light switch.
+  { "avswitch", "media" },
+  { "nintendo", "media" },
   { "switch", "lighting" },
   { "lux_", "lighting" },
   { "hue", "lighting" },
@@ -347,7 +351,24 @@ function M.build(input)
   input = input or {}
   local roomsById = {}
   local excluded = { count = 0, by_reason = {} }
-  for rawId, d in pairs(input.devices or {}) do
+  -- Director lists a driver and each of its proxies as separate devices with
+  -- one name, so a homeowner would read "PlayStation 5" twice. Entries of one
+  -- room that share a name are one line. How many real devices that line
+  -- stands for is the largest number of entries sharing one driver file: a
+  -- driver and its proxy have different files, two lamps have the same one.
+  local ids = {}
+  for rawId in pairs(input.devices or {}) do
+    ids[#ids + 1] = rawId
+  end
+  table.sort(ids, function(a, b)
+    local na, nb = tonumber(a), tonumber(b)
+    if na ~= nil and nb ~= nil then
+      return na < nb
+    end
+    return tostring(a) < tostring(b)
+  end)
+  for _, rawId in ipairs(ids) do
+    local d = input.devices[rawId]
     local id = tonumber(rawId)
     if id ~= nil and type(d) == "table" then
       local ok, reason = M.isHomeownerDevice(d)
@@ -357,19 +378,47 @@ function M.build(input)
         local key = roomId ~= 0 and ("id:" .. roomId) or ("name:" .. roomName:lower())
         local room = roomsById[key]
         if room == nil then
-          room = { id = roomId ~= 0 and roomId or nil, name = roomName, groups = {}, device_count = 0 }
+          room = { id = roomId ~= 0 and roomId or nil, name = roomName, byName = {}, order = {} }
           roomsById[key] = room
         end
+        local name = tostring(d.deviceName or ("Device " .. id))
+        local nameKey = name:lower():gsub("^%s+", ""):gsub("%s+$", "")
+        local file = tostring(d.driverFileName or "")
         local category = M.classify(d.driverFileName, d.deviceName)
-        room.groups[category] = room.groups[category] or {}
-        local g = room.groups[category]
-        g[#g + 1] =
-          { id = id, name = tostring(d.deviceName or ("Device " .. id)), driver = tostring(d.driverFileName or "") }
-        room.device_count = room.device_count + 1
+        local entry = room.byName[nameKey]
+        if entry == nil then
+          entry = { id = id, name = name, driver = file, category = category, files = {} }
+          room.byName[nameKey] = entry
+          room.order[#room.order + 1] = entry
+        elseif entry.category == "other" and category ~= "other" then
+          -- The entry that says what the device is wins over the one that does not.
+          entry.id, entry.driver, entry.category = id, file, category
+        end
+        entry.files[file:lower()] = (entry.files[file:lower()] or 0) + 1
       else
         excluded.count = excluded.count + 1
         excluded.by_reason[reason] = (excluded.by_reason[reason] or 0) + 1
       end
+    end
+  end
+  for _, room in pairs(roomsById) do
+    room.groups, room.device_count = {}, 0
+    for _, entry in ipairs(room.order) do
+      local count = 1
+      for _, n in pairs(entry.files) do
+        if n > count then
+          count = n
+        end
+      end
+      room.groups[entry.category] = room.groups[entry.category] or {}
+      local g = room.groups[entry.category]
+      g[#g + 1] = {
+        id = entry.id,
+        name = count > 1 and string.format("%s (%d)", entry.name, count) or entry.name,
+        driver = entry.driver,
+        count = count > 1 and count or nil,
+      }
+      room.device_count = room.device_count + count
     end
   end
   local notes = M.parseNotes(input.notes)

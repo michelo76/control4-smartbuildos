@@ -26,8 +26,11 @@ entirely on the controller: no cloud, no internet needed to read it.
    `Room name: text` (for example `Kitchen: The pendants dim from the keypad
    by the fridge.`). Notes for the same room join together.
 1. Check **App Data Relay** reads `Listening :47821 - serving http://<controller>:47821`.
-   If it says the controller address is unknown, type the controller's LAN IP
-   into **App Relay Address**.
+   The driver finds the controller's address by asking itself on each
+   candidate address and keeping the one that answers, so another Control4
+   device on the network (a remote, a touch screen) is never taken for the
+   controller. If it says the address is unknown, or that there was no
+   answer on it, type the controller's LAN IP into **App Relay Address**.
 
 ## How it works
 

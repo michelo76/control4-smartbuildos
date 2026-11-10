@@ -1832,6 +1832,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   stopUiRelay()
   KillAllTimers()
 end

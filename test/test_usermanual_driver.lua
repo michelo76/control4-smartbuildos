@@ -61,6 +61,19 @@ local function advance(ms)
   end
   clock.now = target
 end
+-- The clock follows the timers, as in the other driver tests.
+local realTime = os.time
+local base = 1800000000
+os.time = function(t)
+  if t then
+    return realTime(t)
+  end
+  return base + math.floor(clock.now / 1000)
+end
+local realDate = os.date
+os.date = function(fmt, t)
+  return realDate(fmt, t or os.time())
+end
 package.preload["drivers-common-public.global.url"] = function()
   return true
 end
@@ -228,6 +241,21 @@ end
 Properties["Dealer Name"] = "Skynet AV"
 Properties["Dealer Phone"] = "555-0100"
 Properties["Room Note 1"] = "Kitchen: Pendants dim from the fridge keypad."
+
+-- The relay's own address check (lib.relayhost): a candidate address is
+-- published only once THIS relay has answered /ping on it. Here the relay
+-- answers on the controller's address and nowhere else.
+RELAY_ANSWERS_ON = { ["192.168.7.20"] = true }
+RELAY_PINGS = {}
+require("lib.relayhost").get = function(url, done)
+  RELAY_PINGS[#RELAY_PINGS + 1] = url
+  local host = url:match("^http://([%d%.]+):")
+  if RELAY_ANSWERS_ON[host] then
+    done(true, '{"ok":true,"service":"home-guide"}')
+  else
+    done(false)
+  end
+end
 
 dofile("drivers/smartbuildos-user-manual/driver.lua")
 
@@ -447,6 +475,55 @@ check(
   prop("App Data Relay")
 )
 devices[60] = { deviceName = "CORE 1", driverFileName = "control4_core1.c4i", roomId = 9, roomName = "Equipment Room" }
+
+print("[6b] another Control4 device on the network is not mistaken for the controller")
+-- Bench, 10 Nov 2026: the tile was published at a remote's address.
+do
+  devices[40] =
+    { deviceName = "Living Remote", driverFileName = "control4_remote_halo.c4z", roomId = 1, roomName = "Living" }
+  local savedBindings = C4.GetNetworkBindingsByDevice
+  C4.GetNetworkBindingsByDevice = function(_, id)
+    if id == 40 then
+      return { networkbindings = { { addr = "192.168.7.31" } } }
+    end
+    return savedBindings(C4, id)
+  end
+  RELAY_PINGS = {}
+  OnPropertyChanged("App Relay Address")
+  local published = lastProxy("URL_CHANGED").params.url
+  check(
+    "the remote was asked, and did not answer",
+    (RELAY_PINGS[1] or ""):find("192.168.7.31:47821/ping", 1, true) ~= nil
+  )
+  check(
+    "the tile is published at the address the relay answered on",
+    published:find("^http://192%.168%.7%.20:47821/app%?k=") ~= nil,
+    published
+  )
+  check(
+    "and the status says the same",
+    prop("App Data Relay"):find("192.168.7.20", 1, true) ~= nil,
+    prop("App Data Relay")
+  )
+  -- The controller stops answering there (a new lease): nothing wrong is left up.
+  RELAY_ANSWERS_ON = {}
+  advance(16 * 60 * 1000)
+  check(
+    "when nothing answers any more, no address is published",
+    lastProxy("URL_CHANGED").params.url == "controller://driver/smartbuildos-user-manual/app/index.html"
+      and prop("App Data Relay"):find("UNKNOWN", 1, true) ~= nil,
+    prop("App Data Relay")
+  )
+  RELAY_ANSWERS_ON = { ["192.168.7.20"] = true }
+  advance(2 * 60 * 1000)
+  check(
+    "and it comes back by itself",
+    lastProxy("URL_CHANGED").params.url:find("^http://192%.168%.7%.20:47821/app") ~= nil,
+    lastProxy("URL_CHANGED").params.url
+  )
+  devices[40] = nil
+  C4.GetNetworkBindingsByDevice = savedBindings
+end
 
 print("[7] print and destroy")
 check("print outline runs", pcall(EC.PRINT_OUTLINE))

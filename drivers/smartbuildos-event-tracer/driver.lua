@@ -238,7 +238,7 @@ local function paintRecent()
   if e ~= nil then
     local text = e.kind == "mark" and ("MARK " .. tostring(e.event_name))
       or (tostring(e.device_label or e.device_id) .. ": " .. tostring(e.event_name))
-    UpdateProperty("Last Event", string.format("%s  (%s)", text, os.date("%H:%M:%S", math.floor(e.t or 0))))
+    UpdateProperty("Last Event", string.format("%s  (%s)", text, Tracer.formatWhen(e.t or 0)))
     setVar("LAST_EVENT", text)
     setVar("LAST_EVENT_DEVICE", tonumber(e.device_id) or 0)
   end
@@ -752,6 +752,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   if gTracer then
     gTracer:stop()
     checkpointRing(true)

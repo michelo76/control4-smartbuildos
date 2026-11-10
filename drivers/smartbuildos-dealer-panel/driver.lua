@@ -36,6 +36,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local RelayHost = require("lib.relayhost")
+local gHost = nil -- the relay address resolver, built once publishWebViewUrl exists
 local Settings = require("dealerpanel.settings")
 local Relay = require("dealerpanel.relay")
 
@@ -149,57 +151,14 @@ local function appHtml()
   return gAppHtml
 end
 
---- First non-loopback IPv4 anywhere in a Director bindings answer (its
---- shape varies by project/OS; Atmosphere's deep walk).
-local function findAddrDeep(node, depth, seen)
-  if type(node) ~= "table" or depth > 6 or seen[node] then
-    return nil
-  end
-  seen[node] = true
-  local addr = tostring(node.addr or "")
-  if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
-    return addr
-  end
-  for _, child in pairs(node) do
-    if type(child) == "table" then
-      local found = findAddrDeep(child, depth + 1, seen)
-      if found ~= nil then
-        return found
-      end
-    end
-  end
-  return nil
-end
-
+--- The controller's LAN address, from lib.relayhost: the App Relay Address
+--- property, else an address this relay has answered on. An address read
+--- off another device's binding is never published on trust.
 local function relayHost()
-  local configured = tostring(Properties["App Relay Address"] or ""):gsub("%s+", "")
-  if configured ~= "" and configured:lower() ~= "auto" then
-    return configured
-  end
-  local ok, devices = pcall(function()
-    return C4:GetDevices({})
-  end)
-  if not ok or type(devices) ~= "table" then
+  if gHost == nil then
     return ""
   end
-  for rawId, device in pairs(devices) do
-    local id = tonumber(rawId)
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id ~= nil and file:find("^control4_") ~= nil then
-      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
-        local okB, raw = pcall(function()
-          return C4[api](C4, id)
-        end)
-        if okB and type(raw) == "table" then
-          local found = findAddrDeep(raw, 0, {})
-          if found ~= nil then
-            return found
-          end
-        end
-      end
-    end
-  end
-  return ""
+  return (gHost:host())
 end
 
 local function snapshot()
@@ -351,12 +310,7 @@ local function paintRelayStatus()
   if gRelayPort == nil then
     line = string.format("Not listening - port %d unavailable", UI_RELAY_PORT)
   else
-    local host = relayHost()
-    if host == "" then
-      line = string.format("Listening :%d - controller address UNKNOWN, set App Relay Address", gRelayPort)
-    else
-      line = string.format("Listening :%d - serving http://%s:%d to the app", gRelayPort, host, gRelayPort)
-    end
+    line = gHost:statusLine()
   end
   UpdateProperty("App Data Relay", line)
 end
@@ -368,6 +322,19 @@ local function publishWebViewUrl(reason)
   paintRelayStatus()
   log:debug("WebView URL published (%s)", tostring(reason))
 end
+
+gHost = RelayHost.new({
+  port = UI_RELAY_PORT,
+  service = "dealer-panel",
+  configured = function()
+    return Properties["App Relay Address"]
+  end,
+  onChange = function()
+    if gInitialized then
+      publishWebViewUrl("address confirmed")
+    end
+  end,
+})
 
 -- ─── JS API channel (secondary: the page tries the relay first) ─────────────
 
@@ -480,9 +447,13 @@ function OnDriverLateInit(reason)
     UpdateProperty("Driver Version", tostring(C4:GetDriverConfigInfo("version")))
   end)
   startUiRelay()
+  gHost:check()
   publishWebViewUrl("late-init")
   paint()
   SetTimer(STATUS_TIMER, 60 * ONE_SECOND, function()
+    if gRelayPort ~= nil then
+      gHost:checkIfDue()
+    end
     paint()
     -- Heal the URL if the address or relay state moved underneath us.
     if desiredWebViewUrl() ~= gPublishedUrl then
@@ -492,6 +463,7 @@ function OnDriverLateInit(reason)
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   stopUiRelay()
   CancelTimer(STATUS_TIMER)
   CancelTimer(HEAL_TIMER)
@@ -516,6 +488,7 @@ end
 
 function OPC.App_Relay_Address()
   if gInitialized then
+    gHost:check()
     publishWebViewUrl("relay-address-changed")
   end
 end

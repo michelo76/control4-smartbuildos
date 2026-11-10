@@ -38,6 +38,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local RelayHost = require("lib.relayhost")
+local gHost = nil -- the relay address resolver, built once publishWebViewUrl exists
 local Manual = require("usermanual.manual")
 local Relay = require("usermanual.relay")
 
@@ -58,6 +60,7 @@ local MAX_REQUEST_BYTES = 64 * 1024
 local EVENT_REBUILT, EVENT_UNAVAILABLE, EVENT_RESTORED = 1, 2, 3
 
 local gManual = nil -- the current document (table)
+local gRebuiltAt = nil
 local gManualJson = nil -- its JSON, encoded once per rebuild
 local gRelayPort = nil
 local gRelayToken = nil
@@ -128,6 +131,7 @@ local function rebuildManual(reason)
     return false
   end
   gLastError = "none"
+  gRebuiltAt = os.time()
   log:info(
     "Home Guide rebuilt (%s): %d rooms, %d devices",
     tostring(reason),
@@ -140,53 +144,14 @@ end
 
 -- ─── Relay ──────────────────────────────────────────────────────────────────
 
---- First non-loopback IPv4 anywhere in a Director bindings answer (the
---- shape varies by project and OS: walked, depth-bounded, cycle-guarded).
-local function findAddrDeep(node, depth, seen)
-  if type(node) ~= "table" or depth > 6 or seen[node] then
-    return nil
-  end
-  seen[node] = true
-  local addr = tostring(node.addr or "")
-  if addr:match("^%d+%.%d+%.%d+%.%d+$") ~= nil and addr:find("^127%.") == nil then
-    return addr
-  end
-  for _, child in pairs(node) do
-    if type(child) == "table" then
-      local found = findAddrDeep(child, depth + 1, seen)
-      if found ~= nil then
-        return found
-      end
-    end
-  end
-  return nil
-end
-
---- The controller's LAN address: the App Relay Address property, else the
---- first control4_* device's network bindings through either binding API.
+--- The controller's LAN address, from lib.relayhost: the App Relay Address
+--- property, else an address this relay has answered on. An address read
+--- off another device's binding is never published on trust.
 local function relayHost()
-  local configured = tostring(Properties["App Relay Address"] or ""):gsub("%s+", "")
-  if configured ~= "" and configured:lower() ~= "auto" then
-    return configured
+  if gHost == nil then
+    return ""
   end
-  for rawId, device in pairs(devices()) do
-    local id = tonumber(rawId)
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id ~= nil and file:find("^control4_") ~= nil then
-      for _, api in ipairs({ "GetNetworkBindingsByDevice", "GetBindingsByDevice" }) do
-        local okB, raw = pcall(function()
-          return C4[api](C4, id)
-        end)
-        if okB and type(raw) == "table" then
-          local found = findAddrDeep(raw, 0, {})
-          if found ~= nil then
-            return found
-          end
-        end
-      end
-    end
-  end
-  return ""
+  return (gHost:host())
 end
 
 local function relayToken()
@@ -317,12 +282,7 @@ local function paintRelay()
   elseif gRelayPort == nil then
     line = string.format("Not listening - port %d unavailable", UI_RELAY_PORT)
   else
-    local host = relayHost()
-    if host == "" then
-      line = string.format("Listening :%d - controller address UNKNOWN, set App Relay Address", gRelayPort)
-    else
-      line = string.format("Listening :%d - serving http://%s:%d to the app", gRelayPort, host, gRelayPort)
-    end
+    line = gHost:statusLine()
   end
   UpdateProperty("App Data Relay", line)
 end
@@ -336,6 +296,19 @@ local function publishWebViewUrl(reason)
   paintRelay()
   log:debug("Home Guide URL published (%s): %s", tostring(reason), (url:gsub("k=[%w]+", "k=[token]")))
 end
+
+gHost = RelayHost.new({
+  port = UI_RELAY_PORT,
+  service = "home-guide",
+  configured = function()
+    return Properties["App Relay Address"]
+  end,
+  onChange = function()
+    if gInitialized then
+      publishWebViewUrl("address confirmed")
+    end
+  end,
+})
 
 -- ─── Status ─────────────────────────────────────────────────────────────────
 
@@ -365,7 +338,9 @@ local function paint()
         gManual.counts.excluded
       )
     )
-    UpdateProperty("Last Rebuilt", os.date("%Y-%m-%d %H:%M:%S"))
+    -- When it was rebuilt, not when this was painted: painted with the clock,
+    -- it moved every minute and read as a rebuild a minute.
+    UpdateProperty("Last Rebuilt", gRebuiltAt and os.date("%Y-%m-%d %H:%M:%S", gRebuiltAt) or "not yet")
     setVar("MANUAL_ROOMS", gManual.counts.rooms)
     setVar("MANUAL_DEVICES", gManual.counts.devices)
     setVar("LAST_REBUILT", gManual.generated_at)
@@ -461,6 +436,7 @@ function OnDriverLateInit(reason)
 
   rebuildManual(tostring(reason))
   startRelay()
+  gHost:check()
   publishWebViewUrl("late init")
   -- A notify sent before Navigator is ready can be lost: republish once more.
   SetTimer(REPUBLISH_TIMER, 60 * ONE_SECOND, function()
@@ -470,11 +446,17 @@ function OnDriverLateInit(reason)
     rebuildManual("hourly")
     paint()
   end, true)
-  SetTimer(STATUS_TIMER, 60 * ONE_SECOND, paint, true)
+  SetTimer(STATUS_TIMER, 60 * ONE_SECOND, function()
+    if gRelayPort ~= nil then
+      gHost:checkIfDue()
+    end
+    paint()
+  end, true)
   paint()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   stopRelay()
   CancelTimer(REBUILD_TIMER)
   CancelTimer(STATUS_TIMER)
@@ -516,6 +498,7 @@ end
 
 function OPC.App_Relay_Address()
   if gInitialized then
+    gHost:check()
     publishWebViewUrl("relay address changed")
   end
 end

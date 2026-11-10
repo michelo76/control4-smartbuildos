@@ -3067,6 +3067,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   doorbellStop()
   KillAllTimers()
   if gEngine then

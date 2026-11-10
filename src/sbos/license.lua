@@ -114,6 +114,8 @@ local state = {
   -- Whether the Agent has answered this driver at least once. Until it has, a
   -- linked Agent reads "Checking..." rather than a stale license state.
   answered = false,
+  -- How many unanswered asks in a row (paces the next one).
+  retries = 0,
   graceUntil = "",
   checkedAt = "",
   -- "observe" | "enforce", set by the Agent from the server's (unsigned)
@@ -252,6 +254,38 @@ local function relationshipLabel()
   return label
 end
 
+--- Asking again until the Agent answers.
+---
+--- Bench, 10 Nov 2026: with the Agent already running, every driver updated
+--- after it stayed on "Checking..." — nine minutes and counting — and one
+--- press of Register With Agent Now painted the licence at once. The ask
+--- sent while a driver is still starting gets no answer, and nothing asked
+--- again. So an unanswered ask is repeated: soon, then less often, then every
+--- five minutes for an Agent that predates licensing and never will answer.
+local RETRY_TIMER = "SbosLicenceRetry"
+local RETRY_SECONDS = { 5, 15, 30, 60 }
+local RETRY_STEADY_SECONDS = 300
+
+local function cancelRetry()
+  state.retries = 0
+  if type(CancelTimer) == "function" then
+    pcall(CancelTimer, RETRY_TIMER)
+  end
+end
+
+local function scheduleRetry()
+  if state.answered or type(SetTimer) ~= "function" then
+    return
+  end
+  state.retries = (state.retries or 0) + 1
+  local seconds = RETRY_SECONDS[state.retries] or RETRY_STEADY_SECONDS
+  pcall(SetTimer, RETRY_TIMER, seconds * 1000, function()
+    if not state.answered then
+      M.register()
+    end
+  end)
+end
+
 local function publishStatus()
   setDisplay(state.statusProperty, relationshipLabel())
   -- The standardized display set (#3/#3a): each optional, painted only if the
@@ -288,6 +322,7 @@ function M.register()
   -- Agent found; show the relationship (Checking... until it answers) rather
   -- than leaving the property's stale default up.
   publishStatus()
+  scheduleRetry()
   return true
 end
 
@@ -317,6 +352,7 @@ function M.onEntitlement(tParams)
   end
   state.status = status
   state.answered = true
+  cancelRetry()
   state.licenseType = tostring(tParams.license_type or "")
   state.company = tostring(tParams.company or "")
   state.subscriptionTier = tostring(tParams.subscription_tier or "")
@@ -444,6 +480,12 @@ function M.describe()
   )
 end
 
+--- Stops asking. Call from OnDriverDestroyed: a driver that is going away
+--- must not leave the retry timer behind.
+function M.stop()
+  cancelRetry()
+end
+
 --- Test hook: reset module state (a require'd module is cached per-VM).
 function M._reset()
   state.sku = ""
@@ -463,6 +505,7 @@ function M._reset()
   state.checkedAt = ""
   state.enforcement = "observe"
   state.statusProperty = "License Status"
+  cancelRetry()
 end
 
 return M

@@ -597,9 +597,15 @@ agentRegisters(true, { token = "tok-2" })
 check("days survived the reload", prop("Days Recorded") == "2", prop("Days Recorded"))
 check("today's presses survived", vars["KEYPAD_PRESSES_TODAY"] == 1, vars["KEYPAD_PRESSES_TODAY"])
 check("listeners rebuilt", count(listeners) == 7 and count(subscriptions) == 2)
+check(
+  "the last daily summary is still shown after a driver update",
+  prop("Last Daily Summary") ~= "none" and prop("Last Daily Summary"):find("^%d%d%d%d%-%d%d%-%d%d ") ~= nil,
+  prop("Last Daily Summary")
+)
 
 print("[11] reset")
 EC.RESET_STATISTICS()
+check("reset forgets the last daily summary", prop("Last Daily Summary") == "none", prop("Last Daily Summary"))
 check(
   "reset keeps today only, empty",
   prop("Days Recorded") == "1" and vars["KEYPAD_PRESSES_TODAY"] == 0 and count(listeners) == 7
