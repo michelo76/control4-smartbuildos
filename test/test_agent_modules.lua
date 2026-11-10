@@ -848,6 +848,25 @@ gModules = nil
 gEvents = nil
 OnDriverLateInit("DIT_STARTUP")
 check("hello sent to the registered module", #sentOf("SBOS_MODULE_AGENT_HELLO", MODULE_ID) >= 1)
+-- The same version starting again is Director coming back: a reload. It was
+-- never one before (the count alone decided "first", and an update never
+-- added to it), which hid that the report below named two locals declared
+-- further down the file and threw.
+do
+  local reported = nil
+  for _, r in ipairs(requestsTo("event")) do
+    local body = type(r.data) == "string" and JSON:decode(r.data) or r.data
+    if type(body) == "table" and body.name == "director_reloaded" then
+      reported = body
+    end
+  end
+  check("a second start at the same version is counted as a reload", Properties["Director Reloads"] == "1")
+  check(
+    "the reload is reported to SmartBuildOS, with its number",
+    reported ~= nil and reported.director_reloads == 1,
+    reported and reported.detail
+  )
+end
 sent = {}
 EC.UNPAIR()
 check(
