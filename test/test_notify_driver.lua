@@ -114,7 +114,13 @@ end
 -- ── fake lib.http: records requests, answers per a script ──────────────────
 local requests = {}
 local httpScript = {} -- fifo of { ok = bool, code = n }; default ok 200
-local function nextAnswer()
+local responders = {} -- { match = "<text in the url>", answer = fun(url) → { ok, code, body } } — first match wins
+local function nextAnswer(url)
+  for _, r in ipairs(responders) do
+    if url:find(r.match, 1, true) then
+      return r.answer(url)
+    end
+  end
   if #httpScript > 0 then
     return table.remove(httpScript, 1)
   end
@@ -123,13 +129,13 @@ end
 package.preload["lib.http"] = function()
   local H = {}
   function H:request(method, url, data, headers, options)
-    local a = nextAnswer()
+    local a = nextAnswer(url)
     requests[#requests + 1] =
       { method = method, url = url, data = data, headers = headers, options = options, answer = a }
     return {
       next = function(_, onOk, onErr)
         if a.ok then
-          onOk({ url = url, code = a.code, headers = {}, body = "{}" })
+          onOk({ url = url, code = a.code, headers = {}, body = a.body or "{}" })
         else
           onErr({ url = url, code = a.code, headers = {}, body = "", error = "HTTP failed" })
         end
@@ -643,9 +649,360 @@ do
   do
     pickers = pickers + 1
   end
-  check("four pickers on Notify and four on Notify All", pickers == 8, pickers)
+  check("four pickers each on Notify, Notify All and Reply", pickers == 12, pickers)
   check("no variable slots left in the properties", not xml:find("<property><name>Variable ", 1, true))
 end
+
+print("[13] two-way: nothing is asked while inbound is off")
+local function countUrl(part)
+  local n = 0
+  for _, r in ipairs(requests) do
+    if r.url:find(part, 1, true) then
+      n = n + 1
+    end
+  end
+  return n
+end
+local function lastUrl(part)
+  for i = #requests, 1, -1 do
+    if requests[i].url:find(part, 1, true) then
+      return requests[i]
+    end
+  end
+  return nil
+end
+local updates = {} -- what Telegram has waiting
+local tgAnswer = nil -- set to force an answer (an error)
+responders[#responders + 1] = {
+  match = "/getUpdates",
+  answer = function()
+    if tgAnswer then
+      return tgAnswer
+    end
+    local body = { ok = true, result = updates }
+    updates = {}
+    return { ok = true, code = 200, body = body }
+  end,
+}
+local updateId = 499
+local function telegramSays(text, fields)
+  updateId = updateId + 1
+  local m =
+    { date = os.time(), text = text, chat = { id = -100 }, from = { id = 777, username = "Owner", is_bot = false } }
+  for k, v in pairs(fields or {}) do
+    m[k] = v
+  end
+  updates[#updates + 1] = { update_id = updateId, message = m }
+  return updateId
+end
+deviceVars[231] = { ["1000"] = { name = "STATE", value = "1" } }
+requests = {}
+fired = {}
+advance(20000)
+check(
+  "inbound off: no request to Telegram or Twilio",
+  countUrl("/getUpdates") == 0 and countUrl("Messages.json?To=") == 0
+)
+check("status says off", prop("Inbound Status") == "off", prop("Inbound Status"))
+EC.REPLY({ MESSAGE = "hello" })
+check(
+  "Reply before any message is refused and says why",
+  #requests == 0 and prop("Last Router Error") == "Reply: no message has been received yet",
+  prop("Last Router Error")
+)
+
+print("[14] two-way: a Telegram message becomes variables, then events")
+Properties["Keyword 1"] = "Goodnight"
+Properties["Keyword 2"] = "gate"
+Properties["Telegram Inbound"] = "On"
+OnPropertyChanged("Telegram Inbound")
+check(
+  "turning it on asks at once, with no offset",
+  countUrl("/getUpdates") == 1 and not lastUrl("/getUpdates").url:find("offset", 1, true)
+)
+check("status: listening", prop("Inbound Status") == "Telegram: listening", prop("Inbound Status"))
+telegramSays("good  night")
+telegramSays("Goodnight")
+fired = {}
+advance(5000)
+check(
+  "the message is in LAST_MESSAGE and the Telegram variable",
+  vars["LAST_MESSAGE"] == "Goodnight"
+    and vars["TELEGRAM_LAST_MESSAGE"] == "Goodnight"
+    and vars["SMS_LAST_MESSAGE"] == nil,
+  vars["LAST_MESSAGE"]
+)
+check(
+  "channel, sender, keyword and counters",
+  vars["LAST_MESSAGE_CHANNEL"] == "Telegram"
+    and vars["LAST_MESSAGE_SENDER"] == "Owner"
+    and vars["LAST_KEYWORD"] == "goodnight"
+    and vars["LAST_MESSAGE_ARGUMENT"] == ""
+    and vars["MESSAGE_COUNTER"] == 2
+    and vars["MESSAGES_RECEIVED_TODAY"] == 2,
+  vars["MESSAGE_COUNTER"]
+)
+check(
+  "Message Received and Telegram Message Received once per message; Keyword 1 for the one that matched",
+  countFired(9) == 2 and countFired(10) == 2 and countFired(21) == 1 and countFired(11) == 0,
+  countFired(9)
+)
+check("painted", prop("Last Message") == "Telegram: Goodnight" and prop("Received Today") == "2", prop("Last Message"))
+advance(5000)
+check(
+  "the next ask starts after what was handled",
+  lastUrl("/getUpdates").url:find("&offset=502", 1, true) ~= nil,
+  lastUrl("/getUpdates").url
+)
+fired = {}
+updates =
+  { { update_id = 501, message = { date = os.time(), text = "Goodnight", chat = { id = -100 }, from = { id = 777 } } } }
+advance(5000)
+check("the same message served again is handled once", countFired(9) == 0 and vars["MESSAGE_COUNTER"] == 2)
+telegramSays("Goodnight")
+advance(5000)
+check(
+  "the same words in a new message fire again; the counter moves",
+  countFired(9) == 1 and countFired(21) == 1 and vars["MESSAGE_COUNTER"] == 3
+)
+
+print("[15] two-way: who is not taken")
+fired = {}
+telegramSays("open the garage", { chat = { id = 999 }, from = { id = 999 } })
+advance(5000)
+check(
+  "a stranger: Message Rejected, nothing else, variables untouched",
+  countFired(12) == 1 and countFired(9) == 0 and vars["LAST_MESSAGE"] == "Goodnight"
+)
+check(
+  "the error says why without the text",
+  prop("Last Router Error") == "Telegram message refused: sender is not on the allow-list",
+  prop("Last Router Error")
+)
+fired = {}
+telegramSays("gate open", { date = os.time() - 500 })
+advance(5000)
+check("an old message is ignored silently", #fired == 0 and vars["LAST_MESSAGE"] == "Goodnight")
+telegramSays("beep", { from = { id = 1, is_bot = true } })
+telegramSays("   ")
+advance(5000)
+check("a bot and an empty message are ignored", #fired == 0)
+Properties["Telegram Allowed Senders"] = "555, @owner"
+telegramSays("gate 30", { chat = { id = 555 }, from = { id = 555 } })
+telegramSays("gate 40", { from = { id = 888, username = "guest" } })
+advance(5000)
+check(
+  "a listed person's private chat is taken; an unlisted member of the group is not",
+  vars["LAST_MESSAGE"] == "gate 30"
+    and vars["LAST_MESSAGE_ARGUMENT"] == "30"
+    and countFired(22) == 1
+    and countFired(12) == 1,
+  vars["LAST_MESSAGE"]
+)
+Properties["Telegram Allowed Senders"] = ""
+
+print("[16] two-way: the PIN")
+Properties["Inbound PIN"] = "4471"
+fired = {}
+telegramSays("gate open")
+telegramSays("4471 Gate Open Now")
+advance(5000)
+check(
+  "without the PIN refused; with it the PIN never reaches a variable",
+  countFired(12) == 1
+    and vars["LAST_MESSAGE"] == "Gate Open Now"
+    and vars["LAST_MESSAGE_ARGUMENT"] == "Open Now"
+    and countFired(22) == 1,
+  vars["LAST_MESSAGE"]
+)
+Properties["Inbound PIN"] = ""
+
+print("[17] two-way: Reply")
+requests = {}
+EC.REPLY({ MESSAGE = "Gate is ${1|open|closed}", ["VARIABLE 1"] = "231,1000" })
+local sendReq = lastUrl("/sendMessage")
+check(
+  "the reply goes to the chat the message came from, with live values",
+  sendReq ~= nil and sendReq.data.chat_id == "-100" and sendReq.data.text == "Gate is open",
+  sendReq and sendReq.data.text
+)
+telegramSays("gate", { chat = { id = 555 }, from = { id = 555 } })
+Properties["Telegram Allowed Senders"] = "555"
+advance(5000)
+requests = {}
+EC.REPLY({ MESSAGE = "Done" })
+check(
+  "a private sender is answered privately",
+  lastUrl("/sendMessage") ~= nil and lastUrl("/sendMessage").data.chat_id == "555",
+  lastUrl("/sendMessage") and lastUrl("/sendMessage").data.chat_id
+)
+Properties["Telegram Allowed Senders"] = ""
+Properties["Telegram Quiet Start"] = "11:00"
+Properties["Telegram Quiet End"] = "13:00"
+Properties["Telegram Minimum Priority"] = "critical"
+requests = {}
+EC.NOTIFY({ CHANNEL = "Telegram", PRIORITY = "normal", TITLE = "Quiet", MESSAGE = "held back" })
+check("a notification is held back by quiet hours and the priority gate", countUrl("/sendMessage") == 0)
+EC.REPLY({ MESSAGE = "Still answered" })
+check("a reply is not", countUrl("/sendMessage") == 1 and lastUrl("/sendMessage").data.text == "Still answered")
+EC.REPLY({ MESSAGE = "" })
+check(
+  "a reply needs a MESSAGE",
+  prop("Last Router Error") == "Reply: a reply needs a MESSAGE",
+  prop("Last Router Error")
+)
+Properties["Telegram Quiet Start"] = ""
+Properties["Telegram Quiet End"] = ""
+Properties["Telegram Minimum Priority"] = "low"
+
+print("[18] two-way: a text message")
+local texts = {}
+responders[#responders + 1] = {
+  match = "Messages.json?To=",
+  answer = function()
+    return { ok = true, code = 200, body = { messages = texts } }
+  end,
+}
+local function stamp(t)
+  return realDate("!%a, %d %b %Y %H:%M:%S +0000", t)
+end
+Properties["Twilio Account SID"] = "AC1"
+Properties["Twilio Auth Token"] = "tok"
+Properties["Twilio From Number"] = "+15550001"
+Properties["Twilio To Number"] = "+15559876"
+Properties["Twilio Inbound"] = "On"
+OnPropertyChanged("Twilio Inbound")
+check(
+  "the list is asked for the router's own number, with Basic auth",
+  lastUrl("Messages.json?To=%2B15550001&DateSent%3E=") ~= nil
+    and lastUrl("Messages.json?To=").headers["Authorization"] == "Basic B64(AC1:tok)",
+  lastUrl("Messages.json?To=") and lastUrl("Messages.json?To=").url
+)
+check(
+  "status names both channels",
+  prop("Inbound Status") == "Telegram: listening · Twilio SMS: listening",
+  prop("Inbound Status")
+)
+texts = {
+  { sid = "SM9", direction = "inbound", from = "+15550000", body = "open the garage", date_sent = stamp(os.time()) },
+  { sid = "SM8", direction = "outbound-api", from = "+15550001", body = "ours", date_sent = stamp(os.time()) },
+  { sid = "SM7", direction = "inbound", from = "+1 (555) 9876", body = "Gate status", date_sent = stamp(os.time()) },
+}
+fired = {}
+advance(5000)
+check(
+  "the text is in LAST_MESSAGE and the SMS variable; the Telegram one keeps its own",
+  vars["LAST_MESSAGE"] == "Gate status"
+    and vars["SMS_LAST_MESSAGE"] == "Gate status"
+    and vars["TELEGRAM_LAST_MESSAGE"] == "gate",
+  vars["TELEGRAM_LAST_MESSAGE"]
+)
+check(
+  "SMS Message Received, Keyword 2, and the stranger's text rejected",
+  countFired(11) == 1
+    and countFired(10) == 0
+    and countFired(22) == 1
+    and countFired(12) == 1
+    and vars["LAST_MESSAGE_CHANNEL"] == "Twilio SMS"
+)
+advance(15000)
+check("listed again on every ask, handled once", countFired(11) == 1 and countFired(12) == 1)
+requests = {}
+EC.REPLY({ MESSAGE = "Gate is ${1|open|closed}", ["VARIABLE 1"] = "231,1000" })
+local smsReq = nil
+for _, r in ipairs(requests) do
+  if r.method == "POST" and r.url:find("/Messages.json", 1, true) then
+    smsReq = r
+  end
+end
+check(
+  "the reply is texted back to the sender",
+  smsReq ~= nil
+    and smsReq.data:find("To=%%2B15559876", 1) ~= nil
+    and smsReq.data:find("Body=Gate%%20is%%20open", 1) ~= nil,
+  smsReq and smsReq.data
+)
+
+print("[19] two-way: a failing ask backs off and says why")
+tgAnswer = { ok = false, code = 409 }
+requests = {}
+advance(5000)
+check(
+  "the status names the cause",
+  prop("Inbound Status"):find("Telegram: HTTP 409: another program or a webhook is reading this bot", 1, true) ~= nil,
+  prop("Inbound Status")
+)
+local asked = countUrl("/getUpdates")
+advance(5000)
+check("it is not asked again on the next tick", countUrl("/getUpdates") == asked, countUrl("/getUpdates"))
+tgAnswer = nil
+advance(15000)
+check(
+  "after the back-off it asks again and recovers",
+  countUrl("/getUpdates") > asked and prop("Inbound Status"):find("Telegram: listening", 1, true) ~= nil,
+  prop("Inbound Status")
+)
+
+print("[20] two-way: nothing replays after a restart; refused text is never stored")
+advance(6000)
+check(
+  "the log has the received messages and no refused text",
+  (function()
+    local blob = JSON:encode(persisted["nr_log_v1"])
+    return blob:find("Gate status", 1, true) ~= nil
+      and blob:find("open the garage", 1, true) == nil
+      and blob:find("4471", 1, true) == nil
+  end)()
+)
+check(
+  "the log masks the texting number",
+  (function()
+    for _, e in ipairs(persisted["nr_log_v1"].log) do
+      if e.status == "received" and e.target == "Twilio SMS" then
+        return e.detail:find("+1555****", 1, true) ~= nil and not e.detail:find("9876", 1, true)
+      end
+    end
+    return false
+  end)()
+)
+local counterBefore = vars["MESSAGE_COUNTER"]
+OnDriverDestroyed()
+check(
+  "the offset and the handled ids are stored",
+  type(persisted["nr_inbound_v1"]) == "table"
+    and persisted["nr_inbound_v1"].telegram_offset ~= nil
+    and #persisted["nr_inbound_v1"].seen > 5
+)
+requests = {}
+fired = {}
+OnDriverInit()
+OnDriverLateInit("DIT_UPDATING")
+check(
+  "after the restart the first ask carries the offset",
+  lastUrl("/getUpdates") ~= nil and lastUrl("/getUpdates").url:find("&offset=", 1, true) ~= nil
+)
+advance(5000)
+check(
+  "the texts still listed by Twilio are not handled again",
+  countFired(11) == 0 and countFired(9) == 0,
+  countFired(9)
+)
+requests = {}
+EC.REPLY({ MESSAGE = "After restart" })
+check("Reply still knows who wrote last", #requests == 1 and requests[1].url:find("/Messages.json", 1, true) ~= nil)
+telegramSays("gate")
+advance(5000)
+check(
+  "a new message is taken and the counter carries on",
+  vars["MESSAGE_COUNTER"] == counterBefore + 1,
+  vars["MESSAGE_COUNTER"]
+)
+Properties["Telegram Inbound"] = "Off"
+Properties["Twilio Inbound"] = "Off"
+OnPropertyChanged("Telegram Inbound")
+requests = {}
+advance(20000)
+check("turned off: nothing is asked", #requests == 0 and prop("Inbound Status") == "off", #requests)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

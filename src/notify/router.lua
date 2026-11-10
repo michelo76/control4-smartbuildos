@@ -98,8 +98,12 @@ function M.message(fields)
   if title == "" and body == "" then
     return nil, "a notification needs a TITLE or a MESSAGE"
   end
+  -- A notification with only a MESSAGE is named after its opening words in
+  -- the log; formatters must not send those words twice.
+  local titleFromBody = false
   if title == "" then
     title = body:sub(1, 60)
+    titleFromBody = true
   end
   local channel = tostring(fields.channel or "all"):lower():gsub("^%s+", ""):gsub("%s+$", "")
   if channel == "" then
@@ -110,6 +114,7 @@ function M.message(fields)
     priority = M.parsePriority(fields.priority),
     title = title,
     body = body,
+    title_from_body = titleFromBody,
   }
 end
 
@@ -237,6 +242,22 @@ function Router:route(msg)
     self.counters.unknown_channel = self.counters.unknown_channel + 1
   end
   return decisions, sends, matched
+end
+
+--- A send that skips the per-target rules (a reply to a message just
+--- received): only the hourly rate limit applies, and the send counts
+--- toward it. Returns true, or false + "rate_limited".
+function Router:reserve(targetId)
+  local now = self.deps.now()
+  self:_prune(now)
+  local list = self.sends[targetId] or {}
+  if #list >= self:_perHour() then
+    self.counters.rate_limited = self.counters.rate_limited + 1
+    return false, "rate_limited"
+  end
+  list[#list + 1] = now
+  self.sends[targetId] = list
+  return true
 end
 
 --- Seconds to wait before the next attempt, or nil when attempts are spent.

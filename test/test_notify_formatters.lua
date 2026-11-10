@@ -115,5 +115,46 @@ print("== misc")
 check("unknown kind refused", F.build({ kind = "fax" }, msg) == nil)
 check("formEncode sorts without order", F.formEncode({ b = "2", a = "1 2" }) == "a=1%202&b=2")
 
+print("== a notification with only a MESSAGE is not sent twice")
+do
+  local only = R.message({ title = "", body = "Door left open", priority = "normal", channel = "all" })
+  check(
+    "the log still names it after its opening words",
+    only.title == "Door left open" and only.title_from_body == true
+  )
+  check(
+    "telegram sends the text once",
+    F.build({ kind = "telegram", config = { bot_token = "t", chat_id = "1" } }, only).body.text == "Door left open"
+  )
+  check(
+    "webhook sends the text once",
+    F.build({ kind = "webhook", config = { url = "https://example.test/h" } }, only).body.text == "Door left open"
+  )
+  local sms = F.build(
+    { kind = "twilio", config = { account_sid = "AC", auth_token = "t", from = "+1", to = "+2" } },
+    only,
+    0,
+    b64
+  )
+  check("sms sends the text once", sms.body:find("Body=Door%%20left%%20open$") ~= nil, sms.body)
+  local po = F.build({ kind = "pushover", config = { app_token = "t", user_key = "u" } }, only)
+  check(
+    "pushover leaves the title to the application's name",
+    po.body.title == nil and po.body.message == "Door left open"
+  )
+  local both = R.message({ title = "Garage", body = "Door left open" })
+  check(
+    "a real title is still sent above the text",
+    both.title_from_body == false
+      and F.build({ kind = "telegram", config = { bot_token = "t", chat_id = "1" } }, both).body.text
+        == "Garage\nDoor left open"
+  )
+  local long = R.message({ title = "", body = string.rep("word ", 30) })
+  check(
+    "a long message is whole, with no clipped copy above it",
+    F.build({ kind = "telegram", config = { bot_token = "t", chat_id = "1" } }, long).body.text == long.body
+  )
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -12,7 +12,8 @@ Combo driver (no proxy), licensed through the Agent with `sbos.license`.
 | Pure | `src/notify/formatters.lua` | exact request per target: Telegram `sendMessage`, Pushover `messages.json` (critical → emergency with retry/expire), Slack/Discord webhook (`text` + `content`), generic JSON POST with optional bearer, Twilio `Messages.json` form body with Basic auth; each with a credential-free `describe` for the log |
 | Driver | `drivers/smartbuildos-notification-router/driver.lua` | targets from Composer properties, `NOTIFY` / `NOTIFY_ALL`, deliveries in flight with named retry timers, events, counters by day, persistence of the log and counts, licence enforcement |
 | Pure | `src/notify/template.lua` | message variables: `${1}`..`${4}` (the command's VARIABLE pickers) and `${Room->Device::VARIABLE}` written out, lookup by name or id, on/off wording and rounding, picked-but-unwritten variables added at the end, `?` for what cannot be read, `[hidden]` for credential-named variables |
-| Tests | `test/test_notify_router.lua` (31), `test/test_notify_formatters.lua` (24), `test/test_notify_template.lua` (68), `test/test_notify_driver.lua` (62) | see VERIFICATION below |
+| Pure | `src/notify/inbound.lua` | two-way: the requests that ask Telegram (`getUpdates`) and Twilio (message list) for messages, parsing their answers, the allow-list, replay protection, the optional PIN, the per-minute bound, keywords and their argument |
+| Tests | `test/test_notify_router.lua` (35), `test/test_notify_formatters.lua` (31), `test/test_notify_template.lua` (68), `test/test_notify_inbound.lua` (71), `test/test_notify_driver.lua` (102) | see VERIFICATION below |
 
 ## Decisions
 
@@ -85,7 +86,62 @@ What the bench showed, and the two designs it replaced:
   2026.10.14 raise "Property Invalid … Object reference not set" on import
   (`test/test_driver_xml_guard.lua` now refuses it, and `PASSWORD`).
 
+## Two-way messaging (added 2026-11-10)
+
+A person sends a message to the house; programming reacts. The dealer-facing
+rules are in the driver's documentation.
+
+- **Polling, not a webhook.** A controller is behind NAT, so the driver
+  asks: Telegram `getUpdates?timeout=0&limit=50&allowed_updates=["message"]
+  &offset=N` and Twilio `Messages.json?To=<From Number>&DateSent>=<UTC day>`,
+  on one repeating timer (`Inbound Poll Seconds`, 3..300, default 5), with
+  the credentials the targets already hold. One request in flight per
+  channel. Short polling on purpose: whether `C4:url` holds a long poll open
+  is not known.
+- **Offset and handled ids.** Telegram's offset moves past every update,
+  text or not, and is persisted. Twilio has no offset: every ask lists the
+  day's messages again and the inbox drops what it has handled. The inbox
+  remembers the last 200 ids and they are persisted, so nothing replays
+  after a driver update.
+- **Decision order** (`Inbox:accept`): duplicate → bot → stale → not
+  allowed → rate limited → PIN → empty → received. Only `received` returns
+  text; the driver never sees the text of a refused message.
+- **Stale** = older than `max(120 s, 3 × poll interval)` by the message's
+  own timestamp against the controller clock.
+- **Allow-list**: Telegram home chat = `Telegram Chat ID`; with `Telegram
+  Allowed Senders` set, the person (id or @username) must be listed, and a
+  listed person's private chat is taken too. A listed id is never a way
+  into another group. SMS: `Twilio To Number` plus `Twilio Allowed Senders`,
+  compared by digits.
+- **Variables before events**, and `MESSAGE_COUNTER` increments on every
+  message so variable-change programming runs for repeated words.
+- **Reply** uses `Router:reserve` and a direct send: the target's own
+  credentials with `chat_id` / `To` set to the sender. It skips enabled,
+  minimum priority, quiet hours and dedupe (the person just asked) and keeps
+  the hourly rate limit, the pending bound, retries and licence enforcement.
+  The last sender is persisted, so Reply works after a restart.
+- **Failure**: the status names the cause (`HTTP 401`, `HTTP 409: another
+  program or a webhook is reading this bot`), and the channel backs off
+  `interval × 2^failures`, five minutes at most.
+- **Licence enforcement** halts polling as it halts sending.
+- **Fixed on the way**: a notification with only a MESSAGE was sent with its
+  first 60 characters repeated above it (the log title fell back to the
+  body and the formatter sent both). `Router.message` now marks
+  `title_from_body` and the Telegram, webhook, SMS and Pushover formatters
+  send the text once.
+
+Not included: Slack, Discord and Pushover inbound (they need a public
+endpoint; a relay through the SmartBuildOS Agent is the planned route), a
+"send to the house" box in Studio, and a local HTTP listener for LAN
+callers.
+
 ## PROBE / unconfirmed
+
+- Two-way has not received a real message on the bench. Unconfirmed there:
+  that `C4:url` returns Telegram's JSON as a decoded table or a string (both
+  are handled), the HTTP code on a 409, Twilio's `date_sent` format for an
+  inbound message (parsed as RFC 2822), and how far the controller clock is
+  from Telegram's (a large skew makes every message stale).
 
 - `${Variables::NAME}` relies on `C4:GetDeviceVariables(100001)` returning
   Composer's custom variables; not bench-confirmed (a custom variable picked
@@ -127,8 +183,18 @@ event, the error and the log entries, the credential's value in no request
 and no log, a device that does not answer, a programming line written
 before the parameters existed, the eight pickers declared in driver.xml).
 
+Two-way, same suite: nothing asked while inbound is off, a Telegram message
+becoming variables then events, the offset, a message served twice handled
+once, a stranger rejected with no text kept, stale and bot messages
+ignored, a listed person's private chat, the PIN, Reply to the group, to a
+private sender and through quiet hours, an SMS in and its reply out, a 409
+backing off and recovering, no replay after a restart, the texting number
+masked in the log.
+
 Each of these was seen to fail when the rule behind it was removed: the
-credential mask, the single pass, and keeping a slot's setting.
+credential mask and the single pass (message variables); the allow-list,
+the stale check, restoring handled ids after a restart, replying to the
+sender, stripping the PIN, and sending a message-only text once (two-way).
 
 Bench plan: turn on one real target (Telegram is the quickest), Send Test,
 confirm the message and that Print Delivery Log shows `sent (attempt 1)`;

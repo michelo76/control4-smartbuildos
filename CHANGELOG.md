@@ -32,11 +32,28 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   number. A variable that cannot be read is sent as `?`, raises *Message
   Variable Missing* and never blocks the send; a credential-named variable
   is sent as `[hidden]`. De-duplication compares the filled-in text.
+- **Two-way messaging in the Notification Router.** With **Telegram
+  Inbound** or **Twilio Inbound** on, a message sent to the bot or a text
+  sent to the Twilio number becomes variables (`LAST_MESSAGE`,
+  `TELEGRAM_LAST_MESSAGE`, `SMS_LAST_MESSAGE`, sender, channel, a counter)
+  and events (*Message Received*, per channel, *Message Rejected*). Eight
+  **Keyword** properties each have their own event, with the rest of the
+  message as an argument, and a **Reply** command answers the sender with
+  message variables. Only the chat or number the router already sends to is
+  taken unless more are listed; messages older than two minutes are
+  ignored, each is handled once across restarts, and an optional **Inbound
+  PIN** is required and stripped. The router polls (default every 5 s);
+  nothing has to be opened on the home router. Not yet exercised with a
+  real message on a controller.
 - **driver.xml guard**: a `DEVICE_SELECTOR` property with no `<items>`
   filter, and a `PASSWORD` property, are refused in every driver (both make
   Composer Pro 2026.10.14 raise "Property Invalid" on import).
 
 ### Fixed
+- **Notification Router: a notification with only a MESSAGE was sent
+  twice over.** Its first 60 characters went out as a title line above the
+  full text on Telegram, webhooks and SMS. The text is now sent once.
+
 - Fixed
 
 ### Changed

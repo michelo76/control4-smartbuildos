@@ -42,6 +42,15 @@
     <variable><id>3003</id><name>FAILED_TODAY</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3004</id><name>LAST_FAILED_TARGET</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3005</id><name>PENDING_DELIVERIES</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3010</id><name>LAST_MESSAGE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3011</id><name>LAST_MESSAGE_CHANNEL</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3012</id><name>LAST_MESSAGE_SENDER</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3013</id><name>LAST_MESSAGE_ARGUMENT</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3014</id><name>LAST_KEYWORD</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3015</id><name>TELEGRAM_LAST_MESSAGE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3016</id><name>SMS_LAST_MESSAGE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3017</id><name>MESSAGE_COUNTER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3018</id><name>MESSAGES_RECEIVED_TODAY</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
   </variables>
   <events>
     <event><id>1</id><name>Notification Sent</name><description>A notification was accepted by a target</description></event>
@@ -52,6 +61,18 @@
     <event><id>6</id><name>Router Degraded</name><description>Sending stopped: licence enforcement or no target configured</description></event>
     <event><id>7</id><name>Router Restored</name><description>Sending is possible again</description></event>
     <event><id>8</id><name>Message Variable Missing</name><description>A variable in a notification could not be read and was sent as ? (see the delivery log)</description></event>
+    <event><id>9</id><name>Message Received</name><description>A message from an allowed sender arrived (see Last Message)</description></event>
+    <event><id>10</id><name>Telegram Message Received</name><description>A Telegram message from an allowed sender arrived</description></event>
+    <event><id>11</id><name>SMS Message Received</name><description>A text message from an allowed sender arrived</description></event>
+    <event><id>12</id><name>Message Rejected</name><description>A message was refused: sender not allowed, PIN missing or wrong, or too many in a minute</description></event>
+    <event><id>21</id><name>Keyword 1 Received</name><description>A message that is, or begins with, Keyword 1 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>22</id><name>Keyword 2 Received</name><description>A message that is, or begins with, Keyword 2 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>23</id><name>Keyword 3 Received</name><description>A message that is, or begins with, Keyword 3 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>24</id><name>Keyword 4 Received</name><description>A message that is, or begins with, Keyword 4 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>25</id><name>Keyword 5 Received</name><description>A message that is, or begins with, Keyword 5 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>26</id><name>Keyword 6 Received</name><description>A message that is, or begins with, Keyword 6 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>27</id><name>Keyword 7 Received</name><description>A message that is, or begins with, Keyword 7 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
+    <event><id>28</id><name>Keyword 8 Received</name><description>A message that is, or begins with, Keyword 8 (the rest is in LAST_MESSAGE_ARGUMENT)</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"></script>
@@ -64,6 +85,7 @@
       <action><name>Send Test To Twilio SMS</name><command>TEST_TWILIO</command></action>
       <action><name>Print Delivery Log</name><command>PRINT_LOG</command></action>
       <action><name>Print Router Status</name><command>PRINT_STATUS</command></action>
+      <action><name>Check For Messages Now</name><command>CHECK_MESSAGES</command></action>
       <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
       <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
       <action><name>Clear Delivery Log</name><command>CLEAR_LOG</command></action>
@@ -96,6 +118,17 @@
           <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
         </params>
       </command>
+      <command>
+        <name>REPLY</name>
+        <description>Reply to the last message received: PARAM1</description>
+        <params>
+          <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+        </params>
+      </command>
     </commands>
     <properties>
       <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
@@ -110,6 +143,9 @@
       <property><name>Sent Today</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Failed Today</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Last Router Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Inbound Status</name><type>STRING</type><default>off</default><readonly>true</readonly></property>
+      <property><name>Last Message</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Received Today</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Dedupe Window</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>3600</maximum><default>300</default></property>
       <property><name>Rate Limit Per Hour</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>600</maximum><default>60</default></property>
       <property><name>Telegram</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Telegram bot messages. Create a bot with BotFather, add it to a chat or group, and read the chat id from getUpdates.</description></property>
@@ -118,6 +154,8 @@
       <property><name>Telegram Minimum Priority</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items><default>low</default></property>
       <property><name>Telegram Quiet Start</name><type>STRING</type><default></default></property>
       <property><name>Telegram Quiet End</name><type>STRING</type><default></default></property>
+      <property><name>Telegram Inbound</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Two-way: take messages sent to the bot. Only the chat in Telegram Chat ID is taken, plus anyone in Telegram Allowed Senders. One program at a time can read a bot, and a bot with a webhook cannot be read this way.</description></property>
+      <property><name>Telegram Allowed Senders</name><type>STRING</type><default></default><description>Optional. Telegram user ids or @usernames, comma-separated. Listed people may also message the bot privately; in a group chat, only listed people are taken.</description></property>
       <property><name>Pushover</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Pushover push notifications. Critical priority is sent as a Pushover emergency that repeats until acknowledged.</description></property>
       <property><name>Pushover App Token</name><type>STRING</type><password>true</password><default></default></property>
       <property><name>Pushover User Key</name><type>STRING</type><password>true</password><default></default></property>
@@ -143,6 +181,18 @@
       <property><name>Twilio Minimum Priority</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items><default>high</default></property>
       <property><name>Twilio Quiet Start</name><type>STRING</type><default></default></property>
       <property><name>Twilio Quiet End</name><type>STRING</type><default></default></property>
+      <property><name>Twilio Inbound</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Two-way: take texts sent to the Twilio From Number. Only Twilio To Number is taken, plus the numbers in Twilio Allowed Senders. A caller's number can be forged: set an Inbound PIN before letting a text unlock or disarm anything.</description></property>
+      <property><name>Twilio Allowed Senders</name><type>STRING</type><default></default><description>Optional. Extra phone numbers in E.164 form, comma-separated.</description></property>
+      <property><name>Inbound PIN</name><type>STRING</type><password>true</password><default></default><description>Optional. When set, every inbound message must begin with this PIN and a space; the PIN is removed before the text reaches any variable.</description></property>
+      <property><name>Inbound Poll Seconds</name><type>RANGED_INTEGER</type><minimum>3</minimum><maximum>300</maximum><default>5</default><description>How often the router asks for new messages. A message older than two minutes (or three poll intervals, if longer) is ignored.</description></property>
+      <property><name>Keyword 1</name><type>STRING</type><default></default><description>A word or short phrase. A message that is this keyword, or begins with it, fires Keyword 1 Received; what follows it is in LAST_MESSAGE_ARGUMENT. Case does not matter. A Telegram command such as /status matches the keyword status.</description></property>
+      <property><name>Keyword 2</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 3</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 4</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 5</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 6</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 7</name><type>STRING</type><default></default></property>
+      <property><name>Keyword 8</name><type>STRING</type><default></default></property>
       <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
       <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
     </properties>

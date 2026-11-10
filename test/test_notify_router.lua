@@ -154,5 +154,43 @@ check(
 )
 check("recent_log(3) chronological", #router:recent_log(3) == 3 and router:recent_log(3)[3].title == "r")
 
+print("== reserve: a direct send (a reply) counts toward the hourly limit and nothing else")
+do
+  local t = 5000
+  local direct = R.new({
+    now = function()
+      return t
+    end,
+    minuteOfDay = function()
+      return 23 * 60
+    end,
+    targets = function()
+      return {
+        {
+          id = "telegram",
+          label = "Telegram",
+          enabled = false,
+          min_priority = 3,
+          quiet_start = "22:00",
+          quiet_end = "07:00",
+        },
+      }
+    end,
+    per_hour = 2,
+  })
+  check(
+    "allowed although the target is off, quiet and gated",
+    direct:reserve("telegram") == true and direct:reserve("telegram") == true
+  )
+  local ok, why = direct:reserve("telegram")
+  check(
+    "the third in an hour is rate limited",
+    ok == false and why == "rate_limited" and direct.counters.rate_limited == 1
+  )
+  check("another target has its own count", direct:reserve("twilio") == true)
+  t = t + 3601
+  check("an hour later it is allowed again", direct:reserve("telegram") == true)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

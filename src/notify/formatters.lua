@@ -29,7 +29,7 @@ local function text(msg)
   if msg.body == "" then
     return msg.title
   end
-  if msg.title == "" then
+  if msg.title == "" or msg.title_from_body then
     return msg.body
   end
   return msg.title .. "\n" .. msg.body
@@ -88,7 +88,8 @@ function M.builders.pushover(cfg, msg)
   local body = {
     token = tostring(cfg.app_token),
     user = tostring(cfg.user_key),
-    title = msg.title,
+    -- No title of its own: Pushover shows the application's name instead.
+    title = (not msg.title_from_body) and msg.title or nil,
     message = msg.body ~= "" and msg.body or msg.title,
     priority = PUSHOVER_PRIORITY[msg.priority] or 0,
   }
