@@ -49,6 +49,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   filter, and a `PASSWORD` property, are refused in every driver (both make
   Composer Pro 2026.10.14 raise "Property Invalid" on import).
 
+### Changed
+- **Event envelope: reserved prefixes.** A module with no event-type
+  prefixes of its own can no longer emit under another module's prefix
+  (`event_type_reserved`). The server has refused such events since the
+  Flight Recorder review fixes; the Agent now refuses them at the module
+  frame, so they are not queued and uploaded first.
+
 ### Fixed
 - **Notification Router: a notification with only a MESSAGE was sent
   twice over.** Its first 60 characters went out as a title line above the

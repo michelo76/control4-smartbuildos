@@ -60,7 +60,8 @@ M.QUALITY = {
 
 --- Reserved event-type prefixes. `module_id` must own the prefix it emits
 --- under (the Agent enforces this at EC.SBOS_MODULE_EVENTS): a module cannot
---- impersonate another module's events.
+--- impersonate another module's events, and a module that is not listed
+--- here cannot emit under any listed prefix.
 M.PREFIXES = {
   flight_recorder = { "observation.", "trace.", "recorder.", "snapshot." },
   event_tracer = { "capture.", "tracer." },
@@ -369,6 +370,18 @@ function M.validate(env, ownerModule)
     end
     if not owned then
       return false, "event_type_not_owned"
+    end
+  else
+    -- A module with no prefixes of its own may emit only OUTSIDE every
+    -- reserved prefix: downstream code selects rows by event type, so a
+    -- reserved type must imply its owner. Same rule as the server
+    -- (moduleOwnsEventType in the web repo's envelope.ts).
+    for _, reserved in pairs(M.PREFIXES) do
+      for _, p in ipairs(reserved) do
+        if env.event_type:sub(1, #p) == p then
+          return false, "event_type_reserved"
+        end
+      end
     end
   end
   if not isNonEmptyString(env.observed_at) then
