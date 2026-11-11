@@ -2335,6 +2335,17 @@ check(
   classifyStart("20260818.1", "20260818.2", 4) == "update"
 )
 check("the SAME version means Director came back", classifyStart("20260818.1", "20260818.1", 4) == "reload")
+-- Bench, 10 Nov 2026: an Agent that had only ever been updated read
+-- "Last Reload ... (first)" after every update, because updates do not add
+-- to the count and the count alone decided "first".
+check(
+  "an update before any reload was counted is an update, not a first start",
+  classifyStart("20261109.203405", "20261110.070950", 0) == "update"
+)
+check(
+  "Director coming back before any reload was counted is a reload",
+  classifyStart("20261110.070950", "20261110.070950", 0) == "reload"
+)
 check(
   "an unreadable version falls back to reload rather than inventing an update",
   classifyStart("20260818.1", nil, 4) == "reload"

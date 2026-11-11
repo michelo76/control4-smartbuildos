@@ -101,6 +101,36 @@ check("initial lowest", E.priority("observation.initial") == 0)
 check("change middle", E.priority("observation.change") == 1)
 check("trace highest", E.priority("trace.start") == 2)
 
+local function shaped(moduleId, eventType)
+  return {
+    schema_version = 1,
+    event_id = "x",
+    event_type = eventType,
+    module_id = moduleId,
+    source_driver_instance_id = "1",
+    observed_at = "t",
+    sequence = 1,
+    severity = "info",
+    evidence_source = "observed",
+    quality = "confirmed",
+  }
+end
+check(
+  "an unlisted module cannot emit under a reserved prefix",
+  select(2, E.validate(shaped("notification_router", "trace.start"))) == "event_type_reserved"
+    and select(2, E.validate(shaped("notification_router", "agent.command_state"))) == "event_type_reserved"
+    and select(2, E.validate(shaped("notification_router", "usage.daily"))) == "event_type_reserved"
+)
+check(
+  "an unlisted module may emit outside every reserved prefix",
+  select(2, E.validate(shaped("notification_router", "notify.sent"))) ~= "event_type_reserved"
+    and select(2, E.validate(shaped("notification_router", "tracerx.thing"))) ~= "event_type_reserved"
+)
+check(
+  "a listed module still gets not_owned, not reserved, for a foreign prefix",
+  select(2, E.validate(shaped("event_tracer", "trace.start"))) == "event_type_not_owned"
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

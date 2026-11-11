@@ -303,5 +303,170 @@ check(
   props["License Status"]
 )
 
+print("\n[N] Agents-panel Agent: absent from GetDevices, found by driver file or the AGENTS list")
+
+-- Tier 2: GetDevicesByC4iName answers when GetDevices does not list the Agent.
+PROJECT = { [901] = { deviceName = "Insights", driverFileName = "smartbuildos-insights.c4z" } }
+local byName = {}
+function C4:GetDevicesByC4iName(file)
+  return byName[file]
+end
+local agentsXml = nil
+function C4:GetProjectItems(kind)
+  if kind == "AGENTS" then
+    return agentsXml
+  end
+  return ""
+end
+byName = { ["smartbuildos.c4z"] = { [77] = { name = "SmartBuildOS Agent" } } }
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("found by driver file when GetDevices lacks it", license.agentDeviceId() == 77, license.agentDeviceId())
+check("registration went to that id", #deviceSent == 1 and deviceSent[1].device == 77)
+check(
+  "property no longer says No Agent",
+  tostring(props["License Status"]) ~= "No SmartBuildOS Agent Found",
+  props["License Status"]
+)
+
+-- Tier 3: only the AGENTS list knows it (nested tree, parent id first).
+byName = {}
+agentsXml = [[<systemitems><item><id>1</id><name>Project</name><type>1</type><itemdata/><subitems>
+  <item><id>40</id><name>Scheduler</name><c4i>scheduler.c4i</c4i></item>
+  <item><id>55</id><name>SmartBuildOS Agent</name><c4i>smartbuildos.c4z</c4i></item>
+  <item><id>56</id><name>Insights-looking</name><c4i>smartbuildos-insights.c4z</c4i></item>
+</subitems></item></systemitems>]]
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check(
+  "found in the AGENTS list by the id right before its c4i tag",
+  license.agentDeviceId() == 55,
+  license.agentDeviceId()
+)
+check("registration went to the Agent", #deviceSent == 1 and deviceSent[1].device == 55)
+
+-- A sibling with a similar file name in the AGENTS list is never mistaken.
+agentsXml = "<systemitems><item><id>56</id><c4i>smartbuildos-insights.c4z</c4i></item></systemitems>"
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("insights sibling in AGENTS is not the Agent", license.agentDeviceId() == nil and #deviceSent == 0)
+
+-- The <driver> spelling is accepted too.
+agentsXml = "<item><id>61</id><itemdata><driver>smartbuildos.c4z</driver></itemdata></item>"
+license._reset()
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("AGENTS item with <driver> tag", license.agentDeviceId() == 61, license.agentDeviceId())
+
+-- Nothing anywhere: still loud, still legacy, nothing sent; a later answer is picked up.
+agentsXml = nil
+license._reset()
+deviceSent = {}
+license.setup({ sku = "SBOS_EVENT_TRACER" })
+check("nothing found → No Agent, nothing sent", license.agentDeviceId() == nil and #deviceSent == 0)
+byName = { ["smartbuildos.c4z"] = { [78] = {} } }
+check("not cached as nil: a later register finds it", license.register() == true and license.agentDeviceId() == 78)
+C4.GetDevicesByC4iName = nil
+C4.GetProjectItems = nil
+
+print("\n[R] An unanswered ask is repeated until the Agent answers")
+
+-- Bench, 10 Nov 2026: a driver updated while the Agent was already running
+-- stayed on "Checking..." until somebody pressed Register With Agent Now.
+do
+  local timers, cancelled = {}, 0
+  local savedSet, savedCancel = SetTimer, CancelTimer
+  function SetTimer(id, ms, fn)
+    timers[id] = { ms = ms, fn = fn }
+  end
+  function CancelTimer(id)
+    cancelled = cancelled + 1
+    timers[id] = nil
+  end
+  local function fireRetry()
+    local t = timers["SbosLicenceRetry"]
+    timers["SbosLicenceRetry"] = nil
+    if t ~= nil then
+      t.fn()
+    end
+    return t ~= nil
+  end
+  local function registrations()
+    local n = 0
+    for _, m in ipairs(deviceSent) do
+      if m.command == "SBOS_REGISTER_DRIVER" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+
+  PROJECT = { [900] = { deviceName = "Agent", driverFileName = "smartbuildos.c4z" } }
+  license._reset()
+  deviceSent = {}
+  license.setup({ sku = "SBOS_GUEST_MODE" })
+  check("asked once at start", registrations() == 1)
+  check("a retry is waiting, 5 s out", timers["SbosLicenceRetry"] ~= nil and timers["SbosLicenceRetry"].ms == 5000)
+  local waits = {}
+  for _ = 1, 6 do
+    waits[#waits + 1] = timers["SbosLicenceRetry"].ms / 1000
+    fireRetry()
+  end
+  check("asked again each time it went unanswered", registrations() == 7, registrations())
+  check(
+    "soon, then less often, then every five minutes",
+    table.concat(waits, ",") == "5,15,30,60,300,300",
+    table.concat(waits, ",")
+  )
+  check(
+    "still Checking, still operational",
+    tostring(props["License Status"]):find("Checking", 1, true) ~= nil and license.isOperational()
+  )
+
+  license.onEntitlement({ sku = "SBOS_GUEST_MODE", status = "AUTHORIZED_SUBSCRIPTION", registered = "true" })
+  check("the answer stops the asking", timers["SbosLicenceRetry"] == nil and cancelled >= 1)
+  local before = registrations()
+  check("nothing is left to fire", fireRetry() == false and registrations() == before)
+  license.register()
+  check("a later register, already answered, does not start it again", timers["SbosLicenceRetry"] == nil)
+
+  -- A retry that was already queued when the answer arrived must not ask.
+  license._reset()
+  deviceSent = {}
+  license.setup({ sku = "SBOS_GUEST_MODE" })
+  local queued = timers["SbosLicenceRetry"]
+  license.onEntitlement({ sku = "SBOS_GUEST_MODE", status = "AUTHORIZED_SUBSCRIPTION", registered = "true" })
+  queued.fn()
+  check("a retry that fires after the answer sends nothing", registrations() == 1, registrations())
+
+  -- A driver being removed takes its timer with it.
+  license._reset()
+  license.setup({ sku = "SBOS_GUEST_MODE" })
+  license.stop()
+  check("stop() leaves no retry timer", timers["SbosLicenceRetry"] == nil)
+
+  -- No Agent: loud, and not polled (the warning would repeat for ever).
+  PROJECT = {}
+  license._reset()
+  timers = {}
+  license.setup({ sku = "SBOS_GUEST_MODE" })
+  check("no Agent, no retry timer", timers["SbosLicenceRetry"] == nil)
+
+  -- A driver host without timers still registers.
+  SetTimer, CancelTimer = nil, nil
+  PROJECT = { [900] = { deviceName = "Agent", driverFileName = "smartbuildos.c4z" } }
+  license._reset()
+  deviceSent = {}
+  check(
+    "without SetTimer the first ask still goes out",
+    pcall(license.setup, { sku = "SBOS_GUEST_MODE" }) and registrations() == 1
+  )
+  SetTimer, CancelTimer = savedSet, savedCancel
+  PROJECT = {}
+  license._reset()
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

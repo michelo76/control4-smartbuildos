@@ -10,6 +10,7 @@
   <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
   <created>10/22/2026 12:00 PM</created>
   <modified></modified>
+  <combo>true</combo>
   <minimum_os_version>3.3.2</minimum_os_version>
   <composer_categories>
     <category>Utility</category>

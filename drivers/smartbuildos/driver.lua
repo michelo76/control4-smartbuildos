@@ -449,7 +449,10 @@ local collectCommands
 --- distinguishable from in here and are not claimed to be.
 --- @return string kind  "first" | "update" | "reload"
 function classifyStart(previousVersion, currentVersion, previousCount)
-  if previousCount == nil or previousCount == 0 then
+  -- "First" means nothing was recorded before. The count alone cannot say
+  -- that: an update does not add to it, so a driver that had only ever been
+  -- updated still had a count of 0 and was called "first" every time.
+  if previousVersion == nil and (previousCount == nil or previousCount == 0) then
     return "first"
   end
   if previousVersion ~= nil and currentVersion ~= nil and previousVersion ~= currentVersion then
@@ -590,18 +593,13 @@ local function announceStart()
     log:warn("Could not fire the Director Reloaded event: %s", tostring(fireErr))
   end
 
-  if isPaired() then
-    local sentOk, sendErr = pcall(function()
-      send("event", {
-        kind = "event",
-        name = "director_reloaded",
-        detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
-        director_reloads = gStart.count,
-        restart = gStart.restart,
-        last_reload_at = gStart.at,
-        alerts = alertPreferences(),
-      }, "director reload")
-    end)
+  -- The report to SmartBuildOS lives in AgentReportReload, below the HTTP
+  -- sender. It was written here, naming `isPaired` and `send` — both locals
+  -- declared further down the file, so here they were two nil globals: the
+  -- first reload to reach this line threw out of OnDriverLateInit. Nothing
+  -- reached it only because no start was ever classified as a reload.
+  if AgentReportReload ~= nil then
+    local sentOk, sendErr = pcall(AgentReportReload)
     if not sentOk then
       log:warn("Could not report the reload to SmartBuildOS: %s", tostring(sendErr))
     end
@@ -1161,6 +1159,26 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       pcall(onFailed, reason)
     end
   end)
+end
+
+--- Tells SmartBuildOS that Director came back under this driver. Global, and
+--- defined here, because it needs `isPaired` and `send`, which do not exist
+--- yet where announceStart is written (and this file has no top-level locals
+--- to spare for forward declarations).
+function AgentReportReload()
+  if not isPaired() then
+    return false
+  end
+  send("event", {
+    kind = "event",
+    name = "director_reloaded",
+    detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
+    director_reloads = gStart.count,
+    restart = gStart.restart,
+    last_reload_at = gStart.at,
+    alerts = alertPreferences(),
+  }, "director reload")
+  return true
 end
 
 -- ─── System Studio Agent Contract v1 ────────────────────────────────────────
@@ -3514,7 +3532,7 @@ local COMMAND_RUNNERS = {
   -- ── MODULE SERVICES (contract v1) ───────────────────────────────────────
   -- One gateway, not two: a restricted module operation rides the same
   -- command path with the same ack. The vocabulary is closed
-  -- (MODULE_COMMANDS below): Flight Recorder's five operations today. No
+  -- (MODULE_COMMANDS below): Flight Recorder, Event Tracer, Usage Analytics. No
   -- arbitrary Lua, no equipment control.
   MODULE_COMMAND = function(payload)
     return ModuleCommandDispatch(payload)
@@ -3654,6 +3672,10 @@ AGENT_EVENT_SEQ_KEY = "sbos_agent_event_seq"
 --- The closed vocabulary of restricted module operations, per module.
 MODULE_COMMANDS = {
   flight_recorder = { apply_config = true, pause = true, resume = true, capture_snapshot = true, refresh_status = true },
+  -- Mirrors of the web repo's MODULE_OPERATIONS (src/lib/control4/flight-recorder/modules.ts)
+  -- and of each driver's own registered command list. Nothing here acts on the house.
+  event_tracer = { apply_policy = true, pause = true, resume = true, reapply = true, refresh_status = true },
+  usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100

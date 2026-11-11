@@ -114,6 +114,8 @@ local state = {
   -- Whether the Agent has answered this driver at least once. Until it has, a
   -- linked Agent reads "Checking..." rather than a stale license state.
   answered = false,
+  -- How many unanswered asks in a row (paces the next one).
+  retries = 0,
   graceUntil = "",
   checkedAt = "",
   -- "observe" | "enforce", set by the Agent from the server's (unsigned)
@@ -123,13 +125,13 @@ local state = {
   statusProperty = "License Status",
 }
 
---- Finds the Agent by its driver FILE — exact match, the same discovery
---- rule every SmartBuildOS driver uses (a substring would catch siblings).
---- @return number|nil agentDeviceId
-local function findAgent()
-  if state.agentDeviceId ~= nil then
-    return state.agentDeviceId
-  end
+--- The Agent's driver files (exact; a substring would catch siblings such
+--- as smartbuildos-insights.c4z).
+local AGENT_FILES = { ["smartbuildos.c4z"] = true, ["smartbuildos.c4i"] = true }
+
+--- Tier 1: the project device list (the Agent as an ordinary project driver,
+--- which is how every install before the Agents-panel conversion ran).
+local function agentFromDevices()
   local ok, devices = pcall(function()
     return C4:GetDevices({})
   end)
@@ -139,12 +141,78 @@ local function findAgent()
   for rawId, device in pairs(devices) do
     local id = tonumber(rawId)
     local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id ~= nil and (file == "smartbuildos.c4z" or file == "smartbuildos.c4i") then
-      state.agentDeviceId = id
+    if id ~= nil and AGENT_FILES[file] then
       return id
     end
   end
   return nil
+end
+
+--- Tier 2: Director's lookup by driver file. Documented, used by the Agent
+--- itself to reach its dependents, and it answers for agents too.
+local function agentFromC4iName()
+  for file in pairs(AGENT_FILES) do
+    local ok, found = pcall(function()
+      return C4:GetDevicesByC4iName(file)
+    end)
+    if ok and type(found) == "table" then
+      for rawId in pairs(found) do
+        local id = tonumber(rawId)
+        if id ~= nil then
+          return id
+        end
+      end
+    end
+  end
+  return nil
+end
+
+--- Tier 3: the project's AGENTS list (`C4:GetProjectItems("AGENTS")`): the
+--- Agent installed from Composer's Agents panel (<agent>true</agent>, PR #31)
+--- is NOT in GetDevices on OS 4.3 — measured on Beta Site 2, 2026-11-09,
+--- where every dependent read "No SmartBuildOS Agent Found" while the Agent
+--- sat under Agents, paired and connected. Items carry <c4i> (the house
+--- GetAgentId reads it) or <driver>; the id is the LAST <id> before that tag,
+--- so a nested tree cannot hand back a parent's id.
+local function agentFromAgentsList()
+  local ok, xml = pcall(function()
+    return C4:GetProjectItems("AGENTS")
+  end)
+  if not ok or type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  for file in pairs(AGENT_FILES) do
+    local escaped = file:gsub("%.", "%%.")
+    local tagPos = xml:find("<c4i>%s*" .. escaped .. "%s*</c4i>")
+      or xml:find("<driver>%s*" .. escaped .. "%s*</driver>")
+      or xml:find("<config_data_file>%s*" .. escaped .. "%s*</config_data_file>")
+    if tagPos ~= nil then
+      local head = xml:sub(1, tagPos)
+      local id = nil
+      for found in head:gmatch("<id>%s*(%d+)%s*</id>") do
+        id = tonumber(found)
+      end
+      if id ~= nil then
+        return id
+      end
+    end
+  end
+  return nil
+end
+
+--- Finds the Agent: project devices, then by driver file, then the AGENTS
+--- list. Cached once found; a nil is re-asked on the next call so an Agent
+--- added later is picked up.
+--- @return number|nil agentDeviceId
+local function findAgent()
+  if state.agentDeviceId ~= nil then
+    return state.agentDeviceId
+  end
+  local id = agentFromDevices() or agentFromC4iName() or agentFromAgentsList()
+  if id ~= nil then
+    state.agentDeviceId = id
+  end
+  return id
 end
 
 --- The Agent's device id by exact filename, for modules that share this
@@ -186,6 +254,38 @@ local function relationshipLabel()
   return label
 end
 
+--- Asking again until the Agent answers.
+---
+--- Bench, 10 Nov 2026: with the Agent already running, every driver updated
+--- after it stayed on "Checking..." — nine minutes and counting — and one
+--- press of Register With Agent Now painted the licence at once. The ask
+--- sent while a driver is still starting gets no answer, and nothing asked
+--- again. So an unanswered ask is repeated: soon, then less often, then every
+--- five minutes for an Agent that predates licensing and never will answer.
+local RETRY_TIMER = "SbosLicenceRetry"
+local RETRY_SECONDS = { 5, 15, 30, 60 }
+local RETRY_STEADY_SECONDS = 300
+
+local function cancelRetry()
+  state.retries = 0
+  if type(CancelTimer) == "function" then
+    pcall(CancelTimer, RETRY_TIMER)
+  end
+end
+
+local function scheduleRetry()
+  if state.answered or type(SetTimer) ~= "function" then
+    return
+  end
+  state.retries = (state.retries or 0) + 1
+  local seconds = RETRY_SECONDS[state.retries] or RETRY_STEADY_SECONDS
+  pcall(SetTimer, RETRY_TIMER, seconds * 1000, function()
+    if not state.answered then
+      M.register()
+    end
+  end)
+end
+
 local function publishStatus()
   setDisplay(state.statusProperty, relationshipLabel())
   -- The standardized display set (#3/#3a): each optional, painted only if the
@@ -222,6 +322,7 @@ function M.register()
   -- Agent found; show the relationship (Checking... until it answers) rather
   -- than leaving the property's stale default up.
   publishStatus()
+  scheduleRetry()
   return true
 end
 
@@ -251,6 +352,7 @@ function M.onEntitlement(tParams)
   end
   state.status = status
   state.answered = true
+  cancelRetry()
   state.licenseType = tostring(tParams.license_type or "")
   state.company = tostring(tParams.company or "")
   state.subscriptionTier = tostring(tParams.subscription_tier or "")
@@ -378,6 +480,12 @@ function M.describe()
   )
 end
 
+--- Stops asking. Call from OnDriverDestroyed: a driver that is going away
+--- must not leave the retry timer behind.
+function M.stop()
+  cancelRetry()
+end
+
 --- Test hook: reset module state (a require'd module is cached per-VM).
 function M._reset()
   state.sku = ""
@@ -397,6 +505,7 @@ function M._reset()
   state.checkedAt = ""
   state.enforcement = "observe"
   state.statusProperty = "License Status"
+  cancelRetry()
 end
 
 return M

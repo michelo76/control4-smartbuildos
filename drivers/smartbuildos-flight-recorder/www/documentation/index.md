@@ -12,6 +12,7 @@ internet outage; uploads wait in the Agent's bounded, journaled queue.
 
 ## Setup
 
+<!-- walkthrough: Set up Flight Recorder -->
 1. Install the SmartBuildOS Agent from Composer's Agents tab and pair it.
 1. Add this driver (one per project). **Agent Link** shows the Agent's device id
    and **Agent Connection** reads `ready` once registered.
@@ -24,6 +25,10 @@ internet outage; uploads wait in the Agent's bounded, journaled queue.
    Trace, Fail Trace, Record Event, Capture Snapshot, Pause/Resume Recording.
    Every trace command takes a **CHANNEL** you name (default `main`); routines
    that may overlap use different channels.
+
+![Flight Recorder in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## Behaviour
 

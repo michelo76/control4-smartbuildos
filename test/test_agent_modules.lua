@@ -698,6 +698,44 @@ check("c6 accepted", acks2[1].ok == true)
 advance(70000)
 check("no result before expiry → Unverified", gModuleCommands["req-5"].state == "Unverified")
 
+print("[6b] the restricted vocabulary covers the Event Tracer and Usage Analytics")
+check(
+  "event_tracer verbs",
+  MODULE_COMMANDS.event_tracer.apply_policy
+    and MODULE_COMMANDS.event_tracer.pause
+    and MODULE_COMMANDS.event_tracer.resume
+    and MODULE_COMMANDS.event_tracer.reapply
+    and MODULE_COMMANDS.event_tracer.refresh_status
+)
+check(
+  "usage_analytics verbs",
+  MODULE_COMMANDS.usage_analytics.send_summary
+    and MODULE_COMMANDS.usage_analytics.reapply
+    and MODULE_COMMANDS.usage_analytics.refresh_status
+)
+local acksN = heartbeatWith({
+  {
+    id = "n2",
+    command = "MODULE_COMMAND",
+    payload = { module_id = "usage_analytics", command = "run_lua", request_id = "req-n2" },
+  },
+  {
+    id = "n3",
+    command = "MODULE_COMMAND",
+    payload = { module_id = "usage_analytics", command = "pause", request_id = "req-n3" },
+  },
+})
+check(
+  "an unknown usage verb is refused by name",
+  acksN[1].ok == false and acksN[1].error:find("run_lua is not a restricted operation", 1, true) ~= nil,
+  acksN[1].error
+)
+check(
+  "a verb of another module is not borrowed",
+  acksN[2].ok == false and acksN[2].error:find("pause is not a restricted operation of usage_analytics", 1, true) ~= nil,
+  acksN[2].error
+)
+
 print("[7] snapshot upload: bounded, redacted, acknowledged either way")
 sent = {}
 requests = {}
@@ -810,6 +848,25 @@ gModules = nil
 gEvents = nil
 OnDriverLateInit("DIT_STARTUP")
 check("hello sent to the registered module", #sentOf("SBOS_MODULE_AGENT_HELLO", MODULE_ID) >= 1)
+-- The same version starting again is Director coming back: a reload. It was
+-- never one before (the count alone decided "first", and an update never
+-- added to it), which hid that the report below named two locals declared
+-- further down the file and threw.
+do
+  local reported = nil
+  for _, r in ipairs(requestsTo("event")) do
+    local body = type(r.data) == "string" and JSON:decode(r.data) or r.data
+    if type(body) == "table" and body.name == "director_reloaded" then
+      reported = body
+    end
+  end
+  check("a second start at the same version is counted as a reload", Properties["Director Reloads"] == "1")
+  check(
+    "the reload is reported to SmartBuildOS, with its number",
+    reported ~= nil and reported.director_reloads == 1,
+    reported and reported.detail
+  )
+end
 sent = {}
 EC.UNPAIR()
 check(
