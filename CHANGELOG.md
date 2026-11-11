@@ -21,7 +21,275 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **A full manual for every driver.** The other 40 drivers now have the
+  same kind of manual as the Notification Router and Solar Position: what
+  the driver is for and a table of use cases, where the stock way is still
+  the right tool, setup as a walkthrough, how it behaves, worked examples
+  that name the exact event, conditional, variable or command, a programming
+  reference, how to read the status, and what is not claimed. Each was
+  written from the driver's code and tests, not from the old page, and every
+  name was checked against `driver.xml`. Where the code and the old manual
+  disagreed the manual now follows the code (the camera's snapshots and PTZ,
+  the Agent as an agent and not a project driver, commands by their real
+  names, limits and defaults), and behaviour that surprised us is written
+  down as it is, under the section it affects.
+- **Solar Position: a ceiling per facade.** `Facade N Max Elevation` (90 =
+  no limit) is the highest sun that still counts, for glass under an
+  overhang or a balcony and for the midsummer sun that stands in front of
+  south glass without entering it. Facade Status says `shade (sun too
+  high)` when that is the reason, a ceiling at or under the floor is
+  reported (`facade 2 not used: …`) instead of leaving a facade that can
+  never light, and a facade with a ceiling can be in the sun twice a day,
+  with two pairs of events.
+- **Solar Position: an event at every boundary of the day.** *Sunrise*,
+  *Sunset*, *Night Began* (evening twilight over), *Evening Golden Hour
+  Started* and *Morning Golden Hour Ended* join *Civil Dawn*, so first
+  light, sunrise, full daylight, low evening sun, sunset and dark each have
+  one event, plus the conditional *It is night*. *Golden Hour Started* and
+  *Civil Dusk* keep firing as before for programming that uses them. The
+  horizon is judged on its own, so a late tick still reports the crossing.
+- **Solar Position: the manual.** Why a sunrise or sunset schedule cannot do
+  this (the driver's own figures for a west and a south facade through the
+  year), a table of use cases, walkthroughs for setup and for describing a
+  facade, how to choose Max Elevation for an overhang, four worked examples,
+  the day boundary by boundary, and a calculator in the page that answers
+  "when is the sun on this glass" for any site, date and facade with the
+  driver's own rules (checked against the engine on fourteen cases).
+- **Interactive manuals for every driver.** A driver's documentation is now
+  one self-contained interactive page: a contents list that follows the
+  page, search, walkthroughs whose steps you tick (your place is kept),
+  screenshots that enlarge, and copy buttons on code. `tools/docs.py`
+  builds it from the same `index.md` for all 42 drivers, embeds the
+  screenshots in the page, and falls back to the plain document where
+  script does not run (the PDF). The ten dealer-tooling drivers carry
+  screenshots taken on the bench and a setup walkthrough; the Notification
+  Router's manual adds Telegram, message and two-way walkthroughs and a
+  try-it panel for composing a message. It opens with what the driver is
+  for and a table of use cases, and has a Webhooks section with walkthroughs
+  and worked examples for a Slack or Discord channel and for the Generic
+  Webhook (the request as sent, each field, what to answer, a `curl` line).
+- **Notification Router: a message is written in pieces.** Notify, Notify
+  All and Reply now read MESSAGE, VARIABLE 1, MESSAGE 2, VARIABLE 2 … up to
+  VARIABLE 4 and MESSAGE 5, so words can follow a value: *This system
+  rebooted* + a variable + *times* is sent as "This system rebooted 3
+  times". Pieces are joined with one space, tight against punctuation.
+  Programming written before sends what it sent; `${1}`..`${4}` still place
+  a value anywhere and word or round it.
+- **Notification Router: SEPARATOR.** Notify, Notify All and Reply have a
+  SEPARATOR list just above MESSAGE: what goes between one message (a text
+  and the variable under it) and the next. **Space** (default) keeps
+  everything one sentence, as before; **New Line** puts each message on its
+  own line; **Period**, **Comma**, **Semicolon**, **Dash** and **Vertical
+  Bar** are the others. Asked for after "Home is currently Occupied The
+  security is currently Armed Away" arrived run together. Programming
+  written before sends what it sent.
+- **Notification Router: `MESSAGE_RECEIVED`.** A string variable that takes
+  the text of each message the router accepts, for programming written as
+  *when MESSAGE_RECEIVED changes, if it is equal to …*. It is not
+  read-only, so programming can set or clear it. The same text arriving
+  twice is still a change. **Message Received As** can lower-case it so a
+  phone's capital letter does not break a condition.
+- **Notification Router: Find Telegram Chat ID.** An action that lists the
+  chats the bot has heard from, with their ids, in **Telegram Chats Seen**:
+  people who wrote to it, groups and channels it was added to. It takes
+  nothing, and the token no longer has to be pasted into a browser.
+- **Message variables in the Notification Router.** A notification can
+  carry the current value of any Control4 variable, value only, set up in
+  the programming window the way the Push Notification agent does it.
+  Notify and Notify All have four **VARIABLE** parameters that open
+  Composer's own *Select variable…* tree; `${1}`..`${4}` in the TITLE or
+  MESSAGE stand for them, and a picked variable that is not written into
+  the text is added at the end. `${Room->Device::VARIABLE}` written out
+  works too. `${1|Open|Closed}` words an on/off value, `${2|.1}` rounds a
+  number. A variable that cannot be read is sent as `?`, raises *Message
+  Variable Missing* and never blocks the send; a credential-named variable
+  is sent as `[hidden]`. De-duplication compares the filled-in text.
+- **Two-way messaging in the Notification Router.** With **Telegram
+  Inbound** or **Twilio Inbound** on, a message sent to the bot or a text
+  sent to the Twilio number becomes variables (`LAST_MESSAGE`,
+  `TELEGRAM_LAST_MESSAGE`, `SMS_LAST_MESSAGE`, sender, channel, a counter)
+  and events (*Message Received*, per channel, *Message Rejected*). Eight
+  **Keyword** properties each have their own event, with the rest of the
+  message as an argument, and a **Reply** command answers the sender with
+  message variables. Only the chat or number the router already sends to is
+  taken unless more are listed; messages older than two minutes are
+  ignored, each is handled once across restarts, and an optional **Inbound
+  PIN** is required and stripped. The router polls (default every 5 s);
+  nothing has to be opened on the home router. Not yet exercised with a
+  real message on a controller.
+- **driver.xml guard**: a `DEVICE_SELECTOR` property with no `<items>`
+  filter, and a `PASSWORD` property, are refused in every driver (both make
+  Composer Pro 2026.10.14 raise "Property Invalid" on import).
 
+### Changed
+- **Event envelope: reserved prefixes.** A module with no event-type
+  prefixes of its own can no longer emit under another module's prefix
+  (`event_type_reserved`). The server has refused such events since the
+  Flight Recorder review fixes; the Agent now refuses them at the module
+  frame, so they are not queued and uploaded first.
+
+### Fixed
+- **Sunrise and sunset use the site's day, not the UTC day** (Atmosphere and
+  Solar Position, `src/atmosphere/solar.lua`). In a western evening the UTC
+  date has already turned, and the driver answered with tomorrow's sun: at
+  34°N 118°W in June `IS_DAYTIME` went false at 17:00 against a 20:06
+  sunset, `MINUTES_TO_SUNSET` read a day too long and *Sunset Approaching*
+  never fired. In an eastern morning it answered with yesterday's, and the
+  next sunrise could be in the past. The next sunrise and sunset are now
+  searched over the days around today, so they are also right for a driver
+  pointed at coordinates far from its controller.
+- **Solar Position: `MINUTES_TO_SUNSET` and `MINUTES_TO_SUNRISE` never skip
+  a number.** The value is a floor on a 60-second tick, so a few
+  milliseconds of drift could take it from 31 straight to 29 and programming
+  on "equals 30" would miss that day. The driver now walks the numbers in
+  between.
+- **Home Guide, Dealer Settings, Variable Inspector: the tile could be
+  published at another device's address.** The controller's address was
+  taken from the first `control4_*` device with a network binding; on a
+  project with a second Control4 device on the network that was the other
+  device, and all three tiles pointed where nothing listened. An address
+  from a device binding is now only a candidate: the driver asks its own
+  relay `GET /ping` on each and publishes the one that answers by name
+  (`src/lib/relayhost.lua`). `C4:GetControllerNetworkAddress()` is tried
+  first; **App Relay Address** still overrides everything; when nothing
+  answers, no address is published and **App Data Relay** says so. Asked
+  again every 15 minutes, so a changed lease is followed. Atmosphere and
+  UniFi Protect use the older lookup and are not changed here.
+- **Every driver: a plain text value saved by the driver was lost at the
+  next restart.** Stored values are read back through Base64 and JSON so a
+  saved table can be rebuilt; a saved *string* went the same way, and one
+  the controller's decoder turns into nothing (anything with a space, comma,
+  dot, dash or underscore) came back empty. Seen on the bench in the Agent:
+  the company name was painted after a licence refresh and replaced by
+  *Registered (name syncing)* after every driver update, so every dependent
+  driver showed `-` for the company. The property name the Agent forwards,
+  its Support ID, last-reload time and version, and the three Web View relay
+  tokens were lost the same way. A stored string that is not an encoded
+  table is now returned as stored. Bench-confirmed: the company name is
+  shown straight after an update.
+- **Every licensed driver: License Status stayed on "SmartBuildOS Agent
+  Found - Checking..." after a driver update.** The licence ask sent while a
+  driver is still starting got no answer on the bench when the Agent was
+  already running, and nothing asked again; one press of *Register With
+  Agent Now* painted it at once. An unanswered ask is now repeated after 5,
+  15, 30 and 60 seconds and then every five minutes, and stops at the first
+  answer. Licensing stayed fail-open throughout: no driver stopped working.
+- **Agent: the first real Director reload would have stopped the Agent
+  starting.** The reload report to SmartBuildOS named two functions declared
+  further down the file, so it threw from `OnDriverLateInit` the first time
+  it ran. It had never run: a start was classified as "first" whenever the
+  reload count was 0, an update never adds to the count, so an Agent that
+  had only been updated read *Last Reload … (first)* for ever and never
+  reached "reload". Both are fixed: the count alone no longer decides
+  "first", and the report lives below the sender it uses.
+- **Event Tracer: the probe could starve the events it already knew.** With
+  *Probe Unknown Drivers* on, the subscription budget was spent in device-id
+  order, 32 guesses for each unknown device, and catalogued devices with
+  higher ids got nothing (bench: `1000 subscriptions on 35 of 186 devices`).
+  Known events are now subscribed first and the probe gets what is left.
+- **Event Tracer: an event from another day now says which day.** *Last
+  Event* and *Print Recent Events* showed the time alone, so a history that
+  spans midnight read as out of order.
+- **Home Guide: every device was listed twice.** Director lists a driver and
+  its proxy as two devices with one name. Entries of one room that share a
+  name are now one line; two real devices with the same name and driver are
+  one line marked `(2)`. A lamp driver is no longer classed with amplifiers,
+  nor an AV switch or a Nintendo Switch with light switches.
+- **Home Guide: Last Rebuilt moved every minute.** It was painted with the
+  clock, not with the time of the rebuild.
+- **Usage Analytics: Last Daily Summary read "none" after every update.**
+  The time the summary was sent is now kept across restarts.
+- **Notification Router: a notification with only a MESSAGE was sent
+  twice over.** Its first 60 characters went out as a title line above the
+  full text on Telegram, webhooks and SMS. The text is now sent once.
+
+- Fixed
+
+### Changed
+- Changed
+
+### Removed
+- Removed
+-->
+
+## Unreleased
+
+### Added
+- **Message variables in the Notification Router.** A notification's TITLE
+  or MESSAGE can carry placeholders that are sent as the current value of a
+  Control4 variable, value only: `{1}`..`{8}` for a slot (a device and one
+  of its variables picked in the driver's properties, or one of the
+  project's custom variables) and `{Device:VARIABLE}` inline. `{1|Open|Closed}`
+  words an on/off value, `{2|.1}` rounds a number. A placeholder that cannot
+  be filled is sent as `?`, raises *Message Variable Missing* and never
+  blocks the send; a credential-named variable is sent as `[hidden]`.
+  De-duplication compares the filled-in text. A slot's device is picked
+  from a list the driver fills (`Name (Room) · id`): a `DEVICE_SELECTOR`
+  property with no driver filter makes Composer Pro 2026.10.14 raise
+  "Property Invalid" on import, and the driver.xml guard test now refuses it.
+
+### Fixed
+- **Dealer PIN property type** (Dealer Settings Panel, Live Variable Inspector): `<type>PASSWORD</type>` made Composer Pro 2026.10.14 raise "Property Invalid … Object reference not set to an instance of an object" when the driver was added; it is now `<type>STRING</type><password>true</password>`, the form every other password property in this repo uses. Measured on Beta Site 2, 9 Nov 2026.
+
+- **Agent discovery for every dependent driver.** Since the Agent moved to
+  Composer's Agents panel (`<agent>true</agent>`, PR #31) it is no longer in
+  `C4:GetDevices`, so every SmartBuildOS driver read "No SmartBuildOS Agent
+  Found" while the Agent sat paired and connected (measured on Beta Site 2,
+  OS 4.3, 2026-11-09). `sbos.license` now finds the Agent in three tiers —
+  project devices, `C4:GetDevicesByC4iName("smartbuildos.c4z")`, then the
+  `GetProjectItems("AGENTS")` list (last `<id>` before the Agent's `<c4i>`)
+  — and `sbos.mirror`, System Link and Atmosphere delegate to it instead of
+  carrying their own copy of the old rule.
+- **Composer listing of proxy-less drivers.** Flight Recorder and Event
+  Tracer declare `<combo>true</combo>`; without it Composer imports a
+  proxy-less `lua_gen` driver and never lists it in Items → Search.
+
+### Added
+- **Studio operations for the Event Tracer and Usage Analytics** (Agent `MODULE_COMMANDS`): `event_tracer` (apply_policy, pause, resume, reapply, refresh_status) and `usage_analytics` (send_summary, reapply, refresh_status), mirroring the web repo's `MODULE_OPERATIONS`. An older Agent refuses them by name.
+- **Event Tracer: a Studio policy is written into the Composer properties.** `apply_policy` merges the keys sent over the running policy, refuses the whole change if any value is invalid, updates the properties and applies; it survives a reload and a later Composer edit wins. `tracer.applied` now reports the running policy (`payload.policy`) for Studio.
+
+- **Dealer tooling batch** (new, 8 drivers, `docs/driver-batch-20261109.md`),
+  every one licensed through the Agent by its own SKU: **Home Guide**
+  (`smartbuildos-user-manual`, SBOS_USER_MANUAL) — a personalised manual
+  generated from the project in a Navigator web view; **Guest Mode**
+  (`smartbuildos-guest-mode`, SBOS_GUEST_MODE) — iCal short-let calendars →
+  stay states, events, per-stay PIN variable; **Usage Analytics**
+  (`smartbuildos-usage-analytics`, SBOS_USAGE_ANALYTICS, module
+  `usage_analytics`, prefix `usage.`) — media hours, light on-hours, keypad
+  presses, daily rollups uploaded through the Agent; **Notification Router**
+  (`smartbuildos-notification-router`, SBOS_NOTIFICATION_ROUTER) — Telegram,
+  Pushover, Slack/Discord webhook, generic webhook, Twilio SMS with quiet
+  hours, dedupe, rate limits, retries; **Logic Pack**
+  (`smartbuildos-logic-pack`, SBOS_LOGIC_PACK) — counters, flags, state
+  machine, debounce, throttle, once-per-day, named timers for Composer
+  programming; **Solar Position** (`smartbuildos-solar`, SBOS_SOLAR) — NOAA
+  sun elevation/azimuth, day phases, four facades with hysteresis; **Dealer
+  Settings** (`smartbuildos-dealer-panel`, SBOS_DEALER_PANEL) — twelve
+  dealer-defined settings as variables, editable from a PIN-gated web view;
+  **Variable Inspector** (`smartbuildos-variable-inspector`,
+  SBOS_VARIABLE_INSPECTOR) — live device variables, watch list with history,
+  PIN-gated Set. Web views follow Atmosphere's relay pattern (ports
+  47821–47823). 1,018 new test checks; **no hardware validation yet**.
+- **Build guard** `test/test_driver_require_guard.lua`: every src `require`
+  in a driver.lua must be at module scope, or the squish step leaves the
+  module out of the .c4z (the tracer shipped without its catalogue this way).
+
+- **Event Tracer** (new): `smartbuildos-event-tracer` captures every Composer
+  event every device in the project fires, with no configuration, and keeps
+  the sequence in a local ring (printable from Composer without a Pro session)
+  and as `capture.event` envelopes through the Agent's pipeline. Event ids come
+  from a three-tier catalogue — the project XML (bench PROBE), a built-in table
+  generated from the dealer's driver library (`tools/gen-event-catalog.py`:
+  187 drivers, 1,303 events), and ids learned at run time from opt-in probe
+  subscriptions. Storm detection (one warning, then counted not recorded),
+  upload budget (the local ring is not budgeted), subscription cap with
+  per-device coverage, exclusions, Composer markers (`MARK_TIMELINE`),
+  pause/resume, Studio commands. Licensing: `SBOS_EVENT_TRACER` through the
+  Agent; a definitive denial with enforcement on releases every subscription.
+  Envelope prefixes `capture.` / `tracer.` owned by `event_tracer`. **No
+  hardware validation yet** — `docs/event-tracer/VERIFICATION.md` lists the
+  bench plan; the first question is whether `GetProjectItems` without
+  `LIMIT_DEVICE_DATA` carries `<events>`.
 - **System Link** (new, 7 drivers): `smartbuildos-system-link` bridge links two
   Control4 projects through SmartBuildOS — each project owns its shared
   variables (BOOLEAN/INTEGER/DECIMAL/STRING/CHOICE), the other sees read-only

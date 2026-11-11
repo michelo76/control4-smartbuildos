@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dealer Settings</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --text:#e8eaf0; --muted:#9aa3b2; --accent:#f97316; --ok:#22c55e; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding:16px 16px calc(env(safe-area-inset-bottom) + 24px); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .banner { border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:14px; border:1px solid var(--line); background:var(--card); }
+  .banner.bad { border-color:var(--bad); }
+  .banner.ok { border-color:var(--ok); }
+  .pin { display:flex; gap:8px; margin-bottom:16px; }
+  .pin input { flex:1; }
+  input, select, button { font:inherit; color:var(--text); background:#0b0d12; border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-height:44px; }
+  input[type=number] { width:100%; }
+  button { background:var(--accent); border-color:var(--accent); color:#111; font-weight:600; }
+  button.ghost { background:transparent; color:var(--text); border-color:var(--line); }
+  button:disabled { opacity:.45; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .name { font-weight:600; }
+  .meta { color:var(--muted); font-size:12px; }
+  .ctl { margin-top:10px; display:flex; gap:8px; align-items:center; }
+  .ctl > :first-child { flex:1; }
+  .switch { position:relative; width:56px; height:32px; border-radius:16px; background:#2a2f3a; border:1px solid var(--line); cursor:pointer; flex:0 0 auto; }
+  .switch.on { background:var(--ok); }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:12px; background:#fff; transition:left .15s; }
+  .switch.on::after { left:27px; }
+  .refusal { color:var(--bad); font-size:13px; margin-top:6px; }
+  .note { color:var(--muted); font-size:13px; text-align:center; margin-top:20px; }
+  .toast { position:fixed; left:16px; right:16px; bottom:calc(env(safe-area-inset-bottom) + 16px); padding:12px; border-radius:10px; background:#222733; border:1px solid var(--line); display:none; }
+</style>
+</head>
+<body>
+<h1>Dealer Settings</h1>
+<div class="sub" id="status">Loading…</div>
+<div class="banner" id="banner" style="display:none"></div>
+<div class="pin" id="pinRow">
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Dealer PIN">
+  <button class="ghost" id="pinBtn">Unlock</button>
+</div>
+<div id="list"></div>
+<div class="note" id="note"></div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  function qp(name) {
+    var pairs = String(window.location.search).replace(/^\?/, '').split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      var kv = pairs[i].split('=');
+      if (decodeURIComponent(kv[0]) === name) return decodeURIComponent(kv.slice(1).join('=') || '');
+    }
+    return null;
+  }
+  var token = qp('k') || '';
+  var relayBase = qp('relay');
+  if (relayBase === null && /^https?:/.test(window.location.protocol) && window.location.pathname.replace(/\/+$/, '') === '/app') {
+    relayBase = window.location.origin; /* served same-origin by the driver's relay */
+  }
+  var pin = ''; /* memory only: never stored */
+  var state = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function toast(msg, bad) {
+    var t = $('toast'); t.textContent = msg; t.style.display = 'block';
+    t.style.borderColor = bad ? '#ef4444' : '#22c55e';
+    clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 2200);
+  }
+
+  /* Transport: LAN relay first (proven), then the Navigator JS API. */
+  function api(method, path, body, cb) {
+    if (relayBase) {
+      var xhr = new XMLHttpRequest();
+      xhr.open(method, relayBase + path + (path.indexOf('?') < 0 ? '?' : '&') + 'k=' + encodeURIComponent(token), true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        var doc = null; try { doc = JSON.parse(xhr.responseText); } catch (e) { doc = null; }
+        cb(doc, xhr.status);
+      };
+      xhr.onerror = function () { cb(null, 0); };
+      xhr.send(body ? JSON.stringify(body) : null);
+      return;
+    }
+    if (window.C4 && typeof window.C4.sendCommand === 'function') {
+      var name = path.indexOf('/state') === 0 ? 'DEALER_GET_STATE' : (path.indexOf('/verify') === 0 ? 'DEALER_VERIFY' : 'DEALER_SET');
+      var params = {};
+      if (body) { if (body.name) params.NAME = body.name; if (body.slot) params.SLOT = String(body.slot); if (body.value !== undefined) params.VALUE = String(body.value); if (body.pin) params.PIN = body.pin; }
+      var ret = null;
+      try { ret = window.C4.sendCommand(name, params, true, true); } catch (e) { try { ret = window.C4.sendCommand(name, params); } catch (e2) { ret = null; } }
+      var doc = null; try { doc = typeof ret === 'string' ? JSON.parse(ret) : ret; } catch (e3) { doc = null; }
+      cb(doc, doc ? 200 : 0);
+      return;
+    }
+    cb(null, 0);
+  }
+
+  function reasonText(r) {
+    return ({
+      pin_not_configured: 'Set a Dealer PIN in Composer to allow edits',
+      wrong_pin: 'Wrong PIN',
+      locked: 'Locked after wrong PINs — wait a minute',
+      unlicensed: 'SmartBuildOS licence: read-only',
+      invalid: 'Value not accepted'
+    })[r] || (r || 'Refused');
+  }
+
+  function render() {
+    if (!state) return;
+    $('status').textContent = state.status || '';
+    var b = $('banner');
+    if (!state.pin_configured) { b.textContent = 'Read-only: no Dealer PIN is set in Composer.'; b.className = 'banner bad'; b.style.display = 'block'; }
+    else if (state.read_only_reason) { b.textContent = 'Read-only: ' + reasonText(state.read_only_reason); b.className = 'banner bad'; b.style.display = 'block'; }
+    else if (state.locked_seconds > 0) { b.textContent = 'Locked for ' + state.locked_seconds + ' s after wrong PINs.'; b.className = 'banner bad'; b.style.display = 'block'; }
+    else if (pin) { b.textContent = 'Unlocked. Changes apply immediately.'; b.className = 'banner ok'; b.style.display = 'block'; }
+    else { b.style.display = 'none'; }
+    $('pinRow').style.display = state.writable ? 'flex' : 'none';
+    var canWrite = state.writable && pin !== '';
+    var list = $('list'); list.innerHTML = '';
+    if (!state.settings || state.settings.length === 0) {
+      $('note').textContent = 'No settings configured yet. Name them in Composer under Setting 1…12.';
+      return;
+    }
+    $('note').textContent = state.configured + ' setting(s) · ' + (state.licence || '');
+    state.settings.forEach(function (s) {
+      var card = document.createElement('div'); card.className = 'card';
+      var head = document.createElement('div'); head.className = 'row';
+      head.innerHTML = '<div><div class="name"></div><div class="meta"></div></div><div class="meta cur"></div>';
+      head.querySelector('.name').textContent = s.name;
+      head.querySelector('.meta').textContent = s.type + (s.type === 'Number' ? ' ' + s.min + '…' + s.max : '');
+      head.querySelector('.cur').textContent = s.text;
+      card.appendChild(head);
+      if (s.refusal) { var r = document.createElement('div'); r.className = 'refusal'; r.textContent = s.refusal; card.appendChild(r); }
+      var ctl = document.createElement('div'); ctl.className = 'ctl';
+      var send = function (value) {
+        api('POST', '/set', { slot: s.slot, value: value, pin: pin }, function (doc, status) {
+          if (doc && doc.ok) { toast(s.name + ' = ' + (doc.setting ? doc.setting.text : value)); load(); }
+          else { toast(reasonText(doc && doc.reason) + (doc && doc.detail ? ': ' + doc.detail : ''), true); if (doc && doc.reason === 'locked') load(); }
+        });
+      };
+      if (s.type === 'Toggle') {
+        var sw = document.createElement('div'); sw.className = 'switch' + (s.value ? ' on' : '');
+        sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', s.value ? 'true' : 'false');
+        if (canWrite) sw.onclick = function () { send(s.value ? 'Off' : 'On'); }; else sw.style.opacity = '.45';
+        var lab = document.createElement('div'); lab.className = 'meta'; lab.textContent = s.value ? 'On' : 'Off';
+        ctl.appendChild(lab); ctl.appendChild(sw);
+      } else if (s.type === 'Choice') {
+        var sel = document.createElement('select');
+        (s.choices || []).forEach(function (c) { var o = document.createElement('option'); o.value = c; o.textContent = c; if (c === s.value) o.selected = true; sel.appendChild(o); });
+        sel.disabled = !canWrite;
+        var sb = document.createElement('button'); sb.textContent = 'Save'; sb.disabled = !canWrite; sb.onclick = function () { send(sel.value); };
+        ctl.appendChild(sel); ctl.appendChild(sb);
+      } else {
+        var inp = document.createElement('input');
+        if (s.type === 'Number') { inp.type = 'number'; inp.min = s.min; inp.max = s.max; inp.step = 'any'; inp.inputMode = 'decimal'; }
+        else { inp.type = 'text'; inp.maxLength = 200; }
+        inp.value = s.text; inp.disabled = !canWrite;
+        var nb = document.createElement('button'); nb.textContent = 'Save'; nb.disabled = !canWrite; nb.onclick = function () { send(inp.value); };
+        inp.onkeydown = function (ev) { if (ev.key === 'Enter' && canWrite) send(inp.value); };
+        ctl.appendChild(inp); ctl.appendChild(nb);
+      }
+      card.appendChild(ctl);
+      list.appendChild(card);
+    });
+  }
+
+  function load() {
+    api('GET', '/state', null, function (doc, status) {
+      if (!doc) { $('status').textContent = 'Cannot reach the driver' + (status ? ' (' + status + ')' : '') + ' — reopen this tile.'; return; }
+      state = doc; render();
+    });
+  }
+
+  $('pinBtn').onclick = function () {
+    var candidate = $('pin').value;
+    if (!candidate) { pin = ''; render(); return; }
+    api('POST', '/verify', { pin: candidate }, function (doc) {
+      if (doc && doc.ok) { pin = candidate; $('pin').value = ''; toast('Unlocked'); load(); }
+      else { pin = ''; toast(reasonText(doc && doc.reason), true); load(); }
+    });
+  };
+
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

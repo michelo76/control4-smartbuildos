@@ -65,6 +65,18 @@ _Last updated: 2026-08-29._
   (appears under Agents, one per project, absent from Navigator, pairing
   survives the re-add) is still owed.
 
+- **D5 — the Agent carries shared module services (2026-10-22).** Optional
+  SmartBuildOS drivers ("modules") register with the Agent over
+  SendToDevice with a per-registration token the Agent sends to the claimed
+  device id, and use its pairing, transport, durable acknowledged event
+  queue, versioned configuration delivery (the existing `driver_config`
+  forwarding) and restricted command gateway (the existing `MODULE_COMMAND`
+  verb on the existing queue; a closed per-module vocabulary). The first
+  module is Flight Recorder (`smartbuildos-flight-recorder.c4z`). Contract:
+  `docs/flight-recorder/PROTOCOL.md`; status: `docs/flight-recorder/CHECKLIST.md`.
+  Guardian, Commissioning Inspector, Home State and Property Bridge have
+  reserved event prefixes and nothing else.
+
 ## Guarantees the tests hold to
 
 - **Never dark a home.** Live video, detections and status reads never consult
