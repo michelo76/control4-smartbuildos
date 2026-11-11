@@ -355,5 +355,69 @@ check(
   pr ~= nil and pr.is_daylight == true and pr.solar == nil
 )
 
+print("== the day is the site's day, not the UTC day")
+do
+  local SolarState = require("atmosphere.solar").solarState
+  local function hm(epoch, offsetHours)
+    return os.date("!%d %H:%M", epoch + offsetHours * 3600)
+  end
+  -- Los Angeles, 21 June, 17:30 PDT: already 00:30 UTC on the 22nd. Sunset is
+  -- still two and a half hours away, today.
+  local la = SolarState(34, -118, utc(2026, 6, 22, 0, 30), -7 * 3600)
+  check("western evening: today's sunset, not tomorrow's", hm(la.sunset, -7) == "21 20:06", hm(la.sunset, -7))
+  check("western evening: the countdown is hours, not a day", la.minutesToSunset == 156, la.minutesToSunset)
+  check("western evening: it is still daytime", la.isDaytime == true)
+  check(
+    "western evening: next sunrise is tomorrow morning",
+    hm(la.nextSunrise, -7) == "22 05:41",
+    hm(la.nextSunrise, -7)
+  )
+  -- Florida, 21 June, 20:05 EDT (00:05 UTC): nine minutes to sunset.
+  local fl = SolarState(26, -80, utc(2026, 6, 22, 0, 5), -4 * 3600)
+  check("nine minutes before a sunset that falls after 00:00 UTC", fl.minutesToSunset == 9, fl.minutesToSunset)
+  -- Tokyo, 11 November, 07:00 JST: still 22:00 UTC on the 10th. The sun rose
+  -- 47 minutes ago, today.
+  local tk = SolarState(35.68, 139.69, utc(2026, 11, 10, 22, 0), 9 * 3600)
+  check("eastern morning: today's sunrise, not yesterday's", hm(tk.sunrise, 9) == "11 06:13", hm(tk.sunrise, 9))
+  check("eastern morning: daytime after sunrise", tk.isDaytime == true)
+  check(
+    "eastern morning: the next sunrise is in the future",
+    tk.minutesToSunrise > 0 and hm(tk.nextSunrise, 9) == "12 06:14",
+    hm(tk.nextSunrise, 9)
+  )
+  -- Before dawn there, the next sunrise is this morning's.
+  local dawn = SolarState(35.68, 139.69, utc(2026, 11, 10, 20, 0), 9 * 3600)
+  check(
+    "eastern night: next sunrise is this morning",
+    dawn.minutesToSunrise == 73 and dawn.isDaytime == false,
+    dawn.minutesToSunrise
+  )
+  -- A driver pointed at coordinates far from its controller passes the
+  -- controller's offset. The next sunset must still be the next one.
+  local far = SolarState(34, -118, utc(2026, 6, 22, 0, 30), 9 * 3600)
+  check(
+    "a wrong offset still finds the next sunset",
+    far.minutesToSunset == 156 and far.isDaytime == true,
+    far.minutesToSunset
+  )
+  -- Every minute of a day, at three sites: the countdown never jumps up
+  -- except across the sunset itself, and is never negative.
+  local worst = nil
+  for _, site in ipairs({ { 34, -118, -7 }, { 26, -80, -4 }, { 35.68, 139.69, 9 }, { -33.87, 151.21, 11 } }) do
+    local last
+    for m = 0, 1439 do
+      local st = SolarState(site[1], site[2], utc(2026, 6, 21, 0, 0) + m * 60, site[3] * 3600)
+      if st.minutesToSunset < 0 or st.minutesToSunrise < 0 then
+        worst = "negative at minute " .. m
+      end
+      if last ~= nil and st.minutesToSunset > last and last > 1 then
+        worst = string.format("jump from %d to %d at minute %d (lon %s)", last, st.minutesToSunset, m, site[2])
+      end
+      last = st.minutesToSunset
+    end
+  end
+  check("the countdown only jumps at the sunset, at any site and hour", worst == nil, worst)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

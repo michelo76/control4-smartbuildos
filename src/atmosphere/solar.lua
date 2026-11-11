@@ -81,8 +81,20 @@ end
 
 --- Sunrise/sunset bracketing `now`: today's times plus the NEXT sunrise and
 --- sunset after `now` (which may be tomorrow's). Also reports isDaytime.
---- localOffset (seconds east of UTC, optional) shifts the "day" boundary so
---- "today" means the site's civil day, not the UTC day.
+--- localOffset (seconds east of UTC, optional) makes "today" the site's civil
+--- day, not the UTC day.
+---
+--- sunTimes works on a calendar date and returns that date's sunrise and
+--- sunset AT THE GIVEN LONGITUDE, which for a western site fall on the next
+--- UTC day and for an eastern site on the previous one. So the date asked for
+--- has to be the site's own date: `now + localOffset` read as a UTC date.
+--- Asking for the UTC date of `now` instead answers with tomorrow's sun in a
+--- western evening (the countdown to sunset reads a day too long and daytime
+--- reads false hours before dusk) and with yesterday's in an eastern morning.
+---
+--- The next sunrise and sunset are searched over the days around today, so
+--- they are right even when the offset given is not the site's (a driver
+--- pointed at coordinates far from its controller).
 function M.solarState(lat, lon, now, localOffset)
   now = tonumber(now)
   if now == nil then
@@ -90,28 +102,34 @@ function M.solarState(lat, lon, now, localOffset)
   end
   localOffset = tonumber(localOffset) or 0
   local localDay = now + localOffset
-  local today = M.sunTimes(lat, lon, localDay - localOffset)
+  local today = M.sunTimes(lat, lon, localDay)
   if today == nil then
     return nil
+  end
+  local isDaytime = false
+  local nextSunrise, nextSunset
+  for n = -1, 2 do
+    local d = n == 0 and today or M.sunTimes(lat, lon, localDay + n * 86400)
+    if d ~= nil then
+      if now >= d.sunrise and now < d.sunset then
+        isDaytime = true
+      end
+      if nextSunrise == nil and d.sunrise > now then
+        nextSunrise = d.sunrise
+      end
+      if nextSunset == nil and d.sunset > now then
+        nextSunset = d.sunset
+      end
+    end
   end
   local state = {
     sunrise = today.sunrise,
     sunset = today.sunset,
     solarNoon = today.solarNoon,
-    isDaytime = now >= today.sunrise and now < today.sunset,
+    isDaytime = isDaytime,
+    nextSunrise = nextSunrise,
+    nextSunset = nextSunset,
   }
-  local nextSunrise = today.sunrise
-  if nextSunrise <= now then
-    local tomorrow = M.sunTimes(lat, lon, localDay - localOffset + 86400)
-    nextSunrise = tomorrow ~= nil and tomorrow.sunrise or nil
-  end
-  local nextSunset = today.sunset
-  if nextSunset ~= nil and nextSunset <= now then
-    local tomorrow = M.sunTimes(lat, lon, localDay - localOffset + 86400)
-    nextSunset = tomorrow ~= nil and tomorrow.sunset or nil
-  end
-  state.nextSunrise = nextSunrise
-  state.nextSunset = nextSunset
   state.minutesToSunrise = nextSunrise ~= nil and math.floor((nextSunrise - now) / 60) or nil
   state.minutesToSunset = nextSunset ~= nil and math.floor((nextSunset - now) / 60) or nil
   return state
