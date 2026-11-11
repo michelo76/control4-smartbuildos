@@ -14,11 +14,16 @@ variables keep answering, nothing is lost.
 
 ## Setup
 
+<!-- walkthrough: Set up Logic Pack -->
 1. Install and pair the SmartBuildOS Agent from Composer's Agents tab.
 1. Add this driver (one per project, anywhere; a Utility room is fine).
 1. Optionally map up to eight counters to the `COUNTER_1..8` variables with
    the **Counter Slot N Key** properties, so programming can read them as
    numbers and the **Counter slot N** conditionals can compare them.
+
+![Logic Pack in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## Keys
 

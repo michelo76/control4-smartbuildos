@@ -15,6 +15,7 @@ bounded, journaled queue.
 
 ## Setup
 
+<!-- walkthrough: Set up Event Tracer -->
 1. Install the SmartBuildOS Agent from Composer's Agents tab and pair it.
 1. Add this driver (one per project). **Agent Link** shows the Agent's device
    id and **Agent Connection** reads `ready` once registered.
@@ -22,6 +23,10 @@ bounded, journaled queue.
    how many devices, and which devices the catalogue does not know.
 1. Optionally add **Mark Timeline** to routines (Device Specific Commands) so a
    routine's start shows up as a named marker between the device events.
+
+![Event Tracer in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## What is captured
 

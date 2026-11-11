@@ -16,11 +16,16 @@ Agent's bounded, journaled queue.
 
 ## Setup
 
+<!-- walkthrough: Set up Usage Analytics -->
 1. Install the SmartBuildOS Agent from Composer's Agents tab and pair it.
 1. Add this driver (one per project). **Agent Link** shows the Agent's device
    id and **Agent Connection** reads `ready` once registered.
 1. That is all. **Sources** reports how many rooms, lights and keypads are
    measured; **Today** keeps a running total.
+
+![Usage Analytics in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## What is measured
 

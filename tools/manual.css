@@ -1,0 +1,165 @@
+/* The interactive manual: the chrome tools/manual.js builds around a driver's
+   documentation, and the few authored blocks (screenshots, walkthroughs, chat
+   illustrations). Everything here degrades to the plain document: with no
+   script (the PDF, a locked-down viewer) nothing is hidden and nothing is
+   missing. Light only, like the stylesheet it sits on. */
+
+:root {
+  --m-ink: #1f2328;
+  --m-muted: #59636e;
+  --m-line: #d1d9e0;
+  --m-soft: #f6f8fa;
+  --m-accent: #c2410c;
+  --m-accent-soft: #fff4ed;
+  --m-done: #1a7f37;
+  --m-done-soft: #eefbf1;
+  --m-bar: 52px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--m-bar) + 12px); }
+body { margin: 0; background: #fff; color: var(--m-ink); }
+
+/* ── screenshots ─────────────────────────────────────────────────────────── */
+.markdown-body figure.shot { margin: 16px 0 20px; }
+.markdown-body figure.shot img {
+  display: block; max-width: 100%; height: auto; box-sizing: border-box;
+  border: 1px solid var(--m-line); border-radius: 6px; background: #fff;
+}
+.markdown-body figure.shot figcaption {
+  margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--m-muted);
+}
+.manual-on figure.shot img { cursor: zoom-in; }
+.manual-on figure.shot.narrow img { max-width: min(100%, 420px); }
+
+/* ── a chat, drawn (an illustration, not a screenshot) ───────────────────── */
+.markdown-body .chat {
+  max-width: 440px; margin: 16px 0 6px; padding: 14px 14px 6px;
+  border: 1px solid var(--m-line); border-radius: 10px; background: #eef3f8;
+}
+.markdown-body .chat p {
+  width: fit-content; max-width: 86%; margin: 0 0 8px; padding: 7px 11px;
+  border-radius: 12px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere;
+}
+.markdown-body .chat p.them { background: #fff; border: 1px solid var(--m-line); border-bottom-left-radius: 3px; }
+.markdown-body .chat p.me { margin-left: auto; background: #d9f2c7; border: 1px solid #b9dfa0; border-bottom-right-radius: 3px; }
+.markdown-body .chat p.who { padding: 0; margin-bottom: 4px; background: none; border: 0; font-size: 12px; font-weight: 600; color: var(--m-muted); }
+.markdown-body .chat-note { max-width: 440px; margin: 0 0 16px; font-size: 13px; color: var(--m-muted); }
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.m-bar {
+  position: sticky; top: 0; z-index: 20; height: var(--m-bar); box-sizing: border-box;
+  display: flex; align-items: center; gap: 10px; padding: 0 16px;
+  background: #fff; border-bottom: 1px solid var(--m-line);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+.m-bar .m-title { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-bar input[type="search"] {
+  flex: 0 1 220px; min-width: 90px; height: 32px; box-sizing: border-box; padding: 0 10px;
+  font: inherit; font-size: 14px; color: inherit; background: var(--m-soft);
+  border: 1px solid var(--m-line); border-radius: 6px;
+}
+.m-btn {
+  flex: none; height: 32px; padding: 0 12px; font-weight: 600;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--m-ink); background: var(--m-soft); border: 1px solid var(--m-line); border-radius: 6px; cursor: pointer;
+}
+.m-btn:hover { background: #eef1f4; }
+.m-bar input:focus-visible, .m-btn:focus-visible, .m-toc a:focus-visible, .m-step-check:focus-visible {
+  outline: 2px solid var(--m-accent); outline-offset: 2px;
+}
+.m-progress { position: absolute; left: 0; bottom: -1px; height: 2px; width: 0; background: var(--m-accent); }
+
+/* ── layout: contents beside the page when there is room ─────────────────── */
+.m-shell { display: block; }
+.m-toc {
+  display: none; box-sizing: border-box; padding: 10px 16px 14px; border-bottom: 1px solid var(--m-line);
+  background: var(--m-soft); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+.m-toc.open { display: block; }
+.m-toc ol { list-style: none; margin: 0; padding: 0; }
+.m-toc li { margin: 0; }
+.m-toc a { display: block; padding: 5px 8px; border-radius: 6px; font-size: 14px; line-height: 1.3; color: var(--m-ink); text-decoration: none; }
+.m-toc a:hover { background: #e9edf1; }
+.m-toc a.sub { padding-left: 22px; font-size: 13px; color: var(--m-muted); }
+.m-toc a.here { background: var(--m-accent-soft); color: var(--m-accent); font-weight: 600; }
+.m-toc li.gone { display: none; }
+.manual-on .markdown-body { padding-top: 24px; }
+@media (min-width: 1000px) {
+  .m-shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); align-items: start; }
+  .m-toc {
+    display: block; position: sticky; top: var(--m-bar); max-height: calc(100vh - var(--m-bar)); overflow: auto;
+    border-bottom: 0; border-right: 1px solid var(--m-line); background: #fff; padding: 18px 12px;
+  }
+  .m-toc-btn { display: none; }
+  .manual-on .markdown-body { margin: 0; max-width: 860px; }
+}
+
+/* ── search ──────────────────────────────────────────────────────────────── */
+.m-section.gone { display: none; }
+.m-none { margin: 24px 0; padding: 14px 16px; border: 1px dashed var(--m-line); border-radius: 8px; color: var(--m-muted); }
+
+/* ── walkthroughs ────────────────────────────────────────────────────────── */
+.m-walk { margin: 16px 0 24px; border: 1px solid var(--m-line); border-radius: 10px; background: #fff; }
+.m-walk-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--m-line); background: var(--m-soft); border-radius: 10px 10px 0 0; }
+.m-walk-title { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 14px; }
+.m-walk-count { flex: none; font-size: 13px; color: var(--m-muted); font-variant-numeric: tabular-nums; }
+.m-walk-meter { height: 4px; background: #e7ebef; }
+.m-walk-meter i { display: block; height: 100%; width: 0; background: var(--m-done); transition: width .2s; }
+.markdown-body .m-walk ol.walkthrough { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.markdown-body .m-walk ol.walkthrough > li {
+  position: relative; margin: 0; padding: 14px 14px 14px 58px; border-top: 1px solid var(--m-line); counter-increment: step;
+}
+.markdown-body .m-walk ol.walkthrough > li:first-child { border-top: 0; }
+.m-step-check {
+  position: absolute; left: 14px; top: 12px; width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 2px solid var(--m-line); background: #fff; color: var(--m-muted);
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; cursor: pointer;
+}
+.m-step-check::before { content: counter(step); }
+li.m-current > .m-step-check { border-color: var(--m-accent); color: var(--m-accent); background: var(--m-accent-soft); }
+li.m-done > .m-step-check { border-color: var(--m-done); background: var(--m-done); color: #fff; }
+li.m-done > .m-step-check::before { content: "\2713"; }
+li.m-done { background: var(--m-done-soft); }
+li.m-done > :not(.m-step-check):not(figure) { color: var(--m-muted); }
+.m-walk-foot { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--m-line); font-size: 13px; color: var(--m-muted); }
+.m-walk-foot span { flex: 1 1 auto; }
+.m-link { padding: 0; border: 0; background: none; font: inherit; color: var(--m-accent); text-decoration: underline; cursor: pointer; }
+
+/* ── copy buttons on code blocks ─────────────────────────────────────────── */
+.m-copy-wrap { position: relative; }
+.m-copy { position: absolute; top: 6px; right: 6px; height: 26px; padding: 0 9px; font-size: 12px; }
+
+/* ── a try-it panel (authored per driver) ────────────────────────────────── */
+.markdown-body .tryit { margin: 16px 0 24px; padding: 14px; border: 1px solid var(--m-line); border-radius: 10px; background: var(--m-soft); }
+.markdown-body .tryit .row { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.markdown-body .tryit label { flex: 0 0 128px; font-size: 12px; font-weight: 600; color: var(--m-muted); }
+.markdown-body .tryit input {
+  flex: 1 1 auto; min-width: 0; height: 32px; box-sizing: border-box; padding: 0 9px; font: inherit; font-size: 14px;
+  color: var(--m-ink); background: #fff; border: 1px solid var(--m-line); border-radius: 6px;
+}
+.markdown-body .tryit .row.var input { background: var(--m-accent-soft); border-color: #f3c9ae; }
+.markdown-body .tryit output { display: block; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--m-line); font-size: 15px; min-height: 22px; overflow-wrap: anywhere; }
+.markdown-body .tryit .hint { margin: 8px 0 0; font-size: 13px; color: var(--m-muted); }
+.no-script-note { font-size: 13px; color: var(--m-muted); }
+.manual-on .no-script-note { display: none; }
+
+/* ── enlarged screenshot ─────────────────────────────────────────────────── */
+.m-zoom { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 20, 25, .82); cursor: zoom-out; }
+.m-zoom img { max-width: 100%; max-height: 100%; border-radius: 6px; background: #fff; }
+.m-top { position: fixed; right: 12px; bottom: 12px; z-index: 15; display: none; box-shadow: 0 1px 4px rgba(31, 35, 40, .18); }
+.m-top.show { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .m-walk-meter i { transition: none; }
+}
+@media print {
+  .m-bar, .m-toc, .m-top, .m-copy, .m-walk-foot, .m-walk-meter, .m-step-check, .m-zoom { display: none !important; }
+  .m-shell { display: block; }
+  .m-section.gone { display: block; }
+  .m-walk { border: 0; }
+  .m-walk-head { background: none; border: 0; padding: 0; }
+  .markdown-body .m-walk ol.walkthrough { list-style: decimal; padding-left: 2em; }
+  .markdown-body .m-walk ol.walkthrough > li { padding: 4px 0; border: 0; background: none; }
+  .tryit { display: none; }
+}

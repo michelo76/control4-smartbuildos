@@ -76,7 +76,8 @@ controller.
    three relays answer `/ping` on the controller's address and the status
    property named a different one, which belongs to another Control4 device.
    `src/lib/relayhost.lua` now publishes only an address the relay itself
-   has answered on. **Built (`224844`) and suite-tested; not yet imported.**
+   has answered on. Imported that evening as `235241` and confirmed: the
+   three status lines name the controller.
 
 ## Seen, not changed
 
@@ -95,15 +96,38 @@ controller.
 
 ## Left on the bench
 
-The Windows VM that runs Composer stopped updating at 17:33 while a
-property page was opening; the controller kept answering on the network.
-Until Composer is back:
+The Windows VM that runs Composer stopped updating at 17:33 while a property
+page was opening; the controller kept answering on the network. It was back
+by 18:55 and the leftovers were cleared the same evening:
 
-- **Six throwaway programming lines are still on Home Guide → *Guide
-  Restored*** (Check In Now, Recompute, Mark, Send Usage Summary, Rebuild,
-  Increment Counter). They run if that event fires. Delete them.
-- **Guest Mode is in a manual check-in** from the test (`occupied`,
-  open-ended). Run *Clear Manual Override*.
-- **Telegram Inbound is On** on the router.
-- Build `224844` (defect 9, and the media classification) is in `dist/oss`,
-  not on the controller.
+- the six throwaway programming lines on Home Guide → *Guide Restored* were
+  deleted (Delete All, confirmed empty);
+- Guest Mode's manual check-in was cleared (*Clear Manual Override*, back to
+  `vacant`);
+- the relay address fix was imported (build `235241` on the Notification
+  Router, Dealer Settings, Variable Inspector and Home Guide): all three
+  tiles now read `Listening … serving http://<controller>:<port>`, the
+  controller's own address.
+
+Still as it was: **Telegram Inbound is On** on the router, and *Probe Unknown
+Drivers* is On on the tracer. The other six drivers and the Flight Recorder
+run `221650`; the Agent runs `215903`.
+
+## Evening: Notification Router, and manuals
+
+- **Message pieces** (MESSAGE, VARIABLE 1, MESSAGE 2 …): the Notify command
+  shows the twelve parameters in reading order, the picker fills VARIABLE 1,
+  and a line built that way ran from the script. The text that went out is
+  not shown by any property (Last Notification holds the title), so the
+  joined text is confirmed by the suite, not on the bench.
+- **`MESSAGE_RECEIVED`** appears under the router in both programming trees,
+  offers *When MESSAGE_RECEIVED changes*, a *Set to Value* command and an
+  *Is =* conditional. No message was sent to the bot, so the variable
+  changing on a real message is unconfirmed.
+- **Find Telegram Chat ID** is on the Actions tab of build `235241`; it was
+  not pressed (a neighbouring action was). The later build, which also sees
+  channels and groups the bot was added to, is not imported.
+- **Manuals**: screenshots for the ten drivers were taken from this pass and
+  redacted (company, location, controller address, chat id). The interactive
+  page was checked in a browser at Composer's pane width; it has not been
+  opened in Composer's own documentation viewer.

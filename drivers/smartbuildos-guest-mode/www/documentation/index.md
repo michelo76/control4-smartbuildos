@@ -13,6 +13,7 @@ system. The Agent is the licensing authority (SKU `SBOS_GUEST_MODE`);
 
 ## Setup
 
+<!-- walkthrough: Set up Guest Mode -->
 1. Install and pair the SmartBuildOS Agent.
 1. Add this driver (one per rental unit). Paste up to three **Calendar URL**s
    (the "export calendar" link of each platform).
@@ -21,6 +22,10 @@ system. The Agent is the licensing authority (SKU `SBOS_GUEST_MODE`);
    check-out time on the departure day.
 1. Program the events: *Guest Arriving Today*, *Guest Checked In*, *Guest
    Checked Out*, *Turnover Due*, *Property Vacant*.
+
+![Guest Mode in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## Behaviour
 

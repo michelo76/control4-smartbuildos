@@ -13,6 +13,7 @@ Status** shows this driver's standing. No internet is used for the sun maths.
 
 ## Setup
 
+<!-- walkthrough: Set up Solar Position -->
 1. Install and pair the SmartBuildOS Agent.
 1. Add this driver (one per project). **Location** shows the coordinates it
    found in the project. If the project has none, set **Location Source** to
@@ -22,6 +23,10 @@ Status** shows this driver's standing. No internet is used for the sun maths.
    width of sky it sees (`Width`, default 90 degrees) and the lowest sun that
    counts (`Min Elevation`, default 5 degrees so trees and neighbours do not
    count). **Facade Status** shows sun or shade for each.
+
+![Solar Position in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## What it computes
 

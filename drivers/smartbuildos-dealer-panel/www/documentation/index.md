@@ -13,6 +13,7 @@ with enforcement on makes the panel read-only; uncertainty never does.
 
 ## Setup
 
+<!-- walkthrough: Set up Dealer Settings -->
 1. Add this driver to a room (one per project is usual). It appears as a
    **Dealer Settings** tile in Navigator.
 1. For each setting you want, fill **Setting N Name**, **Setting N Type** and
@@ -28,6 +29,10 @@ with enforcement on makes the panel read-only; uncertainty never does.
 1. Reference the variables in programming: `SETTING_N` (text form),
    `SETTING_N_NUMBER` (the number, 1/0 for a toggle) and `SETTING_N_NAME`.
    Use the conditional **Setting N value is …** for comparisons.
+
+![Dealer Settings in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## One truth
 

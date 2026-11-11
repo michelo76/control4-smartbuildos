@@ -12,6 +12,7 @@ licence; a definitive denial with enforcement on makes the inspector read-only.
 
 ## Setup
 
+<!-- walkthrough: Set up Variable Inspector -->
 1. Install and pair the SmartBuildOS Agent (Composer → Agents).
 1. Add this driver (one per project). It adds a **Variable Inspector** tile to
    Navigator (hide it from rooms the customer uses; it is a dealer tool).
@@ -22,6 +23,10 @@ licence; a definitive denial with enforcement on makes the inspector read-only.
    data, set **App Relay Address** to the controller's LAN address and run
    **Re-publish App URL**, then close and reopen the tile (Navigator does not
    change the URL of an open web view).
+
+![Variable Inspector in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## Behaviour
 

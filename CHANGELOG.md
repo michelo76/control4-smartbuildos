@@ -21,6 +21,33 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **Interactive manuals for every driver.** A driver's documentation is now
+  one self-contained interactive page: a contents list that follows the
+  page, search, walkthroughs whose steps you tick (your place is kept),
+  screenshots that enlarge, and copy buttons on code. `tools/docs.py`
+  builds it from the same `index.md` for all 42 drivers, embeds the
+  screenshots in the page, and falls back to the plain document where
+  script does not run (the PDF). The ten dealer-tooling drivers carry
+  screenshots taken on the bench and a setup walkthrough; the Notification
+  Router's manual adds Telegram, message and two-way walkthroughs and a
+  try-it panel for composing a message.
+- **Notification Router: a message is written in pieces.** Notify, Notify
+  All and Reply now read MESSAGE, VARIABLE 1, MESSAGE 2, VARIABLE 2 … up to
+  VARIABLE 4 and MESSAGE 5, so words can follow a value: *This system
+  rebooted* + a variable + *times* is sent as "This system rebooted 3
+  times". Pieces are joined with one space, tight against punctuation.
+  Programming written before sends what it sent; `${1}`..`${4}` still place
+  a value anywhere and word or round it.
+- **Notification Router: `MESSAGE_RECEIVED`.** A string variable that takes
+  the text of each message the router accepts, for programming written as
+  *when MESSAGE_RECEIVED changes, if it is equal to …*. It is not
+  read-only, so programming can set or clear it. The same text arriving
+  twice is still a change. **Message Received As** can lower-case it so a
+  phone's capital letter does not break a condition.
+- **Notification Router: Find Telegram Chat ID.** An action that lists the
+  chats the bot has heard from, with their ids, in **Telegram Chats Seen**:
+  people who wrote to it, groups and channels it was added to. It takes
+  nothing, and the token no longer has to be pasted into a browser.
 - **Message variables in the Notification Router.** A notification can
   carry the current value of any Control4 variable, value only, set up in
   the programming window the way the Push Notification agent does it.

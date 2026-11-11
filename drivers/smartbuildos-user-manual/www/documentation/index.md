@@ -16,6 +16,7 @@ entirely on the controller: no cloud, no internet needed to read it.
 
 ## Setup
 
+<!-- walkthrough: Set up Home Guide -->
 1. Install the SmartBuildOS Agent from Composer's Agents tab and pair it.
 1. Add this driver to any room (one per project is enough). The **Home
    Guide** tile appears in that room's Navigator menu; make it visible in
@@ -31,6 +32,10 @@ entirely on the controller: no cloud, no internet needed to read it.
    device on the network (a remote, a touch screen) is never taken for the
    controller. If it says the address is unknown, or that there was no
    answer on it, type the controller's LAN IP into **App Relay Address**.
+
+![Home Guide in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
 
 ## How it works
 

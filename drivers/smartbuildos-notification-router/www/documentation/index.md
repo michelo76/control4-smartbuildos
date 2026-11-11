@@ -13,21 +13,99 @@ Licensing is through the **SmartBuildOS Agent** (SKU
 
 ## Setup
 
-1. Install the SmartBuildOS Agent from Composer's Agents tab and pair it.
-1. Add this driver (one per project).
+<!-- walkthrough: Set up the router -->
+1. Install the **SmartBuildOS Agent** from Composer's Agents tab and pair it.
+1. Add this driver to the project (one per project). **Driver Status** reads
+   `Online` and **License Status** shows the licence within a few seconds.
 1. Turn on a target and fill in its credentials:
-   - **Telegram**: create a bot with BotFather, add it to a chat or group,
-     paste the bot token and the chat id (read it from `getUpdates`).
+   - **Telegram**: a bot token and a chat id. The
+     [Telegram walkthrough](#telegram-create-the-bot-and-find-the-chat-id)
+     below takes you through both.
    - **Pushover**: an application token and your user key.
    - **Webhook**: a Slack or Discord incoming webhook URL.
    - **Generic Webhook**: any URL that accepts a JSON POST, with an optional
      bearer token.
    - **Twilio SMS**: Account SID, Auth Token, From and To numbers in E.164
      form (+15551234567).
-1. Use **Send Test To …** for each target. **Targets Ready** lists the
-   targets that are on and fully configured.
-1. In programming, add **Notify** (CHANNEL, PRIORITY, TITLE, MESSAGE) or
-   **Notify All** to any routine.
+1. On the **Actions** tab press **Send Test To …** for that target. **Targets
+   Ready** lists the targets that are on and fully configured, and **Last
+   Notification** shows the test.
+1. In programming, add **Notify** or **Notify All** to any routine. See
+   [Writing a message](#writing-a-message).
+
+![The router's properties in Composer: status at the top, then one block of settings per target](images/properties.jpg)
+
+![The Actions tab](images/actions.jpg)
+
+## Telegram: create the bot and find the chat id
+
+Telegram needs two things from you: a **bot** that the router sends as, and
+the **chat** it sends to. The chat can be you alone, a group, or a channel.
+Everything below is done in the Telegram app on a phone or a computer, then
+finished in Composer.
+
+<!-- walkthrough: Create the Telegram bot -->
+1. In Telegram, search for **BotFather** and open the account with the blue
+   verified tick. BotFather is Telegram's own bot for making bots.
+1. Send `/newbot`. BotFather asks for a **name** (shown in chats, for example
+   `Lake House`) and then a **username** that must be unique and end in `bot`
+   (for example `lakehouse_c4_bot`).
+1. BotFather answers with the bot's **token**, a long text of digits, a
+   colon, then letters. Copy the whole line.
+1. In Composer, select the router and paste the token into **Telegram Bot
+   Token**. Set **Telegram** to On.
+
+<div class="chat">
+<p class="me">/newbot</p>
+<p class="who">BotFather</p>
+<p class="them">Asks what the bot should be called.</p>
+<p class="me">Lake House</p>
+<p class="them">Asks for a username ending in “bot”.</p>
+<p class="me">lakehouse_c4_bot</p>
+<p class="them">Confirms the bot and gives its token:<br><code>1234567890:AAH…your-token…</code></p>
+</div>
+<p class="chat-note">An illustration of the conversation, not a screenshot. BotFather's own wording is longer and may change.</p>
+
+> **The token is a password.** Anyone who has it can send as your bot and
+> read what is sent to it. If it leaks, send `/revoke` to BotFather for a new
+> one and paste the new one into Composer.
+
+Now choose where the messages go, and get that chat's id.
+
+<!-- walkthrough: Find the chat id -->
+1. **Make the chat.** Pick one:
+   - **Just you:** open your new bot in Telegram and press **Start** (or send
+     it any message). A bot cannot write to a person who has not written to
+     it first.
+   - **A group** (the household, the service team): add the bot to the group
+     as a member, then send any message in the group.
+   - **A channel** (one-way announcements): add the bot to the channel as an
+     **administrator** with the right to post messages.
+1. In Composer, on the router's **Actions** tab, press **Find Telegram Chat
+   ID**.
+1. Read **Telegram Chats Seen** on the Properties tab. It lists each chat the
+   bot has heard from with its id, newest first, for example
+   `Family (group): -1001234567890 · Sam (private): 123456789`.
+1. Type the id of the chat you want into **Telegram Chat ID**, minus sign
+   included. Group and channel ids are negative.
+1. Press **Send Test To Telegram**. The test arrives in that chat.
+
+![Telegram settings on the router: the token is masked, the chat id is typed in, and Telegram Chats Seen shows what Find Telegram Chat ID found](images/telegram-settings.jpg)
+
+**If Telegram Chats Seen stays empty.** Telegram only keeps what a bot has
+not yet read, and for about a day. Write to the bot again (or remove and
+re-add it to the group), then press **Find Telegram Chat ID** once more. If
+it says `HTTP 409`, another program is reading this bot or the bot has a
+webhook: use a bot of its own for the house. `HTTP 401` means the token is
+not right.
+
+**Groups and two-way.** In a group, Telegram by default shows a bot only the
+messages that are commands, such as `/gate open`. That is enough for
+keywords (`/gate` matches the keyword `gate`). To let the bot see every
+message in the group, send `/setprivacy` to BotFather, choose the bot, choose
+**Disable**, then remove the bot from the group and add it again. A channel
+can only be sent to; messages for the house come from a private chat or a
+group.
 
 ## Routing rules
 
@@ -47,28 +125,87 @@ Licensing is through the **SmartBuildOS Agent** (SKU
 - **Pushover critical** is sent as an emergency that repeats every minute
   for an hour until acknowledged, as the Pushover API requires.
 
-## Message variables
+## Writing a message
 
-A notification can carry the **current value** of any Control4 variable. It
-works the way Control4's own Push Notification and Email agents do, and you
-set it up in the programming window, on the Notify command itself. Only the
-value is sent, never the variable's name.
+A notification is written the way it reads, top to bottom, on the Notify
+command in the programming window: a text, then a variable, then the next
+text. Only the variable's **value** is sent, never its name, and it is read
+at the moment the line runs.
 
-1. In programming, select the router and the **Notify** command.
+![The Notify command: MESSAGE, then VARIABLE 1, then MESSAGE 2, and so on](images/notify-command.jpg)
+
+<!-- walkthrough: A message with a live value in the middle -->
+1. In programming, select the router in the Actions tree and choose the
+   **NOTIFY** command. Pick a **CHANNEL** and a **PRIORITY**, and type a
+   **TITLE**.
+1. In **MESSAGE**, type the words before the value: `This system rebooted`.
 1. Next to **VARIABLE 1**, press `…`. Composer opens its *Select variable…*
-   tree: every room, device and variable of the project. Pick one.
-1. Write `${1}` in the TITLE or MESSAGE where the value should appear.
-   `${2}`, `${3}` and `${4}` are the other three pickers.
+   tree with every room, device and variable of the project. Pick the
+   variable and press OK.
+1. In **MESSAGE 2**, type the words after the value: `times`.
+1. Drag the green arrow into the script. If the variable holds `3`, the
+   message that arrives is **This system rebooted 3 times**.
+
+![Composer's Select variable… tree, opened from the … button next to VARIABLE 1](images/variable-picker.jpg)
+
+![The finished line in the script](images/notify-programming.jpg)
+
+There are four variables and five texts: MESSAGE, VARIABLE 1, MESSAGE 2,
+VARIABLE 2, MESSAGE 3, VARIABLE 3, MESSAGE 4, VARIABLE 4, MESSAGE 5. Leave
+any of them empty. Try it:
+
+<div class="tryit" id="tryit">
+<div class="row"><label for="t1">MESSAGE</label><input id="t1" value="This system rebooted"></div>
+<div class="row var"><label for="v1">VARIABLE 1 holds</label><input id="v1" value="3"></div>
+<div class="row"><label for="t2">MESSAGE 2</label><input id="t2" value="times since"></div>
+<div class="row var"><label for="v2">VARIABLE 2 holds</label><input id="v2" value="Monday"></div>
+<div class="row"><label for="t3">MESSAGE 3</label><input id="t3" value="."></div>
+<output id="tout" for="t1 v1 t2 v2 t3" aria-live="polite">This system rebooted 3 times since Monday.</output>
+<p class="hint">What arrives. Type in the boxes to change it.</p>
+</div>
+<script>
+(function () {
+  var before = [".", ",", ";", ":", "!", "?", "%", ")", "]", "}", "°"];
+  var after = ["(", "[", "{", "$", "#", "£", "€"];
+  function starts(s, list) { return list.some(function (p) { return s.slice(0, p.length) === p; }); }
+  function ends(s, list) { return list.some(function (p) { return s.slice(-p.length) === p; }); }
+  var ids = ["t1", "v1", "t2", "v2", "t3"];
+  var out = document.getElementById("tout");
+  if (!out) return;
+  function paint() {
+    var text = "", lastWasText = false;
+    ids.forEach(function (id) {
+      var isText = id.charAt(0) === "t";
+      var piece = document.getElementById(id).value.trim();
+      if (!piece) return;
+      var tight = text === "" || (isText && starts(piece, before)) || (lastWasText && ends(text, after));
+      text += (tight ? "" : " ") + piece;
+      lastWasText = isText;
+    });
+    out.textContent = text || "(nothing to send)";
+  }
+  ids.forEach(function (id) { document.getElementById(id).addEventListener("input", paint); });
+  paint();
+})();
+</script>
+
+**Spaces are added for you.** The pieces are joined with one space. A text
+that begins with punctuation (`. , ; : ! ? % ) °`) sits tight against the
+value before it, and a text that ends with `( [ { $ # £ €` sits tight against
+the value after it, so `Costs $` + `40` reads `Costs $40`.
+
+**Picking is enough.** With only MESSAGE and VARIABLE 1 filled in, the value
+follows the text: `Garage:` + a variable holding `1` is sent as `Garage: 1`.
+
+**Putting a value anywhere, and changing how it reads.** Write `${1}` to
+`${4}` inside any text (the TITLE too) and that picked variable goes there
+instead of at its own row:
 
 | You write | VARIABLE 1 | It is sent as |
 | --- | --- | --- |
-| `Garage is ${1}` | Garage Door → STATE | `Garage is 1` |
 | `Garage is ${1\|Open\|Closed}` | Garage Door → STATE | `Garage is Open` |
 | `Pool ${1\|.1}°F` | Variables → Pool Temp | `Pool 81.5°F` |
-| `Garage:` | Garage Door → STATE | `Garage: 1` |
-
-**Picking is enough.** A variable that is picked but not written into the
-text is added at the end of the message, as in the last row.
+| TITLE `Garage ${1\|open\|closed}` | Garage Door → STATE | `Garage open` |
 
 **Written out, with no picker.** The token Control4's agents use works too:
 
@@ -140,7 +277,37 @@ In a Telegram group, every member is taken until you list people in
 the bot privately. Anything else fires *Message Rejected*, and its text is
 never stored, logged or shown.
 
-**What programming gets.**
+**The simplest way to act on a message: `MESSAGE_RECEIVED`.** When a message
+is taken, the router writes its text into the variable `MESSAGE_RECEIVED`.
+Program on the variable changing, and test what it says:
+
+<!-- walkthrough: Run programming when a message says "gate open" -->
+1. Set **Message Received As** to **Lower Case**. A phone capitalises the
+   first word, and `Gate open` is not the same text as `gate open`.
+1. In programming, open the router in the left-hand tree and select the
+   variable **MESSAGE_RECEIVED**. The event is *When MESSAGE_RECEIVED
+   changes*.
+1. On the right, select the router's **MESSAGE_RECEIVED** variable again and
+   open the **Conditionals** tab. Choose **Is =** and type `gate open`. Drag
+   the question mark into the script.
+1. Drag what should happen (open the gate) onto that condition, so it sits
+   indented under it.
+1. Add one more condition for each other message you want to answer, on the
+   same event.
+
+![Programming on MESSAGE_RECEIVED: the event on the left, and on the right the condition "is equal to gate open"](images/message-received.jpg)
+
+- **Programming can set it.** `MESSAGE_RECEIVED` is not read-only: the
+  Commands tab has *Set to Value*, so a routine can clear it or write to it.
+- **The same message twice still runs.** If the variable already holds the
+  text that arrives, the router empties it first and then writes the text,
+  so the change is seen. Your condition is simply false for the empty step.
+- Only a message that was **taken** reaches it (see *Who is taken*), with
+  the Inbound PIN already removed.
+- The other variables below keep the message exactly as sent, whatever
+  **Message Received As** says.
+
+**What else programming gets.**
 
 - Variables: `LAST_MESSAGE`, `LAST_MESSAGE_CHANNEL`, `LAST_MESSAGE_SENDER`,
   and one per channel, `TELEGRAM_LAST_MESSAGE` and `SMS_LAST_MESSAGE`.
@@ -155,9 +322,9 @@ never stored, logged or shown.
   and a Telegram command such as `/status` matches the keyword `status`.
   With Keyword 2 = `gate`, the message `Gate open now` fires *Keyword 2
   Received* with the argument `open now`.
-- **Reply** (command): sends MESSAGE back to whoever wrote last, on the
-  channel they used. It takes message variables like Notify, so *When
-  Keyword 1 Received → Reply "Garage is ${1|open|closed}"* answers a status
+- **Reply** (command): sends its message back to whoever wrote last, on the
+  channel they used. It is written in the same pieces as Notify, so *When
+  Keyword 1 Received → Reply "Garage is" + VARIABLE 1* answers a status
   question with a live value. A reply is not held back by quiet hours, the
   minimum priority or the dedupe window; the hourly rate limit still applies.
 
@@ -203,14 +370,15 @@ during a reboot is lost and the next one is not affected.
 | Print Delivery Log | The last 50 deliveries with target, outcome, attempts and reason |
 | Print Router Status | Targets, limits, counters, deliveries in flight, inbound status and counts |
 | Check For Messages Now | Asks Telegram and Twilio at once instead of waiting for the next poll |
+| Find Telegram Chat ID | Lists the chats that wrote to the bot, with their ids, in **Telegram Chats Seen** and the Lua output. Takes nothing: the messages stay unread for the listener |
 | Clear Delivery Log | Empties the log |
 | Register With Agent Now / Refresh Status | Licence and status refresh |
 
 ## Programming
 
-- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, MESSAGE, VARIABLE 1 to 4),
-  **Notify All** (PRIORITY, TITLE, MESSAGE, VARIABLE 1 to 4), **Reply**
-  (MESSAGE, VARIABLE 1 to 4).
+- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, then MESSAGE, VARIABLE 1,
+  MESSAGE 2, VARIABLE 2 … VARIABLE 4, MESSAGE 5), **Notify All** (PRIORITY,
+  TITLE and the same pieces), **Reply** (the same pieces, no title).
 - Events: *Notification Sent*, *Delivery Failed*, *Target Unreachable*,
   *Quiet Hours Suppressed*, *Rate Limited*, *Router Degraded*, *Router
   Restored*, *Message Variable Missing*, *Message Received*, *Telegram
@@ -222,7 +390,8 @@ during a reboot is lost and the next one is not affected.
   `FAILED_TODAY`, `LAST_FAILED_TARGET`, `PENDING_DELIVERIES`,
   `LAST_MESSAGE`, `LAST_MESSAGE_CHANNEL`, `LAST_MESSAGE_SENDER`,
   `LAST_MESSAGE_ARGUMENT`, `LAST_KEYWORD`, `TELEGRAM_LAST_MESSAGE`,
-  `SMS_LAST_MESSAGE`, `MESSAGE_COUNTER`, `MESSAGES_RECEIVED_TODAY`.
+  `SMS_LAST_MESSAGE`, `MESSAGE_COUNTER`, `MESSAGES_RECEIVED_TODAY`, and
+  `MESSAGE_RECEIVED`, the one programming may also set.
 
 ## Privacy
 
