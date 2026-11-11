@@ -152,3 +152,60 @@ and was imported on the Notification Router at 21:09.
 - The other drivers still carry their plain documentation on the bench
   (`221650` / `235241`); their manuals are in `dist/oss`, not imported.
 
+
+## 11 November, after midnight: Solar Position
+
+Two gaps found while walking through the driver were built and taken to the
+bench: a ceiling per facade (**Max Elevation**) and one event at every
+boundary of the day (*Sunrise*, *Sunset*, *Night Began*, *Evening Golden Hour
+Started*, *Morning Golden Hour Ended*, with the conditional *It is night*).
+Builds `050629`, `051117` and `051445` were imported in turn on Beta Site 2
+(title bar checked each time); the last is the one running. Composer had been
+closed and was started again and connected to the bench as a Local System.
+
+**How a sun event was tested at midnight.** The driver was pointed at
+**Manual Coordinates** on the far side of the Pacific, where the sun was about
+to set, and the longitude was then moved to bring each boundary a few minutes
+ahead. A change of location resets the driver's memory, so each event below
+is a real crossing seen by the minute tick, not a first reading. Log Mode
+Print at Trace showed the driver's side; a throwaway line on the new *Sunset*
+event (the driver's own *Recompute Sun* command) showed that the event reaches
+programming.
+
+| At (bench time) | Coordinates | Lua output | What it shows |
+| --- | --- | --- | --- |
+| 00:20:37 | 35, 166 | `Location 35.0000, 166.0000 (property change)`; Sun Now `elevation 5.5°, azimuth 244.4° (golden_evening)`, Facade Status `West: sun` | Manual coordinates take over; the reading matches the engine run on the Mac for the same instant |
+| 00:29:30 | 35, 166 | `Solar: facade_left:1` | *Sun Leaves Facade 1* fires when the sun drops a degree under the 5 degree floor, in the minute predicted |
+| 00:38:30 | 35, 170 | `Solar: sunset`, `Solar: civil_dusk`, then `ExecuteCommand: RECOMPUTE_SUN` | The new *Sunset* event fires with the old *Civil Dusk*, and the script on *Sunset* ran |
+| 00:44:30 | 35, 175 | `Solar: night` | The new *Night Began* event fires when evening twilight ends |
+| 00:46 | 5, 88 | Sun Now `elevation 67.5°, azimuth 176.9° (day)`, Facade Status `West: shade; South: shade (sun too high)` | A south facade with Max Elevation 63 is in shade under a 67 degree sun, and says why |
+
+Also seen on the bench:
+
+- **Programming lists all 17 events** for the driver, the five new ones among
+  them, and the script header reads the event's description (*The sun set
+  below the horizon*).
+- **The manual runs in Composer's Documentation tab**, calculator included:
+  changing Azimuth to 180 there gave `In the sun 13:11 to 13:34 (23 min)`,
+  the engine's own figure.
+- A property's description shows under it in a box one line high, cut at
+  about 47 characters: the facade descriptions were shortened to fit and are
+  kept on Facade 1 only.
+- A number field shows Set only after Enter; Enter alone does not save it. A
+  scroll wheel over a number field changes its value (cancelled, nothing
+  saved): scroll that list with its scrollbar.
+- Facade 2's name, azimuth and ceiling, set about a minute before the
+  `051445` import, were back at their defaults after it; values set earlier
+  survived, and the same values set two minutes before the last import
+  survived too. Cause not found; re-check settings after an update.
+
+Not exercised on the controller: *Sunrise*, *Morning Golden Hour Ended*,
+*Evening Golden Hour Started* and *Sun Hits Facade* (they take the same path
+as the three seen; the suite covers each), the conditional *It is night* in a
+script, and the countdown's walk over a skipped minute.
+
+**Bench left as:** Solar Position on `20261111.054831`, Location Source back
+on Control4 Project with the manual fields empty, Log Level 2 - Warning and
+Log Mode Off, facades West (270) and South (180, Max Elevation 63) named. The
+throwaway line on *Sunset* and the example line on *Sun Hits Facade 1* were
+deleted; both scripts are empty.

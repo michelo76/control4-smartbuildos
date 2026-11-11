@@ -21,6 +21,28 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **Solar Position: a ceiling per facade.** `Facade N Max Elevation` (90 =
+  no limit) is the highest sun that still counts, for glass under an
+  overhang or a balcony and for the midsummer sun that stands in front of
+  south glass without entering it. Facade Status says `shade (sun too
+  high)` when that is the reason, a ceiling at or under the floor is
+  reported (`facade 2 not used: …`) instead of leaving a facade that can
+  never light, and a facade with a ceiling can be in the sun twice a day,
+  with two pairs of events.
+- **Solar Position: an event at every boundary of the day.** *Sunrise*,
+  *Sunset*, *Night Began* (evening twilight over), *Evening Golden Hour
+  Started* and *Morning Golden Hour Ended* join *Civil Dawn*, so first
+  light, sunrise, full daylight, low evening sun, sunset and dark each have
+  one event, plus the conditional *It is night*. *Golden Hour Started* and
+  *Civil Dusk* keep firing as before for programming that uses them. The
+  horizon is judged on its own, so a late tick still reports the crossing.
+- **Solar Position: the manual.** Why a sunrise or sunset schedule cannot do
+  this (the driver's own figures for a west and a south facade through the
+  year), a table of use cases, walkthroughs for setup and for describing a
+  facade, how to choose Max Elevation for an overhang, four worked examples,
+  the day boundary by boundary, and a calculator in the page that answers
+  "when is the sun on this glass" for any site, date and facade with the
+  driver's own rules (checked against the engine on fourteen cases).
 - **Interactive manuals for every driver.** A driver's documentation is now
   one self-contained interactive page: a contents list that follows the
   page, search, walkthroughs whose steps you tick (your place is kept),
@@ -95,6 +117,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **Solar Position: `MINUTES_TO_SUNSET` and `MINUTES_TO_SUNRISE` never skip
+  a number.** The value is a floor on a 60-second tick, so a few
+  milliseconds of drift could take it from 31 straight to 29 and programming
+  on "equals 30" would miss that day. The driver now walks the numbers in
+  between.
 - **Home Guide, Dealer Settings, Variable Inspector: the tile could be
   published at another device's address.** The controller's address was
   taken from the first `control4_*` device with a network binding; on a

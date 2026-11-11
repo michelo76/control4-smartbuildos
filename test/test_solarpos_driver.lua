@@ -1,7 +1,8 @@
 -- Solar Position DRIVER under the shim: location from the project XML with a
 -- manual override, licensing registration and enforcement, a simulated day
 -- of one-minute ticks firing every phase and facade event exactly once,
--- variables painted, Director location events re-resolving.
+-- the per-facade Max Elevation, variables painted, Director location events
+-- re-resolving.
 --
 -- Run from the driver root: make test
 
@@ -167,9 +168,12 @@ C4.FireEvent = function() end
 C4.RegisterSystemEvent = function(_, id, dev)
   systemEvents[#systemEvents + 1] = { id = id, dev = dev }
 end
+local varHistory = {}
 C4.SetVariable = function(_, name, value)
   vars[name] = value
   setVarCalls = setVarCalls + 1
+  varHistory[name] = varHistory[name] or {}
+  table.insert(varHistory[name], value)
 end
 C4.AddVariable = function() end
 C4.AddEvent = function() end
@@ -298,6 +302,29 @@ check("Sun Hits/Leaves Facade 1 once each", count(4) == 1 and count(5) == 1, cou
 check("Sun Hits/Leaves Facade 2 once each", count(6) == 1 and count(7) == 1, count(6) .. "/" .. count(7))
 check("Sun Hits/Leaves Facade 3 once each", count(8) == 1 and count(9) == 1, count(8) .. "/" .. count(9))
 check("facade 4 (unnamed) never fires", count(10) == 0 and count(11) == 0)
+check("Sunrise once", count(13) == 1, count(13))
+check("Sunset once", count(14) == 1, count(14))
+check("Night Began once", count(15) == 1, count(15))
+check("Evening Golden Hour Started once", count(16) == 1, count(16))
+check("Morning Golden Hour Ended once", count(17) == 1, count(17))
+check(
+  "the day in order: first light, sunrise, full daylight, evening golden hour, sunset, night",
+  (function()
+    local pos = {}
+    for i, id in ipairs(fired) do
+      pos[id] = pos[id] or i
+    end
+    local last = 0
+    for _, id in ipairs({ 2, 13, 17, 16, 14, 15 }) do
+      if pos[id] == nil or pos[id] <= last then
+        return false
+      end
+      last = pos[id]
+    end
+    return true
+  end)()
+)
+check("It is night: true at the end of the day", TC.IS_NIGHT() == true)
 check("no Location Changed during the day", count(12) == 0)
 check(
   "order: dawn before east hit, west left before dusk",
@@ -325,6 +352,64 @@ check(
   tonumber(vars["MINUTES_TO_SUNSET"]) > 0 and tonumber(vars["MINUTES_TO_SUNSET"]) < 480,
   vars["MINUTES_TO_SUNSET"]
 )
+
+check("It is night: false at midday", TC.IS_NIGHT() == false)
+
+print("[4b] Max Elevation: an 87 degree sun is not on glass under an overhang")
+check("south facade lit with no ceiling", vars["SUN_ON_FACADE_2"] == true and TC.SUN_ON_FACADE_2() == true)
+fired = {}
+Properties["Facade 2 Max Elevation"] = "60"
+OnPropertyChanged("Facade 2 Max Elevation")
+check(
+  "with a 60 degree ceiling it is in shade, and says why",
+  vars["SUN_ON_FACADE_2"] == false
+    and TC.SUN_ON_FACADE_2() == false
+    and prop("Facade Status"):find("South: shade (sun too high)", 1, true) ~= nil,
+  prop("Facade Status")
+)
+check("changing a setting is not a transition: no event", count(6) == 0 and count(7) == 0)
+Properties["Facade 2 Max Elevation"] = "3"
+OnPropertyChanged("Facade 2 Max Elevation")
+check(
+  "a ceiling under the floor: the facade is not used and the status says so",
+  prop("Facade Status"):find("facade 2 not used: max elevation must be above min elevation", 1, true) ~= nil
+    and prop("Facade Status"):find("South:", 1, true) == nil
+    and vars["SUN_ON_FACADE_2"] == false,
+  prop("Facade Status")
+)
+Properties["Facade 2 Max Elevation"] = "90"
+OnPropertyChanged("Facade 2 Max Elevation")
+check(
+  "back to no ceiling: lit again, refusal gone",
+  vars["SUN_ON_FACADE_2"] == true and prop("Facade Status"):find("not used", 1, true) == nil,
+  prop("Facade Status")
+)
+
+print("[4c] the countdown to sunset never skips a minute, even when a tick is late")
+do
+  local before = tonumber(vars["MINUTES_TO_SUNSET"])
+  varHistory["MINUTES_TO_SUNSET"] = {}
+  clock.now = clock.now + 119 * 1000 -- the controller was busy: two minutes pass before the next tick
+  EC.RECOMPUTE()
+  local seen = varHistory["MINUTES_TO_SUNSET"]
+  local stepped = #seen >= 1
+  local expect = before - 1
+  for _, v in ipairs(seen) do
+    if tonumber(v) ~= expect then
+      stepped = false
+    end
+    expect = expect - 1
+  end
+  check(
+    "every number in between was set, in order",
+    stepped and tonumber(seen[#seen]) < before - 1,
+    before .. " -> " .. table.concat(seen, ",")
+  )
+  varHistory["MINUTES_TO_SUNSET"] = {}
+  clock.now = clock.now + 60 * 1000
+  EC.RECOMPUTE()
+  check("a normal minute sets one value", #varHistory["MINUTES_TO_SUNSET"] == 1)
+end
 
 print("[5] manual coordinates override the project")
 fired = {}

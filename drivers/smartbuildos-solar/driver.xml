@@ -35,6 +35,15 @@
       <false_text>is not in golden hour</false_text>
     </conditional>
     <conditional>
+      <id>7</id>
+      <name>IS_NIGHT</name>
+      <type>BOOL</type>
+      <condition_statement>It is night</condition_statement>
+      <description>NAME STRING</description>
+      <true_text>is in night (twilight is over)</true_text>
+      <false_text>is not in night</false_text>
+    </conditional>
+    <conditional>
       <id>3</id>
       <name>SUN_ON_FACADE_1</name>
       <type>BOOL</type>
@@ -87,9 +96,9 @@
     <variable><id>3012</id><name>LOCATION_SOURCE</name><type>STRING</type><default>none</default><readonly>true</readonly><hidden>false</hidden></variable>
   </variables>
   <events>
-    <event><id>1</id><name>Golden Hour Started</name><description>The sun entered golden hour (between the horizon and 6 degrees), morning or evening</description></event>
-    <event><id>2</id><name>Civil Dawn</name><description>The sun rose above -6 degrees: civil twilight began in the morning</description></event>
-    <event><id>3</id><name>Civil Dusk</name><description>The sun set below the horizon into civil twilight in the evening</description></event>
+    <event><id>1</id><name>Golden Hour Started</name><description>The sun entered golden hour (between the horizon and 6 degrees), morning or evening: fires at sunrise and again when the evening golden hour starts</description></event>
+    <event><id>2</id><name>Civil Dawn</name><description>First light: the sun rose above -6 degrees and civil twilight began, before sunrise</description></event>
+    <event><id>3</id><name>Civil Dusk</name><description>The sun set below the horizon into civil twilight in the evening (the same moment as Sunset)</description></event>
     <event><id>4</id><name>Sun Hits Facade 1</name><description>The sun started shining on facade 1</description></event>
     <event><id>5</id><name>Sun Leaves Facade 1</name><description>The sun stopped shining on facade 1</description></event>
     <event><id>6</id><name>Sun Hits Facade 2</name><description>The sun started shining on facade 2</description></event>
@@ -99,6 +108,11 @@
     <event><id>10</id><name>Sun Hits Facade 4</name><description>The sun started shining on facade 4</description></event>
     <event><id>11</id><name>Sun Leaves Facade 4</name><description>The sun stopped shining on facade 4</description></event>
     <event><id>12</id><name>Location Changed</name><description>The site coordinates changed (project or manual) and the sun was recomputed</description></event>
+    <event><id>13</id><name>Sunrise</name><description>The sun rose above the horizon</description></event>
+    <event><id>14</id><name>Sunset</name><description>The sun set below the horizon</description></event>
+    <event><id>15</id><name>Night Began</name><description>Evening twilight ended (the sun is 6 degrees below the horizon): it is dark</description></event>
+    <event><id>16</id><name>Evening Golden Hour Started</name><description>The evening sun dropped under 6 degrees: low, warm light until sunset</description></event>
+    <event><id>17</id><name>Morning Golden Hour Ended</name><description>The morning sun climbed above 6 degrees: full daylight</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"></script>
@@ -133,22 +147,26 @@
       <property><name>Location Source</name><type>LIST</type><items><item>Control4 Project</item><item>Manual Coordinates</item></items><default>Control4 Project</default><description>Control4 Project reads the latitude and longitude from the project (System Design → project properties). Manual Coordinates uses the two fields below.</description></property>
       <property><name>Latitude</name><type>STRING</type><default></default></property>
       <property><name>Longitude</name><type>STRING</type><default></default></property>
-      <property><name>Facade 1 Name</name><type>STRING</type><default></default></property>
-      <property><name>Facade 1 Azimuth</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>359</maximum><default>180</default></property>
-      <property><name>Facade 1 Width</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>180</maximum><default>90</default></property>
-      <property><name>Facade 1 Min Elevation</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>60</maximum><default>5</default></property>
+      <property><name>Facade 1 Name</name><type>STRING</type><default></default><description>A name turns the facade on. Empty = not used.</description></property>
+      <property><name>Facade 1 Azimuth</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>359</maximum><default>180</default><description>Faces: 0 N, 90 E, 180 S, 270 W (true north).</description></property>
+      <property><name>Facade 1 Width</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>180</maximum><default>90</default><description>Degrees of sky it sees, centred on the heading.</description></property>
+      <property><name>Facade 1 Min Elevation</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>60</maximum><default>5</default><description>Lowest sun that counts. Raise to clear trees.</description></property>
+      <property><name>Facade 1 Max Elevation</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>90</maximum><default>90</default><description>Highest sun that counts. 90 = no limit.</description></property>
       <property><name>Facade 2 Name</name><type>STRING</type><default></default></property>
       <property><name>Facade 2 Azimuth</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>359</maximum><default>90</default></property>
       <property><name>Facade 2 Width</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>180</maximum><default>90</default></property>
       <property><name>Facade 2 Min Elevation</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>60</maximum><default>5</default></property>
+      <property><name>Facade 2 Max Elevation</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>90</maximum><default>90</default></property>
       <property><name>Facade 3 Name</name><type>STRING</type><default></default></property>
       <property><name>Facade 3 Azimuth</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>359</maximum><default>270</default></property>
       <property><name>Facade 3 Width</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>180</maximum><default>90</default></property>
       <property><name>Facade 3 Min Elevation</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>60</maximum><default>5</default></property>
+      <property><name>Facade 3 Max Elevation</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>90</maximum><default>90</default></property>
       <property><name>Facade 4 Name</name><type>STRING</type><default></default></property>
       <property><name>Facade 4 Azimuth</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>359</maximum><default>0</default></property>
       <property><name>Facade 4 Width</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>180</maximum><default>90</default></property>
       <property><name>Facade 4 Min Elevation</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>60</maximum><default>5</default></property>
+      <property><name>Facade 4 Max Elevation</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>90</maximum><default>90</default></property>
       <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
       <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
     </properties>

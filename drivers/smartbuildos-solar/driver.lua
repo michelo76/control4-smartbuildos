@@ -6,7 +6,9 @@
   This driver computes that every minute from the project's coordinates
   (NOAA equations, offline) and hands it to programming as variables,
   events and conditionals: elevation, azimuth, day phase, next sunrise and
-  sunset, and up to four building facades with "sun hits" / "sun leaves".
+  sunset, an event at every boundary of the day (first light, sunrise, full
+  daylight, evening golden hour, sunset, night) and up to four building
+  facades with "sun hits" / "sun leaves".
 
   Licensing: SmartBuildOS Agent, SKU SBOS_SOLAR (sbos.license). A definitive
   denial with enforcement on stops the minute tick; uncertainty never does.
@@ -45,6 +47,15 @@ local TICK_TIMER = "SolarTick"
 local STATUS_TIMER = "SolarStatus"
 
 local EVENT_GOLDEN, EVENT_DAWN, EVENT_DUSK, EVENT_LOCATION = 1, 2, 3, 12
+-- One event per boundary of the day. Ids 1..12 are in dealers' programming
+-- already and never move; these were added after them.
+local DAY_EVENTS = {
+  sunrise = 13,
+  sunset = 14,
+  night = 15,
+  golden_evening = 16,
+  golden_morning_ended = 17,
+}
 local function facadeHitEvent(i)
   return 2 + 2 * i
 end
@@ -58,6 +69,7 @@ local gLast = nil
 local gLastError = "none"
 local gLicenceHalted = false
 local gLastHealthy = nil
+local gFacadeRefusals = {}
 
 --- UTC epoch now. A test may pin the clock by defining SOLAR_NOW first.
 local function now()
@@ -82,6 +94,23 @@ local function setVar(name, value)
   pcall(function()
     C4:SetVariable(name, value)
   end)
+end
+
+--- A countdown in minutes that never skips a number. The tick is a 60 s
+--- timer and the value is a floor, so a few milliseconds of drift can take
+--- it from 31 straight to 29 on a rare day: programming on "equals 30" would
+--- then miss. Walk the missing numbers instead (a short gap only: a jump of
+--- hours is a new target, not a skipped minute).
+local gCountdown = {}
+local function setCountdown(name, value)
+  local last = gCountdown[name]
+  if last ~= nil and value < last and last - value <= 5 then
+    for v = last - 1, value + 1, -1 do
+      setVar(name, v)
+    end
+  end
+  gCountdown[name] = value
+  setVar(name, value)
 end
 
 local function fmtTime(epoch)
@@ -139,6 +168,7 @@ local function facadesFromProperties()
       azimuth = Properties["Facade " .. i .. " Azimuth"],
       width = Properties["Facade " .. i .. " Width"],
       min_elevation = Properties["Facade " .. i .. " Min Elevation"],
+      max_elevation = Properties["Facade " .. i .. " Max Elevation"],
     }
   end
   return list
@@ -195,8 +225,14 @@ local function paint()
     for i = 1, Engine.LIMITS.facades do
       local f = r.facades[i]
       if f ~= nil then
-        parts[#parts + 1] = string.format("%s: %s", f.name, f.lit and "sun" or "shade")
+        -- "sun too high" is the one shade a dealer can tune away (the Max
+        -- Elevation they set), so it is the one that is spelled out.
+        local state = f.lit and "sun" or (f.shade == "high" and "shade (sun too high)" or "shade")
+        parts[#parts + 1] = string.format("%s: %s", f.name, state)
       end
+    end
+    for _, refusal in ipairs(gFacadeRefusals) do
+      parts[#parts + 1] = string.format("facade %d not used: %s", refusal.index, refusal.reason)
     end
     UpdateProperty("Facade Status", #parts > 0 and table.concat(parts, "; ") or "no facades configured")
     setVar("SUN_ELEVATION", math.floor(pos.elevation + 0.5))
@@ -205,8 +241,8 @@ local function paint()
     setVar("DAY_PHASE", r.phase)
     setVar("NEXT_SUNRISE", r.solar and fmtTime(r.solar.nextSunrise) or "")
     setVar("NEXT_SUNSET", r.solar and fmtTime(r.solar.nextSunset) or "")
-    setVar("MINUTES_TO_SUNSET", r.solar and r.solar.minutesToSunset or 0)
-    setVar("MINUTES_TO_SUNRISE", r.solar and r.solar.minutesToSunrise or 0)
+    setCountdown("MINUTES_TO_SUNSET", r.solar and r.solar.minutesToSunset or 0)
+    setCountdown("MINUTES_TO_SUNRISE", r.solar and r.solar.minutesToSunrise or 0)
     for i = 1, Engine.LIMITS.facades do
       setVar("SUN_ON_FACADE_" .. i, r.facades[i] ~= nil and r.facades[i].lit == true)
     end
@@ -239,6 +275,8 @@ local function tick()
         fire(EVENT_DAWN)
       elseif e == "civil_dusk" then
         fire(EVENT_DUSK)
+      elseif DAY_EVENTS[e] ~= nil then
+        fire(DAY_EVENTS[e])
       else
         local kind, idx = e:match("^facade_(%a+):(%d+)$")
         if kind == "hit" then
@@ -279,8 +317,13 @@ end
 
 local function applyFacades()
   if gEngine then
-    gEngine:setFacades(facadesFromProperties())
-    tick()
+    local _, refusals = gEngine:setFacades(facadesFromProperties())
+    gFacadeRefusals = refusals or {}
+    -- tick() paints, but not when there is no location or no licence, and a
+    -- refused facade has to show either way.
+    if tick() == nil then
+      paint()
+    end
   end
 end
 
@@ -333,6 +376,11 @@ local function registerComposerSurface()
     { EVENT_DAWN, "Civil Dawn", "Civil twilight began in the morning" },
     { EVENT_DUSK, "Civil Dusk", "The sun set into civil twilight" },
     { EVENT_LOCATION, "Location Changed", "The site coordinates changed" },
+    { DAY_EVENTS.sunrise, "Sunrise", "The sun rose above the horizon" },
+    { DAY_EVENTS.sunset, "Sunset", "The sun set below the horizon" },
+    { DAY_EVENTS.night, "Night Began", "Evening twilight ended: it is dark" },
+    { DAY_EVENTS.golden_evening, "Evening Golden Hour Started", "The evening sun dropped under 6 degrees" },
+    { DAY_EVENTS.golden_morning_ended, "Morning Golden Hour Ended", "The morning sun climbed above 6 degrees" },
   }
   for i = 1, Engine.LIMITS.facades do
     events[#events + 1] = { facadeHitEvent(i), "Sun Hits Facade " .. i, "The sun started shining on facade " .. i }
@@ -392,7 +440,8 @@ function OnDriverLateInit(reason)
   end
 
   gEngine = Engine.new()
-  gEngine:setFacades(facadesFromProperties())
+  local _, refusals = gEngine:setFacades(facadesFromProperties())
+  gFacadeRefusals = refusals or {}
 
   license.setup({ sku = SKU })
   EC.SBOS_ENTITLEMENT = function(tParams)
@@ -466,6 +515,7 @@ for i = 1, Engine.LIMITS.facades do
   OPC["Facade_" .. i .. "_Azimuth"] = facadeProperty
   OPC["Facade_" .. i .. "_Width"] = facadeProperty
   OPC["Facade_" .. i .. "_Min_Elevation"] = facadeProperty
+  OPC["Facade_" .. i .. "_Max_Elevation"] = facadeProperty
 end
 
 -- ─── Actions and commands ───────────────────────────────────────────────────
@@ -524,17 +574,22 @@ function EC.PRINT_STATUS()
     for i = 1, Engine.LIMITS.facades do
       local f = gEngine.facades[i]
       if f then
+        local state = gLast.facades[i]
         log:print(
-          "  facade %d %s: heading %d width %d min elevation %d -> %s",
+          "  facade %d %s: heading %d width %d elevation %d to %d -> %s",
           i,
           f.name,
           f.azimuth,
           f.width,
           f.min_elevation,
-          gLast.facades[i] and gLast.facades[i].lit and "sun" or "shade"
+          f.max_elevation,
+          state and state.lit and "sun" or ("shade (" .. tostring(state and state.shade or "?") .. ")")
         )
       end
     end
+  end
+  for _, refusal in ipairs(gFacadeRefusals) do
+    log:print("  facade %d not used: %s", refusal.index, refusal.reason)
   end
   log:print("  last error: %s", gLastError)
 end
@@ -543,6 +598,10 @@ end
 
 function TC.IS_DAYLIGHT()
   return gLast ~= nil and gLast.is_daylight == true
+end
+
+function TC.IS_NIGHT()
+  return gLast ~= nil and gLast.phase == "night"
 end
 
 function TC.IS_GOLDEN_HOUR()

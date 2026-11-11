@@ -152,6 +152,30 @@ check("hysteresis keeps it lit half a degree past the edge", E.facadeLit(south, 
 check("hysteresis keeps it lit half a degree under min", E.facadeLit(south, 4.5, 180, true) == true)
 check("a full degree past the edge turns it off", E.facadeLit(south, 30, 226.1, true) == false)
 check("a full degree under min turns it off", E.facadeLit(south, 3.9, 180, true) == false)
+check("no ceiling unless one is set", south.max_elevation == 90 and E.facadeLit(south, 89, 180, false) == true)
+local capped, capRefusals = E.validateFacades({
+  { name = "Overhang", azimuth = 180, width = 90, min_elevation = 5, max_elevation = 60 },
+  { name = "Upside down", azimuth = 180, min_elevation = 20, max_elevation = 20 },
+  { name = "Too much", azimuth = 180, max_elevation = 400 },
+})
+local overhang = capped[1]
+check("lit under the ceiling", E.facadeLit(overhang, 59.9, 180, false) == true)
+check("not lit above the ceiling", E.facadeLit(overhang, 60.1, 180, false) == false)
+check("hysteresis keeps it lit half a degree above the ceiling", E.facadeLit(overhang, 60.5, 180, true) == true)
+check("a full degree above the ceiling turns it off", E.facadeLit(overhang, 61.1, 180, true) == false)
+check(
+  "a ceiling at or under the floor is refused by name, not kept as a facade that never lights",
+  capped[2] == nil
+    and #capRefusals == 1
+    and capRefusals[1].index == 2
+    and capRefusals[1].reason:find("max elevation") ~= nil,
+  capRefusals[1] and capRefusals[1].reason
+)
+check("a ceiling above 90 is clamped", capped[3].max_elevation == 90)
+check("shade reason: lit has none", E.shadeReason(overhang, 30, 180, true) == nil)
+check("shade reason: sun too high", E.shadeReason(overhang, 70, 180, false) == "high")
+check("shade reason: sun too low", E.shadeReason(overhang, 2, 180, false) == "low")
+check("shade reason: sun off to the side wins over height", E.shadeReason(overhang, 70, 300, false) == "aside")
 local north = E.validateFacades({ { name = "N", azimuth = 0, width = 60 } })[1]
 check(
   "wrap-around arc across north",
@@ -204,6 +228,32 @@ check(
     return pos["facade_hit:1"] < pos["facade_hit:2"] and pos["facade_hit:2"] < pos["facade_hit:3"]
   end)()
 )
+for _, e in ipairs({ "sunrise", "golden_morning_ended", "golden_evening", "sunset", "night" }) do
+  check(e .. " once", counts[e] == 1, counts[e])
+end
+check("one event per boundary, in the order the day runs", (function()
+  local seen = {}
+  for _, e in ipairs(order) do
+    if not e:find("^facade") and e ~= "golden_hour" and e ~= "civil_dusk" then
+      seen[#seen + 1] = e
+    end
+  end
+  return table.concat(seen, ">")
+end)() == "civil_dawn>sunrise>golden_morning_ended>golden_evening>sunset>night", table.concat(order, ">"))
+check(
+  "the older names still fire, in the same tick as the new ones they overlap",
+  (function()
+    local pos = {}
+    for i, e in ipairs(order) do
+      pos[e] = pos[e] or i
+    end
+    return pos.sunrise ~= nil
+      and pos.sunset ~= nil
+      and pos.golden_hour == pos.sunrise + 1
+      and pos.civil_dusk == pos.sunset + 1
+  end)(),
+  table.concat(order, ">")
+)
 check(
   "no facade event in the first tick (initial state is not a transition)",
   (function()
@@ -223,6 +273,52 @@ check(
   "minutes to sunset positive and under a day",
   last.solar.minutesToSunset > 0 and last.solar.minutesToSunset < 1440
 )
+
+print("== engine: a ceiling splits the day (26N, September, south glass under an overhang)")
+do
+  local e3 = E.new()
+  e3:setLocation(26, -80)
+  e3:setFacades({ { name = "South", azimuth = 180, width = 90, min_elevation = 5, max_elevation = 60 } })
+  local day = utc(2026, 9, 22, 4) -- 00:00 EDT
+  local hits, lefts, highMinutes, litAbove = 0, 0, 0, false
+  for i = 0, 1439 do
+    local r = e3:tick(day + i * 60, -4 * 3600)
+    for _, ev in ipairs(r.events) do
+      if ev == "facade_hit:1" then
+        hits = hits + 1
+      elseif ev == "facade_left:1" then
+        lefts = lefts + 1
+      end
+    end
+    if r.facades[1].shade == "high" then
+      highMinutes = highMinutes + 1
+    end
+    if r.facades[1].lit and r.position.elevation > 61 then
+      litAbove = true
+    end
+  end
+  check("lit before and after the high sun: two hits, two leaves", hits == 2 and lefts == 2, hits .. "/" .. lefts)
+  check("in between it is in shade because the sun is too high", highMinutes > 30, highMinutes)
+  check("never lit more than the hysteresis above the ceiling", litAbove == false)
+  e3:setFacades({ { name = "South", azimuth = 180, width = 90, min_elevation = 5, max_elevation = 70 } })
+  check("a new ceiling forgets the lit states", next(e3.lit) == nil)
+end
+
+print("== engine: a late tick still reports the horizon and the night")
+do
+  local e4 = E.new()
+  e4:setLocation(25.7617, -80.1918)
+  local r1 = e4:tick(utc(2026, 6, 21, 22), -4 * 3600) -- 18:00 EDT, day
+  local r2 = e4:tick(utc(2026, 6, 22, 3), -4 * 3600) -- 23:00 EDT, night: five hours with no tick
+  local got = {}
+  for _, ev in ipairs(r2.events) do
+    got[ev] = true
+  end
+  check("day then night in one step", r1.phase == "day" and r2.phase == "night")
+  check("sunset and night both reported once", got.sunset == true and got.night == true and #r2.events == 2)
+  local r3 = e4:tick(utc(2026, 6, 22, 3, 1), -4 * 3600)
+  check("and not again a minute later", #r3.events == 0)
+end
 
 print("== engine: changes reset state")
 eng:setLocation(51.4779, -0.0015)

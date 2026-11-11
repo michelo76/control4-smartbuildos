@@ -19,8 +19,9 @@ sunset and the next ones.
 | Rule | Behaviour |
 | --- | --- |
 | Phases | by GEOMETRIC elevation (NOAA's sunrise is geometric -0.833; civil twilight -6; golden ceiling 6); morning/evening split by the sign of the hour angle (no timezone arithmetic) |
-| Events | `civil_dawn` (night → dawn), `golden_hour` (entering either golden phase), `civil_dusk` (entering dusk); each fires once per transition |
-| Facades | lit when APPARENT elevation ≥ min and |azimuth − heading| ≤ width/2; ONE degree of hysteresis on both edges; wrap-around arcs across north handled by `angleDiff` |
+| Events | one per boundary of the day, each once per transition: `civil_dawn` (night → dawn), `sunrise`, `golden_morning_ended` (→ day), `golden_evening`, `sunset`, `night` (twilight over). `sunrise`/`sunset` come from the horizon flag itself, not from the phase names, so a late tick still reports them. The two original names stay for existing programming: `golden_hour` (entering either golden phase) and `civil_dusk` (entering dusk) |
+| Facades | lit when min ≤ APPARENT elevation ≤ max (max defaults to 90 = no ceiling) and |azimuth − heading| ≤ width/2; ONE degree of hysteresis on every edge; wrap-around arcs across north handled by `angleDiff`. A ceiling at or under the floor is refused by name. With a ceiling a facade can be lit twice a day. `shadeReason` says why a facade is in shade (`high`, `low`, `aside`) |
+| Countdown | `MINUTES_TO_SUNSET` / `MINUTES_TO_SUNRISE` walk every number on the way down (a gap of up to five), so "equals N" programming cannot miss on tick drift |
 | Initial state | the first tick after a location or facade change announces nothing |
 | Polar day/night | `solar == nil`, phase and daylight still computed from the hour angle |
 
@@ -51,7 +52,8 @@ reads `no_location` with the reason in Last Solar Error, never a wrong sun.
 
 ## Composer surface
 
-Variables 3000–3012, events 1–12, conditionals 1–6, properties as listed in
+Variables 3000–3012, events 1–17 (13–17 added 11 Nov 2026; ids never move),
+conditionals 1–7, properties as listed in
 `www/documentation/index.md`. `<combo>true</combo>` so Composer lists the
 driver (bench finding of 2026-11-09). Licence enforcement (definitive denial
 AND enforcement on) halts the minute tick and paints `unlicensed`;
@@ -59,7 +61,10 @@ uncertainty keeps tracking.
 
 ## Not included (v1)
 
-- Terrain or obstruction modelling beyond a per-facade minimum elevation.
+- Terrain or obstruction modelling beyond a per-facade minimum and maximum
+  elevation. Max Elevation is a cut-off on elevation, not on the profile
+  angle: with the sun off to one side an overhang shades the glass a little
+  sooner than the driver reports, never later.
 - Solar irradiance / cloud cover (Atmosphere owns weather).
 - Scheduling helpers ("N minutes before sunset" is one line of programming
   on `MINUTES_TO_SUNSET`).
