@@ -198,6 +198,11 @@ down is reported once when it drops and once when it recovers. The first read
 after the driver loads is a baseline: it fires no device events, so a
 controller restart does not look like every device coming online at once.
 
+The Agent also registers for Director's own notices at start. When Director
+says a device came online or went offline, or a binding changed, a paired
+Agent polls five seconds later instead of waiting for the interval, so a burst
+of notices costs one poll. The timed poll stays as the backstop.
+
 **Non Control4 Devices** is a comma-separated list. Each entry is `Label=host`
 or a bare host, which is labelled with itself:
 
@@ -387,7 +392,9 @@ sent at once instead, and is not kept if the connection is down.
 | *Notification Failed* | SmartBuildOS reports it could not notify about a startup, or *Send Test Notification* fails |
 | *License Status Changed* | The text of **License Cloud** changes |
 | *Clock Drift Detected* | The controller clock is 120 seconds or more from SmartBuildOS's. Once, until it has come back within 60 |
-| *Project Changed*, *Programming Changed*, *OS Update Started* | On Director's own notices. Not in this build: see [What is not claimed](#what-is-not-claimed) |
+| *Project Changed* | 30 seconds after Director's last notice that something in the project was added, removed, renamed, moved or rebound, so a burst of Composer work is one event. **Last Project Change** names what changed. Paired Agent only |
+| *Programming Changed* | 30 seconds after Director's last notice that a programming line was added, removed or moved. Paired Agent only |
+| *OS Update Started* | When Director says an OS update began |
 | *Report Ready*, *Report Failed*, *Controller Mismatch* | Nothing in this build fires them |
 
 ### Conditionals and variables
@@ -446,7 +453,7 @@ paired. The variables are all read-only:
 | **Execution Controller Identity**, **Primary Controller Identity**, **Effective Service Profile ID**, **Effective Service Profile Version** | Read-only. The controller the Agent runs on. The other three read `Not reported` or `Not assigned` in this build |
 | **Startup Monitoring**, **Notification Policy**, **Startup Count Basis**, **Startup Threshold**, **Stabilization Delay**, **Service Mode Duration**, **Report Schedule**, **Recipient Profile**, **Auto-update Preference** | Read-only. Set in SmartBuildOS. The Agent accepts a settings document only whole: an unknown or out-of-range field refuses all of it, and an older version never replaces a newer one; **Agent Configuration Version** shows the version in force, or a refusal. Defaults: `On`, `default-escalation`, `system-startups`, `3`, `120 seconds`, `60 minutes`, `Not scheduled`, `Not configured`, `notify` |
 | **Alert Email**, **Email on Director Reload**, **Email on Device Offline**, **Email on Low Battery**, **Email on Sync Failure** | The address and the four switches (all `Off` by default) passed to SmartBuildOS |
-| **Last Project Change**, **Zigbee Events** | Read-only. Filled from Director's own notices; see [What is not claimed](#what-is-not-claimed) |
+| **Last Project Change**, **Zigbee Events** | Read-only. Filled from Director's own notices: the last project change and what it was, and counts of Zigbee nodes going offline, coming online and mesh changes since the driver loaded |
 | **Programming**, **Clock Offset** | Read-only. Event attachments, programming lines and disabled lines, counted daily; the controller clock against SmartBuildOS's, measured on every answer |
 | **Heartbeat Interval** | `30s` to `6h`, default `1m`. SmartBuildOS can set the check-in time itself (30 seconds to 1 hour), which then replaces this |
 | **Full Sync Interval** | `6h`, `12h`, `24h` (default) |
@@ -514,14 +521,13 @@ shows what SmartBuildOS issued per SKU.
 
 ## What is not claimed
 
-- **Director's own notices.** The Agent has code to act within seconds on
-  Director's device, project, programming, Zigbee, shutdown and OS-update
-  notices. In this build it does not register for them at start. So device
-  changes are found by the poll, at **Device Poll Interval**;
-  *Project Changed*, *Programming Changed* and *OS Update Started* do not
-  fire; **Last Project Change** and **Zigbee Events** keep their starting
-  values; and no shutdown is recorded, so every reload reads as `unexpected`
-  and fires *Unexpected Restart*.
+- **Director's own notices.** Earlier builds never registered for them, so
+  *Project Changed*, *Programming Changed* and *OS Update Started* did not
+  fire, **Last Project Change** and **Zigbee Events** kept their starting
+  values, and every reload read as `unexpected`. This build registers at
+  start. The registration and the handling of each notice are covered by the
+  driver's tests; none of it has been seen on a controller yet, and which
+  notices a given OS version actually sends is not known.
 - **The reload path.** *Director Reloaded*, *Unexpected Restart* and the
   reload report need a controller restart, and have not been seen on a
   controller with this build.

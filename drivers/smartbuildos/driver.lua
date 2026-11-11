@@ -6297,7 +6297,12 @@ function OnDriverLateInit(reason)
   -- failure look like a healthy driver to everyone except the platform.
   -- Timers arm NO MATTER WHAT above them survives, and a failure NAMES itself.
   for _, step in ipairs({
-    { "registerSystemEvents", registerSystemEvents },
+    -- A GLOBAL, looked up when this runs. It was a `local function` declared
+    -- further down the file, so this line read a global of that name that
+    -- nobody had set: the step was nil, the guard logged "Init step
+    -- registerSystemEvents failed" and the Agent never registered for a
+    -- single Director event (test_locals_before_use.lua guards the pattern).
+    { "registerSystemEvents", RegisterSystemEvents },
     { "applyDiscovery", applyDiscovery },
     -- Phase 5: paint licensing properties from the cache, then fetch only
     -- if the revalidate window has passed. Guarded like the rest — a
@@ -6347,10 +6352,14 @@ end
 --- AgentTelemetry.SYSTEM_EVENT_NAMES (vendored C4SystemEvents table).
 local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
-local function registerSystemEvents()
+--- Registers for every event in SYSTEM_EVENTS, system-wide. Global so that
+--- OnDriverLateInit (above) reaches it and the tests can call it.
+--- @return integer registered How many registrations Director accepted.
+function RegisterSystemEvents()
+  local registered = 0
   if C4.RegisterSystemEvent == nil then
     log:warn("This controller's OS does not provide RegisterSystemEvent; falling back to polling only")
-    return
+    return registered
   end
   for id, name in pairs(SYSTEM_EVENTS) do
     local ok, err = pcall(function()
@@ -6359,11 +6368,13 @@ local function registerSystemEvents()
       C4:RegisterSystemEvent(id, 0)
     end)
     if ok then
+      registered = registered + 1
       log:debug("Registered for system event %d (%s)", id, name)
     else
       log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
     end
   end
+  return registered
 end
 
 --- Director calls this for every event registered above.

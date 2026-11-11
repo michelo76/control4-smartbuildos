@@ -170,6 +170,23 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **The Agent registers for Director's system events** (`smartbuildos`).
+  `OnDriverLateInit` named a `local function` declared further down the file,
+  so the name was an unset global and the guarded init step was nil: one error
+  line at start, and no registration. *Project Changed*, *Programming Changed*
+  and *OS Update Started* could not fire, **Last Project Change** and
+  **Zigbee Events** never moved, a device change waited for the timed poll,
+  and with no shutdown notice every reload was classed `unexpected`. The step
+  now calls the global `RegisterSystemEvents`. `test/test_locals_before_use.lua`
+  reads every driver for the same mistake (a file-level local read above its
+  declaration); the Agent was the only one. Not yet seen on a controller.
+- **Secrets stay out of the log at Log Level Trace** (`src/lib/persist.lua`,
+  Guest Mode). The storage library logged every value it wrote, so the guest
+  PIN and Wi-Fi password, and for other drivers a Bond token or a relay token,
+  appeared in the Lua tab and the controller log; a value stored encrypted is
+  now logged as `<hidden>`. Guest Mode's `SET_GUEST_WIFI_PASSWORD` was also
+  printed with its `PASSWORD` parameter by the command dispatcher at Trace; it
+  no longer is.
 - **Sunrise and sunset use the site's day, not the UTC day** (Atmosphere and
   Solar Position, `src/atmosphere/solar.lua`). In a western evening the UTC
   date has already turned, and the driver answered with tomorrow's sun: at

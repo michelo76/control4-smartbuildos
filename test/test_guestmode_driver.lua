@@ -455,5 +455,57 @@ Properties["Check-in Time"] = "25:99"
 OnPropertyChanged("Check-in Time")
 check("still occupied with default times", prop("Guest Status") == "occupied")
 
+print("[11] Log Level Trace never shows the PIN or the Wi-Fi password")
+-- A dealer turns Trace on to debug a calendar and copies the Lua tab into an
+-- email. Two lines used to carry the secrets: the storage library logged
+-- every value it wrote, and the command dispatcher logged every command's
+-- parameters. Both go to the Lua tab (print) and the controller log.
+local realPrint, realDebugLog = print, C4.DebugLog
+local traced = {}
+print = function(...)
+  for _, part in ipairs({ ... }) do
+    traced[#traced + 1] = tostring(part)
+  end
+end
+C4.DebugLog = function(_, message)
+  traced[#traced + 1] = tostring(message)
+end
+Properties["Log Mode"] = "Print and Log"
+OnPropertyChanged("Log Mode")
+Properties["Log Level"] = "5 - Trace"
+OnPropertyChanged("Log Level")
+ExecuteCommand("SET_GUEST_WIFI_PASSWORD", { PASSWORD = "harbour-view-4417" })
+ExecuteCommand("REGENERATE_PIN", {})
+local tracedPin = vars["GUEST_PIN"]
+ExecuteCommand("PRINT_STATUS", {})
+ExecuteCommand("LUA_ACTION", { ACTION = "PRINT_STAYS" })
+Properties["Log Level"] = "3 - Info"
+OnPropertyChanged("Log Level")
+Properties["Log Mode"] = "Off"
+OnPropertyChanged("Log Mode")
+print, C4.DebugLog = realPrint, realDebugLog
+local tracedText = table.concat(traced, "\n")
+check(
+  "the commands ran",
+  vars["GUEST_WIFI_PASSWORD"] == "harbour-view-4417" and tracedPin:match("^%d+$") ~= nil,
+  tostring(tracedPin)
+)
+-- The storage library is faked in this file; its half of the fix (a value
+-- stored encrypted is never logged) is checked in test_lib_persist.lua.
+check(
+  "Trace was really on: commands are logged by name",
+  tracedText:find("ExecuteCommand: REGENERATE_PIN", 1, true) ~= nil
+    and tracedText:find("ExecuteCommand: PRINT_STATUS", 1, true) ~= nil,
+  tracedText
+)
+check(
+  "the Wi-Fi command is the one the dispatcher stays quiet about",
+  tracedText:find("SET_GUEST_WIFI_PASSWORD", 1, true) == nil,
+  tracedText
+)
+check("the Wi-Fi password is nowhere in the log", tracedText:find("harbour-view-4417", 1, true) == nil, tracedText)
+check("the PIN is nowhere in the log", tracedText:find(tracedPin, 1, true) == nil, tracedText)
+check("the Wi-Fi command is not logged with its parameter", tracedText:find("PASSWORD", 1, true) == nil, tracedText)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
