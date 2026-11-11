@@ -1746,6 +1746,10 @@ local function runSecurityCommand(label, deferred)
 end
 
 function EC.ARM_WITH_PROFILE(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   local wanted = tostring((tParams or {}).Profile or (tParams or {}).profile or "")
   if not isConfigured() then
     return
@@ -1825,6 +1829,10 @@ local function snapSirenDuration(seconds)
 end
 
 function EC.PLAY_SIREN(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   tParams = tParams or {}
   local siren = securityDeviceByNameOrId("sirens", tParams.Siren or tParams.siren)
   if siren == nil then
@@ -1848,6 +1856,10 @@ function EC.STOP_SIREN(tParams)
 end
 
 function EC.TEST_SIREN(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   local siren = securityDeviceByNameOrId("sirens", (tParams or {}).Siren or (tParams or {}).siren)
   if siren == nil then
     log:warn("Test Siren: unknown siren")
@@ -1858,6 +1870,10 @@ function EC.TEST_SIREN(tParams)
 end
 
 function EC.ACTIVATE_RELAY(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   tParams = tParams or {}
   local relay = securityDeviceByNameOrId("relays", tParams.Relay or tParams.relay)
   if relay == nil then
@@ -1877,6 +1893,10 @@ function EC.ACTIVATE_RELAY(tParams)
 end
 
 function EC.TRIGGER_HUB_OUTPUT(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   tParams = tParams or {}
   local hub = securityDeviceByNameOrId("hubs", tParams.Hub or tParams.hub)
   if hub == nil then
@@ -1908,6 +1928,10 @@ function EC.PRINT_SECURITY_DEVICES()
 end
 
 function EC.TRIGGER_PROTECT_WEBHOOK(tParams)
+  if license.enforces() then
+    log:warn("%s", license.enforcementReason())
+    return
+  end
   local triggerId = tostring((tParams or {}).TriggerId or (tParams or {}).trigger_id or "")
   if triggerId == "" then
     log:warn("Trigger Protect Webhook: TriggerId required (from Protect's Alarm Manager)")

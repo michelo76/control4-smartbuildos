@@ -462,6 +462,12 @@ end
 --- @param argument any|nil Decoded argument.
 --- @param onDone fun(ok: boolean, detail: string|nil)|nil
 local function runAction(device, action, argument, onDone)
+  if license.enforces() then
+    if onDone then
+      onDone(false, license.enforcementReason())
+    end
+    return
+  end
   if not isConfigured() then
     if onDone then
       onDone(false, "not configured")
@@ -574,6 +580,10 @@ EC.Run_Bond_Action = EC.RUN_BOND_ACTION
 --- Runs one of the Bond's own scenes (the app's scenes) by name or id —
 --- Composer programming can fire what the homeowner already built.
 function EC.RUN_BOND_SCENE(tParams)
+  if license.enforces() then
+    log:print("%s", license.enforcementReason())
+    return
+  end
   local wanted = tostring((tParams or {}).Scene or "")
   if wanted == "" then
     log:print("Run Bond Scene: Scene is required")
