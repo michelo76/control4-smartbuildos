@@ -34,6 +34,15 @@
       <true_text>ready</true_text>
       <false_text>not ready</false_text>
     </conditional>
+    <conditional>
+      <id>3</id>
+      <name>STORM_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>An event storm is in progress</condition_statement>
+      <description>NAME STRING</description>
+      <true_text>has an event storm</true_text>
+      <false_text>has no event storm</false_text>
+    </conditional>
   </conditionals>
   <variables>
     <variable><id>3000</id><name>RECORDING_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
@@ -45,6 +54,11 @@
     <variable><id>3006</id><name>LAST_UPLOAD</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3007</id><name>LAST_RECORDING_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3008</id><name>CONFIG_VERSION</name><type>STRING</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3009</id><name>SUBSCRIPTIONS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3010</id><name>EVENTS_CAPTURED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3011</id><name>ACTIVE_STORMS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3012</id><name>LAST_EVENT</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3013</id><name>LAST_EVENT_DEVICE</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
   </variables>
   <events>
     <event><id>1</id><name>Recording Degraded</name><description>Recording lost the Agent, the licence, the pairing or its budget (see Last Recording Error)</description></event>
@@ -56,25 +70,35 @@
     <event><id>7</id><name>Trace Failed</name><description>A programming trace was failed, abandoned or interrupted</description></event>
     <event><id>8</id><name>Agent Connected</name><description>The driver registered with the SmartBuildOS Agent</description></event>
     <event><id>9</id><name>Agent Disconnected</name><description>The driver lost its registration with the SmartBuildOS Agent</description></event>
+    <event><id>10</id><name>Event Storm Detected</name><description>One device fired the same event Storm Threshold times in a minute</description></event>
+    <event><id>11</id><name>Event Storm Ended</name><description>A detected event storm stopped</description></event>
+    <event><id>12</id><name>Unknown Event Learned</name><description>A probe subscription received an event the catalogue did not list</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"></script>
     <documentation file="www/documentation/index.html"></documentation>
     <actions>
-      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
-      <action><name>Pause Recording</name><command>PAUSE_RECORDING_ACTION</command></action>
-      <action><name>Resume Recording</name><command>RESUME_RECORDING_ACTION</command></action>
-      <action><name>Capture Snapshot</name><command>CAPTURE_SNAPSHOT_ACTION</command></action>
-      <action><name>Apply Selected Template</name><command>APPLY_TEMPLATE</command></action>
-      <action><name>Clear Composer Sources</name><command>CLEAR_LOCAL_SOURCES</command></action>
+      <action><name>Print Recent History</name><command>PRINT_RECENT</command></action>
+      <action><name>Print History For Inspect Device</name><command>PRINT_DEVICE</command></action>
+      <action><name>Print Last Trace</name><command>PRINT_LAST_TRACE</command></action>
       <action><name>Print Recording Status</name><command>PRINT_STATUS</command></action>
       <action><name>Print Sources</name><command>PRINT_SOURCES</command></action>
+      <action><name>Print Event Coverage</name><command>PRINT_COVERAGE</command></action>
+      <action><name>Capture Snapshot</name><command>CAPTURE_SNAPSHOT_ACTION</command></action>
+      <action><name>Pause Recording</name><command>PAUSE_RECORDING_ACTION</command></action>
+      <action><name>Resume Recording</name><command>RESUME_RECORDING_ACTION</command></action>
+      <action><name>Apply Selected Template</name><command>APPLY_TEMPLATE</command></action>
+      <action><name>Clear Composer Sources</name><command>CLEAR_LOCAL_SOURCES</command></action>
+      <action><name>Re-apply Event Capture</name><command>REAPPLY</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
       <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>Clear Local History</name><command>CLEAR_HISTORY</command></action>
+      <action><name>Forget Learned Events</name><command>FORGET_LEARNED</command></action>
     </actions>
     <commands>
       <command>
         <name>RECORD_EVENT</name>
-        <description>Record a named event in the Flight Recorder (optionally inside a trace channel)</description>
+        <description>Record a named marker in the history and the timeline (optionally inside a trace channel)</description>
         <params>
           <param><name>NAME</name><type>STRING</type></param>
           <param><name>DETAIL</name><type>STRING</type></param>
@@ -142,14 +166,14 @@
       </command>
       <command>
         <name>PAUSE_RECORDING</name>
-        <description>Pause recording (listeners are released; traces are interrupted)</description>
+        <description>Pause recording (event capture and variable listeners are released; traces are interrupted)</description>
         <params>
           <param><name>REASON</name><type>STRING</type></param>
         </params>
       </command>
       <command>
         <name>RESUME_RECORDING</name>
-        <description>Resume recording (sources are re-read as initial observations)</description>
+        <description>Resume recording (event capture is rebuilt; sources are re-read as initial observations)</description>
         <params></params>
       </command>
     </commands>
@@ -165,13 +189,30 @@
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Configuration</name><type>STRING</type><default>none applied</default><readonly>true</readonly></property>
       <property><name>Selected Sources</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Event Coverage</name><type>STRING</type><default>not applied yet</default><readonly>true</readonly></property>
+      <property><name>Event Catalogue</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Events Captured</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Event</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Active Storms</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
       <property><name>Active Traces</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Trace</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
       <property><name>Buffered Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Dropped Events</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Last Upload</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
       <property><name>Last Recording Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
       <property><name>Last Snapshot</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
-      <property><name>Template</name><type>LIST</type><items><item>-</item><item>Lighting</item><item>Contacts and openings</item><item>Motion and occupancy</item><item>Room media</item><item>SmartBuildOS events</item></items><default>-</default><description>Pick a template, then run Apply Selected Template. Only sources that exist in this project are added; System Studio shows the result as a Composer revision.</description></property>
+      <property><name>Event Capture</name><type>LIST</type><items><item>On</item><item>Off</item></items><default>On</default><description>Record the events every device fires.</description></property>
+      <property><name>Read Events From Project</name><type>LIST</type><items><item>On</item><item>Off</item></items><default>On</default><description>Learn each device's events from the project.</description></property>
+      <property><name>Probe Unknown Drivers</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Try ids 1..Probe Range on unknown drivers.</description></property>
+      <property><name>Probe Range</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>64</maximum><default>32</default></property>
+      <property><name>Max Subscriptions</name><type>RANGED_INTEGER</type><minimum>50</minimum><maximum>2500</maximum><default>1000</default></property>
+      <property><name>Storm Threshold</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>600</maximum><default>30</default><description>Same event per minute before it is a storm.</description></property>
+      <property><name>Event Upload Budget</name><type>RANGED_INTEGER</type><minimum>10</minimum><maximum>1200</maximum><default>300</default><description>Device events uploaded per minute, at most.</description></property>
+      <property><name>Local History Size</name><type>RANGED_INTEGER</type><minimum>50</minimum><maximum>2000</maximum><default>500</default></property>
+      <property><name>Exclude Device IDs</name><type>STRING</type><default></default></property>
+      <property><name>Exclude Driver Files</name><type>STRING</type><default></default></property>
+      <property><name>Inspect Device ID</name><type>STRING</type><default></default></property>
+      <property><name>Template</name><type>LIST</type><items><item>-</item><item>Lighting</item><item>Contacts and openings</item><item>Motion and occupancy</item><item>Room media</item><item>SmartBuildOS events</item></items><default>-</default><description>Pick one, then run Apply Selected Template.</description></property>
       <property><name>Buffer Warning Threshold</name><type>RANGED_INTEGER</type><minimum>50</minimum><maximum>300</maximum><default>200</default></property>
       <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
       <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>

@@ -1,5 +1,15 @@
 # Event Tracer — design
 
+> **Merged into the Flight Recorder on 11 November 2026.** The Event Tracer is
+> no longer a driver of its own: its capture engine (`src/tracer/*`, unchanged
+> apart from history notes) runs inside `smartbuildos-flight-recorder`, under
+> the module id `flight_recorder` and the SKU `SBOS_FLIGHT_RECORDER`. The
+> event types `capture.*` and `tracer.*` kept their names. Property, action
+> and command names changed (Capture → Event Capture, Coverage → Event
+> Coverage, `MARK_TIMELINE` → `RECORD_EVENT`, …): the Flight Recorder manual
+> has the current ones. What follows is the record as it was written for the
+> separate driver.
+
 Status: implemented on driver branch `feat/event-tracer` (from
 `feat/flight-recorder`); simulator-verified (`make test`); **bench validation
 owed** (`VERIFICATION.md`). Date: 2026-11-09.

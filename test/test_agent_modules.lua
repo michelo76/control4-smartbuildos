@@ -698,15 +698,18 @@ check("c6 accepted", acks2[1].ok == true)
 advance(70000)
 check("no result before expiry → Unverified", gModuleCommands["req-5"].state == "Unverified")
 
-print("[6b] the restricted vocabulary covers the Event Tracer and Usage Analytics")
+print("[6b] the restricted vocabulary covers the Flight Recorder (event capture included) and Usage Analytics")
 check(
-  "event_tracer verbs",
-  MODULE_COMMANDS.event_tracer.apply_policy
-    and MODULE_COMMANDS.event_tracer.pause
-    and MODULE_COMMANDS.event_tracer.resume
-    and MODULE_COMMANDS.event_tracer.reapply
-    and MODULE_COMMANDS.event_tracer.refresh_status
+  "flight_recorder verbs: recording, snapshots and event capture",
+  MODULE_COMMANDS.flight_recorder.apply_config
+    and MODULE_COMMANDS.flight_recorder.capture_snapshot
+    and MODULE_COMMANDS.flight_recorder.apply_policy
+    and MODULE_COMMANDS.flight_recorder.pause
+    and MODULE_COMMANDS.flight_recorder.resume
+    and MODULE_COMMANDS.flight_recorder.reapply
+    and MODULE_COMMANDS.flight_recorder.refresh_status
 )
+check("the retired event_tracer module has no verbs", MODULE_COMMANDS.event_tracer == nil)
 check(
   "usage_analytics verbs",
   MODULE_COMMANDS.usage_analytics.send_summary

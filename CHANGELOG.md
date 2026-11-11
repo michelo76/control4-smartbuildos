@@ -122,6 +122,40 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Composer Pro 2026.10.14 raise "Property Invalid" on import).
 
 ### Changed
+- **Event Tracer and Flight Recorder are one driver** (`smartbuildos-flight-recorder`,
+  SKU `SBOS_FLIGHT_RECORDER`, module `flight_recorder`). The
+  `smartbuildos-event-tracer` driver is removed; its capture engine runs
+  inside the Flight Recorder, on by default with no configuration. Both
+  answered "what happened?", and a dealer had to add, license and read two
+  drivers to get the events and the values side by side.
+  - **One local history.** Device events, variable changes, trace steps,
+    markers and the recorder's own notes are kept in one list in the order
+    they happened (*Print Recent History*; the list survives a restart).
+  - ***Print Last Trace*** prints everything between the start and the end
+    of the last routine trace: its own steps, and what the house did in
+    between.
+  - ***Print History For Inspect Device*** shows one device's events,
+    changes and trace steps, its event coverage and its watched variables.
+  - **Snapshots carry the history** (newest 200 entries), the state of
+    event capture and any active storm.
+  - **One pause, one licence rule.** `PAUSE_RECORDING` and
+    `RESUME_RECORDING` release and restore event subscriptions and variable
+    listeners together; a definitive licence denial with enforcement on
+    stops both (before, the recorder reported `unlicensed` and kept
+    listening).
+  - **Names.** `MARK_TIMELINE` is gone: `RECORD_EVENT` is the one marker
+    command. Capture → **Event Capture**, Coverage → **Event Coverage**,
+    Catalogue → **Event Catalogue**, Upload Budget → **Event Upload
+    Budget**; **Recording Status** is the one status; new **Last Trace**.
+    Events *Event Storm Detected*, *Event Storm Ended* and *Unknown Event
+    Learned* are now events 10 to 12 of the Flight Recorder.
+  - **Contract.** `capture.` and `tracer.` event types now belong to
+    `flight_recorder` (`src/sbos/envelope.lua`), and the Agent's restricted
+    commands for it gain `apply_policy` and `reapply`; the `event_tracer`
+    module id is retired. **The web repo must follow** (`MODULE_PREFIXES`,
+    `MODULE_OPERATIONS`, the Studio Event Tracer pages, the SKU catalogue):
+    until it does, SmartBuildOS refuses the device events this driver
+    uploads. Not yet run on a controller.
 - **Event envelope: reserved prefixes.** A module with no event-type
   prefixes of its own can no longer emit under another module's prefix
   (`event_type_reserved`). The server has refused such events since the

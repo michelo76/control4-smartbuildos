@@ -3671,10 +3671,19 @@ EVENT_JOURNAL_KEY = "sbos_event_journal_v1"
 AGENT_EVENT_SEQ_KEY = "sbos_agent_event_seq"
 --- The closed vocabulary of restricted module operations, per module.
 MODULE_COMMANDS = {
-  flight_recorder = { apply_config = true, pause = true, resume = true, capture_snapshot = true, refresh_status = true },
   -- Mirrors of the web repo's MODULE_OPERATIONS (src/lib/control4/flight-recorder/modules.ts)
   -- and of each driver's own registered command list. Nothing here acts on the house.
-  event_tracer = { apply_policy = true, pause = true, resume = true, reapply = true, refresh_status = true },
+  -- apply_policy and reapply came with event capture, which the Flight
+  -- Recorder took over from the former Event Tracer driver.
+  flight_recorder = {
+    apply_config = true,
+    apply_policy = true,
+    pause = true,
+    resume = true,
+    reapply = true,
+    capture_snapshot = true,
+    refresh_status = true,
+  },
   usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
 }
 MODULE_COMMAND_TTL = 10 * 60
