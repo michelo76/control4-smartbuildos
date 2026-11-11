@@ -88,7 +88,7 @@ Nothing claims a global order.
 
 | module_id | prefixes | status |
 | --- | --- | --- |
-| `flight_recorder` | `observation.`, `trace.`, `recorder.`, `snapshot.` | implemented |
+| `flight_recorder` | `observation.`, `trace.`, `recorder.`, `snapshot.`, and since 11 Nov 2026 `capture.`, `tracer.` (event capture, formerly the `event_tracer` module) | implemented; the web repo's `MODULE_PREFIXES` still lists the last two under `event_tracer` until it is updated |
 | `agent` | `agent.` (`agent.command_state`) | implemented |
 | `guardian` | `health.` | reserved, not implemented |
 | `commissioning_inspector` | `test.` | reserved |

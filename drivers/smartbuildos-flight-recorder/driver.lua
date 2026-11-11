@@ -6,15 +6,29 @@
   immediately before and afterward? Was an action merely REQUESTED, or was
   its result OBSERVED? What evidence supports an explanation?
 
+  One driver, three layers:
+
+    EVENTS     every Composer event every device fires, with no
+               configuration (the former Event Tracer driver): which device,
+               which event, when. Storm and budget protection.
+    VARIABLES  the device and room variables selected in System Studio or by
+               a template, with the value before and after each change.
+    ROUTINES   what the dealer's programming says it is doing: traces, named
+               markers, expected results; and a diagnostic snapshot on demand.
+
+  All three land in ONE local history, in the order they happened, which the
+  dealer prints from the Actions tab with no uplink; and all three go through
+  the Agent to System Studio.
+
   The Agent supplies the shared services (registration, the durable event
   pipeline, versioned configuration delivery, restricted commands, snapshot
-  upload). This driver supplies the recording policy: which sources, how
-  they are debounced/coalesced, the programming trace commands, the
-  diagnostic snapshot, and the Composer surface. Local recording continues
-  during an internet or SmartBuildOS outage; uploads wait in the Agent.
+  upload) and is the licensing authority (SKU SBOS_FLIGHT_RECORDER). Local
+  recording continues during an internet or SmartBuildOS outage; uploads
+  wait in the Agent.
 
-  Pure rules: src/flightrecorder/{config,recorder,traces,snapshot}.lua and
-  src/sbos/{envelope,moduleclient}.lua — all tested without a controller.
+  Pure rules: src/flightrecorder/{config,recorder,traces,snapshot,history}.lua,
+  src/tracer/{catalog,ring,tracer}.lua and src/sbos/{envelope,moduleclient}.lua
+  — all tested without a controller.
   Hardware validation: see docs/flight-recorder/VERIFICATION.md.
 ============================================================================]]
 
@@ -42,6 +56,16 @@ local Config = require("flightrecorder.config")
 local Recorder = require("flightrecorder.recorder")
 local Traces = require("flightrecorder.traces")
 local Snapshot = require("flightrecorder.snapshot")
+local History = require("flightrecorder.history")
+local Catalog = require("tracer.catalog")
+local Ring = require("tracer.ring")
+local Tracer = require("tracer.tracer")
+--- Required at module scope on purpose: the build's squish step discovers a
+--- driver's modules by loading it under the test shim, where LateInit stops
+--- at the OS version check. A require inside a function is never seen there
+--- and the module is left out of the .c4z (measured 2026-11-09: the built
+--- driver painted "built-in: 0 driver(s)").
+local okCatalogData, CatalogData = pcall(require, "tracer.catalog_data")
 
 gInitialized = false
 
@@ -50,15 +74,24 @@ local SKU = "SBOS_FLIGHT_RECORDER"
 local CONFIG_KEY = "fr_config_v1"
 local CONFIG_META_KEY = "fr_config_meta_v1"
 local PAUSED_KEY = "fr_paused"
+local LEARNED_KEY = "fr_learned_v1"
+local HISTORY_KEY = "fr_history_v1"
 local TRACE_TICK_TIMER = "FrTraceTick"
 local STATUS_TIMER = "FrStatusPaint"
 local SNAPSHOT_TIMER = "FrSnapshotRun"
+local SOON_TIMER = "FrPaintSoon"
+local LEARNED_TIMER = "FrPersistLearned"
+local PROJECT_TIMER = "FrProjectChanged"
 local RECENT_RING = 100
 local MAX_JOBS = 10
 local SNAPSHOT_ACK_SECONDS = 600
+local PROJECT_XML_MAX_BYTES = 6 * 1024 * 1024
+local CHECKPOINT_SECONDS = 30
+local PRINT_DEFAULT = 50
 
 local EVENT_DEGRADED, EVENT_RESTORED, EVENT_BUFFER, EVENT_SNAP_OK, EVENT_SNAP_FAIL = 1, 2, 3, 4, 5
 local EVENT_TRACE_OK, EVENT_TRACE_FAIL, EVENT_AGENT_ON, EVENT_AGENT_OFF = 6, 7, 8, 9
+local EVENT_STORM, EVENT_STORM_END, EVENT_LEARNED = 10, 11, 12
 
 --- Last VALID configuration (never replaced by a refused revision).
 local gConfig = Config.default()
@@ -73,6 +106,16 @@ local gMeta = {
 }
 local gRecorder = nil
 local gTraces = nil
+--- Event capture: the engine, its catalogue of which events exist, and the
+--- policy the Composer properties (or System Studio) last set.
+local gTracer = nil
+local gCatalog = nil
+local gPolicy = Tracer.defaultPolicy()
+local gPolicyRefusals = {}
+local gHistoryDirty = false
+local gLastCheckpoint = 0
+local gLicenceHalted = false
+--- Recorded envelopes other than device events (those are in the history).
 local gRecent = {}
 local gJobs = {}
 local gJobSeq = 0
@@ -84,6 +127,38 @@ local gLastError = "none"
 
 local function nowIso()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
+
+--- Seconds, with fractions where the controller offers them: two device
+--- events in the same second keep their order in the history. A test may pin
+--- the clock by defining FLIGHT_RECORDER_NOW before loading the driver.
+local gSocket = nil
+local function now()
+  if type(FLIGHT_RECORDER_NOW) == "function" then
+    return FLIGHT_RECORDER_NOW()
+  end
+  if gSocket == nil then
+    local ok, socket = pcall(require, "socket")
+    gSocket = (ok and type(socket) == "table" and type(socket.gettime) == "function") and socket or false
+  end
+  if gSocket then
+    return gSocket.gettime()
+  end
+  return os.time()
+end
+
+local function isOn(value)
+  return tostring(value or ""):lower() == "on"
+end
+
+local function deviceLabel(deviceId)
+  local ok, name = pcall(function()
+    return C4:GetDeviceDisplayName(deviceId)
+  end)
+  if ok and type(name) == "string" and name ~= "" then
+    return name
+  end
+  return nil
 end
 
 local function fire(id)
@@ -100,8 +175,27 @@ end
 
 -- ─── Emission ───────────────────────────────────────────────────────────────
 
---- Every event this driver records goes through here: envelope, local ring
---- (for snapshots and Print Status), then the module client's stage.
+--- The outcome of the trace that just ended, for the Last Trace property.
+--- (Print Last Trace reads the history itself, so it survives a restart.)
+local function paintLastTrace(env)
+  local p = type(env.payload) == "table" and env.payload or {}
+  UpdateProperty(
+    "Last Trace",
+    string.format(
+      "%s: %s (%d step(s), %d s) at %s",
+      tostring(p.name or env.label),
+      tostring(p.status),
+      tonumber(p.steps) or 0,
+      tonumber(p.duration_seconds) or 0,
+      os.date("%H:%M:%S")
+    )
+  )
+end
+
+--- Every event this driver records goes through here: envelope, the local
+--- history (so a variable change or a trace step sits between the device
+--- events around it), the recent list snapshots carry, then the module
+--- client's stage.
 local function emit(fields)
   local env, why = client.event(fields)
   if env == nil then
@@ -109,35 +203,62 @@ local function emit(fields)
     log:warn("Event refused (%s): %s", tostring(why), tostring(fields.event_type))
     return nil
   end
-  gRecent[#gRecent + 1] = env
-  while #gRecent > RECENT_RING do
-    table.remove(gRecent, 1)
+  local eventType = tostring(env.event_type)
+  if eventType:sub(1, 8) ~= "capture." then
+    -- A device event is already in the history: the capture engine put it
+    -- there before it asked for the upload. Everything else is offered.
+    if gTracer ~= nil then
+      local entry = History.entryFor(env, { device = deviceLabel })
+      if entry ~= nil then
+        gTracer:note(entry)
+        gHistoryDirty = true
+        if eventType == "trace.end" then
+          paintLastTrace(env)
+        end
+      end
+    end
+    if eventType ~= "tracer.applied" then
+      gRecent[#gRecent + 1] = env
+      while #gRecent > RECENT_RING do
+        table.remove(gRecent, 1)
+      end
+    end
   end
   client.sendEvents({ env })
+  if eventType == "tracer.storm" then
+    fire(EVENT_STORM)
+  elseif eventType == "tracer.storm_ended" then
+    fire(EVENT_STORM_END)
+  elseif eventType == "tracer.learned" then
+    fire(EVENT_LEARNED)
+  end
   return env
 end
 
 -- ─── Status ─────────────────────────────────────────────────────────────────
 
+--- One status for the whole recorder. "recording" means something is being
+--- watched: a device event subscription or a variable listener.
 local function recordingStatus()
-  if gRecorder == nil then
+  if gRecorder == nil or gTracer == nil then
     return "starting"
   end
-  if gRecorder.paused then
+  if gRecorder.paused or gTracer.paused then
     return "paused"
   end
-  if not gConfig.enabled then
+  if not gConfig.enabled and not gPolicy.enabled then
     return "disabled"
   end
   if license.enforces() then
     return "unlicensed"
   end
+  local watching = gRecorder:listenerCount() > 0 or gTracer:subscriptionCount() > 0
   local agent = client.displayStatus()
   if agent == "ready" then
-    return gRecorder:listenerCount() > 0 and "recording" or "idle"
+    return watching and "recording" or "idle"
   end
   -- Recording continues locally; only the upload path is impaired.
-  return (gRecorder:listenerCount() > 0 and "recording_local" or "idle") .. " (" .. agent .. ")"
+  return (watching and "recording_local" or "idle") .. " (" .. agent .. ")"
 end
 
 local function counters()
@@ -153,6 +274,20 @@ local function counters()
     end
     c.active_traces = gTraces:activeCount()
   end
+  if gTracer then
+    for k, v in pairs(gTracer.counters) do
+      c["tracer_" .. k] = v
+    end
+    c.active_storms = #gTracer:activeStorms()
+    c.history_held = gTracer.ring:count()
+    c.history_seq = gTracer.ring.seq
+  end
+  if gCatalog then
+    for k, v in pairs(gCatalog:counts()) do
+      c["catalog_" .. k] = v
+    end
+  end
+  c.policy_refusals = #gPolicyRefusals
   c.jobs = 0
   for _ in pairs(gJobs) do
     c.jobs = c.jobs + 1
@@ -161,6 +296,96 @@ local function counters()
   c.desired_version = gMeta.desired_version
   c.config_source = gMeta.source
   return c
+end
+
+local function coverageLine()
+  local s = gTracer and gTracer.summary or nil
+  if s == nil or s.devices_total == nil then
+    return "not applied yet"
+  end
+  if s.disabled then
+    return "event capture off"
+  end
+  if s.paused then
+    return "paused"
+  end
+  local parts = {
+    string.format(
+      "%d subscriptions on %d of %d devices",
+      s.subscriptions or 0,
+      s.devices_covered or 0,
+      s.devices_total or 0
+    ),
+  }
+  if (s.devices_unknown or 0) > 0 then
+    parts[#parts + 1] = s.devices_unknown .. " unknown driver(s)"
+  end
+  if (s.devices_excluded or 0) > 0 then
+    parts[#parts + 1] = s.devices_excluded .. " excluded"
+  end
+  if (s.unsubscribed_events or 0) > 0 then
+    parts[#parts + 1] = s.unsubscribed_events .. " event(s) over Max Subscriptions"
+  end
+  if (s.register_failures or 0) > 0 then
+    parts[#parts + 1] = s.register_failures .. " refused by Director"
+  end
+  return table.concat(parts, "; ")
+end
+
+local function catalogueLine()
+  if gCatalog == nil then
+    return "-"
+  end
+  local c = gCatalog:counts()
+  local s = gTracer and gTracer.summary or nil
+  local tiers = s and s.by_tier or {}
+  return string.format(
+    "project: %d device(s) → %d subs; built-in: %d driver(s) → %d subs; learned: %d event(s) → %d subs; probe: %d subs",
+    c.project_devices or 0,
+    tiers.project or 0,
+    c.builtin_drivers or 0,
+    tiers.builtin or 0,
+    c.learned_events or 0,
+    tiers.learned or 0,
+    tiers.probe or 0
+  )
+end
+
+--- The cheap, frequent part of painting: what the last device event was.
+local function paintRecent()
+  if gTracer == nil then
+    return
+  end
+  local e = gTracer.ring:filter(function(entry)
+    return entry.kind == "event"
+  end, 1)[1]
+  if e ~= nil then
+    local text = tostring(e.device_label or e.device_id) .. ": " .. tostring(e.event_name)
+    UpdateProperty("Last Event", string.format("%s  (%s)", text, Tracer.formatWhen(e.t or 0)))
+    setVar("LAST_EVENT", text)
+    setVar("LAST_EVENT_DEVICE", tonumber(e.device_id) or 0)
+  end
+  UpdateProperty("Events Captured", tostring(gTracer.counters.captured))
+  setVar("EVENTS_CAPTURED", gTracer.counters.captured)
+  local storms = gTracer:activeStorms()
+  if #storms == 0 then
+    UpdateProperty("Active Storms", "none")
+  else
+    local parts = {}
+    for i = 1, math.min(3, #storms) do
+      parts[#parts + 1] =
+        string.format("%s: %s (%d)", tostring(storms[i].device_label), storms[i].event_name, storms[i].count)
+    end
+    if #storms > 3 then
+      parts[#parts + 1] = "+" .. (#storms - 3) .. " more"
+    end
+    UpdateProperty("Active Storms", table.concat(parts, "; "))
+  end
+  setVar("ACTIVE_STORMS", #storms)
+end
+
+local function paintSoon()
+  SetTimer(SOON_TIMER, 2 * ONE_SECOND, paintRecent)
 end
 
 local function paint()
@@ -174,7 +399,9 @@ local function paint()
       buffered = buffered + #f.events
     end
   end
-  local dropped = (gRecorder and gRecorder.counters.dropped_budget or 0) + client.counters().events_dropped_local
+  local dropped = (gRecorder and gRecorder.counters.dropped_budget or 0)
+    + (gTracer and gTracer.counters.dropped_budget or 0)
+    + client.counters().events_dropped_local
   UpdateProperty("Recording Status", status)
   UpdateProperty("Agent Connection", agent)
   UpdateProperty(
@@ -215,7 +442,16 @@ local function paint()
   UpdateProperty("Buffered Events", tostring(buffered))
   UpdateProperty("Dropped Events", tostring(dropped))
   UpdateProperty("Last Upload", gLastUploadAt and os.date("%Y-%m-%d %H:%M:%S", gLastUploadAt) or "never")
-  UpdateProperty("Last Recording Error", gLastError)
+  local err = gLastError
+  if #gPolicyRefusals > 0 then
+    local first = gPolicyRefusals[1]
+    err = (err ~= "none" and (err .. "; ") or "") .. "setting ignored: " .. first.path .. " " .. first.reason
+  end
+  UpdateProperty("Last Recording Error", err)
+  UpdateProperty("Event Coverage", coverageLine())
+  UpdateProperty("Event Catalogue", catalogueLine())
+  paintRecent()
+  setVar("SUBSCRIPTIONS", gTracer and gTracer:subscriptionCount() or 0)
   setVar("RECORDING_STATUS", status)
   setVar("AGENT_CONNECTION", agent)
   setVar("SELECTED_SOURCES", #gConfig.sources)
@@ -223,7 +459,7 @@ local function paint()
   setVar("BUFFERED_EVENTS", buffered)
   setVar("DROPPED_EVENTS", dropped)
   setVar("LAST_UPLOAD", gLastUploadAt and os.date("!%Y-%m-%dT%H:%M:%SZ", gLastUploadAt) or "")
-  setVar("LAST_RECORDING_ERROR", gLastError)
+  setVar("LAST_RECORDING_ERROR", err)
   setVar("CONFIG_VERSION", tostring(gMeta.applied_version))
 
   -- Degraded / restored on TRANSITION only. The recorder's own status is
@@ -287,7 +523,9 @@ local function applyRevision(raw, version, source)
   gMeta.refusals = {}
   local summary = nil
   if gRecorder ~= nil then
-    if not gConfig.enabled then
+    if not gConfig.enabled or gLicenceHalted then
+      -- Kept, not applied: a halted recorder listens to nothing. (A resume
+      -- hands the recorder the configuration again: see resumeAll.)
       gRecorder:stop()
       summary = Config.summary(gConfig, nil)
     else
@@ -300,7 +538,228 @@ local function applyRevision(raw, version, source)
   return true, refusals, summary
 end
 
+-- ─── Event capture policy (Composer properties → capture engine) ───────────
+
+local function policyFromProperties()
+  return {
+    enabled = isOn(Properties["Event Capture"]),
+    probe_unknown = isOn(Properties["Probe Unknown Drivers"]),
+    probe_range = Properties["Probe Range"],
+    max_subscriptions = Properties["Max Subscriptions"],
+    events_per_minute = Properties["Event Upload Budget"],
+    storm_threshold = Properties["Storm Threshold"],
+    ring_size = Properties["Local History Size"],
+    exclude_device_ids = Properties["Exclude Device IDs"],
+    exclude_driver_files = Properties["Exclude Driver Files"],
+  }
+end
+
+local function applyPolicy(raw, source)
+  local policy, refusals = Tracer.validatePolicy(raw)
+  if policy == nil then
+    gLastError = "event capture settings from " .. tostring(source) .. " refused: " .. refusals[1].reason
+    paint()
+    return false, refusals
+  end
+  gPolicy = policy
+  gPolicyRefusals = refusals
+  if gTracer ~= nil and not gLicenceHalted then
+    local ok, err = pcall(function()
+      gTracer:apply(gPolicy)
+    end)
+    if not ok then
+      gLastError = "event capture apply failed: " .. tostring(err)
+      log:error("%s", gLastError)
+    elseif gLastError:find("^event capture") then
+      gLastError = "none"
+    end
+  end
+  paint()
+  client.sendStatus()
+  return true, refusals
+end
+
+--- Event capture settings from System Studio. One truth stays the Composer
+--- properties: the document is merged over the running policy (a key Studio
+--- did not send keeps its value), refused whole if any field is invalid (a
+--- person is looking at a form; nothing falls back silently), then written
+--- INTO the properties and applied. It therefore survives a reload and
+--- Composer shows what is running.
+local function applyStudioPolicy(raw)
+  if type(raw) ~= "table" then
+    return false, { { path = "policy", reason = "must be an object" } }
+  end
+  local merged = {}
+  for k, v in pairs(gPolicy or Tracer.defaultPolicy()) do
+    merged[k] = v
+  end
+  for k, v in pairs(raw) do
+    merged[k] = v
+  end
+  local policy, refusals = Tracer.validatePolicy(merged)
+  if policy == nil or #refusals > 0 then
+    return false, refusals
+  end
+  local function onOff(value)
+    return value and "On" or "Off"
+  end
+  local ids = {}
+  for i, id in ipairs(policy.exclude_device_ids) do
+    ids[i] = tostring(id)
+  end
+  UpdateProperty("Event Capture", onOff(policy.enabled))
+  UpdateProperty("Probe Unknown Drivers", onOff(policy.probe_unknown))
+  UpdateProperty("Probe Range", tostring(policy.probe_range))
+  UpdateProperty("Max Subscriptions", tostring(policy.max_subscriptions))
+  UpdateProperty("Event Upload Budget", tostring(policy.events_per_minute))
+  UpdateProperty("Storm Threshold", tostring(policy.storm_threshold))
+  UpdateProperty("Local History Size", tostring(policy.ring_size))
+  UpdateProperty("Exclude Device IDs", table.concat(ids, ", "))
+  UpdateProperty("Exclude Driver Files", table.concat(policy.exclude_driver_files, ", "))
+  return applyPolicy(policy, "studio")
+end
+
+-- ─── Local history and learned events: persistence ─────────────────────────
+
+local function persistLearnedSoon()
+  SetTimer(LEARNED_TIMER, 5 * ONE_SECOND, function()
+    if gCatalog then
+      persist:set(LEARNED_KEY, gCatalog:learnedDoc())
+    end
+  end)
+end
+
+--- The history survives a Director restart; the loss window is the
+--- checkpoint interval.
+local function checkpointHistory(force)
+  if gTracer == nil or (not gHistoryDirty and not force) then
+    return
+  end
+  if not force and os.time() - gLastCheckpoint < CHECKPOINT_SECONDS then
+    return
+  end
+  gLastCheckpoint = os.time()
+  gHistoryDirty = false
+  persist:set(HISTORY_KEY, gTracer.ring:serialize())
+end
+
+-- ─── Licence ────────────────────────────────────────────────────────────────
+
+--- Enforcement is the charter's "read-only" consequence: a DEFINITIVE denial
+--- with enforcement on releases every event subscription and every variable
+--- listener; uncertainty never does. The history already held stays readable.
+local function reconcileLicence()
+  local halt = license.enforces()
+  if halt and not gLicenceHalted then
+    gLicenceHalted = true
+    if gTracer then
+      gTracer:stop()
+    end
+    if gRecorder then
+      gRecorder:stop()
+    end
+    gLastError = "SmartBuildOS licence: " .. tostring(license.statusLabel())
+    log:warn("%s — recording halted", gLastError)
+  elseif not halt and gLicenceHalted then
+    gLicenceHalted = false
+    gLastError = "none"
+    if gTracer and gPolicy.enabled and not gTracer.paused then
+      pcall(function()
+        gTracer:apply(gPolicy)
+      end)
+    end
+    if gRecorder and gConfig.enabled and not gRecorder.paused then
+      pcall(function()
+        gRecorder:apply(gConfig)
+      end)
+    end
+  end
+end
+
+--- Composer saves and Agent arrivals come in bursts: one re-plan of event
+--- capture a few seconds after the last trigger.
+local function scheduleReplan()
+  SetTimer(PROJECT_TIMER, 5 * ONE_SECOND, function()
+    if gTracer and not gLicenceHalted then
+      pcall(function()
+        gTracer:onProjectChanged()
+      end)
+      paint()
+    end
+  end)
+end
+
+-- ─── Pause and resume (both halves, always together) ───────────────────────
+
+--- @return boolean changed
+local function pauseAll(reason)
+  local changed = gRecorder:pause(reason)
+  if gTracer:pause(reason) then
+    changed = true
+  end
+  if changed then
+    gTraces:interruptAll("recording paused")
+    persist:set(PAUSED_KEY, true)
+  end
+  return changed
+end
+
+--- A resume applies what is CONFIGURED NOW, not what each engine last held:
+--- after a restart while paused the engines hold their defaults, and a
+--- configuration switched off while paused must stay off.
+--- @return boolean changed
+local function resumeAll(reason)
+  persist:set(PAUSED_KEY, false)
+  local changed = gRecorder.paused or gTracer.paused
+  if not changed then
+    return false
+  end
+  local function note(label, why)
+    emit({
+      event_type = "recorder.resumed",
+      evidence_source = "derived",
+      severity = "notice",
+      label = label,
+      payload = { reason = tostring(reason or ""), note = why },
+    })
+  end
+  if gLicenceHalted then
+    -- Nothing may listen; un-pause so that a restored licence resumes.
+    gRecorder.paused, gTracer.paused = false, false
+    note("Recording resumed (unlicensed: nothing is listening)", "the licence does not allow recording")
+    return true
+  end
+  if gConfig.enabled then
+    gRecorder.config = gConfig
+    gRecorder:resume(reason)
+  else
+    gRecorder.paused = false
+    note("Recording resumed (variable sources are switched off)", "the configuration is disabled")
+  end
+  gTracer.policy = gPolicy
+  gTracer:resume(reason)
+  return true
+end
+
 -- ─── Snapshots ──────────────────────────────────────────────────────────────
+
+--- The local history as a snapshot carries it: one readable line per entry.
+local function historyForSnapshot()
+  local out = {}
+  if gTracer == nil then
+    return out
+  end
+  for _, e in ipairs(gTracer:recent(Snapshot.LIMITS.history)) do
+    out[#out + 1] = {
+      seq = e.seq,
+      at = e.t and os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(e.t)) or nil,
+      kind = e.kind,
+      device_id = e.device_id,
+      line = Tracer.formatEntry(e):sub(1, 240),
+    }
+  end
+  return out
+end
 
 local function runSnapshotJobs()
   local running = nil
@@ -350,6 +809,18 @@ local function runSnapshotJobs()
           queue = gPipeline,
           observations = gRecorder and gRecorder:observations() or {},
           recent = gRecent,
+          event_capture = gTracer and {
+            status = gTracer:status(),
+            coverage = coverageLine(),
+            catalogue = catalogueLine(),
+            subscriptions = gTracer:subscriptionCount(),
+            captured = gTracer.counters.captured,
+            dropped_budget = gTracer.counters.dropped_budget,
+            storms_seen = gTracer.counters.storms,
+            policy = Tracer.policyReport(gPolicy),
+          } or nil,
+          storms = gTracer and gTracer:activeStorms() or {},
+          history = historyForSnapshot(),
           warnings = (function()
             local w = {}
             if not client.isRegistered() then
@@ -365,6 +836,13 @@ local function runSnapshotJobs()
             end
             if gRecorder and gRecorder.counters.dropped_budget > 0 then
               w[#w + 1] = "observations were dropped by the per-minute budget; recent history is incomplete"
+            end
+            if gTracer and (gTracer.summary == nil or (gTracer.summary.subscriptions or 0) == 0) then
+              w[#w + 1] = "event capture holds no subscriptions (off, paused, unlicensed or nothing catalogued):"
+                .. " the history has no device events from now"
+            end
+            if gTracer and #gTracer:activeStorms() > 0 then
+              w[#w + 1] = "an event storm is in progress: repeats of the storming event are counted, not listed"
             end
             return w
           end)(),
@@ -455,22 +933,43 @@ local COMMANDS = {
     local first = refusals[1]
     return "Failed", "refused: " .. (first and (first.path .. " " .. first.reason) or "invalid")
   end,
+  apply_policy = function(request)
+    local raw = request.args.policy
+    if type(raw) ~= "table" then
+      return "Failed", "apply_policy needs args.policy"
+    end
+    local ok, refusals = applyStudioPolicy(raw)
+    if ok then
+      return "Completed", "applied: " .. coverageLine()
+    end
+    local first = refusals[1]
+    return "Failed",
+      "refused, nothing changed: " .. tostring(first and (tostring(first.path) .. " " .. tostring(first.reason)))
+  end,
   pause = function(request)
-    if gRecorder:pause("studio: " .. tostring(request.args.reason or "")) then
-      gTraces:interruptAll("recording paused")
-      persist:set(PAUSED_KEY, true)
+    if pauseAll("studio: " .. tostring(request.args.reason or "")) then
       paint()
       return "Completed", "recording paused"
     end
     return "Completed", "already paused"
   end,
   resume = function()
-    persist:set(PAUSED_KEY, false)
-    if gRecorder:resume("studio") then
+    if resumeAll("studio") then
       paint()
-      return "Completed", "recording resumed; sources re-read"
+      return "Completed", "recording resumed; sources re-read; " .. coverageLine()
     end
     return "Completed", "already recording"
+  end,
+  reapply = function()
+    if gTracer.paused then
+      return "Completed", "paused; nothing re-applied"
+    end
+    if gLicenceHalted then
+      return "Completed", "unlicensed; nothing re-applied"
+    end
+    gTracer:apply(gPolicy)
+    paint()
+    return "Completed", coverageLine()
   end,
   capture_snapshot = function(request)
     local jobId, why = requestSnapshot(request.request_id, "studio", request.args.note)
@@ -518,6 +1017,11 @@ local function registerComposerSurface()
     { "LAST_UPLOAD", "", "STRING" },
     { "LAST_RECORDING_ERROR", "", "STRING" },
     { "CONFIG_VERSION", "0", "STRING" },
+    { "SUBSCRIPTIONS", 0, "NUMBER" },
+    { "EVENTS_CAPTURED", 0, "NUMBER" },
+    { "ACTIVE_STORMS", 0, "NUMBER" },
+    { "LAST_EVENT", "", "STRING" },
+    { "LAST_EVENT_DEVICE", 0, "NUMBER" },
   }) do
     pcall(function()
       C4:AddVariable(v[1], v[2], v[3], true)
@@ -533,6 +1037,9 @@ local function registerComposerSurface()
     { 7, "Trace Failed", "A programming trace was failed, abandoned or interrupted" },
     { 8, "Agent Connected", "Registered with the SmartBuildOS Agent" },
     { 9, "Agent Disconnected", "Lost the registration with the SmartBuildOS Agent" },
+    { 10, "Event Storm Detected", "One device fired the same event Storm Threshold times in a minute" },
+    { 11, "Event Storm Ended", "A detected event storm stopped" },
+    { 12, "Unknown Event Learned", "A probe subscription received an event the catalogue did not list" },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -553,14 +1060,75 @@ local function roomOf(deviceId)
   return nil
 end
 
-local function deviceLabel(deviceId)
-  local ok, name = pcall(function()
-    return C4:GetDeviceDisplayName(deviceId)
+local function projectDevices()
+  local ok, list = pcall(function()
+    return C4:GetDevices({})
   end)
-  if ok and type(name) == "string" and name ~= "" then
-    return name
+  if ok and type(list) == "table" then
+    return list
   end
-  return nil
+  return {}
+end
+
+--- The project with device data, which names the events of Control4's own
+--- drivers. Nil (and the built-in and learned catalogues take over) when the
+--- property is Off, the call fails, or the document is too large to hold.
+local function projectXml()
+  if not isOn(Properties["Read Events From Project"]) then
+    return nil
+  end
+  local ok, xml = pcall(function()
+    return C4:GetProjectItems("DEVICES", "NO_ROOT_TAGS")
+  end)
+  if not ok or type(xml) ~= "string" or xml == "" then
+    return nil
+  end
+  if #xml > PROJECT_XML_MAX_BYTES then
+    log:warn("Project XML is %d bytes; skipping the project catalogue tier", #xml)
+    return nil
+  end
+  return xml
+end
+
+local function buildTracer()
+  local builtin = {}
+  if okCatalogData and type(CatalogData) == "table" then
+    builtin = CatalogData
+  else
+    log:warn("Built-in event catalogue unavailable: %s", tostring(CatalogData))
+  end
+  gCatalog = Catalog.new({ builtin = builtin, learned = persist:get(LEARNED_KEY, false) or nil })
+  local ring = nil
+  local stored = persist:get(HISTORY_KEY, false)
+  if type(stored) == "table" then
+    local restored, ok = Ring.restore(stored, tonumber(Properties["Local History Size"]))
+    if ok then
+      ring = restored
+    else
+      gLastError = "persisted history unreadable; starting empty"
+    end
+  end
+  return Tracer.new({
+    now = now,
+    register = function(deviceId, eventId)
+      local ok = pcall(function()
+        C4:RegisterDeviceEvent(deviceId, eventId)
+      end)
+      return ok
+    end,
+    unregister = function(deviceId, eventId)
+      pcall(function()
+        C4:UnregisterDeviceEvent(deviceId, eventId)
+      end)
+    end,
+    devices = projectDevices,
+    catalog = gCatalog,
+    emit = emit,
+    selfDeviceId = C4:GetDeviceID(),
+    projectXml = projectXml,
+    ring = ring,
+    onLearned = persistLearnedSoon,
+  })
 end
 
 local function buildRecorder()
@@ -637,6 +1205,12 @@ function OnDriverLateInit(reason)
     gMeta.refusals = gMeta.refusals or {}
   end
 
+  -- The capture engine first: it owns the history every other part writes to.
+  gTracer = buildTracer()
+  local policy, policyRefusals = Tracer.validatePolicy(policyFromProperties())
+  gPolicy = policy or Tracer.defaultPolicy()
+  gPolicyRefusals = policyRefusals or {}
+
   gRecorder = buildRecorder()
   gTraces = Traces.new({
     now = os.time,
@@ -654,16 +1228,25 @@ function OnDriverLateInit(reason)
   license.setup({ sku = SKU })
   EC.SBOS_ENTITLEMENT = function(tParams)
     license.onEntitlement(tParams)
+    reconcileLicence()
     paint()
   end
 
   client.setup({
     module_id = MODULE_ID,
     driver_version = tostring(C4:GetDriverConfigInfo("version")),
-    capabilities = { "recording", "traces", "snapshots", "sbos_events" },
+    capabilities = {
+      "recording",
+      "traces",
+      "snapshots",
+      "sbos_events",
+      "capture",
+      "storms",
+      "local_history",
+    },
     entitlements = { SKU },
-    commands = { "apply_config", "pause", "resume", "capture_snapshot", "refresh_status" },
-    event_types = { "observation.", "trace.", "recorder.", "snapshot." },
+    commands = { "apply_config", "apply_policy", "pause", "resume", "reapply", "capture_snapshot", "refresh_status" },
+    event_types = { "observation.", "trace.", "recorder.", "snapshot.", "capture.", "tracer." },
     singleton = true,
     status = function()
       return recordingStatus(), gLastError ~= "none" and gLastError or "", counters()
@@ -675,9 +1258,15 @@ function OnDriverLateInit(reason)
       if tostring(reply.ok) == "true" then
         fire(EVENT_AGENT_ON)
         log:info("Flight Recorder registered with the Agent")
+        if gLastError:find("^no SmartBuildOS Agent") then
+          gLastError = "none"
+        end
         -- The licence registration shares the Agent: an Agent added after
         -- this driver is picked up here rather than at the next reload.
         pcall(license.register)
+        -- An Agent that was just added is a device event capture has not
+        -- seen; its own events are worth capturing, so re-plan shortly.
+        scheduleReplan()
       else
         gLastError = "Agent refused registration: " .. tostring(reply.reason)
         fire(EVENT_AGENT_OFF)
@@ -686,7 +1275,7 @@ function OnDriverLateInit(reason)
     end,
     onAgentState = function(agent, why)
       if why == "no_agent" then
-        gLastError = "no SmartBuildOS Agent in this project"
+        gLastError = "no SmartBuildOS Agent in this project (recording locally)"
       end
       paint()
     end,
@@ -734,8 +1323,12 @@ function OnDriverLateInit(reason)
     local ok, detail = pcall(function()
       return JSON:decode(tostring(tParams.detail or "{}"))
     end)
+    local name = tostring(tParams.name or "")
     if gRecorder then
-      gRecorder:onSbosEvent(tostring(tParams.name or ""), ok and detail or {})
+      gRecorder:onSbosEvent(name, ok and detail or {})
+    end
+    if name == "project_changed" or name == "director_reloaded" then
+      scheduleReplan()
     end
   end
 
@@ -747,19 +1340,40 @@ function OnDriverLateInit(reason)
 
   if persist:get(PAUSED_KEY, false) == true then
     gRecorder.paused = true
-  elseif gConfig.enabled then
-    local okA, errA = pcall(function()
-      gRecorder:apply(gConfig)
+    gTracer.paused = true
+    -- A resume re-applies what the recorder holds. Started paused, it holds
+    -- nothing yet, and a resume after a reload listened to no source at all
+    -- until the next configuration arrived: hand it the stored one.
+    if gConfig.enabled then
+      gRecorder.config = gConfig
+    end
+    gTracer.policy = gPolicy
+  else
+    local okE, errE = pcall(function()
+      gTracer:apply(gPolicy)
     end)
-    if not okA then
-      gLastError = "apply failed: " .. tostring(errA)
+    if not okE then
+      gLastError = "event capture apply failed: " .. tostring(errE)
       log:error("%s", gLastError)
+    end
+    if gConfig.enabled then
+      local okA, errA = pcall(function()
+        gRecorder:apply(gConfig)
+      end)
+      if not okA then
+        gLastError = "apply failed: " .. tostring(errA)
+        log:error("%s", gLastError)
+      end
     end
   end
   client.register()
   SetTimer(TRACE_TICK_TIMER, 30 * ONE_SECOND, function()
     if gTraces then
       gTraces:tick()
+    end
+    if gTracer then
+      gTracer:tick()
+      checkpointHistory(false)
     end
     -- Expire snapshot jobs that never got an answer.
     for _, job in pairs(gJobs) do
@@ -784,11 +1398,38 @@ function OnDriverDestroyed()
   if gRecorder then
     gRecorder:stop()
   end
+  if gTracer then
+    gTracer:stop()
+    checkpointHistory(true)
+  end
+  if gCatalog then
+    persist:set(LEARNED_KEY, gCatalog:learnedDoc())
+  end
   client.flush()
   client.stop()
   CancelTimer(TRACE_TICK_TIMER)
   CancelTimer(STATUS_TIMER)
   CancelTimer(SNAPSHOT_TIMER)
+  CancelTimer(SOON_TIMER)
+  CancelTimer(LEARNED_TIMER)
+  CancelTimer(PROJECT_TIMER)
+end
+
+--- Director's callback for every subscribed device event. Replaces the
+--- vendored handler, which prints on every call: far too chatty here.
+function OnDeviceEvent(idDevice, idEvent)
+  if gTracer == nil then
+    return
+  end
+  local ok, err = pcall(function()
+    if gTracer:onDeviceEvent(tointeger(idDevice), tointeger(idEvent)) then
+      gHistoryDirty = true
+      paintSoon()
+    end
+  end)
+  if not ok then
+    log:error("OnDeviceEvent %s/%s: %s", tostring(idDevice), tostring(idEvent), tostring(err))
+  end
 end
 
 --- Director's callback for every watched variable.
@@ -815,6 +1456,22 @@ function OPC.Driver_Status()
     UpdateProperty("Driver Status", "Initializing", false)
   end
 end
+
+local function policyProperty()
+  if gInitialized then
+    applyPolicy(policyFromProperties(), "composer")
+  end
+end
+OPC.Event_Capture = policyProperty
+OPC.Read_Events_From_Project = policyProperty
+OPC.Probe_Unknown_Drivers = policyProperty
+OPC.Probe_Range = policyProperty
+OPC.Max_Subscriptions = policyProperty
+OPC.Storm_Threshold = policyProperty
+OPC.Event_Upload_Budget = policyProperty
+OPC.Local_History_Size = policyProperty
+OPC.Exclude_Device_IDs = policyProperty
+OPC.Exclude_Driver_Files = policyProperty
 
 -- ─── Actions ────────────────────────────────────────────────────────────────
 
@@ -948,8 +1605,28 @@ function EC.PRINT_STATUS()
     tostring(gMeta.desired_version),
     tostring(gMeta.last_error)
   )
-  for k, v in pairs(counters()) do
-    log:print("  %s = %s", tostring(k), tostring(v))
+  log:print("  event coverage: %s", coverageLine())
+  log:print("  event catalogue: %s", catalogueLine())
+  for _, r in ipairs(gPolicyRefusals) do
+    log:print("  setting ignored: %s %s", r.path, r.reason)
+  end
+  local c = counters()
+  local keys = {}
+  for k in pairs(c) do
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    log:print("  %s = %s", tostring(k), tostring(c[k]))
+  end
+  for _, storm in ipairs(gTracer and gTracer:activeStorms() or {}) do
+    log:print(
+      "  STORM %s: %s — %d this minute (%d not listed)",
+      tostring(storm.device_label),
+      storm.event_name,
+      storm.count,
+      storm.suppressed
+    )
   end
   if gPipeline then
     log:print(
@@ -962,8 +1639,171 @@ function EC.PRINT_STATUS()
   for _, t in ipairs(gTraces and gTraces:activeList() or {}) do
     log:print("  active trace %s on %s (%d steps)", t.trace_id, t.channel, t.steps)
   end
-  for _, env in ipairs(gRecent) do
-    log:print("  recent %s %s %s", env.observed_at, env.event_type, tostring(env.label or ""))
+  log:print(
+    "  history: %d entr%s held; run Print Recent History to read them",
+    gTracer and gTracer.ring:count() or 0,
+    (gTracer and gTracer.ring:count() or 0) == 1 and "y" or "ies"
+  )
+end
+
+--- The history: device events, variable changes, trace steps and markers in
+--- the order they happened.
+function EC.PRINT_RECENT()
+  if gTracer == nil then
+    return
+  end
+  local list = gTracer:recent(PRINT_DEFAULT)
+  log:print("== Flight Recorder history: last %d of %d held (to #%d) ==", #list, gTracer.ring:count(), gTracer.ring.seq)
+  for _, e in ipairs(list) do
+    log:print("  %s", Tracer.formatEntry(e))
+  end
+end
+
+function EC.PRINT_DEVICE()
+  if gTracer == nil then
+    return
+  end
+  local id = tonumber(Properties["Inspect Device ID"])
+  if id == nil then
+    log:print("Set Inspect Device ID to a Director device id first")
+    return
+  end
+  local list = gTracer:forDevice(id, PRINT_DEFAULT)
+  log:print("== Flight Recorder history: last %d entries of device %d ==", #list, id)
+  for _, e in ipairs(list) do
+    log:print("  %s", Tracer.formatEntry(e))
+  end
+  local cov = gTracer.coverage[id]
+  if cov then
+    log:print(
+      "  event coverage: %s (%s) tier=%s events=%d unsubscribed=%d",
+      tostring(cov.label),
+      tostring(cov.driver),
+      tostring(cov.tier),
+      cov.events,
+      cov.unsubscribed
+    )
+  else
+    log:print("  events: not in the current plan (excluded, this driver, or not in the project)")
+  end
+  local watched = 0
+  for _, o in ipairs(gRecorder and gRecorder:observations() or {}) do
+    if o.device_id == id then
+      watched = watched + 1
+      log:print("  variable %s = %s", tostring(o.variable), tostring(o.value))
+    end
+  end
+  if watched == 0 then
+    log:print("  variables: none of this device's variables is a selected source")
+  end
+end
+
+--- Everything the history holds between the start and the end of the last
+--- trace that ended: the routine's own steps and markers, and whatever the
+--- house did in between. Read from the history itself, so it still answers
+--- after a restart. A trace still running is printed, up to now, only when
+--- none has ended.
+function EC.PRINT_LAST_TRACE()
+  if gTracer == nil then
+    return
+  end
+  local ring = gTracer.ring
+  local last = ring:filter(function(e)
+    return e.kind == "trace" and e.status ~= nil
+  end, 1)[1]
+  local running = false
+  if last == nil then
+    last = ring:filter(function(e)
+      return e.kind == "trace" and e.step == "start"
+    end, 1)[1]
+    running = last ~= nil
+  end
+  if last == nil then
+    log:print("The history holds no trace. Add START_TRACE and COMPLETE_TRACE to a routine.")
+    return
+  end
+  local id = last.trace_id
+  local start = running and last
+    or ring:filter(function(e)
+      return e.kind == "trace" and e.trace_id == id and e.step == "start"
+    end, 1)[1]
+  local to = running and ring.seq or last.seq
+  log:print(
+    "== Flight Recorder trace: %s on %s — %s ==",
+    tostring(last.name or (start and start.name) or "?"),
+    tostring(last.channel or "main"),
+    running and "still running" or tostring(last.text)
+  )
+  local from = start and start.seq or nil
+  if from == nil then
+    log:print("  the start of this trace is no longer held: Local History Size is %d", ring.capacity)
+    from = ring:filter(function(e)
+      return e.trace_id == id
+    end)[1].seq
+  end
+  local own, others = 0, 0
+  for _, e in
+    ipairs(ring:filter(function(e)
+      return e.seq >= from and e.seq <= to
+    end))
+  do
+    local mine = e.trace_id ~= nil and e.trace_id == id
+    if mine then
+      own = own + 1
+    else
+      others = others + 1
+    end
+    log:print("  %s %s", mine and ">" or " ", Tracer.formatEntry(e))
+  end
+  log:print("  %d line(s) from the trace (>), %d from the house in between", own, others)
+end
+
+function EC.PRINT_COVERAGE()
+  if gTracer == nil then
+    return
+  end
+  log:print("== Flight Recorder event coverage: %s ==", coverageLine())
+  for _, c in ipairs(gTracer:coverageList()) do
+    log:print(
+      "  %5d  %-32s %-36s %-8s %3d events%s",
+      c.device_id,
+      tostring(c.label or ""):sub(1, 32),
+      tostring(c.driver or ""):sub(1, 36),
+      tostring(c.tier or "unknown"),
+      c.events,
+      c.unsubscribed > 0 and (" (" .. c.unsubscribed .. " not subscribed)") or ""
+    )
+  end
+end
+
+function EC.REAPPLY()
+  if gTracer and not gTracer.paused and not gLicenceHalted then
+    gTracer:apply(gPolicy)
+  end
+  paint()
+  client.sendStatus()
+end
+
+function EC.CLEAR_HISTORY()
+  if gTracer then
+    gTracer.ring = Ring.new(gPolicy.ring_size)
+    gHistoryDirty = true
+    checkpointHistory(true)
+    UpdateProperty("Last Event", "none yet (history cleared)")
+    UpdateProperty("Last Trace", "none yet (history cleared)")
+    log:info("Local history cleared")
+  end
+end
+
+function EC.FORGET_LEARNED()
+  if gCatalog then
+    gCatalog.learned = {}
+    persist:set(LEARNED_KEY, {})
+    if gTracer and not gTracer.paused and not gLicenceHalted then
+      gTracer:apply(gPolicy)
+    end
+    paint()
+    log:info("Learned events forgotten")
   end
 end
 
@@ -1064,17 +1904,13 @@ end
 
 function EC.PAUSE_RECORDING(tParams)
   tParams = tParams or {}
-  if gRecorder:pause("composer: " .. tostring(tParams.REASON or "")) then
-    gTraces:interruptAll("recording paused")
-    persist:set(PAUSED_KEY, true)
-  end
+  pauseAll("composer: " .. tostring(tParams.REASON or ""))
   paint()
   client.sendStatus()
 end
 
 function EC.RESUME_RECORDING()
-  persist:set(PAUSED_KEY, false)
-  gRecorder:resume("composer")
+  resumeAll("composer")
   paint()
   client.sendStatus()
 end
@@ -1088,4 +1924,8 @@ end
 
 function TC.AGENT_READY()
   return client.displayStatus() == "ready"
+end
+
+function TC.STORM_ACTIVE()
+  return gTracer ~= nil and #gTracer:activeStorms() > 0
 end

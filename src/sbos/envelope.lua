@@ -63,8 +63,11 @@ M.QUALITY = {
 --- impersonate another module's events, and a module that is not listed
 --- here cannot emit under any listed prefix.
 M.PREFIXES = {
-  flight_recorder = { "observation.", "trace.", "recorder.", "snapshot." },
-  event_tracer = { "capture.", "tracer." },
+  -- The Flight Recorder took over event capture (the former Event Tracer
+  -- driver, module id `event_tracer`): one driver, one module, one timeline.
+  -- `capture.` and `tracer.` keep their names so stored events and the
+  -- Studio code that reads them by type stay valid.
+  flight_recorder = { "observation.", "trace.", "recorder.", "snapshot.", "capture.", "tracer." },
   usage_analytics = { "usage." },
   agent = { "agent." },
   -- Reserved, not implemented (extension contracts, PROTOCOL.md §8):

@@ -321,7 +321,7 @@ end
 byName = { ["smartbuildos.c4z"] = { [77] = { name = "SmartBuildOS Agent" } } }
 license._reset()
 deviceSent = {}
-license.setup({ sku = "SBOS_EVENT_TRACER" })
+license.setup({ sku = "SBOS_FLIGHT_RECORDER" })
 check("found by driver file when GetDevices lacks it", license.agentDeviceId() == 77, license.agentDeviceId())
 check("registration went to that id", #deviceSent == 1 and deviceSent[1].device == 77)
 check(
@@ -339,7 +339,7 @@ agentsXml = [[<systemitems><item><id>1</id><name>Project</name><type>1</type><it
 </subitems></item></systemitems>]]
 license._reset()
 deviceSent = {}
-license.setup({ sku = "SBOS_EVENT_TRACER" })
+license.setup({ sku = "SBOS_FLIGHT_RECORDER" })
 check(
   "found in the AGENTS list by the id right before its c4i tag",
   license.agentDeviceId() == 55,
@@ -351,20 +351,20 @@ check("registration went to the Agent", #deviceSent == 1 and deviceSent[1].devic
 agentsXml = "<systemitems><item><id>56</id><c4i>smartbuildos-insights.c4z</c4i></item></systemitems>"
 license._reset()
 deviceSent = {}
-license.setup({ sku = "SBOS_EVENT_TRACER" })
+license.setup({ sku = "SBOS_FLIGHT_RECORDER" })
 check("insights sibling in AGENTS is not the Agent", license.agentDeviceId() == nil and #deviceSent == 0)
 
 -- The <driver> spelling is accepted too.
 agentsXml = "<item><id>61</id><itemdata><driver>smartbuildos.c4z</driver></itemdata></item>"
 license._reset()
-license.setup({ sku = "SBOS_EVENT_TRACER" })
+license.setup({ sku = "SBOS_FLIGHT_RECORDER" })
 check("AGENTS item with <driver> tag", license.agentDeviceId() == 61, license.agentDeviceId())
 
 -- Nothing anywhere: still loud, still legacy, nothing sent; a later answer is picked up.
 agentsXml = nil
 license._reset()
 deviceSent = {}
-license.setup({ sku = "SBOS_EVENT_TRACER" })
+license.setup({ sku = "SBOS_FLIGHT_RECORDER" })
 check("nothing found → No Agent, nothing sent", license.agentDeviceId() == nil and #deviceSent == 0)
 byName = { ["smartbuildos.c4z"] = { [78] = {} } }
 check("not cached as nil: a later register finds it", license.register() == true and license.agentDeviceId() == 78)

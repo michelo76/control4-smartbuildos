@@ -1,4 +1,5 @@
---- Event Tracer — bounded ring of captured entries (pure).
+--- Flight Recorder local history — bounded ring of entries (pure): the
+--- device events the capture engine sees and the notes the driver adds.
 ---
 --- The local answer to "what happened just before?" when the controller has
 --- no uplink and the dealer has no Composer session: the newest `capacity`
