@@ -287,6 +287,27 @@ do
   check("one text and a pick: the value follows, as before", body == "only this 68", body)
   check("join: values never glue to the text before them", T.join({ "is", { value = ".5" }, "." }) == "is .5.")
   check("join: nothing in, nothing out", T.join({}) == "" and T.join({ "", { value = " " } }) == "")
+  -- Separators: a message is a text and the variable under it.
+  check(
+    "separator names: any case, spaces or underscores",
+    T.separator("New Line") == "\n" and T.separator(" new_line ") == "\n"
+  )
+  check(
+    "Space, nothing and an unknown name are all one sentence",
+    T.separator("Space") == nil and T.separator(nil) == nil and T.separator("Tab") == nil
+  )
+  picks = { "241,1100", "231,1000" }
+  _, body = T.compose("", { "Pool", "Door" }, newResolver(), picked, T.separator("New Line"))
+  check("each message on its own line", body == "Pool 68\nDoor 1", body)
+  _, body = T.compose("", { "Pool", nil, "Done" }, newResolver(), picked, T.separator("Comma"))
+  check("a message that is only a variable is still a message", body == "Pool 68, 1, Done", body)
+  _, body = T.compose("", { "Pool ${1} and door ${2}", "then this" }, newResolver(), picked, T.separator("Dash"))
+  check("values written as ${n} stay in their text", body == "Pool 68 and door 1 - then this", body)
+  _, body = T.compose("", { "Pool", "°F" }, newResolver(), picked, nil)
+  check("no separator: tight punctuation as before", body == "Pool 68°F 1", body)
+  picks = {}
+  _, body = T.compose("", { "Only one" }, newResolver(), picked, T.separator("Period"))
+  check("one message: no separator at all", body == "Only one", body)
   picks = {}
 end
 

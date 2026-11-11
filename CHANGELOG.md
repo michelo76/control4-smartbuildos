@@ -30,7 +30,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   script does not run (the PDF). The ten dealer-tooling drivers carry
   screenshots taken on the bench and a setup walkthrough; the Notification
   Router's manual adds Telegram, message and two-way walkthroughs and a
-  try-it panel for composing a message.
+  try-it panel for composing a message. It opens with what the driver is
+  for and a table of use cases, and has a Webhooks section with walkthroughs
+  and worked examples for a Slack or Discord channel and for the Generic
+  Webhook (the request as sent, each field, what to answer, a `curl` line).
 - **Notification Router: a message is written in pieces.** Notify, Notify
   All and Reply now read MESSAGE, VARIABLE 1, MESSAGE 2, VARIABLE 2 … up to
   VARIABLE 4 and MESSAGE 5, so words can follow a value: *This system
@@ -38,6 +41,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   times". Pieces are joined with one space, tight against punctuation.
   Programming written before sends what it sent; `${1}`..`${4}` still place
   a value anywhere and word or round it.
+- **Notification Router: SEPARATOR.** Notify, Notify All and Reply have a
+  SEPARATOR list just above MESSAGE: what goes between one message (a text
+  and the variable under it) and the next. **Space** (default) keeps
+  everything one sentence, as before; **New Line** puts each message on its
+  own line; **Period**, **Comma**, **Semicolon**, **Dash** and **Vertical
+  Bar** are the others. Asked for after "Home is currently Occupied The
+  security is currently Armed Away" arrived run together. Programming
+  written before sends what it sent.
 - **Notification Router: `MESSAGE_RECEIVED`.** A string variable that takes
   the text of each message the router accepts, for programming written as
   *when MESSAGE_RECEIVED changes, if it is equal to …*. It is not

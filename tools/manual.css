@@ -133,12 +133,12 @@ li.m-done > :not(.m-step-check):not(figure) { color: var(--m-muted); }
 .markdown-body .tryit { margin: 16px 0 24px; padding: 14px; border: 1px solid var(--m-line); border-radius: 10px; background: var(--m-soft); }
 .markdown-body .tryit .row { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
 .markdown-body .tryit label { flex: 0 0 128px; font-size: 12px; font-weight: 600; color: var(--m-muted); }
-.markdown-body .tryit input {
+.markdown-body .tryit input, .markdown-body .tryit select {
   flex: 1 1 auto; min-width: 0; height: 32px; box-sizing: border-box; padding: 0 9px; font: inherit; font-size: 14px;
   color: var(--m-ink); background: #fff; border: 1px solid var(--m-line); border-radius: 6px;
 }
 .markdown-body .tryit .row.var input { background: var(--m-accent-soft); border-color: #f3c9ae; }
-.markdown-body .tryit output { display: block; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--m-line); font-size: 15px; min-height: 22px; overflow-wrap: anywhere; }
+.markdown-body .tryit output { display: block; white-space: pre-line; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--m-line); font-size: 15px; min-height: 22px; overflow-wrap: anywhere; }
 .markdown-body .tryit .hint { margin: 8px 0 0; font-size: 13px; color: var(--m-muted); }
 .no-script-note { font-size: 13px; color: var(--m-muted); }
 .manual-on .no-script-note { display: none; }

@@ -1,15 +1,36 @@
 # SmartBuildOS Notification Router
 
-One programming command, **Notify**, and the router decides where it goes:
-Telegram, Pushover, a Slack or Discord webhook, a generic JSON webhook, or a
-text message through Twilio. Each target has its own on/off switch, minimum
-priority and quiet hours. Across targets the router removes duplicates, caps
-the rate per hour, retries failures and keeps a delivery log you can print
-from Composer. It does not depend on 4Sight or on any SmartBuildOS service
-for delivery.
+The Notification Router gets a message from a Control4 system to a person's
+phone or a team's channel, and a message from that person back to the
+house. You write one programming command, **Notify**, and the router
+decides where it goes: Telegram, Pushover, a Slack or Discord channel, any
+other system that accepts a web request, or a text message through Twilio.
+
+It is for the things Control4's own notifications do not cover: a channel a
+whole service team watches, a message with live values in it, a reply the
+house acts on, and a hand-off to another system. It needs no 4Sight
+subscription and no SmartBuildOS service to deliver; the controller talks to
+each service directly.
 
 Licensing is through the **SmartBuildOS Agent** (SKU
 `SBOS_NOTIFICATION_ROUTER`); **License Status** shows this driver's standing.
+
+## What it is for
+
+| You want | How the router does it |
+| --- | --- |
+| **Tell someone the moment something happens.** The garage has been open for ten minutes, a leak sensor is wet, the alarm tripped. | Put **Notify** in the programming for that event. Set the **PRIORITY**: each target has a minimum priority, so *critical* can reach a phone at night while *low* stays quiet. |
+| **Send a status with the real values in it.** "Home is currently Occupied. The security is currently Armed Away." | Write the message in pieces and pick the variables ([Writing a message](#writing-a-message)). The values are read when the line runs. |
+| **Ask the house a question from your phone.** Text `status` and get the answer back. | Turn on two-way, set a **Keyword**, and answer with the **Reply** command ([Two-way](#two-way-messages-sent-to-the-house)). |
+| **Tell the house to do something by message.** `gate open`, `goodnight`. | Program on the `MESSAGE_RECEIVED` variable or on a keyword event. Set an **Inbound PIN** first for anything that unlocks, opens or disarms. |
+| **Keep a service team informed across many homes.** The controller restarted, a driver went offline, a battery is low. | Send to a Slack or Discord channel through the **Webhook** target ([Webhooks](#webhooks-slack-discord-and-your-own-system)). One channel can collect every site. |
+| **Hand an event to another system.** A ticket, a spreadsheet row, an automation, your own server. | The **Generic Webhook** target posts a small JSON document to any address you give it. |
+| **Reach the homeowner and the dealer differently.** | Turn on more than one target. **Notify All** sends to every target that is on; **Notify** with a CHANNEL sends to one. |
+| **Not be flooded.** A sensor that chatters, a routine that runs every minute. | The **Dedupe Window** sends the same text to the same target once, and **Rate Limit Per Hour** caps each target. |
+
+**What every target gets.** Its own on/off switch, minimum priority and
+quiet hours. A failed send is retried twice, and the **delivery log** (Print
+Delivery Log) shows each attempt and why it failed.
 
 ## Setup
 
@@ -22,9 +43,10 @@ Licensing is through the **SmartBuildOS Agent** (SKU
      [Telegram walkthrough](#telegram-create-the-bot-and-find-the-chat-id)
      below takes you through both.
    - **Pushover**: an application token and your user key.
-   - **Webhook**: a Slack or Discord incoming webhook URL.
-   - **Generic Webhook**: any URL that accepts a JSON POST, with an optional
-     bearer token.
+   - **Webhook**: a Slack or Discord channel's webhook address, and
+     **Generic Webhook**: any address that accepts a JSON POST. See
+     [Webhooks](#webhooks-slack-discord-and-your-own-system) for both, with
+     examples.
    - **Twilio SMS**: Account SID, Auth Token, From and To numbers in E.164
      form (+15551234567).
 1. On the **Actions** tab press **Send Test To …** for that target. **Targets
@@ -107,6 +129,131 @@ message in the group, send `/setprivacy` to BotFather, choose the bot, choose
 can only be sent to; messages for the house come from a private chat or a
 group.
 
+## Webhooks: Slack, Discord and your own system
+
+A webhook is a web address that accepts a message. The router has two
+webhook targets.
+
+### Webhook: a Slack or Discord channel
+
+Slack and Discord each give you an address for one channel. Whatever the
+router sends to it appears in that channel.
+
+<!-- walkthrough: Send notifications to a Slack or Discord channel -->
+1. **Get the channel's address.**
+   - **Discord:** open the channel's settings, then **Integrations** →
+     **Webhooks** → **New Webhook**, and **Copy Webhook URL**. It looks like
+     `https://discord.com/api/webhooks/123456789012345678/AbCd…`.
+   - **Slack:** in your Slack app's settings choose **Incoming Webhooks**,
+     turn them on, **Add New Webhook to Workspace**, pick the channel and
+     copy the URL. It looks like
+     `https://hooks.slack.com/services/T0000000/B0000000/XXXXXXXX…`.
+1. In Composer, paste it into **Webhook URL** and set **Webhook** to On.
+1. Press **Send Test To Webhook** on the Actions tab. The test appears in
+   the channel, posted as *Control4*.
+1. In programming, use **Notify** with CHANNEL **Webhook**.
+
+The address is a password: anyone who has it can post to the channel. It is
+a masked property and is never written to the log.
+
+**Example.** A line on the controller's *Director Reloaded* event:
+
+| Field | Value |
+| --- | --- |
+| CHANNEL | Webhook |
+| PRIORITY | high |
+| TITLE | Controller restarted |
+| MESSAGE | Lake House came back at |
+| VARIABLE 1 | the time variable you keep |
+
+The channel shows:
+
+<div class="chat">
+<p class="who">Control4</p>
+<p class="them">Controller restarted<br>Lake House came back at 18:42</p>
+</div>
+<p class="chat-note">An illustration of how the post reads, not a screenshot.</p>
+
+What the router sends, for anyone checking the receiving side:
+
+```json
+{
+  "text": "Controller restarted\nLake House came back at 18:42",
+  "content": "Controller restarted\nLake House came back at 18:42",
+  "username": "Control4"
+}
+```
+
+Slack reads `text` and Discord reads `content`; each ignores the other.
+
+### Generic Webhook: any system that takes JSON
+
+Use this to hand a notification to something that is not a chat: an
+automation service, a ticketing system, a home-grown server. The router
+sends an HTTP `POST` with a JSON body to **Generic Webhook URL**.
+
+<!-- walkthrough: Post notifications to your own system -->
+1. Get the address your system listens on, for example
+   `https://example.com/hooks/control4`. It must start with `http://` or
+   `https://` and be reachable from the controller.
+1. Paste it into **Generic Webhook URL**. If the system expects a token,
+   paste it into **Generic Webhook Bearer Token**.
+1. Set **Generic Webhook** to On and press **Send Test To Generic Webhook**.
+1. In programming, use **Notify** with CHANNEL **Generic Webhook**.
+
+**Example.** This Notify line:
+
+| Field | Value |
+| --- | --- |
+| CHANNEL | Generic Webhook |
+| PRIORITY | normal |
+| TITLE | Home Status |
+| SEPARATOR | New Line |
+| MESSAGE + VARIABLE 1 | Home is currently + Occupied |
+| MESSAGE 2 + VARIABLE 2 | The security is currently + Armed Away |
+
+arrives at your address as:
+
+```http
+POST /hooks/control4 HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer YOUR-TOKEN
+
+{
+  "title": "Home Status",
+  "message": "Home is currently Occupied\nThe security is currently Armed Away",
+  "priority": "normal",
+  "channel": "generic",
+  "source": "control4",
+  "sent_at": 1794362400
+}
+```
+
+| Field | What it holds |
+| --- | --- |
+| `title`, `message` | The TITLE and the composed message, values filled in |
+| `priority` | `low`, `normal`, `high` or `critical` |
+| `channel` | `generic` when the line named this target, `all` from Notify All |
+| `source` | Always `control4` |
+| `sent_at` | When it was sent, in seconds since 1970 (UTC) |
+
+The `Authorization` line is sent only when a bearer token is set.
+
+**What your system should answer.** Any `2xx` status means delivered. A
+`4xx` (other than 408 and 429) is treated as a wrong address or token and is
+not retried; anything else is retried after 5 and 30 seconds. To check the
+receiving side without the controller, send it the same thing yourself:
+
+```bash
+curl -X POST https://example.com/hooks/control4 -H "Content-Type: application/json" -d '{"title":"Test","message":"Hello from the bench","priority":"normal","channel":"generic","source":"control4","sent_at":0}'
+```
+
+If your system expects the bearer token, add the same `Authorization`
+header the router sends, shown in the request above.
+
+Both webhook targets only send. Messages for the house come in through
+Telegram or Twilio SMS.
+
 ## Routing rules
 
 - **Priority** is low, normal, high or critical. A target's **Minimum
@@ -132,7 +279,7 @@ command in the programming window: a text, then a variable, then the next
 text. Only the variable's **value** is sent, never its name, and it is read
 at the moment the line runs.
 
-![The Notify command: MESSAGE, then VARIABLE 1, then MESSAGE 2, and so on](images/notify-command.jpg)
+![The Notify command: SEPARATOR, then MESSAGE, VARIABLE 1, MESSAGE 2, and so on. Here two messages, each a text and a variable, sent on separate lines](images/notify-command.jpg)
 
 <!-- walkthrough: A message with a live value in the middle -->
 1. In programming, select the router in the Actions tree and choose the
@@ -142,26 +289,58 @@ at the moment the line runs.
 1. Next to **VARIABLE 1**, press `…`. Composer opens its *Select variable…*
    tree with every room, device and variable of the project. Pick the
    variable and press OK.
-1. In **MESSAGE 2**, type the words after the value: `times`.
+1. In **MESSAGE 2**, type the words after the value: `times`. Leave
+   **SEPARATOR** on Space, because this is one sentence.
 1. Drag the green arrow into the script. If the variable holds `3`, the
    message that arrives is **This system rebooted 3 times**.
 
 ![Composer's Select variable… tree, opened from the … button next to VARIABLE 1](images/variable-picker.jpg)
 
-![The finished line in the script](images/notify-programming.jpg)
-
 There are four variables and five texts: MESSAGE, VARIABLE 1, MESSAGE 2,
 VARIABLE 2, MESSAGE 3, VARIABLE 3, MESSAGE 4, VARIABLE 4, MESSAGE 5. Leave
-any of them empty. Try it:
+any of them empty.
+
+### One sentence, or one message per line: SEPARATOR
+
+A text and the variable under it make one **message**: MESSAGE with
+VARIABLE 1, MESSAGE 2 with VARIABLE 2, and so on. **SEPARATOR**, just above
+MESSAGE, chooses what goes between one message and the next.
+
+| SEPARATOR | Use it when | `Home is currently` + Occupied, `The security is currently` + Armed Away |
+| --- | --- | --- |
+| **Space** (default) | the texts continue one sentence, with a value in the middle | Home is currently Occupied The security is currently Armed Away |
+| **New Line** | each message is a statement of its own | Home is currently Occupied<br>The security is currently Armed Away |
+| **Period** | the same, on one line | Home is currently Occupied. The security is currently Armed Away |
+| **Comma**, **Semicolon**, **Dash**, **Vertical Bar** | a short list of readings | Home is currently Occupied, The security is currently Armed Away |
+
+With **Space**, `This system rebooted` + 3 + `times` reads "This system
+rebooted 3 times": that is why it is the default, and why a line written
+before this setting existed sends exactly what it sent. A message left empty
+adds no separator, and a message that already ends in `.`, `!` or `?` is not
+given a second mark.
+
+![A status line in the script: two messages with SEPARATOR set to New Line](images/notify-programming.jpg)
+
+It arrives as:
+
+<div class="chat">
+<p class="who">Control4</p>
+<p class="them">Home Status<br>Home is Occupied<br>Security is Armed Away</p>
+</div>
+<p class="chat-note">An illustration of the message, not a screenshot. The TITLE is always on its own line above the message.</p>
+
+Try it:
 
 <div class="tryit" id="tryit">
-<div class="row"><label for="t1">MESSAGE</label><input id="t1" value="This system rebooted"></div>
-<div class="row var"><label for="v1">VARIABLE 1 holds</label><input id="v1" value="3"></div>
-<div class="row"><label for="t2">MESSAGE 2</label><input id="t2" value="times since"></div>
-<div class="row var"><label for="v2">VARIABLE 2 holds</label><input id="v2" value="Monday"></div>
-<div class="row"><label for="t3">MESSAGE 3</label><input id="t3" value="."></div>
-<output id="tout" for="t1 v1 t2 v2 t3" aria-live="polite">This system rebooted 3 times since Monday.</output>
-<p class="hint">What arrives. Type in the boxes to change it.</p>
+<div class="row"><label for="tsep">SEPARATOR</label><select id="tsep"><option value="">Space</option><option value="nl" selected>New Line</option><option value=", ">Comma</option><option value=". ">Period</option><option value="; ">Semicolon</option><option value=" - ">Dash</option><option value=" | ">Vertical Bar</option></select></div>
+<div class="row"><label for="t1">MESSAGE</label><input id="t1" value="Home is currently"></div>
+<div class="row var"><label for="v1">VARIABLE 1 holds</label><input id="v1" value="Occupied"></div>
+<div class="row"><label for="t2">MESSAGE 2</label><input id="t2" value="The security is currently"></div>
+<div class="row var"><label for="v2">VARIABLE 2 holds</label><input id="v2" value="Armed Away"></div>
+<div class="row"><label for="t3">MESSAGE 3</label><input id="t3" value=""></div>
+<output id="tout" for="tsep t1 v1 t2 v2 t3" aria-live="polite">Home is currently Occupied
+The security is currently Armed Away</output>
+<p class="hint">What arrives. Change the separator or type in the boxes.</p>
 </div>
 <script>
 (function () {
@@ -169,27 +348,52 @@ any of them empty. Try it:
   var after = ["(", "[", "{", "$", "#", "£", "€"];
   function starts(s, list) { return list.some(function (p) { return s.slice(0, p.length) === p; }); }
   function ends(s, list) { return list.some(function (p) { return s.slice(-p.length) === p; }); }
-  var ids = ["t1", "v1", "t2", "v2", "t3"];
-  var out = document.getElementById("tout");
-  if (!out) return;
-  function paint() {
+  /* The driver's own rule: pieces of one sentence, tight against punctuation. */
+  function join(pieces) {
     var text = "", lastWasText = false;
-    ids.forEach(function (id) {
-      var isText = id.charAt(0) === "t";
-      var piece = document.getElementById(id).value.trim();
+    pieces.forEach(function (p) {
+      var piece = p.value.trim();
       if (!piece) return;
-      var tight = text === "" || (isText && starts(piece, before)) || (lastWasText && ends(text, after));
+      var tight = text === "" || (p.isText && starts(piece, before)) || (lastWasText && ends(text, after));
       text += (tight ? "" : " ") + piece;
-      lastWasText = isText;
+      lastWasText = p.isText;
     });
+    return text;
+  }
+  var out = document.getElementById("tout");
+  var sep = document.getElementById("tsep");
+  if (!out || !sep) return;
+  function piece(id) { return { value: document.getElementById(id).value, isText: id.charAt(0) === "t" }; }
+  /* A message is a text and the variable under it. */
+  var groups = [["t1", "v1"], ["t2", "v2"], ["t3"]];
+  function paint() {
+    var between = sep.value === "nl" ? "\n" : sep.value;
+    var text;
+    if (between === "") {
+      text = join([].concat.apply([], groups).map(piece));
+    } else {
+      text = "";
+      groups.forEach(function (g) {
+        var part = join(g.map(piece));
+        if (!part) return;
+        if (text === "") text = part;
+        else if (/^[.,;]/.test(between) && /[.,;:!?]$/.test(text)) text += " " + part;
+        else text += between + part;
+      });
+    }
     out.textContent = text || "(nothing to send)";
   }
-  ids.forEach(function (id) { document.getElementById(id).addEventListener("input", paint); });
+  ["tsep", "t1", "v1", "t2", "v2", "t3"].forEach(function (id) {
+    var e = document.getElementById(id);
+    e.addEventListener("input", paint);
+    e.addEventListener("change", paint);
+  });
   paint();
 })();
 </script>
 
-**Spaces are added for you.** The pieces are joined with one space. A text
+**Spaces are added for you.** Inside a message, and between messages when
+SEPARATOR is Space, the pieces are joined with one space. A text
 that begins with punctuation (`. , ; : ! ? % ) °`) sits tight against the
 value before it, and a text that ends with `( [ { $ # £ €` sits tight against
 the value after it, so `Costs $` + `40` reads `Costs $40`.
@@ -376,9 +580,10 @@ during a reboot is lost and the next one is not affected.
 
 ## Programming
 
-- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, then MESSAGE, VARIABLE 1,
-  MESSAGE 2, VARIABLE 2 … VARIABLE 4, MESSAGE 5), **Notify All** (PRIORITY,
-  TITLE and the same pieces), **Reply** (the same pieces, no title).
+- Commands: **Notify** (CHANNEL, PRIORITY, TITLE, SEPARATOR, then MESSAGE,
+  VARIABLE 1, MESSAGE 2, VARIABLE 2 … VARIABLE 4, MESSAGE 5), **Notify All**
+  (PRIORITY, TITLE, SEPARATOR and the same pieces), **Reply** (SEPARATOR and
+  the same pieces, no title).
 - Events: *Notification Sent*, *Delivery Failed*, *Target Unreachable*,
   *Quiet Hours Suppressed*, *Rate Limited*, *Router Degraded*, *Router
   Restored*, *Message Variable Missing*, *Message Received*, *Telegram

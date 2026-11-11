@@ -95,11 +95,12 @@
     <commands>
       <command>
         <name>NOTIFY</name>
-        <description>Notify PARAM1 (PARAM2): PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11 PARAM12</description>
+        <description>Notify PARAM1 (PARAM2): PARAM3 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11 PARAM12 PARAM13</description>
         <params>
           <param><name>CHANNEL</name><type>LIST</type><items><item>All</item><item>Telegram</item><item>Pushover</item><item>Webhook</item><item>Generic Webhook</item><item>Twilio SMS</item></items></param>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
+          <param><name>SEPARATOR</name><type>LIST</type><items><item>Space</item><item>New Line</item><item>Comma</item><item>Period</item><item>Semicolon</item><item>Dash</item><item>Vertical Bar</item></items></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
           <param><name>MESSAGE 2</name><type>STRING</type></param>
@@ -113,10 +114,11 @@
       </command>
       <command>
         <name>NOTIFY_ALL</name>
-        <description>Notify all targets (PARAM1): PARAM2 PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11</description>
+        <description>Notify all targets (PARAM1): PARAM2 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11 PARAM12</description>
         <params>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
+          <param><name>SEPARATOR</name><type>LIST</type><items><item>Space</item><item>New Line</item><item>Comma</item><item>Period</item><item>Semicolon</item><item>Dash</item><item>Vertical Bar</item></items></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
           <param><name>MESSAGE 2</name><type>STRING</type></param>
@@ -130,8 +132,9 @@
       </command>
       <command>
         <name>REPLY</name>
-        <description>Reply to the last message received: PARAM1 PARAM2 PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9</description>
+        <description>Reply to the last message received: PARAM2 PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10</description>
         <params>
+          <param><name>SEPARATOR</name><type>LIST</type><items><item>Space</item><item>New Line</item><item>Comma</item><item>Period</item><item>Semicolon</item><item>Dash</item><item>Vertical Bar</item></items></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
           <param><name>MESSAGE 2</name><type>STRING</type></param>

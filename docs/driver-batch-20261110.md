@@ -131,3 +131,24 @@ run `221650`; the Agent runs `215903`.
   redacted (company, location, controller address, chat id). The interactive
   page was checked in a browser at Composer's pane width; it has not been
   opened in Composer's own documentation viewer.
+
+## Late evening: SEPARATOR, and the manual inside Composer
+
+The owner's status line arrived as "Home is currently Occupied The security
+is currently Armed Away": the pieces worked, the two statements ran
+together. Build `020719` adds **SEPARATOR** to Notify, Notify All and Reply
+and was imported on the Notification Router at 21:09.
+
+- The command shows SEPARATOR above MESSAGE, defaulting to Space, with the
+  seven choices. A line with New Line, two texts and two picked variables was
+  built and dragged into a script (then deleted); it was not executed, so the
+  text with a separator is confirmed by the suite, not on the controller.
+- The owner's own line on *Keyword 3 Received* was left as it is. It has no
+  SEPARATOR set, which sends what it sent before.
+- **The interactive manual runs in Composer's Documentation tab**: the bar
+  with Contents and search, the contents list, jumping to a section, and
+  ticking a walkthrough step all work there. Composer keeps showing the old
+  page until the driver is selected again after an update.
+- The other drivers still carry their plain documentation on the bench
+  (`221650` / `235241`); their manuals are in `dist/oss`, not imported.
+

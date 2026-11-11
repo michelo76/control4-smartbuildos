@@ -668,10 +668,27 @@ do
   check(
     "Notify reads MESSAGE, VARIABLE 1, MESSAGE 2 … VARIABLE 4, MESSAGE 5",
     table.concat(order, "|")
-      == "CHANNEL|PRIORITY|TITLE|MESSAGE|VARIABLE 1|MESSAGE 2|VARIABLE 2|MESSAGE 3|VARIABLE 3|MESSAGE 4|VARIABLE 4|MESSAGE 5",
+      == "CHANNEL|PRIORITY|TITLE|SEPARATOR|MESSAGE|VARIABLE 1|MESSAGE 2|VARIABLE 2|MESSAGE 3|VARIABLE 3|MESSAGE 4|VARIABLE 4|MESSAGE 5",
     table.concat(order, "|")
   )
-  check("MESSAGE keeps its name, so programming written before still sends its text", order[4] == "MESSAGE")
+  check("MESSAGE keeps its name, so programming written before still sends its text", order[5] == "MESSAGE")
+  check(
+    "SEPARATOR sits above the first text, Space first so a new line is one sentence unless chosen otherwise",
+    notify:find(
+      "<name>SEPARATOR</name><type>LIST</type><items><item>Space</item><item>New Line</item><item>Comma</item>",
+      1,
+      true
+    ) ~= nil
+  )
+  check(
+    "the script line shows the title and the pieces, not the separator's name",
+    xml:find("<description>Notify PARAM1 (PARAM2): PARAM3 PARAM5 ", 1, true) ~= nil
+  )
+  local seps = 0
+  for _ in xml:gmatch("<param><name>SEPARATOR</name>") do
+    seps = seps + 1
+  end
+  check("Notify, Notify All and Reply each have it", seps == 3, seps)
   check(
     "MESSAGE_RECEIVED is declared, and programming may set it",
     xml:find("<name>MESSAGE_RECEIVED</name><type>STRING</type><default></default><readonly>false</readonly>", 1, true)
@@ -1093,6 +1110,87 @@ EC.NOTIFY_ALL({
 check(
   "Notify All reads the same pieces",
   #requests >= 1 and requests[1].data.text == "All\nRebooted 3 times",
+  requests[1] and requests[1].data.text
+)
+
+print("[21b] SEPARATOR: what goes between one message and the next")
+-- The owner's line, 10 Nov 2026 evening. It arrived as "Home is currently
+-- Occupied The security is currently Armed Away": two statements run together.
+deviceVars[100001]["469"] = { name = "Home_Status", value = "Occupied" }
+deviceVars[100001]["470"] = { name = "Security", value = "Armed Away" }
+-- Each call has its own title, so the dedupe window never swallows a send
+-- and a comparison can never pass on two empty answers. Returns the body.
+local homeCalls = 0
+local function homeStatus(separator, more)
+  requests = {}
+  homeCalls = homeCalls + 1
+  local params = {
+    CHANNEL = "Telegram",
+    PRIORITY = "normal",
+    TITLE = "Home Status " .. homeCalls,
+    SEPARATOR = separator,
+    MESSAGE = "Home is currently",
+    ["VARIABLE 1"] = "100001,469",
+    ["MESSAGE 2"] = "The security is currently",
+    ["VARIABLE 2"] = "100001,470",
+  }
+  for k, v in pairs(more or {}) do
+    params[k] = v
+  end
+  EC.NOTIFY(params)
+  local text = requests[1] and requests[1].data.text or "(nothing sent)"
+  return (text:gsub("^Home Status %d+\n", ""))
+end
+check(
+  "New Line: each message on its own line",
+  homeStatus("New Line") == "Home is currently Occupied\nThe security is currently Armed Away",
+  homeStatus("New Line")
+)
+check(
+  "Period",
+  homeStatus("Period") == "Home is currently Occupied. The security is currently Armed Away",
+  homeStatus("Period")
+)
+check(
+  "Comma, Dash, Semicolon, Vertical Bar",
+  homeStatus("Comma"):find("Occupied, The security", 1, true) ~= nil
+    and homeStatus("Dash"):find("Occupied - The security", 1, true) ~= nil
+    and homeStatus("Semicolon"):find("Occupied; The security", 1, true) ~= nil
+    and homeStatus("Vertical Bar"):find("Occupied | The security", 1, true) ~= nil
+)
+check(
+  "Space, and a line written before the parameter existed: one sentence, as it was",
+  homeStatus("Space") == "Home is currently Occupied The security is currently Armed Away"
+    and homeStatus(nil) == homeStatus("Space")
+    and homeStatus("") == homeStatus("Space")
+    and homeStatus("Something Else") == homeStatus("Space"),
+  homeStatus(nil)
+)
+check(
+  "an empty message leaves no stray separator",
+  homeStatus("New Line", { ["MESSAGE 3"] = "", ["MESSAGE 5"] = "Have a good day" })
+    == "Home is currently Occupied\nThe security is currently Armed Away\nHave a good day",
+  homeStatus("New Line", { ["MESSAGE 5"] = "Have a good day" })
+)
+check(
+  "a message that already ends its sentence gets no second mark",
+  homeStatus("Period", { ["VARIABLE 1"] = "", MESSAGE = "All is well." })
+    == "All is well. The security is currently Armed Away",
+  homeStatus("Period", { ["VARIABLE 1"] = "", MESSAGE = "All is well." })
+)
+requests = {}
+EC.NOTIFY_ALL({
+  PRIORITY = "normal",
+  TITLE = "All",
+  SEPARATOR = "New Line",
+  MESSAGE = "Home is",
+  ["VARIABLE 1"] = "100001,469",
+  ["MESSAGE 2"] = "Security is",
+  ["VARIABLE 2"] = "100001,470",
+})
+check(
+  "Notify All takes the separator too",
+  requests[1] ~= nil and requests[1].data.text == "All\nHome is Occupied\nSecurity is Armed Away",
   requests[1] and requests[1].data.text
 )
 

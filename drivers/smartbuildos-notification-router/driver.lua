@@ -1245,7 +1245,7 @@ end
 local function fillFrom(tParams, title)
   local picked = pickedFrom(tParams)
   local resolve = Template.resolver({ picked = picked, devices = projectDevices, readVariables = readVariables })
-  return Template.compose(title, textsFrom(tParams), resolve, picked)
+  return Template.compose(title, textsFrom(tParams), resolve, picked, Template.separator(tParams.SEPARATOR))
 end
 
 --- Logs what could not be read and raises the event, once per notification.
@@ -1301,6 +1301,7 @@ function EC.NOTIFY_ALL(tParams)
   for i = 2, Template.TEXTS do
     all["MESSAGE " .. i] = tParams["MESSAGE " .. i]
   end
+  all.SEPARATOR = tParams.SEPARATOR
   EC.NOTIFY(all)
 end
 

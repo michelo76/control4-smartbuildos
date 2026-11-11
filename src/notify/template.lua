@@ -387,13 +387,39 @@ function M.join(pieces)
   return out
 end
 
+--- What goes between one message and the next, by the name the command's
+--- SEPARATOR list shows. A "message" is a text and the variable under it:
+--- MESSAGE + VARIABLE 1, MESSAGE 2 + VARIABLE 2 … and MESSAGE 5 alone.
+---
+--- Space is the default and joins everything as one sentence, so words can
+--- follow a value ("rebooted" 3 "times"). The others end each message
+--- before the next begins ("Home is Occupied" / "Security is Armed Away").
+M.SEPARATORS = {
+  ["space"] = false, -- one sentence: the tight-punctuation rules of M.join
+  ["new line"] = "\n",
+  ["comma"] = ", ",
+  ["period"] = ". ",
+  ["semicolon"] = "; ",
+  ["dash"] = " - ",
+  ["vertical bar"] = " | ",
+}
+
+--- The separator for a SEPARATOR parameter: a string, or nil for Space (also
+--- for nothing chosen and for a name this build does not know, which is what
+--- programming written before the parameter existed sends).
+function M.separator(label)
+  local key = trim(label):lower():gsub("[%s_]+", " ")
+  return M.SEPARATORS[key] or nil
+end
+
 --- Fills a notification written in pieces.
 --- @param title string|nil
 --- @param texts table  { [1] = MESSAGE, [2] = MESSAGE 2, ... } (holes allowed)
 --- @param resolve function  from M.resolver
 --- @param picked fun(n):string|nil  the VARIABLE n parameter
+--- @param separator string|nil  from M.separator; nil joins as one sentence
 --- @return string title, string body, table problems
-function M.compose(title, texts, resolve, picked)
+function M.compose(title, texts, resolve, picked, separator)
   local problems = {}
   local function keep(list)
     for _, p in ipairs(list) do
@@ -411,16 +437,42 @@ function M.compose(title, texts, resolve, picked)
       used[n] = true
     end
   end
-  local pieces = { filled[1] }
-  for n = 1, M.PICKS do
-    if M.parsePick(picked(n)) ~= nil and not used[n] then
+  -- One group per message: its text, then its variable's value (unless that
+  -- value was written out somewhere as ${n}).
+  local groups = {}
+  for n = 1, M.TEXTS do
+    local group = { filled[n] }
+    if n <= M.PICKS and M.parsePick(picked(n)) ~= nil and not used[n] then
       local value, p = M.render("${" .. n .. "}", resolve)
       keep(p)
-      pieces[#pieces + 1] = { value = value }
+      group[#group + 1] = { value = value }
     end
-    pieces[#pieces + 1] = filled[n + 1]
+    groups[n] = group
   end
-  return filledTitle, M.join(pieces), problems
+  if separator == nil then
+    local pieces = {}
+    for _, group in ipairs(groups) do
+      for _, piece in ipairs(group) do
+        pieces[#pieces + 1] = piece
+      end
+    end
+    return filledTitle, M.join(pieces), problems
+  end
+  local body = ""
+  for _, group in ipairs(groups) do
+    local text = M.join(group)
+    if text ~= "" then
+      if body == "" then
+        body = text
+      elseif separator:match("^[%.,;]") and body:match("[%.,;:!%?]$") then
+        -- The message already ends its own sentence: no second mark.
+        body = body .. " " .. text
+      else
+        body = body .. separator .. text
+      end
+    end
+  end
+  return filledTitle, body, problems
 end
 
 --- Fills a notification with one text: the tokens of the title and the
