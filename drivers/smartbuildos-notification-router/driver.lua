@@ -142,6 +142,9 @@ local gInbound = {
 }
 local gLast = nil -- the last message taken: { channel, chat, sender, text }
 local gMessageCounter = 0
+local gMessageReceived = "" -- what MESSAGE_RECEIVED was last set to by the driver
+local gChatsSeen = {} -- Telegram chats that wrote to the bot, newest first (not stored)
+local gPrintChats = false -- Find Telegram Chat ID is waiting for an answer
 local inboundPollSeconds, inboundMaxAge, inboundStatus, pollInbound, startInbound -- defined with the inbound code
 
 local function fire(id)
@@ -158,6 +161,10 @@ end
 
 local function isOn(value)
   return tostring(value or ""):lower() == "on"
+end
+
+local function isLowerCase(value)
+  return tostring(value or ""):lower() == "lower case"
 end
 
 local function today()
@@ -576,6 +583,26 @@ local function maskSender(msg)
   return "chat " .. tostring(msg.chat)
 end
 
+--- MESSAGE_RECEIVED: the text of the message, for programming written as
+--- "when MESSAGE_RECEIVED changes, if it is equal to …". Programming may set
+--- it as well. The same text sent twice must still be a change, or the
+--- second one would run nothing: when the variable already holds this text
+--- it is emptied first.
+local function setMessageReceived(text)
+  if isLowerCase(Properties["Message Received As"]) then
+    text = text:lower()
+  end
+  local current = gMessageReceived
+  if type(Variables) == "table" and Variables["MESSAGE_RECEIVED"] ~= nil then
+    current = tostring(Variables["MESSAGE_RECEIVED"])
+  end
+  if current == text then
+    setVar("MESSAGE_RECEIVED", "")
+  end
+  setVar("MESSAGE_RECEIVED", text)
+  gMessageReceived = text
+end
+
 --- One message from a poll: decided by the inbox, then variables first and
 --- events after, so programming on an event reads the new values.
 local function handleInbound(msg)
@@ -612,6 +639,8 @@ local function handleInbound(msg)
   setVar("LAST_KEYWORD", r.keyword or "")
   setVar(msg.channel == "twilio" and "SMS_LAST_MESSAGE" or "TELEGRAM_LAST_MESSAGE", r.text)
   setVar("MESSAGE_COUNTER", gMessageCounter)
+  -- Last of the variables, so programming on its change reads the others new.
+  setMessageReceived(r.text)
   UpdateProperty("Last Message", string.format("%s: %s", label, r.text:sub(1, 80)))
   gRouter:record({
     target = label,
@@ -645,6 +674,11 @@ local function decodeBody(body)
 end
 
 local function pollFailed(channel, why)
+  if channel == "telegram" and gPrintChats then
+    gPrintChats = false
+    UpdateProperty("Telegram Chats Seen", "could not ask Telegram: " .. tostring(why))
+    log:print("Find Telegram Chat ID: could not ask Telegram: %s", tostring(why))
+  end
   local st = gInbound[channel]
   st.busy = false
   st.failures = st.failures + 1
@@ -700,6 +734,27 @@ local function ask(channel, req, hints, onBody)
   end)
 end
 
+--- Find Telegram Chat ID: the chats that wrote to the bot, so a dealer can
+--- copy the id into Telegram Chat ID without opening the Bot API in a browser
+--- (which puts the token in its history).
+local NO_CHATS = "none yet - write to the bot (or add it to the group or channel), then press Find Telegram Chat ID"
+
+local function reportChats(messages)
+  Inbound.noteChats(gChatsSeen, messages)
+  local line = Inbound.chatsLine(gChatsSeen)
+  UpdateProperty("Telegram Chats Seen", line or NO_CHATS)
+  if gPrintChats then
+    gPrintChats = false
+    log:print("Telegram chats that wrote to this bot (newest first):")
+    if line == nil then
+      log:print("  %s", NO_CHATS)
+    end
+    for _, c in ipairs(gChatsSeen) do
+      log:print("  %s (%s)  →  Telegram Chat ID: %s", c.name, c.kind, c.id)
+    end
+  end
+end
+
 local function pollTelegram()
   local st = gInbound.telegram
   local req, why = Inbound.telegramRequest({ bot_token = Properties["Telegram Bot Token"] }, st.offset)
@@ -711,10 +766,11 @@ local function pollTelegram()
     [401] = "check the Bot Token",
     [409] = "another program or a webhook is reading this bot",
   }, function(body)
-    local messages, nextOffset, err = Inbound.parseTelegram(body)
+    local messages, nextOffset, err, chats = Inbound.parseTelegram(body)
     if messages == nil then
       return err
     end
+    reportChats(chats)
     if nextOffset ~= nil then
       st.offset = nextOffset
       saveLogSoon()
@@ -824,9 +880,11 @@ local function registerComposerSurface()
     { "SMS_LAST_MESSAGE", "", "STRING" },
     { "MESSAGE_COUNTER", 0, "NUMBER" },
     { "MESSAGES_RECEIVED_TODAY", 0, "NUMBER" },
+    -- Not read-only: programming may set it (to clear it once handled).
+    { "MESSAGE_RECEIVED", "", "STRING", false },
   }) do
     pcall(function()
-      C4:AddVariable(v[1], v[2], v[3], true)
+      C4:AddVariable(v[1], v[2], v[3], v[4] ~= false)
     end)
   end
   for _, e in ipairs({
@@ -1006,6 +1064,43 @@ function EC.CHECK_MESSAGES()
   paint()
 end
 
+function EC.FIND_CHAT_ID()
+  if tostring(Properties["Telegram Bot Token"] or "") == "" then
+    gLastError = "Find Telegram Chat ID: paste the Telegram Bot Token first"
+    UpdateProperty("Telegram Chats Seen", "paste the Telegram Bot Token first")
+    paint()
+    return
+  end
+  gPrintChats = true
+  if inboundOn("telegram") then
+    -- The listener sees every message, taken or refused: ask it now.
+    EC.CHECK_MESSAGES()
+    return
+  end
+  -- Not listening: look once, without taking anything (no offset is sent
+  -- back, so the messages stay with Telegram for whoever reads them next).
+  local req, why = Inbound.telegramRequest({ bot_token = Properties["Telegram Bot Token"] }, nil)
+  if req == nil then
+    gPrintChats = false
+    gLastError = "Find Telegram Chat ID: " .. tostring(why)
+    paint()
+    return
+  end
+  ask("telegram", req, {
+    [401] = "check the Bot Token",
+    [409] = "another program or a webhook is reading this bot",
+  }, function(body)
+    local messages, _, err, chats = Inbound.parseTelegram(body)
+    if messages == nil then
+      gPrintChats = false
+      UpdateProperty("Telegram Chats Seen", "could not ask Telegram: " .. tostring(err))
+      return err
+    end
+    reportChats(chats)
+    return nil
+  end)
+end
+
 function EC.REGISTER_NOW()
   license.register()
 end
@@ -1134,13 +1229,23 @@ local function pickedFrom(tParams)
   end
 end
 
---- Fills a command's TITLE and MESSAGE with live values, read now, each
---- device once. The filled-in text is what the router trims, logs and
---- de-duplicates.
+--- The texts of a command, in the order they are read: MESSAGE, then
+--- MESSAGE 2 .. MESSAGE 5, one after each VARIABLE.
+local function textsFrom(tParams)
+  local texts = { tParams.MESSAGE }
+  for i = 2, Template.TEXTS do
+    texts[i] = tParams["MESSAGE " .. i]
+  end
+  return texts
+end
+
+--- Fills a command's TITLE and its message with live values, read now, each
+--- device once: MESSAGE, VARIABLE 1, MESSAGE 2, VARIABLE 2 … in that order.
+--- The filled-in text is what the router trims, logs and de-duplicates.
 local function fillFrom(tParams, title)
   local picked = pickedFrom(tParams)
   local resolve = Template.resolver({ picked = picked, devices = projectDevices, readVariables = readVariables })
-  return Template.fill(title, tParams.MESSAGE, resolve, picked)
+  return Template.compose(title, textsFrom(tParams), resolve, picked)
 end
 
 --- Logs what could not be read and raises the event, once per notification.
@@ -1192,6 +1297,9 @@ function EC.NOTIFY_ALL(tParams)
   local all = { CHANNEL = "All", PRIORITY = tParams.PRIORITY, TITLE = tParams.TITLE, MESSAGE = tParams.MESSAGE }
   for n = 1, Template.PICKS do
     all["VARIABLE " .. n] = tParams["VARIABLE " .. n]
+  end
+  for i = 2, Template.TEXTS do
+    all["MESSAGE " .. i] = tParams["MESSAGE " .. i]
   end
   EC.NOTIFY(all)
 end

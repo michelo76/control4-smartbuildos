@@ -23,8 +23,18 @@
 ---                                    off / no / empty; other text as it is
 ---   ${2|.1}                          a number rounded to 0..3 decimals
 ---
---- A variable that is picked but not written into the text is added at the
---- end of the message, so picking alone is enough.
+--- The message is written in pieces, top to bottom, the way it reads:
+---
+---   MESSAGE      "The system rebooted"
+---   VARIABLE 1   (picked)                -> 3
+---   MESSAGE 2    "times since"
+---   VARIABLE 2   (picked)                -> Monday
+---   MESSAGE 3 .. MESSAGE 5, VARIABLE 3, VARIABLE 4
+---
+--- sends "The system rebooted 3 times since Monday". Each picked variable
+--- goes where its row is, between the texts around it, so picking alone is
+--- enough. A variable written as ${n} somewhere in the texts goes there
+--- instead, and is not repeated at its row.
 ---
 --- Rules a dealer relies on:
 ---
@@ -45,6 +55,9 @@ local Config = require("flightrecorder.config")
 local M = {}
 
 M.PICKS = 4
+--- Texts of one message: MESSAGE, then MESSAGE 2 .. MESSAGE 5 (one after
+--- each VARIABLE).
+M.TEXTS = M.PICKS + 1
 M.MISSING = "?"
 M.HIDDEN = "[hidden]"
 
@@ -330,30 +343,91 @@ function M.render(text, resolve)
   return out, problems, used
 end
 
---- Fills a notification: the tokens of the title and the message, then every
---- picked variable that neither text wrote out, added at the end of the
---- message in order.
+--- What sits tight against the word before it, and what sits tight against
+--- the word after it. Composer may trim the spaces a dealer types at the
+--- ends of a text, so the pieces are joined with one space, except here:
+--- "rebooted" + "3" + "." reads "rebooted 3.", and "$" + "40" reads "$40".
+local NO_SPACE_BEFORE = { ".", ",", ";", ":", "!", "?", "%", ")", "]", "}", "°" }
+local NO_SPACE_AFTER = { "(", "[", "{", "$", "#", "£", "€" }
+
+local function startsWith(s, list)
+  for _, p in ipairs(list) do
+    if s:sub(1, #p) == p then
+      return true
+    end
+  end
+  return false
+end
+
+local function endsWith(s, list)
+  for _, p in ipairs(list) do
+    if s:sub(-#p) == p then
+      return true
+    end
+  end
+  return false
+end
+
+--- Joins the pieces of a message in order, skipping the empty ones. A piece
+--- is a text (a string) or a value ({ value = "3" }); only what the dealer
+--- wrote decides the spacing, never what a variable happens to hold.
+function M.join(pieces)
+  local out, lastWasText = "", false
+  for _, piece in ipairs(pieces) do
+    local isText = type(piece) ~= "table"
+    local text = trim(isText and piece or piece.value)
+    if text ~= "" then
+      local tight = out == ""
+        or (isText and startsWith(text, NO_SPACE_BEFORE))
+        or (lastWasText and endsWith(out, NO_SPACE_AFTER))
+      out = out .. (tight and "" or " ") .. text
+      lastWasText = isText
+    end
+  end
+  return out
+end
+
+--- Fills a notification written in pieces.
+--- @param title string|nil
+--- @param texts table  { [1] = MESSAGE, [2] = MESSAGE 2, ... } (holes allowed)
+--- @param resolve function  from M.resolver
 --- @param picked fun(n):string|nil  the VARIABLE n parameter
 --- @return string title, string body, table problems
-function M.fill(title, body, resolve, picked)
+function M.compose(title, texts, resolve, picked)
   local problems = {}
-  local filledTitle, p1, usedTitle = M.render(title, resolve)
-  local filledBody, p2, usedBody = M.render(body, resolve)
-  for _, list in ipairs({ p1, p2 }) do
+  local function keep(list)
     for _, p in ipairs(list) do
       problems[#problems + 1] = p
     end
   end
-  for n = 1, M.PICKS do
-    if M.parsePick(picked(n)) ~= nil and not usedTitle[n] and not usedBody[n] then
-      local added, p3 = M.render("${" .. n .. "}", resolve)
-      for _, p in ipairs(p3) do
-        problems[#problems + 1] = p
-      end
-      filledBody = filledBody == "" and added or (filledBody .. " " .. added)
+  local filledTitle, p0, used = M.render(title, resolve)
+  keep(p0)
+  local filled = {}
+  for i = 1, M.TEXTS do
+    local text, p, usedHere = M.render(texts[i], resolve)
+    keep(p)
+    filled[i] = text
+    for n in pairs(usedHere) do
+      used[n] = true
     end
   end
-  return filledTitle, filledBody, problems
+  local pieces = { filled[1] }
+  for n = 1, M.PICKS do
+    if M.parsePick(picked(n)) ~= nil and not used[n] then
+      local value, p = M.render("${" .. n .. "}", resolve)
+      keep(p)
+      pieces[#pieces + 1] = { value = value }
+    end
+    pieces[#pieces + 1] = filled[n + 1]
+  end
+  return filledTitle, M.join(pieces), problems
+end
+
+--- Fills a notification with one text: the tokens of the title and the
+--- message, then every picked variable that neither wrote out, in order.
+--- @return string title, string body, table problems
+function M.fill(title, body, resolve, picked)
+  return M.compose(title, { body }, resolve, picked)
 end
 
 return M

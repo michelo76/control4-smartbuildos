@@ -253,5 +253,42 @@ check("Variables is the project's custom variables", T.findDevice(DEVICES, "Vari
 check("a real device called Variables wins", T.findDevice({ [9] = { deviceName = "Variables" } }, "variables") == 9)
 check("the name field works too", T.findDevice({ ["5"] = { name = "Old Style" } }, "old style") == 5)
 
+print("[11] a message written in pieces: text, variable, text")
+do
+  local function compose(title, texts, chosen)
+    picks = chosen
+    return T.compose(title, texts, newResolver(), picked)
+  end
+  -- The owner's sentence, 10 Nov 2026: "The system rebooted 3 times".
+  local _, body, problems = compose("Reboots", { "The system rebooted", "times" }, { "241,1100" })
+  check("the value sits between the texts around it", body == "The system rebooted 68 times" and #problems == 0, body)
+  _, body = compose("", { "Pool", "°F, door", "." }, { "241,1100", "231,1000" })
+  check("two variables, three texts, punctuation kept tight", body == "Pool 68°F, door 1.", body)
+  _, body = compose("", { "Pool", nil, "after both" }, { "241,1100", "231,1000" })
+  check("a text left empty is skipped", body == "Pool 68 1 after both", body)
+  _, body = compose("", { nil, "is the temperature" }, { "241,1100" })
+  check("a message may start with a variable", body == "68 is the temperature", body)
+  _, body = compose("", { "Costs $", "today (", ")" }, { "241,1100", "231,1000" })
+  check("no space after an opening sign or bracket", body == "Costs $68 today (1)", body)
+  _, body = compose("", { "First", "second", "third", "fourth", "fifth" }, {})
+  check("texts alone are joined in order", body == "First second third fourth fifth", body)
+  _, body = compose("", { "Door ${1|open|closed} at", nil, "degrees" }, { "231,1000", "241,1100" })
+  check("a variable written as ${n} goes there, not at its row", body == "Door open at 68 degrees", body)
+  local title
+  title, body = compose("Now ${1}", { "nothing more", "here" }, { "241,1100" })
+  check("…also when it is written in the title", title == "Now 68" and body == "nothing more here", body)
+  _, body, problems = compose("", { "Door", "now" }, { "999,1" })
+  check(
+    "a variable that cannot be read is ? in its place, spaced as a value",
+    body == "Door ? now" and #problems == 1,
+    body
+  )
+  _, body = compose("", { "only this" }, { "241,1100" })
+  check("one text and a pick: the value follows, as before", body == "only this 68", body)
+  check("join: values never glue to the text before them", T.join({ "is", { value = ".5" }, "." }) == "is .5.")
+  check("join: nothing in, nothing out", T.join({}) == "" and T.join({ "", { value = " " } }) == "")
+  picks = {}
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

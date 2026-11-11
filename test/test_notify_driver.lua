@@ -184,10 +184,18 @@ C4.FireEventByID = function(_, id)
   fired[#fired + 1] = id
 end
 C4.FireEvent = function() end
+local varSets = {} -- every SetVariable, in order: { name, value }
 C4.SetVariable = function(_, name, value)
   vars[name] = value
+  varSets[#varSets + 1] = { name, value }
+  -- Director keeps the Variables table current for the driver.
+  Variables = Variables or {}
+  Variables[name] = value
 end
-C4.AddVariable = function() end
+local addedVariables = {} -- name -> readOnly, as registered
+C4.AddVariable = function(_, name, _, _, readOnly)
+  addedVariables[name] = readOnly
+end
 C4.AddEvent = function() end
 C4.UpdateProperty = function(_, name, value)
   props[name] = value
@@ -651,6 +659,24 @@ do
   end
   check("four pickers each on Notify, Notify All and Reply", pickers == 12, pickers)
   check("no variable slots left in the properties", not xml:find("<property><name>Variable ", 1, true))
+  -- Read top to bottom the way the message reads: text, variable, text.
+  local order = {}
+  local notify = xml:match("<name>NOTIFY</name>(.-)</command>")
+  for name in notify:gmatch("<param><name>([^<]+)</name>") do
+    order[#order + 1] = name
+  end
+  check(
+    "Notify reads MESSAGE, VARIABLE 1, MESSAGE 2 … VARIABLE 4, MESSAGE 5",
+    table.concat(order, "|")
+      == "CHANNEL|PRIORITY|TITLE|MESSAGE|VARIABLE 1|MESSAGE 2|VARIABLE 2|MESSAGE 3|VARIABLE 3|MESSAGE 4|VARIABLE 4|MESSAGE 5",
+    table.concat(order, "|")
+  )
+  check("MESSAGE keeps its name, so programming written before still sends its text", order[4] == "MESSAGE")
+  check(
+    "MESSAGE_RECEIVED is declared, and programming may set it",
+    xml:find("<name>MESSAGE_RECEIVED</name><type>STRING</type><default></default><readonly>false</readonly>", 1, true)
+      ~= nil
+  )
 end
 
 print("[13] two-way: nothing is asked while inbound is off")
@@ -1003,6 +1029,183 @@ OnPropertyChanged("Telegram Inbound")
 requests = {}
 advance(20000)
 check("turned off: nothing is asked", #requests == 0 and prop("Inbound Status") == "off", #requests)
+
+print("[21] a message written in pieces: MESSAGE, VARIABLE 1, MESSAGE 2 …")
+-- The owner's line, 10 Nov 2026: "This system rebooted" + a variable holding
+-- 3 arrived as "This system rebooted 3", with nowhere to write "times".
+deviceVars[100001]["467"] = { name = "Test", value = "3" }
+deviceVars[100001]["8"] = { name = "Pool Now", value = "81.5" }
+requests = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "high",
+  TITLE = "Testing Variables",
+  MESSAGE = "This system rebooted",
+  ["VARIABLE 1"] = "100001,467",
+  ["MESSAGE 2"] = "times",
+})
+check(
+  "the value sits between the two texts",
+  #requests == 1 and requests[1].data.text == "Testing Variables\nThis system rebooted 3 times",
+  requests[1] and requests[1].data.text
+)
+requests = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "high",
+  TITLE = "Pieces",
+  MESSAGE = "Rebooted",
+  ["VARIABLE 1"] = "100001,467",
+  ["MESSAGE 2"] = "times, door",
+  ["VARIABLE 2"] = "231,1000",
+  ["MESSAGE 3"] = ".",
+  ["VARIABLE 3"] = "",
+  ["MESSAGE 4"] = "Pool",
+  ["VARIABLE 4"] = "100001,8",
+  ["MESSAGE 5"] = "°F",
+})
+check(
+  "four variables and five texts, in the order they are written",
+  #requests == 1 and requests[1].data.text == "Pieces\nRebooted 3 times, door 1. Pool 81.5°F",
+  requests[1] and requests[1].data.text
+)
+requests = {}
+EC.NOTIFY({
+  CHANNEL = "Telegram",
+  PRIORITY = "high",
+  TITLE = "Old line",
+  MESSAGE = "written before this change",
+  ["VARIABLE 1"] = "100001,467",
+})
+check(
+  "a line written before, with no MESSAGE 2, sends what it sent",
+  #requests == 1 and requests[1].data.text == "Old line\nwritten before this change 3",
+  requests[1] and requests[1].data.text
+)
+requests = {}
+EC.NOTIFY_ALL({
+  PRIORITY = "high",
+  TITLE = "All",
+  MESSAGE = "Rebooted",
+  ["VARIABLE 1"] = "100001,467",
+  ["MESSAGE 2"] = "times",
+})
+check(
+  "Notify All reads the same pieces",
+  #requests >= 1 and requests[1].data.text == "All\nRebooted 3 times",
+  requests[1] and requests[1].data.text
+)
+
+print("[22] MESSAGE_RECEIVED: a variable programming can test, and set")
+check("registered so that programming may set it", addedVariables["MESSAGE_RECEIVED"] == false)
+check(
+  "every other variable stays read-only",
+  addedVariables["LAST_MESSAGE"] == true and addedVariables["MESSAGE_COUNTER"] == true
+)
+local function receivedSets()
+  local out = {}
+  for _, set in ipairs(varSets) do
+    if set[1] == "MESSAGE_RECEIVED" then
+      out[#out + 1] = "[" .. tostring(set[2]) .. "]"
+    end
+  end
+  return table.concat(out, " ")
+end
+Properties["Telegram Inbound"] = "On"
+OnPropertyChanged("Telegram Inbound")
+varSets = {}
+fired = {}
+telegramSays("Open the gate")
+advance(5000)
+check("it holds the message, as sent", vars["MESSAGE_RECEIVED"] == "Open the gate", vars["MESSAGE_RECEIVED"])
+check("one change for a new text", receivedSets() == "[Open the gate]", receivedSets())
+check(
+  "set after the other variables and before the events",
+  (function()
+    local at, lastOther = nil, 0
+    for i, set in ipairs(varSets) do
+      if set[1] == "MESSAGE_RECEIVED" then
+        at = i
+      elseif set[1] == "LAST_MESSAGE" or set[1] == "LAST_MESSAGE_SENDER" or set[1] == "MESSAGE_COUNTER" then
+        lastOther = i
+      end
+    end
+    return at ~= nil and at > lastOther and countFired(9) == 1
+  end)()
+)
+varSets = {}
+telegramSays("Open the gate")
+advance(5000)
+check(
+  "the same text again is still a change: emptied, then set",
+  receivedSets() == "[] [Open the gate]",
+  receivedSets()
+)
+-- Programming clears it once handled.
+C4:SetVariable("MESSAGE_RECEIVED", "")
+varSets = {}
+telegramSays("Open the gate")
+advance(5000)
+check("after programming cleared it, one change is enough", receivedSets() == "[Open the gate]", receivedSets())
+telegramSays("wrong pin attempt", { from = { id = 999, username = "Stranger", is_bot = false }, chat = { id = 555 } })
+varSets = {}
+advance(5000)
+check(
+  "a refused message never reaches it",
+  receivedSets() == "" and vars["MESSAGE_RECEIVED"] == "Open the gate",
+  receivedSets()
+)
+Properties["Message Received As"] = "Lower Case"
+varSets = {}
+telegramSays("Gate OPEN")
+advance(5000)
+check(
+  "Lower Case: a phone's capital letter does not make a different text",
+  vars["MESSAGE_RECEIVED"] == "gate open" and vars["LAST_MESSAGE"] == "Gate OPEN",
+  vars["MESSAGE_RECEIVED"]
+)
+Properties["Message Received As"] = "As Sent"
+Properties["Telegram Inbound"] = "Off"
+OnPropertyChanged("Telegram Inbound")
+
+print("[23] Find Telegram Chat ID")
+-- Setting a bot up: the dealer has the token and not yet the chat id.
+Properties["Telegram Chat ID"] = ""
+requests = {}
+updates = {}
+telegramSays(
+  "hello",
+  { chat = { id = 4455, type = "private", first_name = "Sam" }, from = { id = 4455, first_name = "Sam" } }
+)
+telegramSays(
+  "hi all",
+  { chat = { id = -100777, type = "group", title = "Family" }, from = { id = 4455, first_name = "Sam" } }
+)
+EC.FIND_CHAT_ID()
+advance(100)
+check(
+  "not listening: one look, and no offset sent back (nothing is taken)",
+  countUrl("/getUpdates") == 1 and not lastUrl("/getUpdates").url:find("offset", 1, true)
+)
+check(
+  "the chats that wrote are listed with their ids, newest first",
+  prop("Telegram Chats Seen"):find("Family (group): -100777 · Sam (private): 4455", 1, true) == 1,
+  prop("Telegram Chats Seen")
+)
+check("no message was handled by looking", vars["LAST_MESSAGE"] ~= "hello" and vars["LAST_MESSAGE"] ~= "hi all")
+updates = {}
+EC.FIND_CHAT_ID()
+advance(100)
+check(
+  "what was seen stays listed when nothing new came",
+  prop("Telegram Chats Seen"):find("Sam (private): 4455", 1, true) ~= nil
+)
+local savedToken = Properties["Telegram Bot Token"]
+Properties["Telegram Bot Token"] = ""
+EC.FIND_CHAT_ID()
+check("no token: says so and asks nothing more", prop("Telegram Chats Seen") == "paste the Telegram Bot Token first")
+Properties["Telegram Bot Token"] = savedToken
+Properties["Telegram Chat ID"] = "-100"
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -51,6 +51,7 @@
     <variable><id>3016</id><name>SMS_LAST_MESSAGE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3017</id><name>MESSAGE_COUNTER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>3018</id><name>MESSAGES_RECEIVED_TODAY</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3019</id><name>MESSAGE_RECEIVED</name><type>STRING</type><default></default><readonly>false</readonly><hidden>false</hidden></variable>
   </variables>
   <events>
     <event><id>1</id><name>Notification Sent</name><description>A notification was accepted by a target</description></event>
@@ -86,6 +87,7 @@
       <action><name>Print Delivery Log</name><command>PRINT_LOG</command></action>
       <action><name>Print Router Status</name><command>PRINT_STATUS</command></action>
       <action><name>Check For Messages Now</name><command>CHECK_MESSAGES</command></action>
+      <action><name>Find Telegram Chat ID</name><command>FIND_CHAT_ID</command></action>
       <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
       <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
       <action><name>Clear Delivery Log</name><command>CLEAR_LOG</command></action>
@@ -93,40 +95,52 @@
     <commands>
       <command>
         <name>NOTIFY</name>
-        <description>Notify PARAM1 (PARAM2): PARAM3 PARAM4</description>
+        <description>Notify PARAM1 (PARAM2): PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11 PARAM12</description>
         <params>
           <param><name>CHANNEL</name><type>LIST</type><items><item>All</item><item>Telegram</item><item>Pushover</item><item>Webhook</item><item>Generic Webhook</item><item>Twilio SMS</item></items></param>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 2</name><type>STRING</type></param>
           <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 3</name><type>STRING</type></param>
           <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 4</name><type>STRING</type></param>
           <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 5</name><type>STRING</type></param>
         </params>
       </command>
       <command>
         <name>NOTIFY_ALL</name>
-        <description>Notify all targets (PARAM1): PARAM2 PARAM3</description>
+        <description>Notify all targets (PARAM1): PARAM2 PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9 PARAM10 PARAM11</description>
         <params>
           <param><name>PRIORITY</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items></param>
           <param><name>TITLE</name><type>STRING</type></param>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 2</name><type>STRING</type></param>
           <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 3</name><type>STRING</type></param>
           <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 4</name><type>STRING</type></param>
           <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 5</name><type>STRING</type></param>
         </params>
       </command>
       <command>
         <name>REPLY</name>
-        <description>Reply to the last message received: PARAM1</description>
+        <description>Reply to the last message received: PARAM1 PARAM2 PARAM3 PARAM4 PARAM5 PARAM6 PARAM7 PARAM8 PARAM9</description>
         <params>
           <param><name>MESSAGE</name><type>STRING</type></param>
           <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 2</name><type>STRING</type></param>
           <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 3</name><type>STRING</type></param>
           <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 4</name><type>STRING</type></param>
           <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>MESSAGE 5</name><type>STRING</type></param>
         </params>
       </command>
     </commands>
@@ -151,6 +165,7 @@
       <property><name>Telegram</name><type>LIST</type><items><item>Off</item><item>On</item></items><default>Off</default><description>Telegram bot messages. Create a bot with BotFather, add it to a chat or group, and read the chat id from getUpdates.</description></property>
       <property><name>Telegram Bot Token</name><type>STRING</type><password>true</password><default></default></property>
       <property><name>Telegram Chat ID</name><type>STRING</type><default></default></property>
+      <property><name>Telegram Chats Seen</name><type>STRING</type><default>press Find Telegram Chat ID</default><readonly>true</readonly></property>
       <property><name>Telegram Minimum Priority</name><type>LIST</type><items><item>low</item><item>normal</item><item>high</item><item>critical</item></items><default>low</default></property>
       <property><name>Telegram Quiet Start</name><type>STRING</type><default></default></property>
       <property><name>Telegram Quiet End</name><type>STRING</type><default></default></property>
@@ -185,6 +200,7 @@
       <property><name>Twilio Allowed Senders</name><type>STRING</type><default></default><description>Optional. Extra phone numbers in E.164 form, comma-separated.</description></property>
       <property><name>Inbound PIN</name><type>STRING</type><password>true</password><default></default><description>Optional. When set, every inbound message must begin with this PIN and a space; the PIN is removed before the text reaches any variable.</description></property>
       <property><name>Inbound Poll Seconds</name><type>RANGED_INTEGER</type><minimum>3</minimum><maximum>300</maximum><default>5</default><description>How often the router asks for new messages. A message older than two minutes (or three poll intervals, if longer) is ignored.</description></property>
+      <property><name>Message Received As</name><type>LIST</type><items><item>As Sent</item><item>Lower Case</item></items><default>As Sent</default><description>How a message is written into the MESSAGE_RECEIVED variable. A phone capitalises the first word, so "Gate open" and "gate open" are different texts to a condition; Lower Case makes them one. The other variables always keep the message as sent.</description></property>
       <property><name>Keyword 1</name><type>STRING</type><default></default><description>A word or short phrase. A message that is this keyword, or begins with it, fires Keyword 1 Received; what follows it is in LAST_MESSAGE_ARGUMENT. Case does not matter. A Telegram command such as /status matches the keyword status.</description></property>
       <property><name>Keyword 2</name><type>STRING</type><default></default></property>
       <property><name>Keyword 3</name><type>STRING</type><default></default></property>

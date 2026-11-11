@@ -26,7 +26,7 @@ do
     "first ask has no offset",
     req.method == "GET"
       and req.url
-        == "https://api.telegram.org/bot123:ABC/getUpdates?timeout=0&limit=50&allowed_updates=%5B%22message%22%5D",
+        == "https://api.telegram.org/bot123:ABC/getUpdates?timeout=0&limit=50&allowed_updates=%5B%22message%22%2C%22channel_post%22%2C%22my_chat_member%22%5D",
     req.url
   )
   req = In.telegramRequest({ bot_token = "123:ABC" }, 987654321012)
@@ -356,6 +356,68 @@ do
     big:accept({ id = "x:" .. i, channel = "telegram", chat = "9", sender = "9", text = "x", at = now })
   end
   check("the memory of handled ids is bounded", #big:export() == In.LIMITS.seen)
+end
+
+print("== Find Telegram Chat ID: naming and remembering chats")
+check("a group is called by its title", In.chatName({ title = "Family", first_name = "x" }, {}) == "Family")
+check("a person by their first name, though the title is missing", In.chatName({ first_name = "Sam" }, {}) == "Sam")
+check(
+  "else the sender, else a username, else 'chat'",
+  In.chatName({}, { first_name = "Ana" }) == "Ana"
+    and In.chatName({ username = "u1" }, {}) == "u1"
+    and In.chatName(nil, nil) == "chat"
+)
+do
+  local seen = {}
+  In.noteChats(
+    seen,
+    { { chat = "1", chat_name = "A", chat_type = "private" }, { chat = "-9", chat_name = "G", chat_type = "group" } }
+  )
+  In.noteChats(
+    seen,
+    { { chat = "1", chat_name = "A", chat_type = "private" }, { chat = "7", chat_name = "Bot", bot = true } }
+  )
+  check(
+    "newest first, each chat once, bots left out",
+    In.chatsLine(seen) == "A (private): 1 · G (group): -9",
+    In.chatsLine(seen)
+  )
+  for n = 10, 20 do
+    In.noteChats(seen, { { chat = tostring(n), chat_name = "N", chat_type = "private" } })
+  end
+  check("only the last five are kept", #seen == 5 and seen[1].id == "20")
+  check("nothing seen is nil, not an empty line", In.chatsLine({}) == nil)
+  local msgs, _, _, chats = In.parseTelegram({
+    ok = true,
+    result = {
+      {
+        update_id = 1,
+        message = {
+          date = 1,
+          text = "hi",
+          chat = { id = 44, type = "private", first_name = "Sam" },
+          from = { id = 44, first_name = "Sam" },
+        },
+      },
+      {
+        update_id = 2,
+        channel_post = { date = 1, text = "post", chat = { id = -1009, type = "channel", title = "House Alerts" } },
+      },
+      {
+        update_id = 3,
+        my_chat_member = {
+          chat = { id = -77, type = "group", title = "Family" },
+          from = { id = 44, first_name = "Sam" },
+        },
+      },
+    },
+  })
+  check("a channel post and being added to a group are never messages", #msgs == 1 and msgs[1].text == "hi")
+  check(
+    "but they name their chats, so the id can be read before anybody writes",
+    In.chatsLine(In.noteChats({}, chats)) == "Family (group): -77 · House Alerts (channel): -1009 · Sam (private): 44",
+    In.chatsLine(In.noteChats({}, chats))
+  )
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

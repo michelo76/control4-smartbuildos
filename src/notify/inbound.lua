@@ -91,11 +91,59 @@ function M.telegramRequest(cfg, offset)
     .. tostring(cfg.bot_token):gsub("%s+", "")
     .. "/getUpdates?timeout=0&limit="
     .. M.LIMITS.page
-    .. "&allowed_updates=%5B%22message%22%5D"
+    -- message: what people write. channel_post and my_chat_member are never
+    -- taken as messages; they only tell "Find Telegram Chat ID" which
+    -- channels and groups the bot is in.
+    .. "&allowed_updates=%5B%22message%22%2C%22channel_post%22%2C%22my_chat_member%22%5D"
   if tonumber(offset) ~= nil then
     url = url .. "&offset=" .. wholeNumber(tonumber(offset))
   end
   return { method = "GET", url = url, headers = {}, describe = "telegram getUpdates" }
+end
+
+--- A name for a Telegram chat: a group's title, else the person's name.
+function M.chatName(chat, from)
+  chat, from = type(chat) == "table" and chat or {}, type(from) == "table" and from or {}
+  -- Not a list literal: a missing first field would end an ipairs at once.
+  local candidates = { chat.title, chat.first_name, from.first_name, chat.username, from.username }
+  for i = 1, 5 do
+    local v = candidates[i]
+    if type(v) == "string" and v:gsub("%s+", "") ~= "" then
+      return (v:gsub("%c+", " "):sub(1, 40))
+    end
+  end
+  return "chat"
+end
+
+--- Remembers the chats that wrote to the bot, newest first, each once.
+--- @param seen table  list of { id, name, kind }, changed in place
+--- @param messages table  from parseTelegram
+--- @param max number|nil  how many to keep (default 5)
+function M.noteChats(seen, messages, max)
+  max = max or 5
+  for _, m in ipairs(messages or {}) do
+    if m.chat ~= nil and not m.bot then
+      for i = #seen, 1, -1 do
+        if seen[i].id == m.chat then
+          table.remove(seen, i)
+        end
+      end
+      table.insert(seen, 1, { id = m.chat, name = m.chat_name or "chat", kind = m.chat_type or "chat" })
+      while #seen > max do
+        table.remove(seen)
+      end
+    end
+  end
+  return seen
+end
+
+--- "Owner (private): 12345 · Family (group): -100123", or nil when empty.
+function M.chatsLine(seen)
+  local parts = {}
+  for _, c in ipairs(seen or {}) do
+    parts[#parts + 1] = string.format("%s (%s): %s", c.name, c.kind, c.id)
+  end
+  return #parts > 0 and table.concat(parts, " · ") or nil
 end
 
 --- A decoded getUpdates body → messages (oldest first) and the offset to ask
@@ -107,7 +155,7 @@ function M.parseTelegram(body)
     local why = type(body) == "table" and body.description or nil
     return nil, nil, "unexpected answer" .. (why and (": " .. tostring(why)) or "")
   end
-  local out, highest = {}, nil
+  local out, highest, chats = {}, nil, {}
   for _, update in ipairs(body.result) do
     local id = tonumber(update.update_id)
     if id ~= nil then
@@ -128,9 +176,24 @@ function M.parseTelegram(body)
           at = tonumber(m.date),
         }
       end
+      -- For "Find Telegram Chat ID": every chat this update names. A post
+      -- in a channel and the bot being added to a group or channel count,
+      -- so the chat shows up before anybody has written in it.
+      for _, key in ipairs({ "message", "channel_post", "my_chat_member" }) do
+        local u = update[key]
+        if type(u) == "table" and type(u.chat) == "table" and u.chat.id ~= nil then
+          local from = type(u.from) == "table" and u.from or {}
+          chats[#chats + 1] = {
+            chat = wholeNumber(u.chat.id),
+            chat_name = M.chatName(u.chat, key == "message" and from or {}),
+            chat_type = type(u.chat.type) == "string" and u.chat.type or "chat",
+            bot = key == "message" and from.is_bot == true,
+          }
+        end
+      end
     end
   end
-  return out, highest and (highest + 1) or nil
+  return out, highest and (highest + 1) or nil, nil, chats
 end
 
 -- ─── Twilio ──────────────────────────────────────────────────────────────────
