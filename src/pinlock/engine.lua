@@ -983,8 +983,8 @@ end
 function Engine:_grant(entry, code, slot)
   local t = self:now()
   code.uses = (code.uses or 0) + 1
-  local l = self:_lock(entry)
-  l.fails, l.last = 0, nil
+  -- A success must not forgive earlier wrong guesses: the failure count only
+  -- ages out through failWindow, or ends with a lockout / clearLockouts.
   local action = slot and self.slots[slot] or nil
   self:_recordRecent({ t = t, result = "granted", code = code.name, action = action, entry = entry })
   self:_emit("granted", { code = code.name, role = code.role, slot = slot, action = action, entry = entry })

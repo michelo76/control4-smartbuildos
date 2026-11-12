@@ -169,8 +169,9 @@ refused, and the event *Entry Point Locked Out* fires once, with
 
 - Every refusal counts, including a correct PIN used outside its hours, so
   the answer never tells a guesser that a guess was close.
-- A good attempt resets the count. Failures older than ten minutes are
-  forgotten.
+- A good attempt does not reset the count (otherwise one valid PIN would allow
+  endless guessing). Failures are forgotten only after ten quiet minutes, or
+  when a lockout starts or is cleared.
 - Lockouts survive a controller restart.
 - Someone can lock the page on purpose to annoy the household. Clear it with
   the action *Clear Lockouts*, the command `CLEAR_LOCKOUTS`, or (if `admin` is

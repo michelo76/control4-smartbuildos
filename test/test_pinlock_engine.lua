@@ -195,11 +195,9 @@ e:addCode({ name = "Marta", role = "staff", pin = STAFF_PIN, actions = { 1 } })
 e:tryPin("page", 1, "0000")
 e:tryPin("page", 1, "0001")
 check("two wrong attempts: not locked", select(1, e:lockState("page")) == false)
-check("a good attempt resets the count", e:tryPin("page", 1, STAFF_PIN).ok == true)
-e:tryPin("page", 1, "0000")
-e:tryPin("page", 1, "0001")
+check("a good attempt still works", e:tryPin("page", 1, STAFF_PIN).ok == true)
 r = e:tryPin("page", 1, "0002")
-check("third wrong attempt locks the page", r.locked == true and (e:lockState("page")) == true)
+check("a good attempt does NOT reset the count: the third wrong one locks the page", r.locked == true and (e:lockState("page")) == true)
 check("one lockout event", count("locked_out") == 1)
 r = e:tryPin("page", 1, STAFF_PIN)
 check("the RIGHT PIN is refused while locked", r.ok == false and r.locked == true and r.reason == "locked_out")
@@ -235,6 +233,35 @@ e:tryPin("page", 1, "0001")
 clock.t = clock.t + 101
 e:tryPin("page", 1, "0002")
 check("failures decay after the quiet window", select(1, e:lockState("page")) == false)
+
+-- a holder of one valid PIN cannot guess forever by interleaving a success
+e = newEngine({ maxFails = 5, lockSeconds = 300 })
+e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
+e:addCode({ name = "Marta", role = "staff", pin = STAFF_PIN, actions = { 1 } })
+local guesses, lockedAt = 0, nil
+for round = 1, 20 do
+  for i = 1, 4 do
+    local g = e:tryPin("page", 1, string.format("%04d", 7000 + guesses))
+    guesses = guesses + 1
+    if g.locked and not lockedAt then
+      lockedAt = guesses
+    end
+  end
+  if lockedAt then
+    break
+  end
+  e:tryPin("page", 1, STAFF_PIN)
+end
+check("4 wrong, 1 valid, repeat: locked out by the 5th wrong guess", lockedAt ~= nil and lockedAt <= 8, tostring(lockedAt))
+-- the count still ages out by itself
+e = newEngine({ maxFails = 3, lockSeconds = 60, failWindow = 100 })
+e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
+e:tryPin("page", 1, "0000")
+e:tryPin("page", 1, "0001")
+e:tryPin("page", 1, OWNER_PIN)
+clock.t = clock.t + 101
+e:tryPin("page", 1, "0002")
+check("failures kept across a success still decay after the quiet window", select(1, e:lockState("page")) == false)
 
 print("[9] keypad sequences")
 e = newEngine({ maxFails = 3, lockSeconds = 120, seqLength = 4, seqWindow = 6 })

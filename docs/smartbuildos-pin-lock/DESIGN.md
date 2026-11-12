@@ -34,7 +34,7 @@ events to Composer, the target device and the Flight Recorder.
 | Dates / uses | optional start, expiry (end of day), max uses; use counted on grant only |
 | Temporary | guest role, `hours` 0..8760, same-name temporary code is replaced (a failed replacement keeps the old one), pruned 24 h after expiry |
 | Last owner | cannot be disabled, revoked or demoted |
-| Lockout | per entry point `page` / `keypad` / `admin`; `maxFails` (3..10) → locked `lockSeconds`; every denial counts (a valid PIN outside its hours too, so there is no oracle); success resets; failures decay after 10 quiet minutes; locks persisted with absolute expiry |
+| Lockout | per entry point `page` / `keypad` / `admin`; `maxFails` (3..10) → locked `lockSeconds`; every denial counts (a valid PIN outside its hours too, so there is no oracle); a success does NOT reset the count (else one valid PIN allows endless guessing); failures decay after 10 quiet minutes; locks persisted with absolute expiry |
 | Locked attempts | refused without evaluating; recorded at most once per 30 s per entry point; *Access Denied* is not re-fired |
 | Keypad | per-keypad buffer (≤ 8); the whole sequence must finish within `seqWindow` of its first press; a complete buffer = exactly one attempt; partial timeouts are not attempts; no sequence code defined → presses are ignored (no attempts, no buffers) |
 | Admin | owner PIN → in-memory session (32 hex, 10 min sliding, ≤ 4), attempts count against `admin`; first owner can be created only while none exists |
