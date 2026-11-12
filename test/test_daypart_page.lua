@@ -82,6 +82,8 @@ const zone = { sources: [{ id: 200, label: 'Digital Music' }], week: [{id:'b1'}]
 t('sourceLabel', DP.sourceLabel(zone, 200) === 'Digital Music' && DP.sourceLabel(zone, 'off') === 'Music off' && DP.sourceLabel(zone, null) === 'Source unchanged' && DP.sourceLabel(zone, 999) === 'Source no longer offered');
 t('blockSummary', DP.blockSummary(zone, { source: 200, volume: 30, displays: 'on' }) === 'Digital Music, volume 30, displays on' && DP.blockSummary(zone, { source: 'off', volume: 5 }) === 'Music off');
 t('scopeBlocks', DP.scopeBlocks(zone, 'week')[0].id === 'b1' && DP.scopeBlocks(zone, 'holiday')[0].id === 'h1' && DP.scopeBlocks(zone, 'today')[0].id === 't1' && DP.scopeBlocks(null, 'week').length === 0);
+t('colorIndex', DP.colorIndex(zone, 200) === 0 && DP.colorIndex(zone, 'off') === 'off' && DP.colorIndex(zone, null) === 'none' && DP.colorIndex(zone, 999) === 'none' && DP.colorIndex({ sources: [1,2,3,4,5,6,7].map(function (i) { return { id: i }; }) }, 7) === 0);
+t('progress', DP.progress(540, '08:00', '10:00') === 0.5 && DP.progress(600, '08:00', '10:00') === null && DP.progress(60, '22:00', '02:00') === 0.75 && DP.progress(1380, '22:00', '02:00') === 0.25 && DP.progress(1200, '22:00', '02:00') === null && DP.progress('x', '08:00', '10:00') === null);
 console.log(results.join('\n'));
 ]])
   out:close()
