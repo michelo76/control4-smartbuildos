@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daypart Scheduler</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #14181f; --muted: #5b6573; --line: #d5dae1;
+  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f4b; --warn: #b45309; --bad: #b42318;
+  --block: #dbe8ff; --block-line: #6d9bf1; --spill: #ecf2ff; --today: #fff6d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101317; --panel: #1a1f26; --ink: #eef1f5; --muted: #9aa5b4; --line: #2e3640;
+    --accent: #5b9bff; --accent-ink: #08111f; --ok: #4cc38a; --warn: #f0b25a; --bad: #ff8a80;
+    --block: #223a63; --block-line: #4f7fd1; --spill: #1b2a45; --today: #3a3417;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: 12px 16px 96px; max-width: 980px; margin: 0 auto; }
+h1 { font-size: 1.25rem; margin: 4px 0 8px; }
+button, select, input { font: inherit; color: inherit; }
+button { min-height: 48px; min-width: 48px; padding: 8px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--bad); border-color: var(--bad); }
+button[aria-pressed="true"], button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row.grow > * { flex: 1 1 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.chip { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-size: .85rem; }
+.chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 10px 0; }
+.muted { color: var(--muted); font-size: .92rem; }
+#error { color: var(--bad); font-weight: 600; min-height: 1.2em; }
+#toast { position: fixed; left: 16px; right: 16px; bottom: 16px; background: var(--ink); color: var(--bg); padding: 12px 16px; border-radius: 10px; display: none; z-index: 9; }
+.grid { display: grid; grid-template-columns: 34px repeat(7, 1fr); gap: 2px; font-size: .78rem; }
+.grid .head { text-align: center; padding: 4px 0; font-weight: 600; }
+.grid .head.today { background: var(--today); border-radius: 6px; }
+.axis, .col { position: relative; height: 576px; }
+.axis span { position: absolute; right: 2px; transform: translateY(-50%); color: var(--muted); }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.col .hr { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--line); }
+.blk { position: absolute; left: 1px; right: 1px; border: 1px solid var(--block-line); background: var(--block); border-radius: 5px; padding: 2px 3px; overflow: hidden; cursor: pointer; font-size: .72rem; line-height: 1.15; text-align: left; min-height: 0; min-width: 0; color: var(--ink); }
+.blk.spill { background: var(--spill); border-style: dashed; }
+.blk.live { outline: 2px solid var(--ok); }
+.tabs { display: flex; gap: 8px; margin: 8px 0; }
+.tabs button { flex: 1; }
+.list button.item { display: flex; width: 100%; text-align: left; justify-content: space-between; gap: 8px; margin: 6px 0; }
+dialog { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: var(--panel); color: var(--ink); width: min(520px, 94vw); }
+dialog::backdrop { background: rgba(0, 0, 0, .5); }
+label { display: block; font-weight: 600; margin: 12px 0 4px; }
+input[type=text], input[type=password], input[type=date], select { width: 100%; min-height: 48px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.days button { flex: 1 1 0; min-width: 44px; padding: 8px 0; }
+.vol { display: grid; grid-template-columns: 56px 1fr 56px 64px; gap: 8px; align-items: center; }
+.vol input[type=range] { width: 100%; height: 48px; }
+.vol output { text-align: center; font-weight: 700; font-size: 1.2rem; }
+.seg { display: flex; gap: 8px; } .seg button { flex: 1; }
+</style>
+</head>
+<body>
+<h1 id="title">Daypart Scheduler</h1>
+<div class="bar" id="status"></div>
+<div class="bar" id="zones" role="tablist" aria-label="Zones"></div>
+<div id="nowNext" class="card"></div>
+<div class="tabs" id="scopes" role="tablist" aria-label="Schedule">
+  <button data-scope="week" aria-pressed="true">Weekly</button>
+  <button data-scope="holiday" aria-pressed="false">Holidays</button>
+  <button data-scope="today" aria-pressed="false">Today only</button>
+</div>
+<div id="error" role="alert"></div>
+<div id="view"></div>
+<div class="bar">
+  <button class="primary" id="add">+ Add block</button>
+  <button id="skip">Skip next block</button>
+  <button id="pause">Pause schedule</button>
+</div>
+<div id="toast" role="status"></div>
+
+<dialog id="blockDlg">
+  <h2 id="blockTitle" style="margin:0 0 4px">Block</h2>
+  <label for="bName">Name</label>
+  <input type="text" id="bName" maxlength="40" autocomplete="off" placeholder="Morning playlist">
+  <div id="daysWrap"><label>Days</label><div class="row days" id="bDays"></div></div>
+  <div class="row grow">
+    <div><label for="bFromH">From</label><div class="row"><select id="bFromH" aria-label="Start hour"></select><select id="bFromM" aria-label="Start minute"></select></div></div>
+    <div><label for="bToH">To</label><div class="row"><select id="bToH" aria-label="End hour"></select><select id="bToM" aria-label="End minute"></select></div></div>
+  </div>
+  <div class="muted" id="crossNote"></div>
+  <label for="bSource">Source</label>
+  <select id="bSource"></select>
+  <label for="bVol">Volume</label>
+  <div class="vol"><button type="button" id="volDown" aria-label="Quieter">&minus;</button><input type="range" id="bVol" min="0" max="100" step="1"><button type="button" id="volUp" aria-label="Louder">+</button><output id="volOut" for="bVol"></output></div>
+  <div class="muted" id="volRange"></div>
+  <div id="dispWrap"><label>Displays</label><div class="seg" id="bDisp"></div></div>
+  <div id="dlgError" role="alert" style="color:var(--bad);font-weight:600;min-height:1.3em;margin-top:8px"></div>
+  <div class="row grow" style="margin-top:8px">
+    <button id="bCancel" type="button">Cancel</button>
+    <button id="bRun" type="button">Run now</button>
+    <button id="bDelete" type="button" class="danger">Delete</button>
+    <button id="bSave" type="button" class="primary">Save</button>
+  </div>
+</dialog>
+
+<dialog id="pinDlg">
+  <h2 style="margin:0 0 4px">Manager PIN</h2>
+  <p class="muted" id="pinHelp">Enter the PIN to change the schedule.</p>
+  <input type="password" id="pin" inputmode="numeric" autocomplete="off" aria-label="Manager PIN">
+  <div id="pinError" role="alert" style="color:var(--bad);font-weight:600;min-height:1.3em;margin-top:8px"></div>
+  <div class="row grow" style="margin-top:8px"><button id="pinCancel" type="button">Cancel</button><button id="pinOk" type="button" class="primary">Unlock</button></div>
+</dialog>
+
+<!-- Pure helpers: no DOM, no network. Tested outside the browser. -->
+<script id="daypart-pure">
+var DP = (function () {
+  'use strict';
+  var NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function arr(x) { return Array.isArray(x) ? x : []; }
+  function parseTime(s, allow24) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(s || ''));
+    if (!m) { return null; }
+    var h = +m[1], mi = +m[2];
+    if (mi > 59) { return null; }
+    if (h === 24 && mi === 0 && allow24) { return 1440; }
+    return h > 23 ? null : h * 60 + mi;
+  }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function fmtTime(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+  function clamp(v, lo, hi) { v = Math.round(Number(v)); return isNaN(v) ? lo : Math.max(lo, Math.min(hi, v)); }
+  function describeDays(days) {
+    var set = {}, list = [], parts = [], i, j, k;
+    arr(days).forEach(function (d) { set[d] = true; });
+    for (var d = 1; d <= 7; d++) { if (set[d]) { list.push(d); } }
+    if (list.length === 7) { return 'every day'; }
+    i = 0;
+    while (i < list.length) {
+      j = i;
+      while (list[j + 1] === list[j] + 1) { j++; }
+      if (j - i >= 2) { parts.push(NAMES[list[i] - 1] + '-' + NAMES[list[j] - 1]); }
+      else { for (k = i; k <= j; k++) { parts.push(NAMES[list[k] - 1]); } }
+      i = j + 1;
+    }
+    return parts.join(', ');
+  }
+  // Segments to draw on a Mon..Sun grid (week scope): [{day, from, to, spill, block}], minutes.
+  // A block that crosses midnight is drawn to 24:00 on its day and from 0:00 on the next.
+  function weekSegments(blocks) {
+    var out = [];
+    arr(blocks).forEach(function (b) {
+      var f = parseTime(b.from), t = parseTime(b.to, true);
+      if (f === null || t === null) { return; }
+      arr(b.days).forEach(function (d) {
+        if (f < t) { out.push({ day: d, from: f, to: t, spill: false, block: b }); }
+        else {
+          out.push({ day: d, from: f, to: 1440, spill: false, block: b });
+          if (t > 0) { out.push({ day: d % 7 + 1, from: 0, to: t, spill: true, block: b }); }
+        }
+      });
+    });
+    return out;
+  }
+  function crossing(from, to) {
+    var f = parseTime(from), t = parseTime(to, true);
+    return f !== null && t !== null && f > t;
+  }
+  function sourceLabel(zone, id) {
+    if (id === 'off') { return 'Music off'; }
+    if (id === null || id === undefined || id === '') { return 'Source unchanged'; }
+    var s = arr(zone && zone.sources).filter(function (x) { return String(x.id) === String(id); })[0];
+    return s ? s.label : 'Source no longer offered';
+  }
+  function blockSummary(zone, b) {
+    var bits = [sourceLabel(zone, b.source)];
+    if (b.volume !== undefined && b.volume !== null && b.source !== 'off') { bits.push('volume ' + b.volume); }
+    if (b.displays === 'on') { bits.push('displays on'); } else if (b.displays === 'off') { bits.push('displays off'); }
+    return bits.join(', ');
+  }
+  function scopeBlocks(zone, scope) {
+    if (!zone) { return []; }
+    if (scope === 'holiday') { return arr(zone.holiday); }
+    if (scope === 'today') { return arr(zone.today && zone.today.blocks); }
+    return arr(zone.week);
+  }
+  return { arr: arr, parseTime: parseTime, fmtTime: fmtTime, clamp: clamp, describeDays: describeDays,
+           weekSegments: weekSegments, crossing: crossing, sourceLabel: sourceLabel, blockSummary: blockSummary,
+           scopeBlocks: scopeBlocks, NAMES: NAMES };
+})();
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var params = new URLSearchParams(location.search);
+  var token = params.get('k') || '';
+  var relay = params.get('relay') || '';
+  if (!relay && /^https?:$/.test(location.protocol)) { relay = location.origin; }
+  var A = DP.arr, state = null, zoneSlot = null, scope = 'week', pin = '', editing = null, afterPin = null;
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) { e.className = cls; } if (text !== undefined) { e.textContent = String(text); } return e; }
+  function clear(n) { while (n.firstChild) { n.removeChild(n.firstChild); } }
+  function toast(msg) { var t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 4000); }
+  function zone() { return A(state && state.zones).filter(function (z) { return z.slot === zoneSlot; })[0] || null; }
+
+  function call(path, body) {
+    if (!relay) { return Promise.reject(new Error('This page needs the controller connection. Open it from a touch screen or the app on the home network.')); }
+    var opts = { cache: 'no-store' };
+    if (body) { opts.method = 'POST'; opts.body = JSON.stringify(body); }
+    return fetch(relay + path + '?k=' + encodeURIComponent(token), opts).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'Unreadable answer from the controller.' }; });
+    });
+  }
+
+  function load() {
+    return call('/state').then(function (doc) {
+      if (doc && doc.zones !== undefined) { state = doc; render(); }
+      else { $('error').textContent = 'The controller did not return the schedule.'; }
+    }, function (e) { $('error').textContent = e.message; });
+  }
+
+  // ── rendering ────────────────────────────────────────────────────────────
+  function renderStatus() {
+    var s = $('status'); clear(s);
+    var chip = el('span', 'chip ' + (state.halted ? 'bad' : state.paused ? 'warn' : 'ok'), state.status);
+    s.appendChild(chip);
+    s.appendChild(el('span', 'chip', 'Today ' + state.today));
+    if (!state.can_edit) {
+      var why = state.halted ? 'Read-only: licence' : state.edit_reason === 'locked' ? 'Editing locked for a minute' : 'Read-only: no Manager PIN set';
+      s.appendChild(el('span', 'chip warn', why));
+    }
+    $('pause').textContent = state.paused ? 'Resume schedule' : 'Pause schedule';
+  }
+  function renderZones() {
+    var z = $('zones'); clear(z);
+    A(state.zones).forEach(function (zn) {
+      var b = el('button', '', zn.name); b.setAttribute('role', 'tab'); b.setAttribute('aria-pressed', String(zn.slot === zoneSlot));
+      b.onclick = function () { zoneSlot = zn.slot; render(); };
+      z.appendChild(b);
+    });
+    if (!A(state.zones).length) { z.appendChild(el('div', 'muted', 'No zones are set up yet. The installer sets them in the driver properties.')); }
+  }
+  function renderNowNext() {
+    var n = $('nowNext'), zn = zone(); clear(n);
+    if (!zn) { n.style.display = 'none'; return; }
+    n.style.display = '';
+    var cur = zn.current ? ('Now: ' + zn.current.name + ' (' + zn.current.from + '-' + zn.current.to + ')') : 'Now: no block';
+    if (state.running && state.running[String(zn.slot)] && !zn.current) { cur = 'Now: ' + state.running[String(zn.slot)] + ' (run by hand)'; }
+    n.appendChild(el('div', '', cur));
+    var nx = zn.next ? ('Next: ' + zn.next.name + ' at ' + (zn.next.in_days ? zn.next.date + ' ' : '') + zn.next.from) : 'Next: nothing scheduled';
+    n.appendChild(el('div', 'muted', nx));
+    n.appendChild(el('div', 'muted', 'Volume range ' + zn.min + '-' + zn.max + '. Sources: ' + (A(zn.sources).map(function (s) { return s.label; }).join(', ') || 'none set up') + '.'));
+  }
+  function openBlock(b) { editing = { block: b }; openDialog(b); }
+
+  function renderWeekGrid(zn) {
+    var g = el('div', 'grid');
+    g.appendChild(el('div', 'head', ''));
+    var todayIso = state.weekday;
+    DP.NAMES.forEach(function (n, i) { g.appendChild(el('div', 'head' + (i + 1 === todayIso ? ' today' : ''), n)); });
+    var axis = el('div', 'axis');
+    for (var h = 0; h <= 24; h += 3) { var sp = el('span', '', DP.fmtTime(h * 60)); sp.style.top = (h / 24 * 100) + '%'; axis.appendChild(sp); }
+    g.appendChild(axis);
+    var segs = DP.weekSegments(zn.week);
+    for (var d = 1; d <= 7; d++) {
+      var col = el('div', 'col');
+      for (var hh = 3; hh < 24; hh += 3) { var hr = el('div', 'hr'); hr.style.top = (hh / 24 * 100) + '%'; col.appendChild(hr); }
+      segs.filter(function (s) { return s.day === d; }).forEach(function (s) {
+        var b = el('button', 'blk' + (s.spill ? ' spill' : ''), s.block.name);
+        b.style.top = (s.from / 1440 * 100) + '%'; b.style.height = ((s.to - s.from) / 1440 * 100) + '%';
+        b.title = s.block.name + ' ' + s.block.from + '-' + s.block.to;
+        b.setAttribute('aria-label', s.block.name + ', ' + DP.describeDays(s.block.days) + ' ' + s.block.from + ' to ' + s.block.to);
+        b.onclick = function () { openBlock(s.block); };
+        col.appendChild(b);
+      });
+      g.appendChild(col);
+    }
+    return g;
+  }
+  function renderList(zn, blocks) {
+    var l = el('div', 'list');
+    if (!blocks.length) { l.appendChild(el('div', 'muted', 'No blocks yet.')); }
+    blocks.slice().sort(function (a, b) { return DP.parseTime(a.from) - DP.parseTime(b.from); }).forEach(function (b) {
+      var it = el('button', 'item');
+      var left = el('span', '', b.name + ' - ' + (b.days ? DP.describeDays(b.days) + ' ' : '') + b.from + '-' + b.to);
+      it.appendChild(left); it.appendChild(el('span', 'muted', DP.blockSummary(zn, b)));
+      it.onclick = function () { openBlock(b); };
+      l.appendChild(it);
+    });
+    return l;
+  }
+  function renderView() {
+    var v = $('view'); clear(v);
+    var zn = zone(); if (!zn) { return; }
+    var blocks = DP.scopeBlocks(zn, scope);
+    if (scope === 'week') { v.appendChild(renderWeekGrid(zn)); v.appendChild(renderList(zn, blocks)); return; }
+    var c = el('div', 'card');
+    if (scope === 'holiday') {
+      c.appendChild(el('div', '', 'On the dates below the holiday blocks run instead of the weekly ones. With no holiday blocks, nothing runs on those dates.'));
+      var hl = el('div', 'list');
+      A(state.holidays).forEach(function (d) {
+        var b = el('button', 'item'); b.appendChild(el('span', '', d)); b.appendChild(el('span', 'muted', 'Remove'));
+        b.onclick = function () { saveHolidays(A(state.holidays).filter(function (x) { return x !== d; })); };
+        hl.appendChild(b);
+      });
+      if (!A(state.holidays).length) { hl.appendChild(el('div', 'muted', 'No holiday dates.')); }
+      c.appendChild(hl);
+      var r = el('div', 'row'); var di = el('input'); di.type = 'date'; di.setAttribute('aria-label', 'Holiday date'); di.style.flex = '1';
+      var ab = el('button', '', 'Add date'); ab.onclick = function () { if (di.value) { saveHolidays(A(state.holidays).concat([di.value])); } };
+      r.appendChild(di); r.appendChild(ab); c.appendChild(r);
+      c.appendChild(el('h3', '', 'Holiday blocks'));
+    } else {
+      c.appendChild(el('div', '', 'Blocks here replace the weekly ones for today only (' + state.today + '), then disappear.'));
+      if (blocks.length) { var cb = el('button', 'danger', "Clear today's override"); cb.onclick = function () { withPin(function () { send({ op: 'clear_today', zone: zoneSlot }, 'Cleared.'); }); }; c.appendChild(cb); }
+    }
+    c.appendChild(renderList(zn, blocks));
+    v.appendChild(c);
+  }
+  function render() {
+    if (!state) { return; }
+    if (zoneSlot === null || !zone()) { zoneSlot = A(state.zones).length ? state.zones[0].slot : null; }
+    renderStatus(); renderZones(); renderNowNext(); renderView();
+    $('add').disabled = !zone(); $('skip').disabled = !zone();
+    Array.prototype.forEach.call($('scopes').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.scope === scope)); });
+  }
+
+  // ── PIN and writes ───────────────────────────────────────────────────────
+  function withPin(fn) {
+    if (!state.can_edit) { $('error').textContent = state.halted ? 'The schedule is read-only (licence).' : state.edit_reason === 'locked' ? 'Editing is locked for a minute after wrong PINs.' : 'Editing is off: ask the installer to set a Manager PIN.'; return; }
+    if (pin) { fn(); return; }
+    afterPin = fn; $('pin').value = ''; $('pinError').textContent = ''; $('pinDlg').showModal(); $('pin').focus();
+  }
+  $('pinCancel').onclick = function () { afterPin = null; $('pinDlg').close(); };
+  $('pinOk').onclick = function () {
+    var p = $('pin').value;
+    call('/verify', { pin: p }).then(function (r) {
+      if (r && r.ok) { pin = p; $('pinDlg').close(); var f = afterPin; afterPin = null; if (f) { f(); } }
+      else { $('pinError').textContent = r && r.reason === 'locked' ? 'Too many wrong PINs. Wait a minute.' : 'That PIN is not right.'; }
+    }, function (e) { $('pinError').textContent = e.message; });
+  };
+  function send(body, okMsg, onFail) {
+    body.pin = pin; $('error').textContent = '';
+    return call('/edit', body).then(function (r) {
+      if (r && r.ok) {
+        var w = A(r.warnings); toast((okMsg || 'Saved.') + (w.length ? ' ' + w.join(' ') : ''));
+        return load().then(function () { return true; });
+      }
+      if (r && (r.reason === 'wrong_pin' || r.reason === 'locked')) { pin = ''; }
+      var msg = (r && r.error) || 'Not saved.';
+      if (onFail) { onFail(msg); } else { $('error').textContent = msg; }
+      return false;
+    }, function (e) { (onFail || function (m) { $('error').textContent = m; })(e.message); return false; });
+  }
+  function saveHolidays(dates) { withPin(function () { send({ op: 'set_holidays', dates: dates }, 'Holidays saved.'); }); }
+
+  // ── block dialog ─────────────────────────────────────────────────────────
+  function fillSelect(sel, items, value) {
+    clear(sel); items.forEach(function (it) { var o = el('option', '', it[1]); o.value = it[0]; sel.appendChild(o); }); sel.value = String(value);
+  }
+  var HOURS = [], MINS = [];
+  for (var hi = 0; hi <= 24; hi++) { HOURS.push([String(hi), DP.fmtTime(hi * 60).slice(0, 2)]); }
+  for (var mi = 0; mi < 60; mi += 5) { MINS.push([String(mi), (mi < 10 ? '0' : '') + mi]); }
+  var dlgDays = {}, dlgDisp = 'keep';
+
+  function updateCross() {
+    var from = DP.fmtTime(+$('bFromH').value * 60 + +$('bFromM').value), to = DP.fmtTime(Math.min(1440, +$('bToH').value * 60 + +$('bToM').value));
+    $('crossNote').textContent = DP.crossing(from, to) ? 'This block runs past midnight, into the next day.' : '';
+  }
+  function setDispButtons() {
+    Array.prototype.forEach.call($('bDisp').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.v === dlgDisp)); });
+  }
+  function openDialog(b) {
+    var zn = zone(); if (!zn) { return; }
+    var isNew = !b; var blk = b || { name: '', days: [1, 2, 3, 4, 5], from: '09:00', to: '17:00', displays: 'keep' };
+    editing = { id: b ? b.id : null, isNew: isNew, name: b ? b.name : '' };
+    $('blockTitle').textContent = isNew ? 'New block' : 'Edit block';
+    $('bName').value = blk.name || ''; $('dlgError').textContent = '';
+    $('daysWrap').style.display = scope === 'week' ? '' : 'none';
+    dlgDays = {}; A(blk.days).forEach(function (d) { dlgDays[d] = true; });
+    var dd = $('bDays'); clear(dd);
+    DP.NAMES.forEach(function (n, i) { var bt = el('button', '', n); bt.type = 'button'; bt.setAttribute('aria-pressed', String(!!dlgDays[i + 1])); bt.onclick = function () { dlgDays[i + 1] = !dlgDays[i + 1]; bt.setAttribute('aria-pressed', String(!!dlgDays[i + 1])); }; dd.appendChild(bt); });
+    var f = DP.parseTime(blk.from), t = DP.parseTime(blk.to, true);
+    fillSelect($('bFromH'), HOURS.slice(0, 24), Math.floor(f / 60)); fillSelect($('bFromM'), MINS, f % 60 - f % 5);
+    fillSelect($('bToH'), HOURS, Math.floor(t / 60)); fillSelect($('bToM'), MINS, t % 60 - t % 5);
+    [ 'bFromH', 'bFromM', 'bToH', 'bToM' ].forEach(function (id) { $(id).onchange = updateCross; }); updateCross();
+    var srcs = [['', 'Leave source as it is'], ['off', 'Music off']].concat(A(zn.sources).map(function (s) { return [String(s.id), s.label]; }));
+    fillSelect($('bSource'), srcs, blk.source === undefined || blk.source === null ? '' : String(blk.source));
+    var vol = $('bVol'); vol.min = zn.min; vol.max = zn.max;
+    vol.value = blk.volume !== undefined && blk.volume !== null ? blk.volume : Math.round((zn.min + zn.max) / 2);
+    $('volOut').textContent = vol.value; $('volRange').textContent = 'This zone allows ' + zn.min + ' to ' + zn.max + '.';
+    var hasDisp = A(zn.displays).length > 0; $('dispWrap').style.display = hasDisp ? '' : 'none';
+    var ds = $('bDisp'); clear(ds); dlgDisp = blk.displays || 'keep';
+    [['keep', 'Leave as is'], ['on', 'Turn on'], ['off', 'Turn off']].forEach(function (o) { var bt = el('button', '', o[1]); bt.type = 'button'; bt.dataset.v = o[0]; bt.onclick = function () { dlgDisp = o[0]; setDispButtons(); }; ds.appendChild(bt); });
+    setDispButtons();
+    $('bDelete').style.display = isNew ? 'none' : ''; $('bRun').style.display = isNew ? 'none' : '';
+    $('blockDlg').showModal();
+  }
+  $('bVol').oninput = function () { $('volOut').textContent = this.value; };
+  $('volDown').onclick = function () { var v = $('bVol'); v.value = Math.max(+v.min, +v.value - 1); $('volOut').textContent = v.value; };
+  $('volUp').onclick = function () { var v = $('bVol'); v.value = Math.min(+v.max, +v.value + 1); $('volOut').textContent = v.value; };
+  $('bCancel').onclick = function () { $('blockDlg').close(); };
+  function dlgFail(m) { $('dlgError').textContent = m; }
+  $('bSave').onclick = function () {
+    var days = []; for (var d = 1; d <= 7; d++) { if (dlgDays[d]) { days.push(d); } }
+    var src = $('bSource').value;
+    var spec = { name: $('bName').value, days: days,
+      from: DP.fmtTime(+$('bFromH').value * 60 + +$('bFromM').value),
+      to: DP.fmtTime(Math.min(1440, +$('bToH').value * 60 + +$('bToM').value)),
+      source: src === '' ? null : (src === 'off' ? 'off' : +src), displays: dlgDisp };
+    if (src !== 'off') { spec.volume = +$('bVol').value; }
+    withPin(function () {
+      var body = editing.isNew ? { op: 'add_block', zone: zoneSlot, scope: scope, block: spec } : { op: 'update_block', zone: zoneSlot, scope: scope, id: editing.id, block: spec };
+      send(body, 'Saved.', dlgFail).then(function (ok) { if (ok) { $('blockDlg').close(); } });
+    });
+  };
+  $('bDelete').onclick = function () {
+    if (!confirm('Delete this block?')) { return; }
+    withPin(function () { send({ op: 'delete_block', zone: zoneSlot, scope: scope, id: editing.id }, 'Deleted.', dlgFail).then(function (ok) { if (ok) { $('blockDlg').close(); } }); });
+  };
+  $('bRun').onclick = function () {
+    var name = editing.name;
+    withPin(function () { send({ op: 'run_now', zone: zoneSlot, name: name }, 'Running now.', dlgFail).then(function (ok) { if (ok) { $('blockDlg').close(); } }); });
+  };
+  $('add').onclick = function () { openDialog(null); };
+  $('skip').onclick = function () { withPin(function () { send({ op: 'skip_next', zone: zoneSlot }, 'Next block skipped.'); }); };
+  $('pause').onclick = function () { withPin(function () { send({ op: state.paused ? 'resume' : 'pause' }, state.paused ? 'Resumed.' : 'Paused.'); }); };
+  Array.prototype.forEach.call($('scopes').children, function (b) { b.onclick = function () { scope = b.dataset.scope; render(); }; });
+
+  load();
+  setInterval(function () { if (!document.hidden && !$('blockDlg').open && !$('pinDlg').open) { load(); } }, 30000);
+})();
+</script>
+</body>
+</html>

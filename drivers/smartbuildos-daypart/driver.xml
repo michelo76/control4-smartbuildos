@@ -1,0 +1,186 @@
+<devicedata>
+  <name>SmartBuildOS Daypart Scheduler</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Daypart Scheduler</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <small image_source="c4z">www/icons/device_sm.png</small>
+  <large image_source="c4z">www/icons/device_lg.png</large>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>SCHEDULE_PAUSED</name>
+      <type>BOOL</type>
+      <condition_statement>Schedule is paused</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>paused</true_text>
+      <false_text>running</false_text>
+    </conditional>
+    <conditional><id>2</id><name>ZONE_ACTIVE</name><type>STRING</type><condition_statement>Zone has an active block (type the zone name; = has one, != has none)</condition_statement><description>NAME zone LOGIC STRING has an active block</description></conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>SCHEDULE_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>NEXT_BLOCK</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>EVENT_ZONE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>EVENT_BLOCK</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>CURRENT_BLOCK_1</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>CURRENT_BLOCK_2</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>CURRENT_BLOCK_3</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>CURRENT_BLOCK_4</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3008</id><name>NEXT_BLOCK_1</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3009</id><name>NEXT_BLOCK_2</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3010</id><name>NEXT_BLOCK_3</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3011</id><name>NEXT_BLOCK_4</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Block Started</name><description>A block started in a zone (EVENT_ZONE and EVENT_BLOCK say which)</description></event>
+    <event><id>2</id><name>Block Ended</name><description>A block ended in a zone (EVENT_ZONE and EVENT_BLOCK say which)</description></event>
+    <event><id>3</id><name>Schedule Paused</name><description>The schedule was paused</description></event>
+    <event><id>4</id><name>Schedule Resumed</name><description>The schedule was resumed</description></event>
+    <event><id>5</id><name>Schedule Edited</name><description>Someone changed the schedule from the page</description></event>
+    <event><id>6</id><name>Schedule Halted</name><description>The SmartBuildOS licence halted the schedule: no more block actions, the page stays readable</description></event>
+    <event><id>7</id><name>Schedule Restored</name><description>The schedule is running again after a halt</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Pause Schedule</name><command>PAUSE_SCHEDULE</command></action>
+      <action><name>Resume Schedule</name><command>RESUME_SCHEDULE</command></action>
+      <action><name>Skip Next Block</name><command>SKIP_NEXT_BLOCK</command></action>
+      <action><name>Reload</name><command>RELOAD</command></action>
+      <action><name>Refresh Device Lists</name><command>REFRESH_DEVICE_LISTS</command></action>
+      <action><name>Print Schedule</name><command>PRINT_SCHEDULE</command></action>
+      <action><name>Reset PIN Lock</name><command>RESET_PIN_LOCK</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>RUN_BLOCK_NOW</name>
+        <description>Run the block named BLOCK in zone ZONE right now. It holds until the schedule moves on from what was running.</description>
+        <params>
+          <param><name>ZONE</name><type>STRING</type></param>
+          <param><name>BLOCK</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command><name>PAUSE_SCHEDULE</name><description>Stop all block actions until resumed (the page stays readable)</description></command>
+      <command><name>RESUME_SCHEDULE</name><description>Resume the schedule; the block that should be running is picked up</description></command>
+      <command>
+        <name>SKIP_NEXT_BLOCK</name>
+        <description>Skip the next block that would start in ZONE (empty or ALL: every zone)</description>
+        <params>
+          <param><name>ZONE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command><name>RELOAD</name><description>Re-read the zone properties and device lists and re-check the schedule</description></command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Schedule Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Zones</name><type>STRING</type><default>none set up</default><readonly>true</readonly></property>
+      <property><name>Next Block</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Edit</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>App Data Relay</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Manager PIN</name><type>STRING</type><password>true</password><default></default><description>The PIN staff type on the schedule page before a change is saved. Empty means the page is read-only. Five wrong PINs lock edits for a minute.</description></property>
+      <property><name>Volume Ramp Seconds</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>600</maximum><default>20</default><description>How long the volume takes to move to a block's level when the block starts. 0 sets it at once.</description></property>
+      <property><name>End Behaviour</name><type>LIST</type><items><item>Hold</item><item>Fade Out</item><item>Off</item></items><default>Hold</default><description>What happens when a block ends and no other block follows: Hold leaves everything as it is, Fade Out lowers the volume to nothing and turns the room off, Off turns the room and the zone displays off at once.</description></property>
+      <property><name>Fade Out Seconds</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>600</maximum><default>30</default><description>How long the fade takes when End Behaviour is Fade Out.</description></property>
+      <property><name>Device List Filter</name><type>STRING</type><default></default><description>Optional text. Only devices whose name or room contains it appear in the source and display lists. Empty lists every device.</description></property>
+      <property><name>Zone 1 Name</name><type>STRING</type><default></default><description>The name staff see (for example Dining Room). Empty means this zone is not used.</description></property>
+      <property><name>Zone 1 Room</name><type>DYNAMIC_LIST</type><default>-</default><description>The room this zone controls, as Name · id.</description></property>
+      <property><name>Zone 1 Source 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 1 Source 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 1 Source 3</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 1 Source 4</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 1 Min Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>10</default><description>The lowest volume a block in this zone can use.</description></property>
+      <property><name>Zone 1 Max Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>60</default><description>The highest volume a block in this zone can use. Higher values are set down to this.</description></property>
+      <property><name>Zone 1 Display 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 1 Display 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 2 Name</name><type>STRING</type><default></default><description>The name staff see (for example Dining Room). Empty means this zone is not used.</description></property>
+      <property><name>Zone 2 Room</name><type>DYNAMIC_LIST</type><default>-</default><description>The room this zone controls, as Name · id.</description></property>
+      <property><name>Zone 2 Source 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 2 Source 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 2 Source 3</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 2 Source 4</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 2 Min Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>10</default><description>The lowest volume a block in this zone can use.</description></property>
+      <property><name>Zone 2 Max Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>60</default><description>The highest volume a block in this zone can use. Higher values are set down to this.</description></property>
+      <property><name>Zone 2 Display 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 2 Display 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 3 Name</name><type>STRING</type><default></default><description>The name staff see (for example Dining Room). Empty means this zone is not used.</description></property>
+      <property><name>Zone 3 Room</name><type>DYNAMIC_LIST</type><default>-</default><description>The room this zone controls, as Name · id.</description></property>
+      <property><name>Zone 3 Source 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 3 Source 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 3 Source 3</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 3 Source 4</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 3 Min Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>10</default><description>The lowest volume a block in this zone can use.</description></property>
+      <property><name>Zone 3 Max Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>60</default><description>The highest volume a block in this zone can use. Higher values are set down to this.</description></property>
+      <property><name>Zone 3 Display 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 3 Display 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 4 Name</name><type>STRING</type><default></default><description>The name staff see (for example Dining Room). Empty means this zone is not used.</description></property>
+      <property><name>Zone 4 Room</name><type>DYNAMIC_LIST</type><default>-</default><description>The room this zone controls, as Name · id.</description></property>
+      <property><name>Zone 4 Source 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 4 Source 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 4 Source 3</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 4 Source 4</name><type>DYNAMIC_LIST</type><default>-</default><description>A source staff may pick in this zone, as Name (Room) · id. Staff can choose only from the sources listed here.</description></property>
+      <property><name>Zone 4 Min Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>10</default><description>The lowest volume a block in this zone can use.</description></property>
+      <property><name>Zone 4 Max Volume</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>100</maximum><default>60</default><description>The highest volume a block in this zone can use. Higher values are set down to this.</description></property>
+      <property><name>Zone 4 Display 1</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>Zone 4 Display 2</name><type>DYNAMIC_LIST</type><default>-</default><description>A display that blocks in this zone can switch on or off, as Name (Room) · id.</description></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default><description>Leave on Auto. Set the controller's address only if the schedule tile does not load on a touch screen.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-daypart/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-daypart/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-daypart/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-daypart/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-daypart/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-daypart/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <proxies>
+    <proxy proxybindingid="5001" name="Daypart Scheduler" primary="True" image_source="c4z"
+           large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>
