@@ -1,0 +1,101 @@
+<devicedata>
+  <name>SmartBuildOS MQTT Light</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>MQTT Light</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Light</category>
+  </composer_categories>
+  <conditionals>
+    <conditional><id>1</id><name>BROKER_CONNECTED</name><type>BOOL</type><condition_statement>MQTT broker is connected</condition_statement><description>NAME is STRING</description><true_text>connected</true_text><false_text>not connected</false_text></conditional>
+    <conditional><id>2</id><name>DEVICE_AVAILABLE</name><type>BOOL</type><condition_statement>Device is available (not reported offline)</condition_statement><description>NAME is STRING</description><true_text>available</true_text><false_text>offline</false_text></conditional>
+    <conditional><id>3</id><name>LIGHT_ON</name><type>BOOL</type><condition_statement>MQTT light is on</condition_statement><description>NAME is STRING</description><true_text>on</true_text><false_text>off</false_text></conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Device Available</name><description>The device is reachable again (its availability topic says online)</description></event>
+    <event><id>2</id><name>Device Unavailable</name><description>The device reported itself offline</description></event>
+    <event><id>3</id><name>Command Failed</name><description>A command could not be sent (see Last Result)</description></event>
+    <event><id>4</id><name>Light On</name><description>The light reported on</description></event>
+    <event><id>5</id><name>Light Off</name><description>The light reported off</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Broker</name><command>REFRESH_FROM_BROKER</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Test: Light On</name><command>TEST_ON</command></action>
+      <action><name>Test: Light Off</name><command>TEST_OFF</command></action>
+      <action><name>Test: Light 50%</name><command>TEST_HALF</command></action>
+    </actions>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Broker Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
+      <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
+      <property><name>Device Availability</name><type>STRING</type><default>not reported</default><readonly>true</readonly></property>
+      <property><name>Current State</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Last Message</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Seen</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>State Topic</name><type>STRING</type><default></default><description>The full topic the device publishes its state to, for example zigbee2mqtt/sink_leak. No + or # here: one driver is one device.</description></property>
+      <property><name>State Field</name><type>STRING</type><default>state</default><description>JSON field with ON or OFF. Empty reads the whole payload as one value.</description></property>
+      <property><name>Level Field</name><type>STRING</type><default>brightness</default><description>JSON field with the brightness. Empty if the light only switches.</description></property>
+      <property><name>Level Min</name><type>STRING</type><default>0</default><description>The brightness value that means 0 percent.</description></property>
+      <property><name>Level Max</name><type>STRING</type><default>254</default><description>The brightness value that means 100 percent. Zigbee2MQTT uses 254, many others 255 or 100.</description></property>
+      <property><name>Set Topic</name><type>STRING</type><default></default><description>Where commands are published, for example zigbee2mqtt/lamp/set. Empty makes the light view-only.</description></property>
+      <property><name>On Payload</name><type>STRING</type><default>{"state":"ON"}</default><description>Published for On.</description></property>
+      <property><name>Off Payload</name><type>STRING</type><default>{"state":"OFF"}</default><description>Published for Off (and for a level of 0).</description></property>
+      <property><name>Level Payload</name><type>STRING</type><default>{"brightness":{level}}</default><description>Published for a level. {level} is the number in the device's own range, {percent} is 0 to 100, {seconds} the ramp time in whole seconds.</description></property>
+      <property><name>Availability Topic</name><type>STRING</type><default></default><description>Optional. Zigbee2MQTT publishes online or offline to BASE/DEVICE/availability. When set, the device is reported offline here and in the broker's health.</description></property>
+      <property><name>Availability Field</name><type>STRING</type><default>state</default><description>Where online or offline sits in the availability payload. Empty when the payload is just the word online or offline. Zigbee2MQTT uses state.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="MQTT Light" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">light_v2</proxy>
+  </proxies>
+  <capabilities>
+    <dimmer>True</dimmer>
+    <on_off>True</on_off>
+    <set_level>True</set_level>
+    <ramp_level>True</ramp_level>
+    <level_target>True</level_target>
+    <supports_target>True</supports_target>
+    <min_max>False</min_max>
+    <click_rates>False</click_rates>
+    <hold_rates>False</hold_rates>
+    <cold_start>False</cold_start>
+    <has_leds>False</has_leds>
+    <has_button_events>False</has_button_events>
+    <supports_color>False</supports_color>
+    <supports_default_on>False</supports_default_on>
+    <load_group_support>True</load_group_support>
+    <advanced_scene_support>False</advanced_scene_support>
+    <buttons_are_virtual>True</buttons_are_virtual>
+    <hide_proxy_events>False</hide_proxy_events>
+    <hide_proxy_properties>False</hide_proxy_properties>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Light</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>LIGHT_V2</classname></class></classes>
+    </connection>
+  </connections>
+</devicedata>
