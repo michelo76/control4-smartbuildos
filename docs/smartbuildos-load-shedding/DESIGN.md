@@ -21,7 +21,9 @@ Flight Recorder.
 | Prior state | Read before shedding, saved per load with a snapshot of its definition. Already-off / open / past-setback loads are left alone and not restored. Unknown thermostat state: left alone. |
 | Power back | Hold `Stable Hold Seconds`; an outage inside the hold abandons it (flap counted, nothing restored). |
 | Restore | Reverse order of shedding, tier 3 -> 1, `Tier Delay Seconds` apart. An outage mid-restore stops it; restored tiers are shed again. |
-| Persistence | `ls_state_v1`, arrays only (JSON-safe), written 2 s after any change and on destroy. Outage, hold (resumes with the time already served) and an interrupted restore all resume. |
+| Restore check | A restore is not trusted: the load is read back after `Restore Retry Seconds` (15); not back -> command resent, up to `Restore Retries` (2), then `restore_failed` (Flight Recorder marker, Load Error event). Unreadable state (`restoreConfirmed` returns nil): retries only, ends in `restore_unverified` (log only). Pending checks (`verify`) are persisted and re-armed on boot; a new shed of the slot drops its check. |
+| Manual shed | `SHED_TIER` with no outage starts a `Manual Shed Auto-Restore Minutes` timer (60; 0 = never). It, `RESTORE_ALL` and `SET_OUTAGE` Off all restore it; an outage starting takes it over. Timer re-armed from `manual_at` after a reboot. |
+| Persistence | `ls_state_v1`, arrays only (JSON-safe), written **at once** after any shed, restore, outage or hold change (engine `changed` event with `urgent=true`, see `M.URGENT`) and on destroy; only plain chatter (battery readings) keeps the 2 s debounce. Outage, hold (resumes with the time already served) and an interrupted restore all resume. |
 | Inputs | Sensor or variable by property, or `WATCH_*_VARIABLE` (VARIABLE_SELECTOR gives `"deviceId,variableId"`, saved in `ls_sources_v1`). Only a changed raw value acts, so `SET_OUTAGE` is not undone by the poll. Listener plus a 60 s poll. |
 | Re-shed | Opt in; ignored within 3 s of our own command; at most 5 per load per outage. Navigator cannot be locked; the manual says so. |
 | Licence | `license.enforces()` -> `setReadOnly(true)`: restore everything first, then refuse every command and ignore inputs. Uncertain statuses never halt. On un-halt the input is re-read. |
@@ -41,7 +43,7 @@ adapters use.
 driver file is `smartbuildos-flight-recorder.c4z`, found through
 `C4:GetDevices` (re-looked-up at most every 5 minutes when absent). Quiet when
 absent. No private log. Markers: Outage started, Tier N shed, Tier N restored,
-Outage ended, Power back (restore delayed), Grid flapped, Load re-shed.
+Outage ended, Power back (restore delayed), Grid flapped, Load re-shed, Load restore not confirmed, Manual shed auto-restored.
 
 ## Shared-file notes (nothing edited)
 

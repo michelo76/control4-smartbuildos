@@ -276,7 +276,13 @@ end
 
 local function onEngineEvent(kind, f)
   if kind == "changed" then
-    saveSoon()
+    if f and f.urgent then
+      -- A shed or restore must survive a power cut a moment later: write now.
+      CancelTimer(PERSIST_TIMER)
+      save()
+    else
+      saveSoon()
+    end
     paint()
     return
   end
@@ -312,6 +318,18 @@ local function onEngineEvent(kind, f)
     stamp(string.format("load %s: %s failed", tostring(f.slot), tostring(f.action)))
     log:warn("load %s %s (%s) could not be sent", tostring(f.slot), tostring(f.action), tostring(f.command))
     fire(EVENT_FAILED)
+  elseif kind == "restore_failed" then
+    stamp(string.format("load %s did not come back after %s retries", tostring(f.slot), tostring(f.tries)))
+    record("Load restore not confirmed", string.format("slot %s (%s) still not back after %s retries; check it by hand", tostring(f.slot), tostring(f.name or "?"), tostring(f.tries)))
+    log:error("load %s restore not confirmed after %s retries", tostring(f.slot), tostring(f.tries))
+    fire(EVENT_FAILED)
+  elseif kind == "restore_unverified" then
+    log:info("load %s restore sent %s more time(s); its state cannot be read, so it is unconfirmed", tostring(f.slot), tostring(f.tries))
+  elseif kind == "restore_retry" then
+    log:warn("load %s not back yet, restore sent again (try %s)", tostring(f.slot), tostring(f.try))
+  elseif kind == "manual_auto_restore" then
+    stamp("manual shed auto-restored after " .. tostring(f.minutes) .. " min")
+    record("Manual shed auto-restored", tostring(f.minutes) .. " min")
   elseif kind == "load_shed" and f.skipped then
     log:info("load %s left alone: %s", tostring(f.slot), tostring(f.skipped))
   end
@@ -338,6 +356,9 @@ local function buildConfig()
     stable_hold_s = number("Stable Hold Seconds", 120),
     tier_delay_s = number("Tier Delay Seconds", 30),
     reshed = Properties["Re-shed Loads Turned On"] == "Yes",
+    restore_retries = number("Restore Retries", 2),
+    restore_retry_s = number("Restore Retry Seconds", 15),
+    manual_restore_min = number("Manual Shed Auto-Restore Minutes", 60),
   }
 end
 

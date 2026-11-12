@@ -16,7 +16,7 @@ local E = require("loadshed.engine")
 
 -- Harness: fake clock, timers, devices.
 local function rig(cfg, loadsOverride)
-  local h = { t = 1000, timers = {}, sent = {}, events = {}, devices = {} }
+  local h = { t = 1000, timers = {}, sent = {}, events = {}, devices = {}, changes = {} }
   local function key(k)
     return k
   end
@@ -33,6 +33,8 @@ local function rig(cfg, loadsOverride)
     emit = function(kind, f)
       if kind ~= "changed" then
         h.events[#h.events + 1] = { kind = kind, f = f }
+      else
+        h.changes[#h.changes + 1] = f.urgent == true
       end
     end,
     read = function(load)
@@ -324,6 +326,97 @@ h.e:setOutage(true)
 h.e:setBattery(5)
 h.e:setOutage(false)
 check("zero delays restore in one go", h.e.st.phase == "normal" and h.cmds(101) == "OPEN,CLOSE")
+
+print("[17] a restore lost on the wire is retried, then reported")
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:setOutage(true)
+h.e:setOutage(false)
+check("restore sent once", h.cmds(101) == "OPEN,CLOSE")
+check("record kept until confirmed", h.e.st.verify[1] ~= nil and h.e:snapshot().unconfirmed >= 1)
+h.devices[101] = { known = true, closed = false } -- the CLOSE never arrived
+h.advance(16)
+check("first retry sent after the delay", h.cmds(101) == "OPEN,CLOSE,CLOSE" and h.count("restore_retry") >= 1)
+h.advance(16)
+check("second retry sent", h.cmds(101) == "OPEN,CLOSE,CLOSE,CLOSE")
+h.advance(16)
+check("gave up: no more sends, restore_failed event for slot 1", h.cmds(101) == "OPEN,CLOSE,CLOSE,CLOSE" and h.count("restore_failed") == 1 and h.e.st.verify[1] == nil)
+
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:setOutage(true)
+h.e:setOutage(false)
+h.devices[101] = { known = true, closed = true }
+h.advance(16)
+check("confirmed: no retry, no failure", h.cmds(101) == "OPEN,CLOSE" and h.count("restore_confirmed") >= 1 and h.count("restore_failed") == 0 and h.e.st.verify[1] == nil)
+
+h = rig({ stable_hold_s = 0, tier_delay_s = 0, restore_retries = 1, restore_retry_s = 5 })
+h.e:setOutage(true)
+h.e:setOutage(false)
+h.devices[101] = nil -- state cannot be read
+h.advance(60)
+check("unreadable load: retry only, never reported failed", h.cmds(101) == "OPEN,CLOSE,CLOSE" and h.count("restore_failed") == 0 and h.count("restore_unverified") == 1 and h.e.st.verify[1] == nil)
+
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:setOutage(true)
+h.e:setOutage(false)
+h.devices[101] = { known = true, closed = false }
+local saved = h.e:serialize()
+local h2 = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h2.t = h.t
+h2.devices[101] = { known = true, closed = false }
+h2.e:restore(saved)
+h2.advance(16)
+check("pending confirmation survives a reboot", h2.cmds(101) == "CLOSE")
+
+print("[18] manual shed comes back by itself, or with Restore All / setOutage(false)")
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+check("manual shed", h.e:shedTierNow(1) and h.cmds(101) == "OPEN")
+h.advance(59 * 60)
+check("still shed before the timer", h.cmds(101) == "OPEN")
+h.advance(2 * 60)
+check("auto-restored after 60 min", h.cmds(101) == "OPEN,CLOSE" and h.e.st.phase == "normal" and not h.e:anyShed() and h.count("manual_auto_restore") == 1)
+h = rig({ manual_restore_min = 0, stable_hold_s = 0, tier_delay_s = 0 })
+h.e:shedTierNow(1)
+h.advance(24 * 3600)
+check("0 = never", h.cmds(101) == "OPEN" and h.e:anyShed())
+local okOff, whyOff = h.e:setOutage(false)
+check("setOutage(false) restores a manual shed", okOff and h.cmds(101) == "OPEN,CLOSE" and not h.e:anyShed(), whyOff)
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:shedTierNow(1)
+h.e:restoreAll()
+h.advance(24 * 3600)
+check("Restore All restores it and the timer does not fire later", h.cmds(101) == "OPEN,CLOSE" and h.count("manual_auto_restore") == 0)
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:shedTierNow(1)
+local mid = h.e:serialize()
+local h3 = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h3.t = h.t + 50 * 60
+h3.e:restore(mid)
+h3.advance(11 * 60)
+check("manual timer re-armed after a reboot", h3.cmds(101) == "CLOSE")
+h = rig()
+h.e:setOutage(false)
+check("nothing shed: still 'no outage in progress'", select(2, h.e:setOutage(false)) == "no outage in progress")
+
+print("[19] every shed and restore asks for an immediate save")
+h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
+h.e:setOutage(true)
+local urgent = 0
+for _, u in ipairs(h.changes) do
+  if u then
+    urgent = urgent + 1
+  end
+end
+check("outage + tier shed are urgent", urgent >= 2)
+h.changes = {}
+h.e:setBattery(90)
+check("plain battery chatter is not urgent", #h.changes > 0 and not h.changes[1])
+h.changes = {}
+h.e:setOutage(false)
+local u2 = false
+for _, u in ipairs(h.changes) do
+  u2 = u2 or u
+end
+check("restore is urgent", u2)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

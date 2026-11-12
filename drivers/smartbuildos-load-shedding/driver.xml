@@ -165,6 +165,9 @@
       <property><name>Tier 3 No Data Minutes</name><type>STRING</type><default>45</default><description>Shed tier 3 after this many minutes of outage with no fresh battery reading. 0 = never by time.</description></property>
       <property><name>Stable Hold Seconds</name><type>STRING</type><default>120</default><description>Power must stay back this long before anything is restored.</description></property>
       <property><name>Tier Delay Seconds</name><type>STRING</type><default>30</default><description>Pause between restored tiers, to spread inrush.</description></property>
+      <property><name>Restore Retries</name><type>STRING</type><default>2</default><description>If a load is not back after a restore, send the command again this many times, then raise a Load Error event. A load whose state cannot be read is retried but cannot be confirmed.</description></property>
+      <property><name>Restore Retry Seconds</name><type>STRING</type><default>15</default><description>Wait this long after a restore before checking the load and retrying.</description></property>
+      <property><name>Manual Shed Auto-Restore Minutes</name><type>STRING</type><default>60</default><description>A tier shed by hand (no outage) is put back after this many minutes. 0 = never; Restore All still works.</description></property>
       <property><name>Re-shed Loads Turned On</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Turn a shed load off again if someone switches it on during an outage.</description></property>
       <property><name>Record To Flight Recorder</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
       <property><name>Load 1 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>

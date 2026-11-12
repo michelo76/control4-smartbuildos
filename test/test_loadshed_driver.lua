@@ -321,6 +321,7 @@ sent = {}
 setVarValue(BATT_ID, V_BATT, "10")
 setVarValue(CONTACT_ID, V_CONTACT, "1")
 check("shed through tier 3", TC.TIER_3_SHED())
+check("shed state is on disk at once, no debounce wait", persisted["ls_state_v1"] ~= nil and persisted["ls_state_v1"]:find('"shed_tiers":[1,2,3]', 1, true) ~= nil, persisted["ls_state_v1"])
 advance(3000) -- persist timer
 OnDriverDestroyed()
 clock.timers = {}

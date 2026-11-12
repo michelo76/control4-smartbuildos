@@ -35,6 +35,14 @@ reached leave the driver fully active.
    reverse of the order they were shed, so the heaviest loads come back last.
    If the grid drops during the restore, the restore stops: what is not back
    yet stays shed, and tiers that are back are shed again.
+1. **Check.** A restore command can be lost on the way. After **Restore Retry
+   Seconds** (default 15) the driver reads each restored load back. If it is
+   not back, the command is sent again, up to **Restore Retries** times
+   (default 2). If it still is not back, the driver stops, records "Load
+   restore not confirmed" in the Flight Recorder and fires the *Load Error*
+   event, so check that load by hand. A load whose state the driver cannot
+   read (some relays and thermostats) gets the retries but can never be
+   confirmed or reported as failed. The pending check survives a reboot.
 
 Before a load is shed the driver reads and remembers its state. A light that
 was off, a relay that was already open or a thermostat already at or past its
@@ -83,7 +91,7 @@ changed.
 | --- | --- | --- |
 | `SET_OUTAGE` | `STATE` On / Off | Tells the driver the grid is down or back. Works with or without a sensor; a later sensor change still counts. |
 | `SET_BATTERY` | `PERCENT` | Tells the driver the battery percentage (0 to 100). |
-| `SHED_TIER` | `TIER` 1 / 2 / 3 | Sheds that tier now, outage or not. It stays shed until *Restore All* or the end of an outage. |
+| `SHED_TIER` | `TIER` 1 / 2 / 3 | Sheds that tier now, outage or not. A tier shed with no outage is put back by itself after **Manual Shed Auto-Restore Minutes** (default 60, 0 = never), or earlier by *Restore All* or *Set Outage* Off. |
 | `RESTORE_ALL` | none | Restores every shed load now, tier 3 first, tier delay apart. Skips the stable hold. |
 | `TEST_MODE` | none | Dry run: logs what would shed and restore. Sends nothing. |
 | `WATCH_OUTAGE_VARIABLE` | `VARIABLE`, `WHEN` | Uses the picked variable as the outage input. |

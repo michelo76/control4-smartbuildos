@@ -22,6 +22,15 @@
 ---     shed stays shed, restored tiers are shed again.
 ---   * Everything needed to finish an outage is in serialize(): a reboot
 ---     mid-outage resumes (outage, hold or restore) from that.
+---   * A restore command is not trusted to have arrived. The load is read back
+---     after restore_retry_s; if it is not back, the command is sent again,
+---     up to restore_retries times, then the engine gives up and says so
+---     (restore_failed). A load whose state cannot be read gets the retries
+---     only (restore_unverified at the end). Pending checks survive a reboot.
+---   * A manual tier shed (no outage) is put back by itself after
+---     manual_restore_min minutes (0 = never), by Restore All, or by
+---     setOutage(false).
+---   * Every shed and restore is saved at once (urgent "changed" event).
 ---   * read-only (licence halt): everything already shed is RESTORED first,
 ---     then every public call is refused. A halt never leaves a load shed.
 ---
@@ -41,11 +50,23 @@ M.DEFAULTS = {
   stable_hold_s = 120,
   tier_delay_s = 30,
   reshed = false,
+  restore_retries = 2,
+  restore_retry_s = 15,
+  manual_restore_min = 60,
+}
+
+-- Events after which the driver must write state at once, not debounced.
+M.URGENT = {
+  outage_started = true, tier_shed = true, load_shed = true, load_restored = true,
+  tier_restored = true, restored = true, restore_delayed = true, flap = true,
+  reshed = true, restore_retry = true, restore_confirmed = true, restore_failed = true,
+  restore_unverified = true, manual_auto_restore = true,
 }
 
 M.KINDS = { light = true, relay = true, thermostat = true }
 
 local TIMER_TICK, TIMER_HOLD, TIMER_RESTORE = "ls_tick", "ls_hold", "ls_restore"
+local TIMER_VERIFY, TIMER_MANUAL = "ls_verify", "ls_manual"
 
 local function shallow(t)
   local o = {}
@@ -213,6 +234,28 @@ function M.restoreCommands(load, prior)
   return nil
 end
 
+--- Did a restore take? true / false, or nil when the state cannot be read.
+--- prior = the snapshot taken at shed time, cur = the load's state now.
+function M.restoreConfirmed(load, prior, cur)
+  if type(cur) ~= "table" or not cur.known then
+    return nil
+  end
+  prior = prior or {}
+  if load.kind == "light" then
+    return cur.on == true
+  elseif load.kind == "relay" then
+    return cur.closed == true
+  elseif load.kind == "thermostat" then
+    local mode = lower(prior.hvac_mode)
+    if mode:find("heat", 1, true) and prior.heat_f then
+      return cur.heat_f ~= nil and cur.heat_f == prior.heat_f
+    elseif mode:find("cool", 1, true) and prior.cool_f then
+      return cur.cool_f ~= nil and cur.cool_f == prior.cool_f
+    end
+  end
+  return nil
+end
+
 --- Normalises a load definition. nil + reason when it cannot be used.
 function M.normaliseLoad(raw)
   raw = raw or {}
@@ -259,6 +302,8 @@ local function fresh()
     battery_at = nil,
     resheds = {}, -- [slot] = count this outage
     last_cmd = {}, -- [slot] = time of our last command
+    verify = {}, -- [slot] = { load, prior, tries, due } restore sent, not yet confirmed
+    manual_at = nil, -- when a manual (no outage) shed began
     flaps = 0,
   }
 end
@@ -280,7 +325,7 @@ end
 
 function Engine:emit(kind, f)
   pcall(self.deps.emit, kind, f or {})
-  pcall(self.deps.emit, "changed", {})
+  pcall(self.deps.emit, "changed", { urgent = M.URGENT[kind] == true })
 end
 
 function Engine:setConfig(c)
@@ -294,9 +339,11 @@ function Engine:setConfig(c)
   for _, k in ipairs({ "tier2_pct", "tier3_pct" }) do
     self.cfg[k] = math.max(0, math.min(100, tonumber(self.cfg[k]) or M.DEFAULTS[k]))
   end
-  for _, k in ipairs({ "tier2_nodata_min", "tier3_nodata_min", "stable_hold_s", "tier_delay_s" }) do
+  for _, k in ipairs({ "tier2_nodata_min", "tier3_nodata_min", "stable_hold_s", "tier_delay_s", "manual_restore_min" }) do
     self.cfg[k] = math.max(0, tonumber(self.cfg[k]) or M.DEFAULTS[k])
   end
+  self.cfg.restore_retries = math.floor(math.max(0, math.min(10, tonumber(self.cfg.restore_retries) or M.DEFAULTS.restore_retries)))
+  self.cfg.restore_retry_s = math.max(1, tonumber(self.cfg.restore_retry_s) or M.DEFAULTS.restore_retry_s)
   self.cfg.reshed = self.cfg.reshed == true
 end
 
@@ -337,6 +384,8 @@ function Engine:cancelAll()
   self.deps.cancel(TIMER_TICK)
   self.deps.cancel(TIMER_HOLD)
   self.deps.cancel(TIMER_RESTORE)
+  self.deps.cancel(TIMER_MANUAL)
+  self.st.manual_at = nil
 end
 
 function Engine:onTick()
@@ -357,6 +406,7 @@ function Engine:shedLoad(load, reason)
   end
   local cmds, why = M.shedCommands(load, prior)
   local rec = { load = shallow(load), prior = prior, at = self:now() }
+  self.st.verify[load.slot] = nil
   if not cmds then
     rec.skip = why
   else
@@ -482,6 +532,8 @@ function Engine:setOutage(on, source)
       self:evaluate()
       return true
     end
+    self.deps.cancel(TIMER_MANUAL)
+    s.manual_at = nil
     s.phase = "outage"
     s.outage_since = self:now()
     s.power_back_at = nil
@@ -492,6 +544,12 @@ function Engine:setOutage(on, source)
     return true
   end
   if s.phase ~= "outage" then
+    if s.phase == "normal" and self:anyShed() then
+      -- A manual shed has nothing else to bring it back: this does.
+      self:cancelAll()
+      self:beginRestore()
+      return true, "restoring manual sheds"
+    end
     return true, "no outage in progress"
   end
   self.deps.cancel(TIMER_TICK)
@@ -543,7 +601,92 @@ function Engine:restoreLoad(slot, rec)
       self:emit("load_error", { slot = slot, action = "restore", command = c[1] })
     end
   end
+  self.st.verify[slot] = { load = shallow(rec.load), prior = deepcopy(rec.prior), tries = 0, due = self:now() + self.cfg.restore_retry_s }
+  self:armVerify()
   self:emit("load_restored", { slot = slot })
+end
+
+-- ── restore confirmation ──
+
+function Engine:armVerify()
+  local soon
+  for _, v in pairs(self.st.verify) do
+    if soon == nil or v.due < soon then
+      soon = v.due
+    end
+  end
+  if soon == nil then
+    self.deps.cancel(TIMER_VERIFY)
+    return
+  end
+  self.deps.schedule(TIMER_VERIFY, math.max(1, soon - self:now()) * 1000, function()
+    self:onVerify()
+  end)
+end
+
+function Engine:onVerify()
+  local s = self.st
+  local slots = {}
+  for slot, v in pairs(s.verify) do
+    if v.due <= self:now() then
+      slots[#slots + 1] = slot
+    end
+  end
+  table.sort(slots)
+  for _, slot in ipairs(slots) do
+    local v = s.verify[slot]
+    local okRead, cur = pcall(self.deps.read, v.load)
+    local conf = nil
+    if okRead then
+      conf = M.restoreConfirmed(v.load, v.prior, cur)
+    end
+    if conf == true then
+      s.verify[slot] = nil
+      self:emit("restore_confirmed", { slot = slot })
+    elseif v.tries >= self.cfg.restore_retries then
+      s.verify[slot] = nil
+      if conf == false then
+        self:emit("restore_failed", { slot = slot, name = v.load.name, tries = v.tries })
+      else
+        self:emit("restore_unverified", { slot = slot, tries = v.tries })
+      end
+    else
+      v.tries = v.tries + 1
+      v.due = self:now() + self.cfg.restore_retry_s
+      for _, c in ipairs(M.restoreCommands(v.load, v.prior) or {}) do
+        if self.deps.send(v.load.device_id, c[1], c[2]) == false then
+          self:emit("load_error", { slot = slot, action = "restore", command = c[1] })
+        end
+      end
+      s.last_cmd[slot] = self:now()
+      self:emit("restore_retry", { slot = slot, try = v.tries })
+    end
+  end
+  self:armVerify()
+end
+
+-- ── manual shed auto-restore ──
+
+function Engine:armManual()
+  local s = self.st
+  if self.cfg.manual_restore_min <= 0 or s.manual_at == nil then
+    self.deps.cancel(TIMER_MANUAL)
+    return
+  end
+  local left = s.manual_at + self.cfg.manual_restore_min * 60 - self:now()
+  self.deps.schedule(TIMER_MANUAL, math.max(1, left) * 1000, function()
+    self:onManualElapsed()
+  end)
+end
+
+function Engine:onManualElapsed()
+  if self.st.phase ~= "normal" or not self:anyShed() then
+    self.st.manual_at = nil
+    return
+  end
+  self:emit("manual_auto_restore", { minutes = self.cfg.manual_restore_min })
+  self:cancelAll()
+  self:beginRestore()
 end
 
 function Engine:stepRestore()
@@ -601,6 +744,10 @@ function Engine:shedTierNow(t)
     return false, "tier must be 1, 2 or 3"
   end
   self:shedTier(t, "manual")
+  if self.st.phase == "normal" then
+    self.st.manual_at = self:now()
+    self:armManual()
+  end
   return true
 end
 
@@ -754,6 +901,13 @@ function Engine:snapshot()
     shed = shed,
     flaps = s.flaps,
     queue = deepcopy(s.queue),
+    unconfirmed = (function()
+      local n = 0
+      for _ in pairs(s.verify) do
+        n = n + 1
+      end
+      return n
+    end)(),
     read_only = self.readOnly,
   }
 end
@@ -778,8 +932,17 @@ function Engine:serialize()
   for slot, n in pairs(s.resheds) do
     resheds[#resheds + 1] = { slot = slot, n = n }
   end
+  local verify = {}
+  for _, v in pairs(s.verify) do
+    verify[#verify + 1] = deepcopy(v)
+  end
+  table.sort(verify, function(a, b)
+    return a.load.slot < b.load.slot
+  end)
   return {
     v = M.LIMITS.state_version,
+    verify = verify,
+    manual_at = s.manual_at,
     phase = s.phase,
     outage_since = s.outage_since,
     power_back_at = s.power_back_at,
@@ -829,6 +992,18 @@ function Engine:restore(t)
   for _, v in ipairs(t.queue or {}) do
     s.queue[#s.queue + 1] = tonumber(v)
   end
+  s.manual_at = tonumber(t.manual_at)
+  for _, v in ipairs(t.verify or {}) do
+    if type(v) == "table" and type(v.load) == "table" and tonumber(v.load.slot) then
+      v.load.slot = tonumber(v.load.slot)
+      v.load.device_id = tonumber(v.load.device_id)
+      v.load.tier = tonumber(v.load.tier)
+      v.prior = type(v.prior) == "table" and v.prior or {}
+      v.tries = tonumber(v.tries) or 0
+      v.due = tonumber(v.due) or self:now()
+      s.verify[v.load.slot] = v
+    end
+  end
   for _, r in ipairs(t.resheds or {}) do
     if type(r) == "table" and tonumber(r.slot) then
       s.resheds[tonumber(r.slot)] = tonumber(r.n) or 0
@@ -836,6 +1011,14 @@ function Engine:restore(t)
   end
   self:cancelAll()
   self.st = s
+  s.manual_at = tonumber(t.manual_at)
+  self:armVerify()
+  if phase == "normal" and next(s.shed) ~= nil then
+    s.manual_at = s.manual_at or self:now()
+    self:armManual()
+  else
+    s.manual_at = nil
+  end
   if phase == "outage" then
     self:armTick()
   elseif phase == "holding" then
@@ -855,6 +1038,7 @@ end
 
 function Engine:stop()
   self:cancelAll()
+  self.deps.cancel(TIMER_VERIFY)
 end
 
 return M
