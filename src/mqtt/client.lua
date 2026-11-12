@@ -43,6 +43,7 @@ function M.new(opts)
   self.opts = opts
   self.state = "idle"
   self.parser = Packet.newParser()
+  self.dropSeen = 0
   self.wanted = {} -- filter -> true
   self.wantedOrder = {}
   self.pendingSubs = {} -- packet id -> { filters }
@@ -59,6 +60,7 @@ function M.new(opts)
     dropped_offline = 0,
     reconnects = 0,
     bytes_in = 0,
+    dropped_oversize = 0,
   }
   return self
 end
@@ -142,6 +144,7 @@ end
 --- The socket is connected: say hello.
 function Client:open()
   self.parser = Packet.newParser()
+  self.dropSeen = 0
   self.pingAt = nil
   self.inflight = {}
   self.pendingSubs = {}
@@ -194,6 +197,21 @@ function Client:receive(data)
   self.stats.bytes_in = self.stats.bytes_in + #data
   self.heardAt = self.opts.now()
   local packets, err = self.parser:feed(data)
+  if self.parser.dropped > (self.dropSeen or 0) then
+    local n = self.parser.dropped - (self.dropSeen or 0)
+    self.dropSeen = self.parser.dropped
+    self.stats.dropped_oversize = self.stats.dropped_oversize + n
+    if self.opts.onError then
+      self.opts.onError(
+        string.format(
+          "Discarded %d oversize retained/published message(s) (last one %d bytes; limit %d); the connection stays up",
+          n,
+          self.parser.lastDropped and self.parser.lastDropped.bytes or 0,
+          self.parser.max_packet
+        )
+      )
+    end
+  end
   if #packets > 0 then
     self.pingAt = nil -- any packet proves the broker is alive
   end

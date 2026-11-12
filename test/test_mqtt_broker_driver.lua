@@ -607,6 +607,38 @@ EC.SBOS_ENTITLEMENT({
 EC.PUBLISH_MESSAGE({ TOPIC = "x/y", PAYLOAD = "z" })
 check("an uncertain status never enforces", #take(sock, "publish") == 1)
 
+print("[16b] backoff survives rapid connect/drop cycles and resets after a stable link")
+do
+  -- Seconds from a drop until the driver opens its next socket.
+  local function dropAndTimeRetry()
+    sock:drop()
+    local n, waited = #env.sockets, 0
+    while #env.sockets == n and waited < 200000 do
+      env.advance(500)
+      waited = waited + 500
+    end
+    sock = currentSocket()
+    wireSocket(sock)
+    sock:accept()
+    sock:deliver(Packet.connack(false, 0)) -- accepts the login...
+    env.advance(1000) -- ...then drops us again almost at once
+    return waited
+  end
+  dropAndTimeRetry() -- settle: whatever came before
+  local d = {}
+  for i = 1, 5 do
+    d[i] = dropAndTimeRetry()
+  end
+  check(
+    "waits keep growing across rapid connect/drop cycles",
+    d[2] > d[1] and d[3] > d[2] and d[4] > d[3] and d[5] >= d[4],
+    table.concat(d, ",")
+  )
+  idle(65000) -- the link now stays up past the stability window
+  local after = dropAndTimeRetry()
+  check("after a long-lived link the wait starts over", after < d[3] and after <= 3000, after .. " vs " .. table.concat(d, ","))
+end
+
 print("[17] shutdown")
 OnDriverDestroyed()
 check("destroy sends DISCONNECT and closes the socket", #take(sock, "disconnect") == 1 and sock.closed == true)

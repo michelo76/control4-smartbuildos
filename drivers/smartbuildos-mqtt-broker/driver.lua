@@ -52,6 +52,8 @@ local MODULE_ID = "mqtt_broker"
 
 local TICK_TIMER = "MqttTick"
 local RECONNECT_TIMER = "MqttReconnect"
+local STABLE_TIMER = "MqttStableLink"
+local STABLE_LINK_SECONDS = 60
 local RECONFIGURE_TIMER = "MqttReconfigure"
 local PAINT_TIMER = "MqttPaint"
 local HEALTH_TIMER = "MqttHealth"
@@ -490,7 +492,13 @@ local function onClientState(state, detail, info)
   elseif state == "connected" then
     gConnected = true
     gConnectedAt = now()
-    gBackoff:reset()
+    -- The backoff resets only once the link has stayed up STABLE_LINK_SECONDS;
+    -- a broker that accepts the login then drops us must not reset it.
+    SetTimer(STABLE_TIMER, STABLE_LINK_SECONDS * ONE_SECOND, function()
+      if gClient ~= nil and gClient.state == "connected" then
+        gBackoff:reset()
+      end
+    end)
     gLastError = "none"
     gConnectionText = "Connected"
     syncSubscriptions()
@@ -502,6 +510,7 @@ local function onClientState(state, detail, info)
     -- closed | failed | refused
     local wasConnected = gConnected
     gConnected = false
+    CancelTimer(STABLE_TIMER)
     if state ~= "closed" then
       gLastError = capText(detail, 200)
     elseif gLastError == "none" then
@@ -778,6 +787,7 @@ function OnDriverDestroyed()
   pcall(license.stop)
   CancelTimer(TICK_TIMER)
   CancelTimer(RECONNECT_TIMER)
+  CancelTimer(STABLE_TIMER)
   CancelTimer(RECONFIGURE_TIMER)
   CancelTimer(PAINT_TIMER)
   CancelTimer(HEALTH_TIMER)

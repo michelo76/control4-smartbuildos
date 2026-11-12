@@ -282,8 +282,38 @@ bad("SUBSCRIBE with wrong flags", "80 06 00 01 00 01 61 00", "flags")
 bad("NUL inside a topic", "30 05 00 03 61 00 62", "truncated")
 do
   local parser = P.newParser({ max_packet = 100 })
-  local _, err = parser:feed(P.publish({ topic = "t", payload = string.rep("x", 200) }):sub(1, 5))
-  check("oversize packet refused from its header alone", err ~= nil and err:find("exceeds"), tostring(err))
+  local _, err = parser:feed(unhex("20 C8 01")) -- a CONNACK claiming 200 bytes
+  check("oversize non-PUBLISH packet refused from its header alone", err ~= nil and err:find("exceeds"), tostring(err))
+end
+do
+  -- An oversize PUBLISH is discarded across fragments, never buffered, and the
+  -- next packet still arrives.
+  local parser = P.newParser({ max_packet = 100 })
+  local big = P.publish({ topic = "zigbee2mqtt/bridge/devices", payload = string.rep("x", 300000), retain = true })
+  local got, errs, maxPending = {}, {}, 0
+  for i = 1, #big, 7001 do
+    local pkts, err = parser:feed(big:sub(i, i + 7000))
+    for _, p in ipairs(pkts) do
+      got[#got + 1] = p
+    end
+    errs[#errs + 1] = err
+    maxPending = math.max(maxPending, parser:pending())
+  end
+  check("oversize PUBLISH: no error, nothing delivered", #got == 0 and parser.failed == nil)
+  check("oversize PUBLISH: never buffered", maxPending < 20, maxPending)
+  check("oversize PUBLISH: counted without payload", parser.dropped == 1 and parser.lastDropped.bytes > 300000)
+  local pkts, err = parser:feed(P.publish({ topic = "a/b", payload = "ok" }))
+  check("a normal PUBLISH after it is delivered", err == nil and #pkts == 1 and pkts[1].payload == "ok")
+  -- header split from the body, and the following packet glued to the tail
+  local parser2 = P.newParser({ max_packet = 100 })
+  local pk = P.publish({ topic = "t", payload = string.rep("y", 500) })
+  local out = {}
+  for _, chunk in ipairs({ pk:sub(1, 2), pk:sub(3, 300), pk:sub(301) .. P.pingresp() }) do
+    for _, p in ipairs((parser2:feed(chunk))) do
+      out[#out + 1] = p
+    end
+  end
+  check("oversize PUBLISH then PINGRESP in the same read", #out == 1 and out[1].type == "pingresp")
 end
 do
   -- A good packet before a bad one is still delivered.

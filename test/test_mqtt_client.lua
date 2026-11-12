@@ -258,6 +258,31 @@ do
   check("a SUBACK maps back to its own batch", r.subscribed[1].filter == "t/41")
 end
 
+print("[3b] an oversize retained message does not kill the session")
+do
+  local r = newRig()
+  r.connect()
+  local big = P.publish({
+    topic = "zigbee2mqtt/bridge/devices",
+    payload = string.rep("d", 300 * 1000),
+    retain = true,
+  })
+  for i = 1, #big, 4000 do
+    r.client:receive(big:sub(i, i + 3999))
+  end
+  check("still connected, nothing delivered", r.lastState() == "connected" and #r.messages == 0)
+  r.client:receive(P.publish({ topic = "zigbee2mqtt/lamp", payload = '{"state":"ON"}' }))
+  check("the next normal publish IS delivered", #r.messages == 1 and r.messages[1].topic == "zigbee2mqtt/lamp")
+  check("counted and logged without the payload", r.client.stats.dropped_oversize == 1 and #r.errors == 1)
+  local leaked = false
+  for _, e in ipairs(r.errors) do
+    if tostring(e):find("ddddd", 1, true) then
+      leaked = true
+    end
+  end
+  check("log line carries no payload", not leaked)
+end
+
 print("[4] messages in")
 do
   local r = newRig()

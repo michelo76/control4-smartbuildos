@@ -504,6 +504,10 @@ function M.newParser(opts)
     buf = "",
     max_packet = (opts and opts.max_packet) or M.DEFAULT_MAX_PACKET,
     failed = nil,
+    skip = 0, -- bytes of an oversize PUBLISH still to be discarded
+    dropped = 0, -- oversize PUBLISH packets discarded so far
+    droppedBytes = 0,
+    lastDropped = nil, -- { bytes = n } of the most recent discard (no payload kept)
   }, Parser)
 end
 
@@ -518,6 +522,14 @@ function Parser:feed(data)
   self.buf = self.buf .. (data or "")
   local out, pos, buf = {}, 1, self.buf
   while true do
+    if self.skip > 0 then
+      local take = math.min(self.skip, #buf - pos + 1)
+      pos = pos + take
+      self.skip = self.skip - take
+      if self.skip > 0 then
+        break -- the rest of the oversize packet has not arrived yet
+      end
+    end
     if #buf - pos + 1 < 2 then
       break
     end
@@ -532,23 +544,33 @@ function Parser:feed(data)
       end
       break -- incomplete length bytes: wait for more
     end
-    if remaining > self.max_packet then
+    if remaining > self.max_packet and typeCode == 3 then
+      -- An oversize PUBLISH (a big retained message) is not a protocol
+      -- error: count its bytes off across reads, never buffer them, and carry
+      -- on with the next packet. Only the size is recorded, never the payload.
+      self.dropped = self.dropped + 1
+      self.droppedBytes = self.droppedBytes + remaining
+      self.lastDropped = { bytes = remaining }
+      self.skip = remaining
+      pos = nextPos
+    elseif remaining > self.max_packet then
       self.failed = string.format("packet of %d bytes exceeds the %d byte limit", remaining, self.max_packet)
       self.buf = ""
       return out, self.failed
+    else
+      if #buf - nextPos + 1 < remaining then
+        break -- body incomplete
+      end
+      local body = buf:sub(nextPos, nextPos + remaining - 1)
+      local pkt, err = M.decodeBody(typeCode, flags, body)
+      if pkt == nil then
+        self.failed = err
+        self.buf = ""
+        return out, err
+      end
+      out[#out + 1] = pkt
+      pos = nextPos + remaining
     end
-    if #buf - nextPos + 1 < remaining then
-      break -- body incomplete
-    end
-    local body = buf:sub(nextPos, nextPos + remaining - 1)
-    local pkt, err = M.decodeBody(typeCode, flags, body)
-    if pkt == nil then
-      self.failed = err
-      self.buf = ""
-      return out, err
-    end
-    out[#out + 1] = pkt
-    pos = nextPos + remaining
   end
   self.buf = pos > 1 and buf:sub(pos) or buf
   return out, nil
@@ -561,6 +583,7 @@ end
 
 function Parser:reset()
   self.buf = ""
+  self.skip = 0
   self.failed = nil
 end
 
