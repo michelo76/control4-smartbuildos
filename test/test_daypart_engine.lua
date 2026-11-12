@@ -630,6 +630,27 @@ pStart = E.planStart(
   { roomOn = nil, currentVolume = nil, rampSeconds = 4 }
 )
 check("unknown room state starts from the bottom of the range", pStart[2].params.LEVEL == 10, cmds(pStart))
+-- restart mid-ramp with the room's level not populated yet: no dip to the minimum
+pStart = E.planStart(
+  ZONE,
+  { name = "M", volume = 30 },
+  { roomOn = true, currentVolume = nil, rampSeconds = 100, resume = true, minutesIn = 0 }
+)
+local dipped = false
+for _, st in ipairs(pStart) do
+  if st.command == "SET_VOLUME_LEVEL" and st.params.LEVEL <= 10 then
+    dipped = true
+  end
+end
+check("resume with unknown volume never drops to the zone minimum", not dipped and #pStart >= 1, cmds(pStart))
+check("resume with unknown volume targets the block volume", pStart[#pStart].params.LEVEL == 30, cmds(pStart))
+check("resume with unknown volume sets nothing at 0 s", pStart[1].at > 0, cmds(pStart))
+pStart = E.planStart(
+  ZONE,
+  { name = "M", volume = 30 },
+  { roomOn = true, currentVolume = nil, rampSeconds = 20, resume = true, minutesIn = 5 }
+)
+check("ramp long finished: straight to target", #pStart == 1 and pStart[1].params.LEVEL == 30, cmds(pStart))
 check("no room, no commands", #E.planStart({ room = nil }, { name = "x" }, {}) == 0)
 check("hold does nothing", #E.planEnd(ZONE, "hold", { currentVolume = 30 }) == 0)
 local pEnd = E.planEnd(ZONE, "off", {})

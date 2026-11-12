@@ -435,15 +435,30 @@ function M.planStart(zone, block, ctx)
       -- A room that was off, or whose level we cannot read, is brought up
       -- from the bottom of the dealer's range: never from whatever it last
       -- played at.
-      if ctx.roomOn == false or from == nil then
+      local rampSecs = ctx.rampSeconds or 0
+      local resumeUnknown = ctx.resume == true and from == nil and ctx.roomOn ~= false
+      if resumeUnknown then
+        -- A restart mid-ramp and the room's level is not populated yet: do
+        -- not drop to the bottom of the range (an audible dip). Work out
+        -- where the ramp would be by now and carry on from there. Elapsed is
+        -- known only to the minute, so take the middle of it.
+        local lo = zone.min or 0
+        local elapsed = (tonumber(ctx.minutesIn) or 0) * 60 + 30
+        if rampSecs <= 0 or elapsed >= rampSecs then
+          from, rampSecs = target, 0
+        else
+          from = clampInt(lo + (target - lo) * elapsed / rampSecs, lo, target)
+          rampSecs = rampSecs - elapsed
+        end
+      elseif ctx.roomOn == false or from == nil then
         from = zone.min or 0
       end
-      local ramp = M.rampPlan(from, target, ctx.rampSeconds or 0)
+      local ramp = M.rampPlan(from, target, rampSecs)
       -- Start level first when the level will climb or fall over time, or
       -- when the source change may have brought the room up: never leave the
       -- room at whatever it last played at.
       local gradual = #ramp > 1 or ramp[1].at > 0
-      if gradual and (block.source ~= nil or ctx.roomOn == false or ctx.currentVolume == nil) then
+      if gradual and (block.source ~= nil or ctx.roomOn == false or (ctx.currentVolume == nil and not resumeUnknown)) then
         steps[#steps + 1] =
           { at = 0, device = room, command = "SET_VOLUME_LEVEL", params = { LEVEL = from }, what = "volume" }
       end
@@ -740,6 +755,7 @@ function Engine:reconcile(epoch)
               block = copy(active.block),
               key = active.key,
               resume = true,
+              minutes_in = active.minutesIn,
               scope = active.source,
             }
           end

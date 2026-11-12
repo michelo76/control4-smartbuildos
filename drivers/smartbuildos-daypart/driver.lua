@@ -510,6 +510,7 @@ local function doStart(action)
   local ctx = roomContext(zone.room)
   ctx.rampSeconds = rampSeconds()
   if action.resume then
+    ctx.resume, ctx.minutesIn = true, action.minutes_in
     -- The controller restarted (or the schedule was paused) mid-ramp: carry
     -- on from wherever the room is now, to the same target. No source or
     -- display commands again, no new event.
@@ -1206,6 +1207,13 @@ function OnDriverDestroyed()
 end
 
 -- ─── Properties ─────────────────────────────────────────────────────────────
+
+-- The Manager PIN must never reach the debug log: Handlers print a property's
+-- value on change (and the boot replay does too) unless suppressDebug names
+-- it. Both spellings are listed, as the name is consulted before sanitising.
+OPC.suppressDebug = OPC.suppressDebug or {}
+OPC.suppressDebug["Manager PIN"] = true
+OPC.suppressDebug["Manager_PIN"] = true
 
 function OPC.Log_Level(value)
   log:setLogLevel(value)

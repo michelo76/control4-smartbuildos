@@ -811,6 +811,43 @@ EC.RELOAD()
 check("Reload keeps the schedule", vars["CURRENT_BLOCK_1"] == "Morning")
 check("Reload does not restart the block", firedCount(1) == 0)
 
+print("[14] the Manager PIN never reaches the log, even at the highest level")
+do
+  local SECRET = "73519846"
+  local lines = {}
+  local realPrint, realDebug = print, C4.DebugLog
+  print = function(...)
+    local t = {}
+    for i = 1, select("#", ...) do
+      t[#t + 1] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(t, " ")
+  end
+  C4.DebugLog = function(_, m)
+    lines[#lines + 1] = tostring(m)
+  end
+  Properties["Log Level"] = "5 - Trace"
+  Properties["Manager PIN"] = SECRET
+  local ok, err = pcall(function()
+    loadDriver()
+    OnDriverInit()
+    OnPropertyChanged("Log Level")
+    OnPropertyChanged("Manager PIN")
+    OnDriverLateInit("DIT_ADDING")
+    OnPropertyChanged("Manager PIN")
+  end)
+  print, C4.DebugLog = realPrint, realDebug
+  local leaked = false
+  for _, l in ipairs(lines) do
+    if l:find(SECRET, 1, true) then
+      leaked = true
+    end
+  end
+  check("log-level 5 run completed", ok, err)
+  check("something was logged at level 5", #lines > 0)
+  check("the PIN appears in no log line", not leaked)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
