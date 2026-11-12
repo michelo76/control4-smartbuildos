@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https: controller:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src *; img-src 'self' data:">
+<title>PIN Lock</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#262a33; --text:#e8eaf0; --muted:#8b91a1; --accent:#4f8cff; --warn:#f0a030; --bad:#ff5c5c; --ok:#3ccb7f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { position:sticky; top:0; background:var(--bg); padding:calc(10px + env(safe-area-inset-top)) 14px 8px; border-bottom:1px solid var(--line); z-index:2; }
+  header h1 { margin:0 0 6px; font-size:17px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  header h1 span { font-size:11px; font-weight:500; color:var(--muted); }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted); border-radius:10px; padding:8px 0; font-size:13px; }
+  .tabs button.on { color:var(--text); border-color:var(--accent); }
+  main { padding:10px 14px calc(24px + env(safe-area-inset-bottom)); }
+  input[type=text], input[type=password], input[type=date], input[type=time], input[type=number], select { width:100%; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:10px; padding:10px 12px; font-size:15px; outline:none; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin:8px 0; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .name { font-weight:600; word-break:break-word; }
+  .sub { color:var(--muted); font-size:12px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .btn { border:1px solid var(--line); background:transparent; color:var(--text); border-radius:8px; padding:6px 10px; font-size:12px; }
+  .btn.warn { border-color:var(--warn); color:var(--warn); }
+  .btn.bad { border-color:var(--bad); color:var(--bad); }
+  .big { display:block; width:100%; text-align:left; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:14px; padding:18px 16px; margin:8px 0; font-size:17px; font-weight:600; }
+  .big.locked { color:var(--muted); }
+  .pill { font-size:11px; border:1px solid var(--line); border-radius:999px; padding:1px 7px; color:var(--muted); }
+  .pill.ok { color:var(--ok); border-color:var(--ok); }
+  .pill.bad { color:var(--bad); border-color:var(--bad); }
+  .toast { position:fixed; left:14px; right:14px; bottom:calc(16px + env(safe-area-inset-bottom)); background:#222633; border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:14px; display:none; z-index:6; }
+  .toast.bad { border-color:var(--bad); }
+  .toast.ok { border-color:var(--ok); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; align-items:flex-end; z-index:5; }
+  .sheet { background:var(--card); width:100%; border-radius:14px 14px 0 0; padding:14px 14px calc(20px + env(safe-area-inset-bottom)); max-height:92vh; overflow:auto; }
+  .dots { text-align:center; font-size:30px; letter-spacing:10px; height:44px; margin:6px 0; }
+  .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .pad button { padding:16px 0; font-size:22px; border-radius:14px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  .actions { display:flex; gap:8px; margin-top:12px; }
+  .actions button { flex:1; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:15px; }
+  .actions button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chips label { margin:0; display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:5px 10px; font-size:13px; color:var(--text); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .log { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--muted); margin:3px 0; word-break:break-word; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PIN Lock <span id="mode"></span></h1>
+  <div class="tabs"><button id="tabKeypad" class="on">Actions</button><button id="tabAdmin">Codes</button></div>
+</header>
+<main>
+  <section id="viewKeypad"><div id="actions"><p class="muted">Loading…</p></div></section>
+  <section id="viewAdmin" style="display:none"><div id="admin"></div></section>
+</main>
+<div class="modal" id="padModal"><div class="sheet">
+  <div class="name" id="padTitle"></div>
+  <div class="dots" id="padDots"></div>
+  <div class="pad" id="pad"></div>
+  <div class="actions"><button id="padCancel">Cancel</button><button class="primary" id="padGo">Open</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  // The page holds no secret. A PIN lives in a JS variable only while being
+  // typed, goes in a POST body (never the URL), and is cleared on send.
+  var params = {};
+  String(window.location.search).replace(/^\?/, '').split('&').forEach(function (p) {
+    if (!p) return; var kv = p.split('='); params[decodeURIComponent(kv[0])] = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+  });
+  var base = params.relay || (window.location.protocol.indexOf('http') === 0 ? window.location.origin : '');
+  var token = params.k || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var cfg = null, session = '', adminState = null, pin = '', padAction = null, padMode = '';
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function toast(text, kind) {
+    var t = $('toast'); t.textContent = text; t.className = 'toast ' + (kind || ''); t.style.display = 'block';
+    clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 3200);
+  }
+  function api(method, path, body) {
+    if (!base) return Promise.reject(new Error('no relay address in the page URL'));
+    var url = base + path + '?k=' + encodeURIComponent(token);
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  }
+  function lockText(l) { return 'Locked for ' + (l >= 60 ? Math.ceil(l / 60) + ' min' : l + ' s'); }
+
+  // ── tabs ──
+  function show(view) {
+    $('viewKeypad').style.display = view === 'keypad' ? '' : 'none';
+    $('viewAdmin').style.display = view === 'admin' ? '' : 'none';
+    $('tabKeypad').className = view === 'keypad' ? 'on' : '';
+    $('tabAdmin').className = view === 'admin' ? 'on' : '';
+    if (view === 'admin') renderAdmin(); else loadConfig();
+  }
+  $('tabKeypad').onclick = function () { show('keypad'); };
+  $('tabAdmin').onclick = function () { show('admin'); };
+
+  // ── keypad ──
+  function loadConfig() {
+    api('GET', '/config').then(function (c) {
+      cfg = c; renderActions();
+    }).catch(function (e) { $('actions').innerHTML = ''; $('actions').appendChild(el('p', 'muted', 'Cannot reach the controller: ' + e.message)); });
+  }
+  function renderActions() {
+    var box = $('actions'); box.innerHTML = '';
+    $('mode').textContent = cfg.restricted ? 'licence: owner codes only' : '';
+    if (!cfg.actions.length) { box.appendChild(el('p', 'muted', 'No guarded actions yet. Name them in the driver properties in Composer.')); return; }
+    var pageLock = cfg.locks.page;
+    if (pageLock.locked) box.appendChild(el('p', 'muted', 'This keypad is locked after too many wrong codes. ' + lockText(pageLock.seconds) + '.'));
+    cfg.actions.forEach(function (a) {
+      var b = el('button', 'big' + (pageLock.locked ? ' locked' : ''), a.name);
+      b.onclick = function () { openPad(a, 'unlock'); };
+      box.appendChild(b);
+    });
+  }
+  function dots() { $('padDots').textContent = new Array(pin.length + 1).join('•'); }
+  function openPad(a, mode, title, cb) {
+    padAction = a; padMode = mode; pin = ''; dots();
+    $('padTitle').textContent = title || a.name; $('padGo').textContent = mode === 'unlock' ? 'Open' : 'Continue';
+    $('padModal').style.display = 'flex'; padCb = cb || null;
+  }
+  var padCb = null;
+  function closePad() { $('padModal').style.display = 'none'; pin = ''; dots(); }
+  (function buildPad() {
+    var pad = $('pad');
+    ['1','2','3','4','5','6','7','8','9','⌫','0','C'].forEach(function (k) {
+      var b = el('button', '', k);
+      b.onclick = function () {
+        if (k === '⌫') pin = pin.slice(0, -1); else if (k === 'C') pin = ''; else if (pin.length < 8) pin += k;
+        dots();
+      };
+      pad.appendChild(b);
+    });
+  })();
+  $('padCancel').onclick = closePad;
+  $('padGo').onclick = function () {
+    var typed = pin; closePad();
+    if (padCb) { var cb = padCb; padCb = null; cb(typed); return; }
+    api('POST', '/unlock', { action: padAction.n, pin: typed }).then(function (r) {
+      typed = '';
+      if (r.ok) toast(r.message || 'Done', 'ok');
+      else if (r.locked) { toast(lockText(r.retry_in || 0), 'bad'); loadConfig(); }
+      else toast('Not allowed', 'bad');
+    }).catch(function (e) { toast('Could not reach the controller', 'bad'); });
+  };
+
+  // ── admin ──
+  function renderAdmin() {
+    var box = $('admin'); box.innerHTML = '';
+    if (!cfg) { api('GET', '/config').then(function (c) { cfg = c; renderAdmin(); }); return; }
+    if (cfg.setup_needed) { setupForm(box); return; }
+    if (!session) {
+      box.appendChild(el('p', 'muted', 'Owner PIN needed to manage codes.'));
+      if (cfg.locks.admin.locked) box.appendChild(el('p', 'muted', lockText(cfg.locks.admin.seconds) + '.'));
+      var b = el('button', 'big', 'Sign in with an owner PIN');
+      b.onclick = function () {
+        openPad({ name: 'Owner sign-in' }, 'login', 'Owner PIN', function (typed) {
+          api('POST', '/admin/login', { pin: typed }).then(function (r) {
+            typed = '';
+            if (r.ok) { session = r.session; loadAdmin(); }
+            else toast(r.locked ? lockText(r.retry_in || 0) : 'Not allowed', 'bad');
+          });
+        });
+      };
+      box.appendChild(b);
+      return;
+    }
+    loadAdmin();
+  }
+  function setupForm(box) {
+    box.appendChild(el('p', 'name', 'First owner code'));
+    box.appendChild(el('p', 'muted', 'No owner code exists yet. Create one now: it manages every other code. Anyone who can open this page can do this once, so do it before handing the system over.'));
+    var n = el('input'); n.type = 'text'; n.placeholder = 'Name, e.g. Owner'; n.maxLength = 40;
+    var p = el('input'); p.type = 'password'; p.inputMode = 'numeric'; p.placeholder = '4 to 8 digits'; p.autocomplete = 'off';
+    var go = el('button', 'big', 'Create owner code');
+    go.onclick = function () {
+      api('POST', '/admin/setup', { name: n.value, pin: p.value }).then(function (r) {
+        p.value = '';
+        if (r.ok) { cfg.setup_needed = false; session = r.session || ''; toast('Owner code created', 'ok'); renderAdmin(); }
+        else toast(r.error || 'Refused', 'bad');
+      });
+    };
+    box.appendChild(el('label', '', 'Name')); box.appendChild(n);
+    box.appendChild(el('label', '', 'PIN')); box.appendChild(p); box.appendChild(go);
+  }
+  function loadAdmin() {
+    api('POST', '/admin/state', { session: session }).then(function (r) {
+      if (!r.ok) { session = ''; toast('Signed out', 'bad'); renderAdmin(); return; }
+      adminState = r; drawAdmin();
+    });
+  }
+  function drawAdmin() {
+    var box = $('admin'); box.innerHTML = '';
+    var s = adminState;
+    var top = el('div', 'row');
+    top.appendChild(el('div', 'muted', s.codes.length + ' code(s)' + (s.restricted ? ' - licence restricted: no new access can be added' : '')));
+    var out = el('button', 'btn', 'Sign out'); out.onclick = function () { api('POST', '/admin/logout', { session: session }); session = ''; renderAdmin(); };
+    top.appendChild(out); box.appendChild(top);
+    var add = el('button', 'big', '+ Add a code'); add.onclick = function () { editor(null); }; box.appendChild(add);
+    s.codes.forEach(function (c) {
+      var card = el('div', 'card');
+      var r = el('div', 'row');
+      var left = el('div');
+      left.appendChild(el('div', 'name', c.name));
+      var bits = [c.role, c.state];
+      if (c.has_pin) bits.push('PIN'); if (c.has_seq) bits.push('keypad sequence');
+      if (c.max_uses) bits.push(c.uses + '/' + c.max_uses + ' uses');
+      left.appendChild(el('div', 'sub', bits.join(' · ')));
+      var names = c.role === 'owner' ? 'all actions' : c.actions.map(function (n) { var a = s.actions.filter(function (x) { return x.n === n; })[0]; return a ? a.name : '#' + n; }).join(', ');
+      left.appendChild(el('div', 'sub', names || 'no actions'));
+      r.appendChild(left); card.appendChild(r);
+      var btns = el('div', 'actions');
+      var e = el('button', '', 'Edit'); e.onclick = function () { editor(c); };
+      var t = el('button', '', c.enabled ? 'Disable' : 'Enable'); t.onclick = function () { post(c.enabled ? '/admin/disable' : '/admin/enable', { id: c.id }); };
+      var d = el('button', '', 'Revoke'); d.onclick = function () { if (confirm('Revoke ' + c.name + '? This removes the code.')) post('/admin/revoke', { id: c.id }); };
+      btns.appendChild(e); btns.appendChild(t); btns.appendChild(d); card.appendChild(btns); box.appendChild(card);
+    });
+    box.appendChild(el('label', '', 'Entry points'));
+    ['page', 'keypad', 'admin'].forEach(function (k) {
+      var l = s.locks[k];
+      var row = el('div', 'row'); row.appendChild(el('span', 'sub', k));
+      row.appendChild(el('span', 'pill ' + (l.locked ? 'bad' : 'ok'), l.locked ? lockText(l.seconds) : 'open'));
+      box.appendChild(row);
+    });
+    var clr = el('button', 'btn warn', 'Clear lockouts'); clr.onclick = function () { post('/admin/clear', {}); };
+    box.appendChild(clr);
+    box.appendChild(el('label', '', 'Recent attempts (names only, never PINs)'));
+    if (!s.recent.length) box.appendChild(el('div', 'log', 'none since the last restart'));
+    s.recent.forEach(function (x) {
+      box.appendChild(el('div', 'log', new Date(x.t * 1000).toLocaleTimeString() + '  ' + x.result + '  ' + (x.code || '-') + '  ' + (x.action || '') + '  [' + x.entry + (x.reason ? ', ' + x.reason : '') + ']'));
+    });
+  }
+  function post(path, body) {
+    body.session = session;
+    api('POST', path, body).then(function (r) {
+      if (r.ok) { toast('Saved', 'ok'); loadAdmin(); } else toast(r.error || 'Refused', 'bad');
+    });
+  }
+  function fld(label, node) { var w = el('div'); w.appendChild(el('label', '', label)); w.appendChild(node); return w; }
+  function editor(c) {
+    var s = adminState, box = $('admin'); box.innerHTML = '';
+    var d = c || { name: '', role: 'guest', actions: [], days: [], from: '', to: '', max_uses: '', keypad_action: '' };
+    var name = el('input'); name.type = 'text'; name.maxLength = 40; name.value = d.name;
+    var role = el('select'); ['owner', 'staff', 'vendor', 'guest'].forEach(function (r) { var o = el('option', '', r); o.value = r; if (r === d.role) o.selected = true; role.appendChild(o); });
+    var pinIn = el('input'); pinIn.type = 'password'; pinIn.inputMode = 'numeric'; pinIn.autocomplete = 'off'; pinIn.placeholder = c && c.has_pin ? 'leave empty to keep' : '4 to 8 digits';
+    var seqIn = el('input'); seqIn.type = 'password'; seqIn.autocomplete = 'off'; seqIn.placeholder = c && c.has_seq ? 'leave empty to keep' : 'optional, e.g. 1-3-3-2';
+    box.appendChild(el('p', 'name', c ? 'Edit ' + c.name : 'New code'));
+    box.appendChild(fld('Name', name)); box.appendChild(fld('Role (owner can manage codes and fires every action)', role));
+    box.appendChild(fld('PIN', pinIn)); box.appendChild(fld('Keypad sequence (' + s.sequence_length + ' button ids)', seqIn));
+    var acts = el('div', 'chips'); var boxes = [];
+    s.actions.forEach(function (a) {
+      var l = el('label'); var cb = el('input'); cb.type = 'checkbox'; cb.checked = d.actions.indexOf(a.n) >= 0; cb.value = a.n; boxes.push(cb);
+      l.appendChild(cb); l.appendChild(document.createTextNode(a.name)); acts.appendChild(l);
+    });
+    box.appendChild(fld('May fire', acts));
+    var ka = el('select'); var none = el('option', '', 'first allowed'); none.value = ''; ka.appendChild(none);
+    s.actions.forEach(function (a) { var o = el('option', '', a.name); o.value = a.n; if (d.keypad_action === a.n) o.selected = true; ka.appendChild(o); });
+    box.appendChild(fld('Keypad sequence fires', ka));
+    var days = el('div', 'chips'); var dayBoxes = [];
+    DAYS.forEach(function (n, i) {
+      var l = el('label'); var cb = el('input'); cb.type = 'checkbox'; cb.value = i + 1; cb.checked = !d.days.length || d.days.indexOf(i + 1) >= 0; dayBoxes.push(cb);
+      l.appendChild(cb); l.appendChild(document.createTextNode(n)); days.appendChild(l);
+    });
+    box.appendChild(fld('Days', days));
+    var from = el('input'); from.type = 'time'; from.value = d.from || ''; var to = el('input'); to.type = 'time'; to.value = d.to || '';
+    var g = el('div', 'grid2'); g.appendChild(fld('From (empty = all day)', from)); g.appendChild(fld('To', to)); box.appendChild(g);
+    function ymd(t) { if (!t) return ''; var x = new Date(t * 1000); return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
+    var sd = el('input'); sd.type = 'date'; sd.value = ymd(d.starts); var ed = el('input'); ed.type = 'date'; ed.value = ymd(d.expires);
+    var g2 = el('div', 'grid2'); g2.appendChild(fld('Starts', sd)); g2.appendChild(fld('Expires (end of day)', ed)); box.appendChild(g2);
+    var mu = el('input'); mu.type = 'number'; mu.min = 1; mu.max = 9999; mu.value = d.max_uses || ''; mu.placeholder = 'no limit';
+    box.appendChild(fld('Max uses', mu));
+    var bar = el('div', 'actions'); var cancel = el('button', '', 'Cancel'); cancel.onclick = drawAdmin;
+    var save = el('button', 'primary', 'Save');
+    save.onclick = function () {
+      var doc = {
+        session: session, id: c ? c.id : undefined, name: name.value, role: role.value, pin: pinIn.value, seq: seqIn.value,
+        actions: boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
+        keypad_action: ka.value === '' ? '' : Number(ka.value),
+        days: dayBoxes.every(function (b) { return b.checked; }) ? [] : dayBoxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
+        from: from.value, to: to.value, start_date: sd.value, expiry_date: ed.value, max_uses: mu.value === '' ? '' : Number(mu.value)
+      };
+      api('POST', '/admin/save', doc).then(function (r) {
+        pinIn.value = ''; seqIn.value = ''; doc.pin = ''; doc.seq = '';
+        if (r.ok) { toast('Saved', 'ok'); loadAdmin(); } else toast(r.error || 'Refused', 'bad');
+      });
+    };
+    bar.appendChild(cancel); bar.appendChild(save); box.appendChild(bar);
+  }
+
+  loadConfig();
+  setInterval(function () { if ($('viewKeypad').style.display !== 'none' && $('padModal').style.display !== 'flex') loadConfig(); }, 20000);
+})();
+</script>
+</body>
+</html>
