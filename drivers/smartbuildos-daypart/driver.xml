@@ -65,6 +65,7 @@
       <action><name>Reset PIN Lock</name><command>RESET_PIN_LOCK</command></action>
       <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
       <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>Print Page Link</name><command>PRINT_PAGE_LINK</command></action>
     </actions>
     <commands>
       <command>

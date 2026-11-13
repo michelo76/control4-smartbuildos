@@ -39,6 +39,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local appfile = require("lib.appfile")
+local pagedata = require("commissioning.page")
 local RelayHost = require("lib.relayhost")
 local Engine = require("commissioning.engine")
 local Actuate = require("commissioning.actuate")
@@ -71,6 +73,8 @@ local gRelayPort = nil
 local gRelayToken = nil
 local gRelayBuffers = {}
 local gAppHtml = nil
+local gAppHtmlReported = 0
+local gAppHtmlWhy = ""
 local gHost = nil
 local gRecorderId = nil
 local gPendingPush = nil -- run id awaiting the Agent's ack
@@ -262,10 +266,7 @@ local function paint()
   local c = gEngine:counts()
   local status = runStatus()
   UpdateProperty("Run Status", status)
-  UpdateProperty(
-    "Test List",
-    string.format("%d item(s) in %d room(s)", #gEngine.items, #gEngine:rooms())
-  )
+  UpdateProperty("Test List", string.format("%d item(s) in %d room(s)", #gEngine.items, #gEngine:rooms()))
   UpdateProperty(
     "Run Summary",
     c.total == 0 and "no run yet"
@@ -339,7 +340,13 @@ local function onEngineEvent(kind, f)
     save()
     recordHistory(
       "Commissioning run signed off",
-      string.format("%d passed, %d failed, %d skipped, by %s", c.passed, c.failed, c.skipped, tostring(f.record.signed_off_by))
+      string.format(
+        "%d passed, %d failed, %d skipped, by %s",
+        c.passed,
+        c.failed,
+        c.skipped,
+        tostring(f.record.signed_off_by)
+      )
     )
     pushResult()
     fire(EVENT_RUN_COMPLETED)
@@ -451,7 +458,11 @@ local function refreshPickers()
   local joined = table.concat(labels, ",")
   pcall(function()
     C4:UpdatePropertyList("Add Item", joined == "" and "-" or ("-," .. joined), "-")
-    C4:UpdatePropertyList("AV Test Source", joined == "" and "-" or ("-," .. joined), Properties["AV Test Source"] or "-")
+    C4:UpdatePropertyList(
+      "AV Test Source",
+      joined == "" and "-" or ("-," .. joined),
+      Properties["AV Test Source"] or "-"
+    )
   end)
   return labels
 end
@@ -523,12 +534,28 @@ local function appHtml()
   if gAppHtml ~= nil then
     return gAppHtml
   end
-  local ok, html = pcall(function()
-    C4:FileSetDir("C4Z_ROOT", C4Z_NAME)
-    return FileRead("www/app/index.html")
-  end)
-  if ok and type(html) == "string" and #html > 512 then
+  -- The page is compiled into the driver (tools/embed-pages.lua): OS 4.3
+  -- refuses a driver read access to its own c4z files.
+  if type(pagedata) == "string" and #pagedata >= 512 then
+    gAppHtml = pagedata
+    gAppHtmlWhy = "embedded in the driver"
+    return gAppHtml
+  end
+  local html, report = appfile.read(C4Z_NAME, "app/index.html", C4, 512)
+  gAppHtmlWhy = report or ""
+  if html ~= nil then
     gAppHtml = html
+  end
+  if html == nil then
+    -- The page cannot be served: say so (at most once a minute) and say why.
+    local now = os.time()
+    if now - gAppHtmlReported >= 60 then
+      gAppHtmlReported = now
+      log:warn("Page file not found: %s", report)
+    end
+  elseif gAppHtmlReported >= 0 then
+    gAppHtmlReported = -1
+    log:info("Page file: %s", report)
   end
   return gAppHtml
 end
@@ -541,12 +568,21 @@ local function stateDoc()
   for _, r in ipairs(run and run.results or {}) do
     byKey[r.key] = r
   end
+  -- Two devices in one room can carry the same name (bench, 13 Nov: two
+  -- "Living" lights): the page shows the device id on both so the technician
+  -- can tell them apart. The record keeps the plain name and the id.
+  local seen = {}
+  for _, it in ipairs(gEngine.items) do
+    local k = tostring(it.room) .. "\0" .. tostring(it.name)
+    seen[k] = (seen[k] or 0) + 1
+  end
   for _, it in ipairs(gEngine.items) do
     local r = byKey[it.key]
     if run == nil or r ~= nil then
+      local dup = seen[tostring(it.room) .. "\0" .. tostring(it.name)] > 1
       items[#items + 1] = {
         key = it.key,
-        name = it.name,
+        name = dup and (tostring(it.name) .. " (#" .. tostring(it.key):match("(%d+)$") .. ")") or it.name,
         room = it.room,
         kind = it.kind,
         origin = it.origin,
@@ -595,7 +631,8 @@ local PAGE_ACTIONS = {
     return run("Start Room", function()
       rebuildList()
       if not gEngine:active() then
-        local ok, why = gEngine:startRun({ scope = doc.room, technician = doc.technician or Properties["Technician Name"] })
+        local ok, why =
+          gEngine:startRun({ scope = doc.room, technician = doc.technician or Properties["Technician Name"] })
         if not ok then
           return ok, why
         end
@@ -629,6 +666,9 @@ local PAGE_ACTIONS = {
 
 local relayProvider = {
   appHtml = appHtml,
+  appWhy = function()
+    return gAppHtmlWhy
+  end,
   state = function()
     return JSON:encode(stateDoc())
   end,
@@ -902,6 +942,11 @@ function EC.REGISTER_NOW()
   license.register()
 end
 
+function EC.PRINT_PAGE_LINK()
+  -- Printed, not logged: the dealer asked for it, and the link carries the access token.
+  log:print("Page link: %s", pageUrl())
+end
+
 function EC.REFRESH_STATUS()
   paint()
 end
@@ -939,7 +984,13 @@ local function printList()
       room = it.room
       log:print("  %s", room)
     end
-    log:print("    %-8s %-32s id %d%s", Engine.KIND_LABEL[it.kind], it.name, it.device_id, it.origin == "manual" and "  (added by hand)" or "")
+    log:print(
+      "    %-8s %-32s id %d%s",
+      Engine.KIND_LABEL[it.kind],
+      it.name,
+      it.device_id,
+      it.origin == "manual" and "  (added by hand)" or ""
+    )
   end
 end
 

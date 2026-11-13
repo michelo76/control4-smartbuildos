@@ -114,6 +114,10 @@ preprocess: ## Run preprocessor for all distributions
 
 # ─── Squishy ──────────────────────────────────────────────────────────────────
 
+.PHONY: embed-pages
+embed-pages: ## Compile each WebView page into its driver's page module
+	luajit tools/embed-pages.lua
+
 .PHONY: gen-squishy
 gen-squishy: ## Auto-generate squishy files from .c4zproj
 	@for build in $(DISTRIBUTIONS); do \
@@ -236,7 +240,7 @@ test: ## Run the Lua test suite (test/test_*.lua)
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
-build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip install-local ## Full build
+build: check-deps clean-build fmt embed-pages preprocess gen-squishy update-xml docs package zip install-local ## Full build
 
 # ─── Install to Composer ──────────────────────────────────────────────────────
 #
@@ -264,7 +268,7 @@ install-local: ## Copy built .c4z into the Composer Drivers folder
 		fi; \
 	done
 
-build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package install-local ## Build without docs
+build-nodocs: check-deps clean-build fmt embed-pages preprocess gen-squishy update-xml package install-local ## Build without docs
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 

@@ -49,6 +49,20 @@ end
 --- Sensors first: a "lightsensor" or a "contact" must not become a light.
 --- @param driverFile string|nil
 --- @return string|nil kind light|shade|av|sensor
+--- Empty tables encode as JSON arrays; a record should say nothing rather than `[]`.
+function M.compactReadback(rb)
+  if type(rb) ~= "table" then
+    return nil
+  end
+  local out = {}
+  for k, v in pairs(rb) do
+    if type(v) ~= "table" or next(v) ~= nil then
+      out[k] = v
+    end
+  end
+  return next(out) ~= nil and out or nil
+end
+
 function M.classify(driverFile)
   local f = tostring(driverFile or ""):lower():gsub("%.c4[iz]$", "")
   if f == "" then
@@ -701,7 +715,7 @@ function Engine:record(run)
       attempts = r.attempts,
       tested_at = r.tested_at and isoUtc(r.tested_at) or nil,
       judged_at = r.judged_at and isoUtc(r.judged_at) or nil,
-      readback = r.readback,
+      readback = M.compactReadback(r.readback),
       reported = r.reported,
       detail = r.detail,
       auto = r.auto,

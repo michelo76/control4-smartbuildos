@@ -24,6 +24,20 @@ local function json(status, body)
   return { status = status, contentType = "application/json", body = body }
 end
 
+--- The 503 for a page that cannot be read says why (paths tried, no secrets),
+--- so a controller can be asked instead of guessed at.
+local function appFailure(provider, ok, html)
+  local why = ""
+  if not ok then
+    why = tostring(html)
+  elseif type(provider.appWhy) == "function" then
+    local good, w = pcall(provider.appWhy)
+    why = good and tostring(w or "") or ""
+  end
+  why = why:gsub('[%c"\\]', " "):sub(1, 700)
+  return json("503 Service Unavailable", '{"ok":false,"error":"app not loadable","why":"' .. why .. '"}')
+end
+
 local GATE_REASONS = { pin_not_configured = true, locked = true, wrong_pin = true, unlicensed = true }
 
 --- provider = {
@@ -46,7 +60,7 @@ function M.route(req, token, provider)
   if req.path == "/app" and req.method == "GET" then
     local ok, html = pcall(provider.appHtml)
     if not ok or type(html) ~= "string" or html == "" then
-      return json("503 Service Unavailable", '{"ok":false,"error":"app not loadable"}')
+      return appFailure(provider, ok, html)
     end
     return { status = "200 OK", contentType = "text/html; charset=utf-8", body = html }
   end

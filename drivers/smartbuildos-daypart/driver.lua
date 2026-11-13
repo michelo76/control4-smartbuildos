@@ -44,6 +44,8 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local appfile = require("lib.appfile")
+local pagedata = require("daypart.page")
 local RelayHost = require("lib.relayhost")
 local Engine = require("daypart.engine")
 local Relay = require("daypart.relay")
@@ -90,6 +92,8 @@ local gRelayPort = nil
 local gRelayToken = nil
 local gRelayBuffers = {}
 local gAppHtml = nil
+local gAppHtmlReported = 0
+local gAppHtmlWhy = ""
 local gPublishedUrl = nil
 local gLastError = "none"
 
@@ -938,18 +942,37 @@ local function appHtml()
   if gAppHtml ~= nil then
     return gAppHtml
   end
-  local ok, html = pcall(function()
-    C4:FileSetDir("C4Z_ROOT", C4Z_NAME)
-    return FileRead("www/app/index.html")
-  end)
-  if ok and type(html) == "string" and #html > 512 then
+  -- The page is compiled into the driver (tools/embed-pages.lua): OS 4.3
+  -- refuses a driver read access to its own c4z files.
+  if type(pagedata) == "string" and #pagedata >= 512 then
+    gAppHtml = pagedata
+    gAppHtmlWhy = "embedded in the driver"
+    return gAppHtml
+  end
+  local html, report = appfile.read(C4Z_NAME, "app/index.html", C4, 512)
+  gAppHtmlWhy = report or ""
+  if html ~= nil then
     gAppHtml = html
+  end
+  if html == nil then
+    -- The page cannot be served: say so (at most once a minute) and say why.
+    local now = os.time()
+    if now - gAppHtmlReported >= 60 then
+      gAppHtmlReported = now
+      log:warn("Page file not found: %s", report)
+    end
+  elseif gAppHtmlReported >= 0 then
+    gAppHtmlReported = -1
+    log:info("Page file: %s", report)
   end
   return gAppHtml
 end
 
 local relayProvider = {
   appHtml = appHtml,
+  appWhy = function()
+    return gAppHtmlWhy
+  end,
   state = function()
     return stateDocument()
   end,
@@ -1274,6 +1297,11 @@ end
 
 function EC.REGISTER_NOW()
   license.register()
+end
+
+function EC.PRINT_PAGE_LINK()
+  -- Printed, not logged: the dealer asked for it, and the link carries the access token.
+  log:print("Page link: %s", desiredWebViewUrl())
 end
 
 function EC.REFRESH_STATUS()
