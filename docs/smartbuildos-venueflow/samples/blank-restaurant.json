@@ -65,7 +65,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": true,
+      "sourceControl": true,
       "sources": "all",
+      "studio": false,
       "venueStatus": true,
       "viewAlerts": true,
       "zones": "all"
@@ -87,7 +89,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": false,
+      "sourceControl": false,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": "all"
@@ -109,7 +113,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": false,
+      "sourceControl": true,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": "all"

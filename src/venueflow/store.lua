@@ -122,6 +122,23 @@ function Store:history()
   return out
 end
 
+--- One earlier version with its configuration, or nil.
+function Store:version(versionId)
+  local h = self:_read("history")
+  for _, v in ipairs(h and h.versions or {}) do
+    if v.versionId == versionId then
+      return {
+        config = U.copy(v.config),
+        versionId = v.versionId,
+        publishedAt = v.publishedAt,
+        note = v.note,
+        by = v.by,
+      }
+    end
+  end
+  return nil
+end
+
 function Store:_nextVersionId()
   local p = self:_read("published")
   local n = 0

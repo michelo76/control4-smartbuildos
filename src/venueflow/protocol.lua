@@ -35,7 +35,9 @@ M.MAX_REQUEST_BYTES = 4 * 1024 * 1024
 --- Field kinds: s string, n number, b boolean, t table (object), l list of ids,
 --- any. `?` after the kind makes it optional.
 --- scope: public (no identity needed), operator (a profile or tile identity),
---- installer (an Installer Studio session).
+--- studio (an Installer Studio session, or a PIN session of a profile that
+--- holds the Venue Studio permission; core.lua narrows what the second may
+--- change), installer (an Installer Studio session only).
 M.COMMANDS = {
   -- public
   PING = { scope = "public", fields = {} },
@@ -66,23 +68,27 @@ M.COMMANDS = {
   QUERY_STATUS = { scope = "operator", fields = { displayIds = "l?" } },
   ALERT_DISMISS = { scope = "operator", fields = { alertId = "s" } },
   IMAGE_GET = { scope = "operator", fields = { key = "s" } },
+  -- Basic source controls (sourcecontrol.lua): a key from a fixed vocabulary,
+  -- never a Control4 command name.
+  SOURCE_KEY = { scope = "operator", fields = { sourceId = "s", key = "s" } },
+  SOURCE_TUNE = { scope = "operator", fields = { sourceId = "s", favoriteId = "s?", channel = "s?" } },
   OPERATION_GET = { scope = "operator", fields = { operationId = "s" } },
   -- installer
-  STUDIO_BOOTSTRAP = { scope = "installer", fields = {} },
-  DRAFT_GET = { scope = "installer", fields = {} },
-  DRAFT_SAVE = { scope = "installer", fields = { config = "t", baseRevision = "n?" } },
-  DRAFT_VALIDATE = { scope = "installer", fields = {} },
-  DRAFT_DISCARD = { scope = "installer", fields = { confirm = "b?" } },
+  STUDIO_BOOTSTRAP = { scope = "studio", fields = {} },
+  DRAFT_GET = { scope = "studio", fields = {} },
+  DRAFT_SAVE = { scope = "studio", fields = { config = "t", baseRevision = "n?" } },
+  DRAFT_VALIDATE = { scope = "studio", fields = {} },
+  DRAFT_DISCARD = { scope = "studio", fields = { confirm = "b?" } },
   TEMPLATE_APPLY = {
     scope = "installer",
     fields = { venueType = "s", name = "s?", sample = "b?", confirm = "b?" },
   },
-  PROFILE_PIN_SET = { scope = "installer", fields = { profileId = "s", pin = "s?", baseRevision = "n?" } },
+  PROFILE_PIN_SET = { scope = "studio", fields = { profileId = "s", pin = "s?", baseRevision = "n?" } },
   IMAGE_PUT = { scope = "installer", fields = { dataUrl = "s" }, large = true },
   -- One id per acknowledged warning: a large unmapped venue has many.
-  PUBLISH = { scope = "installer", fields = { acknowledged = "l?", note = "s?" }, maxList = 4000, maxItem = 200 },
-  VERSIONS = { scope = "installer", fields = {} },
-  ROLLBACK = { scope = "installer", fields = { versionId = "s", confirm = "b?" } },
+  PUBLISH = { scope = "studio", fields = { acknowledged = "l?", note = "s?" }, maxList = 4000, maxItem = 200 },
+  VERSIONS = { scope = "studio", fields = {} },
+  ROLLBACK = { scope = "studio", fields = { versionId = "s", confirm = "b?" } },
   BACKUP_EXPORT = { scope = "installer", fields = {} },
   BACKUP_RESTORE = { scope = "installer", fields = { backup = "t", which = "s?", confirm = "b?" }, large = true },
   DISCOVER = { scope = "installer", fields = {} },
@@ -92,15 +98,15 @@ M.COMMANDS = {
     enum = { test = { "power_on", "power_off", "source", "route", "status" } },
   },
   TEST_RESULT = { scope = "installer", fields = { testId = "s" } },
-  PROGRAM_VALIDATE = { scope = "installer", fields = { program = "t", condition = "t?", trigger = "t?" } },
-  PROGRAM_DRY_RUN = { scope = "installer", fields = { program = "t", condition = "t?", name = "s?" } },
+  PROGRAM_VALIDATE = { scope = "studio", fields = { program = "t", condition = "t?", trigger = "t?" } },
+  PROGRAM_DRY_RUN = { scope = "studio", fields = { program = "t", condition = "t?", name = "s?" } },
   PROGRAM_EXECUTE = {
     scope = "installer",
     fields = { program = "t", condition = "t?", name = "s?", confirm = "b?", refKind = "s?", refId = "s?" },
     enum = { refKind = { "scene", "rule" } },
   },
   EXECUTION_CANCEL = { scope = "installer", fields = { executionId = "s" } },
-  EXECUTIONS = { scope = "installer", fields = {} },
+  EXECUTIONS = { scope = "studio", fields = {} },
   DIAG_GET = { scope = "installer", fields = { limit = "n?", level = "s?", category = "s?", sinceSeq = "n?" } },
   DIAG_CLEAR = { scope = "installer", fields = {} },
   LICENSE_GET = { scope = "installer", fields = {} },

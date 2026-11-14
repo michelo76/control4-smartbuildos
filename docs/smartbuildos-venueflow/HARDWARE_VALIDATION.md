@@ -2,8 +2,10 @@
 
 **Status: started 14 November 2026.** On the bench controller H1 passed, the
 laptop part of H2 passed, and H3 passed including a driver restart (see
-Results). The bench now runs build `20261114.191046`, which carries the
-fixes for the three defects found. Still to do: H2 on Navigators, the H3
+Results). The bench runs build `20261114.191046`, which carries the
+fixes for the three defects found. Build `20261114.230413` (the Venue Studio for
+the client, the channel label, source controls, Remote Management) is newer and **has not
+been on a controller**: see "Not yet run for build 20261114.230413" below. Still to do: H2 on Navigators, the H3
 network drop and a restart of the controller itself, H4 to H10. Everything
 so far was in Simulation: nothing has been sent to real equipment. Until H1
 to H9 pass, the build is "simulation verified", not production ready.
@@ -255,3 +257,19 @@ bench system again after the reconnect. Besides the rows marked "Second
 session" above: a route to a display outside the Bartender profile was
 refused with `VF_FORBIDDEN` on the controller, and the Studio page served by
 the new build is 539,888 bytes, identical in size to the built page.
+
+## Not yet run for build 20261114.230413
+
+Everything in this section is simulation verified only (desktop browser and
+test suites). None of it has run on a controller.
+
+| Check | What to do | Status |
+| --- | --- | --- |
+| Venue Studio on a touch screen | On a T4, sign in as a profile that holds the Venue Studio permission, open the profile menu, choose Venue Studio. It must open in the same view with no second sign-in, be usable by touch, and "Back to control" must return | Not run |
+| Venue Studio in the Control4 app | The same on a phone and a tablet | Not run |
+| Client limits on the controller | Signed in as the client, change a scene and publish; confirm the version records the profile. From a laptop, send a hand-made `DRAFT_SAVE` that changes a display: it must be refused | Not run |
+| Source controls reach a cable or satellite box | **Live mode, one real box.** Give a profile "Use source controls", open the source's remote and press CH +, CH -, each digit, Enter and Last. Watch the screen. Then a favourite ("206"): all digits must land, in order. If a digit is dropped, the 350 ms spacing is too short for that box | Not run. **The least certain item in this build**: sending these commands from another driver to the source's device is not documented |
+| Source controls, other kinds | The same for a streaming box (arrows, OK, play, pause) and a media player | Not run |
+| One box, many screens | Route one box to three displays, press CH +: all three change. The remote says how many screens are showing it | Not run |
+| Remote Management, registration | Set the property to Draft only. Remote Management Status must reach "On - draft only" once the Agent answers | Not run. Needs an Agent build that knows the `venueflow` module |
+| Remote Management, end to end | From smartbuildos.io: read the configuration, save a draft, publish, roll back | Not run. **Cannot be run yet: the pages and the server side do not exist** (SMARTBUILDOS_INTEGRATION.md) |

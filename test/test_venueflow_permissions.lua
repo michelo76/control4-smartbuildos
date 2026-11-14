@@ -168,21 +168,21 @@ eq(
   "VF_UNAUTHENTICATED"
 )
 eq("unauthenticated publish", env.send("PUBLISH", {}, NONE).errorCode, "VF_UNAUTHENTICATED")
+-- The sample's manager holds the Venue Studio permission (a client session:
+-- test_venueflow_clientstudio.lua covers what it may and may not change, and
+-- a staff session WITHOUT the permission). Installer-only commands stay shut.
 eq(
-  "a staff session cannot publish",
-  env.send("PUBLISH", {}, { session = (env.login("manager", "2580")) }).errorCode,
-  "VF_UNAUTHENTICATED"
-)
-eq(
-  "a staff session cannot read the draft",
-  env.send("DRAFT_GET", {}, { session = (env.login("manager", "2580")) }).errorCode,
-  "VF_UNAUTHENTICATED"
-)
-eq(
-  "a staff session cannot inject simulator faults",
+  "a client session is still refused installer-only commands",
   env.send("SIM_FAULT", { targetId = 1101, fault = "offline" }, { session = (env.login("manager", "2580")) }).errorCode,
-  "VF_UNAUTHENTICATED"
+  "VF_FORBIDDEN"
 )
+eq(
+  "...backup export included",
+  env.send("BACKUP_EXPORT", {}, { session = (env.login("manager", "2580")) }).errorCode,
+  "VF_FORBIDDEN"
+)
+eq("a tile's default profile cannot read the draft", env.send("DRAFT_GET", {}, TILE).errorCode, "VF_UNAUTHENTICATED")
+eq("...or publish", env.send("PUBLISH", {}, TILE).errorCode, "VF_UNAUTHENTICATED")
 
 -- ── PIN sign-in ─────────────────────────────────────────────────────────────
 print("PIN sign-in")

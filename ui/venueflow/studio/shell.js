@@ -26,7 +26,27 @@ var Studio = (function () {
   /* def = { id, title, icon, group: 'Setup'|'Venue'|'Automation'|'Access'|'System', order,
             render(container, params), dispose?(), badge?() -> string|number|null } */
   S.register = function (def) { sections.push(def); };
-  var GROUPS = ['Setup', 'Venue', 'Automation', 'Access', 'System'];
+  var GROUPS = ['Your venue', 'Setup', 'Venue', 'Automation', 'Access', 'System'];
+
+  /* ── who is signed in ────────────────────────────────────────────────────
+     'installer' (the Installer Passcode) sees everything. 'client' is a staff
+     profile that holds the Venue Studio permission and signed in with its PIN:
+     it sees the sections below. This list is a convenience; the DRIVER refuses
+     a client's change to anything else (src/venueflow/clientscope.lua). */
+  var CLIENT_SECTIONS = ['home', 'channels', 'presets', 'scenes', 'scheduling', 'profiles', 'publish'];
+  S.role = function () { return S.boot && S.boot.role === 'client' ? 'client' : 'installer'; };
+  S.isClient = function () { return S.role() === 'client'; };
+  S.clientStanding = function () { return (S.boot && S.boot.client) || null; };
+  function allowed(def) { return S.isClient() ? CLIENT_SECTIONS.indexOf(def.id) >= 0 : !def.clientOnly; }
+  function landing() {
+    if (S.isClient()) return 'home';
+    return config ? 'overview' : 'wizard';
+  }
+  function startAt() {
+    var want = (location.hash || '').slice(1);
+    var def = sections.filter(function (x) { return x.id === want; })[0];
+    return def && allowed(def) ? want : landing();
+  }
 
   /* ── draft model ─────────────────────────────────────────────────────── */
   S.config = function () { return config; };
@@ -73,6 +93,7 @@ var Studio = (function () {
     c.layout = VF.asMap(c.layout); c.layout.labels = VF.asList(c.layout.labels); c.layout.sceneButtons = VF.asList(c.layout.sceneButtons);
     c.venue = VF.asMap(c.venue); c.venue.subsystems = VF.asMap(c.venue.subsystems);
     c.displays.forEach(function (d) { if (d.sources !== 'all') d.sources = VF.asList(d.sources); d.route = VF.asMap(d.route); if (!d.route.strategy) d.route.strategy = 'room'; });
+    c.sources.forEach(function (s) { s.controls = VF.asList(s.controls); s.favorites = VF.asList(s.favorites); });
     c.audioZones.forEach(function (z) { if (z.sources !== 'all') z.sources = VF.asList(z.sources); z.presets = VF.asList(z.presets); z.can = VF.asMap(z.can); });
     c.groups.forEach(function (g) { g.displayIds = VF.asList(g.displayIds); });
     c.lighting.forEach(function (l) { l.presets = VF.asList(l.presets); l.presets.forEach(function (p) { p.params = VF.asMap(p.params); }); });
@@ -87,9 +108,19 @@ var Studio = (function () {
   }
   S.normalise = normalise;
 
+  /* A client is not shown the warnings that are live already: the installer accepted them
+     when they published, and the driver does not ask a client about them again. */
+  function setIssues(list, sum) {
+    issues = VF.asList(list); summary = sum || { errors: 0, warnings: 0 };
+    var st = S.clientStanding();
+    if (!S.isClient() || !st) return;
+    var live = {}; VF.asList(st.liveWarnings).forEach(function (id) { live[id] = true; });
+    issues = issues.filter(function (i) { return i.severity === 'error' || !live[i.id]; });
+    summary = { errors: issues.filter(function (i) { return i.severity === 'error'; }).length, warnings: issues.filter(function (i) { return i.severity !== 'error'; }).length };
+  }
   function applyDraft(draft) {
     if (!draft) { config = null; revision = null; issues = []; summary = { errors: 0, warnings: 0 }; return; }
-    config = normalise(draft.config); revision = draft.revision; issues = VF.asList(draft.issues); summary = draft.summary || { errors: 0, warnings: 0 };
+    config = normalise(draft.config); revision = draft.revision; setIssues(draft.issues, draft.summary);
     dirty = false; stale = false; saveError = null;
   }
 
@@ -102,7 +133,7 @@ var Studio = (function () {
     inflight = VF.api('DRAFT_SAVE', { config: sent, baseRevision: revision === null ? undefined : revision }, { since: false }).then(function (r) {
       saving = false; inflight = null;
       if (r.ok) {
-        revision = r.data.revision; issues = VF.asList(r.data.issues); summary = r.data.summary || summary; saveError = null;
+        revision = r.data.revision; setIssues(r.data.issues, r.data.summary || summary); saveError = null;
         emit('saved'); emit('issues');
         paintSave(); paintNav(); refreshIssueMarks();
         return true;
@@ -110,6 +141,15 @@ var Studio = (function () {
       dirty = true;
       if (r.errorCode === 'VF_STALE_DRAFT') { stale = true; saveError = 'The draft was changed in another window.'; }
       else if (r.errorCode === 'VF_UNAUTHENTICATED') { saveError = 'Signed out.'; showLogin('Your session ended. Sign in again; unsaved changes on this screen are kept until you reload.'); }
+      else if (r.errorCode === 'VF_FORBIDDEN') {
+        /* The driver refused the change (a client touched an installer-only setting, or the
+           Venue Studio permission was taken away). Put the screen back to what is stored. */
+        var what = r.data && r.data.installerOnly;
+        VF.toast(what ? 'Only your installer can change ' + what + '. That change was not saved.' : 'That change is not allowed and was not saved.', 'bad');
+        dirty = false; saveError = null;
+        S.reload();
+        return false;
+      }
       else saveError = r.message || 'Not saved.';
       paintSave();
       return false;
@@ -319,6 +359,32 @@ var Studio = (function () {
   S.sectionHead = function (title, subtitle, actions) {
     return h('div.row.between.wrap', { style: { marginBottom: '14px' } }, h('div.col.tight', h('h1', title), subtitle ? h('p.muted', subtitle) : null), h('div.row.wrap', actions || null));
   };
+  /* Favourite channels of one source (the installer's Sources section and the client's
+     Channels and Names both use it). ed(label, fn) applies fn to the source in the draft. */
+  S.favoritesEditor = function (source, ed) {
+    var sc = (S.boot && S.boot.schema && S.boot.schema.sourceControl) || {};
+    var max = sc.favoritesMax || 24, list = VF.asList(source.favorites);
+    function valid(ch) { return /^\d+$/.test(ch) || /^\d+[-.]\d+$/.test(ch); }
+    return h('div.col.tight',
+      list.length ? list.map(function (f) {
+        return h('div.cl-row',
+          S.text('Name', f.name, function (v) {
+            if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+            ed('Rename favourite', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.name = v; });
+          }, { max: sc.favoriteNameMax || 24 }),
+          S.text('Channel', f.channel, function (v) {
+            if (!valid(v) || v.length > (sc.channelMax || 8)) { VF.toast('A channel is digits, with at most one dash or dot (206, 5-1).', 'warn'); S.refresh(); return; }
+            ed('Favourite channel', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.channel = v; });
+          }, { max: sc.channelMax || 8, inputmode: 'decimal', placeholder: '206' }),
+          h('button.btn.sm.ghost.icon', { type: 'button', 'aria-label': 'Remove favourite ' + f.name, onclick: function () {
+            ed('Remove favourite', function (x) { x.favorites = VF.asList(x.favorites).filter(function (q) { return q.id !== f.id; }); });
+          } }, icon('trash')));
+      }) : h('p.small.muted', 'No favourite channels yet.'),
+      list.length < max ? h('div', h('button.btn.sm', { type: 'button', onclick: function () {
+        ed('Add favourite', function (x) { x.favorites = VF.asList(x.favorites); x.favorites.push({ id: VF.freshId('fav', x.favorites), name: 'Channel ' + (x.favorites.length + 1), channel: '1' }); });
+      } }, icon('plus'), 'Add a favourite channel')) : null);
+  };
+
   S.emptyDraft = function (container) {
     VF.mount(container, S.sectionHead('No draft yet', 'Start with the Setup Wizard: pick a business type and VenueFlow fills in sensible defaults.'),
       h('div.empty', h('p', 'This driver has no configuration yet.'), h('div', { style: { marginTop: '12px' } }, h('button.btn.primary', { type: 'button', onclick: function () { S.go('wizard'); } }, icon('zap'), 'Open the Setup Wizard'))));
@@ -327,6 +393,7 @@ var Studio = (function () {
   /* ── navigation ──────────────────────────────────────────────────────── */
   S.go = function (id, params) {
     var def = sections.filter(function (s) { return s.id === id; })[0]; if (!def) return;
+    if (!allowed(def)) { def = sections.filter(function (s) { return s.id === landing(); })[0]; if (!def) return; id = def.id; params = null; }
     if (current && current.dispose) { try { current.dispose(); } catch (e) { console.error(e); } }
     current = def; currentParams = params || null;
     try { history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
@@ -366,7 +433,7 @@ var Studio = (function () {
     if (!els.nav) return;
     VF.clear(els.nav);
     GROUPS.forEach(function (g) {
-      var list = sections.filter(function (s) { return s.group === g; }).sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+      var list = sections.filter(function (s) { return s.group === g && allowed(s); }).sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
       if (!list.length) return;
       els.nav.appendChild(h('h4', g));
       list.forEach(function (s) {
@@ -375,6 +442,11 @@ var Studio = (function () {
           icon(s.icon || 'square'), h('span.grow', s.title), badge !== null && badge !== undefined && badge !== '' ? h('span.chip' + (s.badgeKind ? '.' + s.badgeKind() : ''), String(badge)) : null));
       });
     });
+    /* On a phone the header button is hidden, so a client also gets the way back here. */
+    if (S.isClient()) {
+      els.nav.appendChild(h('h4', 'Control'));
+      els.nav.appendChild(h('button.navitem', { type: 'button', onclick: function () { S.openControl(); } }, icon('arrow-left'), h('span.grow', 'Back to control')));
+    }
   }
 
   function paintSave() {
@@ -394,13 +466,20 @@ var Studio = (function () {
   /* ── boot ────────────────────────────────────────────────────────────── */
   S.reload = function () {
     return VF.api('STUDIO_BOOTSTRAP', {}, { since: false }).then(function (r) {
-      if (!r.ok) { if (r.errorCode === 'VF_UNAUTHENTICATED' || r.errorCode === 'VF_STUDIO_DISABLED') showLogin(r.errorCode === 'VF_STUDIO_DISABLED' ? r.message : null); else VF.toast(r.message, 'bad'); return false; }
+      if (!r.ok) {
+        if (r.errorCode === 'VF_UNAUTHENTICATED' || r.errorCode === 'VF_STUDIO_DISABLED') showLogin(r.errorCode === 'VF_STUDIO_DISABLED' ? r.message : null);
+        else if (r.errorCode === 'VF_FORBIDDEN') showLogin('That profile may not open the Venue Studio. Ask your installer.');
+        else VF.toast(r.message, 'bad');
+        return false;
+      }
       S.boot = r.data;
+      if (current && !allowed(current)) current = null;
       S.published = r.data.published || null;
       S.history = VF.asList(r.data.history);
       applyDraft(r.data.draft || null);
       emit('boot');
-      paintChrome(); paintNav(); paintSave(); rerender();
+      paintChrome(); paintNav(); paintSave();
+      if (!current) S.go(startAt()); else rerender();
       return true;
     });
   };
@@ -408,30 +487,77 @@ var Studio = (function () {
   function paintChrome() {
     var b = S.boot;
     VF.mount(els.venue, h('span.ellipsis', config && config.venue.name ? config.venue.name : 'New venue'));
+    var client = S.isClient();
+    document.body.classList.toggle('role-client', client);
+    if (els.title) els.title.textContent = client ? 'Venue Studio' : 'Installer Studio';
+    document.title = client ? 'VenueFlow Venue Studio' : 'VenueFlow Installer Studio';
+    if (els.openop) els.openop.textContent = client ? 'Back to control' : 'Operator view';
+    var st = S.clientStanding();
+    if (els.pending) {
+      els.pending.classList.toggle('hidden', !(client && st && st.installerPending));
+      els.pending.textContent = 'Your installer has unfinished changes in this venue. You can keep editing; publishing waits until they finish.';
+    }
     VF.mount(els.mode, b.driver.simulation ? h('span.chip.warn', h('span.dot'), 'Simulation') : h('span.chip.ok', h('span.dot'), 'Live'),
       S.published ? h('span.chip', 'Published ' + S.published.versionId) : h('span.chip.warn', 'Not published'));
     els.sim.classList.toggle('hidden', !b.driver.simulation);
   }
   S.on('config', function () { if (els.venue && config) VF.mount(els.venue, h('span.ellipsis', config.venue.name || 'New venue')); });
 
+  /* Sign-in. Two doors into one Studio:
+       the venue's own people: a staff profile that holds the Venue Studio permission, by PIN;
+       the installer: the Installer Passcode. */
   function showLogin(message) {
     VF.session.clear();
-    var pass = h('input.field', { type: 'password', autocomplete: 'current-password', placeholder: 'Installer Passcode' });
+    current = null; S.boot = null;
     var err = h('div.small', { style: { color: 'var(--bad)', minHeight: '18px' } }, message || '');
-    var btn = h('button.btn.primary.block.lg', { type: 'submit' }, icon('unlock'), 'Open Installer Studio');
-    var form = h('form.col', { onsubmit: function (e) {
-      e.preventDefault(); btn.disabled = true;
-      VF.api('STUDIO_LOGIN', { passcode: pass.value }, { since: false }).then(function (r) {
-        btn.disabled = false;
-        if (!r.ok) { err.textContent = (r.errorCode === 'VF_BAD_PASSCODE' || r.errorCode === 'VF_BAD_PIN') ? 'That passcode is not right.' : (r.message || 'Sign-in failed.'); pass.value = ''; pass.focus(); return; }
-        VF.session.set(r.data.session); els.login.classList.add('hidden'); els.app.classList.remove('hidden');
-        S.reload().then(function () { if (!current) S.go((location.hash || '').slice(1) || (config ? 'overview' : 'wizard')); });
-      });
-    } }, h('label.lbl', 'Installer Passcode', pass), err, btn,
-      h('p.small.muted', 'The passcode is the driver property "Installer Passcode" in Composer Pro. With no passcode set, Installer Studio stays off.'));
-    VF.mount(els.login, h('div.login-card.panel.pad', h('div.row', { style: { marginBottom: '14px' } }, brand(), h('span.muted', 'Installer Studio')), form));
+    var body = h('div.col', h('p.muted', 'Looking for the controller…'));
+    VF.mount(els.login, h('div.login-card.panel.pad', h('div.row', { style: { marginBottom: '14px' } }, brand(), h('span.muted', 'Studio')), body));
     els.login.classList.remove('hidden'); els.app.classList.add('hidden');
-    setTimeout(function () { try { pass.focus(); } catch (e) { /* ignore */ } }, 50);
+    function signedIn(token) {
+      VF.session.set(token); els.login.classList.add('hidden'); els.app.classList.remove('hidden');
+      S.reload();
+    }
+    VF.api('HELLO', {}, { since: false }).then(function (r) {
+      var d = (r && r.ok && r.data) || {};
+      var people = VF.asList(d.profiles).filter(function (p) { return p.studio === true; });
+      var parts = [];
+      if (people.length) {
+        parts.push(h('div.col.tight', h('div.lbl', 'Venue owner or manager'),
+          people.map(function (p) {
+            return h('button.btn.block.lg', { type: 'button', 'aria-label': 'Sign in as ' + p.name, onclick: function () {
+              VF.pinPad(p.name, 'Enter your PIN to open the Venue Studio').then(function (pin) {
+                if (!pin) return;
+                VF.api('PROFILE_LOGIN', { profileId: p.id, pin: pin }, { since: false }).then(function (lr) {
+                  if (!lr.ok) { err.textContent = lr.errorCode === 'VF_BAD_PIN' ? 'That PIN is not right.' : (lr.message || 'Sign-in failed.'); return; }
+                  signedIn(lr.data.session);
+                });
+              });
+            } }, icon('users'), h('span.grow', p.name));
+          })));
+      }
+      if (d.studioEnabled) {
+        var pass = h('input.field', { type: 'password', autocomplete: 'current-password', placeholder: 'Installer Passcode' });
+        var btn = h('button.btn.primary.block.lg', { type: 'submit' }, icon('unlock'), 'Open Installer Studio');
+        parts.push(h('form.col', { onsubmit: function (e) {
+          e.preventDefault(); btn.disabled = true;
+          VF.api('STUDIO_LOGIN', { passcode: pass.value }, { since: false }).then(function (lr) {
+            btn.disabled = false;
+            if (!lr.ok) { err.textContent = (lr.errorCode === 'VF_BAD_PASSCODE' || lr.errorCode === 'VF_BAD_PIN') ? 'That passcode is not right.' : (lr.message || 'Sign-in failed.'); pass.value = ''; pass.focus(); return; }
+            signedIn(lr.data.session);
+          });
+        } }, h('label.lbl', 'Installer', pass), btn,
+          h('p.small.muted', 'The passcode is the driver property "Installer Passcode" in Composer Pro.')));
+        if (!people.length) setTimeout(function () { try { pass.focus(); } catch (e) { /* ignore */ } }, 50);
+      }
+      if (!parts.length) {
+        parts.push(h('p.muted', r && r.ok
+          ? 'The Studio is off. Your installer sets an "Installer Passcode" in Composer Pro, or gives a staff profile the Venue Studio permission and a PIN.'
+          : 'The controller is not answering. Check that this screen is on the venue network, then reload.'));
+      }
+      if (people.length && d.studioEnabled) parts.splice(1, 0, h('div.sep-h'));
+      parts.push(err);
+      VF.mount(body, parts);
+    });
   }
   function brand() { return h('div.brand', h('span.brandmark', icon('bars')), h('span', 'Venue', h('b', 'Flow'))); }
   S.brand = brand;
@@ -442,16 +568,24 @@ var Studio = (function () {
     VF.session.use('studio');
     els.login = document.getElementById('login'); els.app = document.getElementById('app'); els.nav = document.getElementById('nav'); els.main = document.getElementById('main');
     els.save = document.getElementById('save'); els.issues = document.getElementById('issues'); els.venue = document.getElementById('venue'); els.mode = document.getElementById('mode'); els.sim = document.getElementById('sim');
+    els.title = document.getElementById('studiotitle'); els.openop = document.getElementById('openop'); els.pending = document.getElementById('pending');
     VF.mount(document.getElementById('brand'), brand());
     document.getElementById('signout').addEventListener('click', S.signOut);
-    document.getElementById('openop').addEventListener('click', function () { S.flush().then(function () { window.open((VF.transport.relay || '') + '/app?as=studio', '_blank'); }); });
+    document.getElementById('openop').addEventListener('click', S.openControl = function () {
+      S.flush().then(function () {
+        /* A client came from the control page in this same view (a Control4 tile cannot open
+           a second window), so it goes back there. The installer gets a second tab. */
+        if (S.isClient()) { try { sessionStorage.setItem('vf.session.op', VF.session.get()); } catch (e) { /* signs in again there */ } location.href = (VF.transport.relay || '') + '/app'; }
+        else window.open((VF.transport.relay || '') + '/app?as=studio', '_blank');
+      });
+    });
     document.getElementById('navtoggle').addEventListener('click', function () { els.app.classList.toggle('navopen'); });
     els.nav.addEventListener('click', function () { els.app.classList.remove('navopen'); });
     window.addEventListener('beforeunload', function (e) { if (dirty || saving) { e.preventDefault(); e.returnValue = ''; } });
     VF.on('online', function (on) { document.getElementById('offline').classList.toggle('hidden', on); });
     if (!VF.session.get()) { showLogin(); return; }
     els.app.classList.remove('hidden');
-    S.reload().then(function (ok) { if (ok && !current) S.go((location.hash || '').slice(1) || (config ? 'overview' : 'wizard')); });
+    S.reload();
   };
 
   return S;

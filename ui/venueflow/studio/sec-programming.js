@@ -1018,6 +1018,8 @@
     var lastRun = runs.data ? asMap(runs.data.lastRun)[ctx.kind + ':' + item.id] : null;
     var lastOk = runs.data ? asMap(runs.data.lastSuccess)[ctx.kind + ':' + item.id] : null;
     var tabs = [['check', 'Check', saved.length || null], ['dry', 'Dry run', null], ['run', 'Execute', null], ['log', 'Log', null]];
+    /* A live test is the installer's (PROGRAM_EXECUTE). The venue runs a scene from the control page. */
+    if (S.isClient()) { tabs = tabs.filter(function (x) { return x[0] !== 'run'; }); if (t.tab === 'run') t.tab = 'dry'; }
     var body = h('div.col');
 
     if (t.tab === 'check') {

@@ -378,3 +378,22 @@ svg.op-plan.compact { height: auto; }
   .op-alert { flex-wrap: wrap; }
   .op-alert-actions { flex-direction: row; flex: 1 1 100%; justify-content: flex-end; }
 }
+
+/* A source's channel label (set by the venue in the Venue Studio) */
+.op-src-ch { margin-left: 8px; font-weight: 400; }
+
+/* Source remote */
+.op-src-wrap { display: flex; gap: 8px; align-items: stretch; }
+.op-src-wrap > .op-src { flex: 1 1 auto; min-width: 0; }
+.op-remote-btn.icon { flex: 0 0 52px; min-height: 48px; }
+.op-remote { min-width: min(420px, 82vw); }
+.op-keys { display: grid; gap: 8px; }
+.op-keys.c3 { grid-template-columns: repeat(3, 1fr); }
+.op-keys.c7 { grid-template-columns: repeat(7, 1fr); }
+.op-key { min-height: 54px; padding: 0 4px; }
+.op-key.num { font-size: 20px; }
+.op-key.lg { font-size: 18px; font-weight: 600; }
+.op-key.sent, .op-fav.sent { outline: 2px solid var(--teal, #2dd4bf); }
+.op-favs { display: flex; flex-wrap: wrap; gap: 8px; }
+.op-fav { flex: 1 1 120px; min-height: 52px; flex-direction: column; gap: 0; align-items: flex-start; }
+@media (max-width: 520px) { .op-keys.c7 { grid-template-columns: repeat(4, 1fr); } }

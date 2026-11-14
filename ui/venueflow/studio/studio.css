@@ -38,3 +38,13 @@
 @media (max-width: 1180px) { #top { gap: 8px; padding: 8px 10px; } #top #openop { display: none; } #top .brand { font-size: 18px; } }
 @media (max-width: 1060px) { #top #mode { display: none; } }
 #top > * { flex-shrink: 0; } #top > #venue { flex-shrink: 1; }
+
+/* Venue Studio (a client session) */
+#pending { margin: 0; border-radius: 0; }
+.sep-h { height: 1px; background: var(--line, rgba(255,255,255,.12)); margin: 6px 0; }
+.cl-tile { min-height: 64px; text-align: left; }
+.cl-tile-t { font-weight: 600; }
+.cl-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line, rgba(255,255,255,.08)); }
+.cl-row:last-child { border-bottom: 0; }
+.cl-row > .lbl { flex: 1 1 180px; min-width: 0; margin: 0; }
+.cl-row-ic { padding-bottom: 10px; opacity: .8; }

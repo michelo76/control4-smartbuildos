@@ -240,3 +240,75 @@ present, keeps the long history.
 **Licensing** shows the standing with the SmartBuildOS Agent and what it
 affects. A venue without a licence, or cut off from the internet, keeps full
 manual control.
+
+## 10. The Venue Studio: what the client can change
+
+The venue's owner or manager can look after the day-to-day themselves,
+without the Installer Passcode.
+
+1. In Staff Profiles, open the profile (the Owner role has it already) and
+   switch on **May open the Venue Studio**. Give the profile a PIN: the Studio
+   only opens with one.
+2. Publish.
+3. The client signs in with that PIN on a control screen, opens the profile
+   menu and chooses **Venue Studio**; or opens
+   `http://<controller>:47861/studio` and picks their name.
+
+They can change scenes, schedules, staff profiles and PINs, source names and
+channel labels, and volume presets, and publish that. They cannot change
+devices, routing, the layout, groups, lighting, shades, rooms, stations,
+rules on events, the venue record, Control Mode, backups or licensing, and
+they cannot give the Venue Studio permission to anyone. The driver refuses
+those, whatever the page sends.
+
+While your own draft changes are unfinished, the client can keep editing
+but cannot publish: publish or discard your work first.
+
+**Not yet tried on a touch screen or in the Control4 app** (checked in a
+desktop browser against the simulator).
+
+## 11. Remote Management (smartbuildos.io)
+
+The driver property **Remote Management** decides what smartbuildos.io may
+do with this venue's configuration through the SmartBuildOS Agent:
+
+| Setting | smartbuildos.io may |
+| --- | --- |
+| Off (default) | nothing |
+| Draft only | read the configuration and fill the draft; someone on site publishes |
+| Draft and publish | also publish a draft and roll back |
+
+It never routes video, changes a volume, runs a scene or sets a PIN.
+
+**Today this switch has nothing to connect to.** The driver side is built;
+smartbuildos.io has no VenueFlow pages yet. Leave it Off.
+
+## 12. Basic source controls (channel keys, keypad, favourites)
+
+In Sources, each source has a **Basic controls** card:
+
+| Group | Keys |
+| --- | --- |
+| Channel | CH +, CH -, Last |
+| Number keypad and favourites | 0 to 9, dash, Enter, and the favourite channels |
+| Arrows, guide, info, menu | Up, Down, Left, Right, OK, Guide, Info, Menu, Exit, Page + and - |
+| Play, pause, skip | Prev, Rew, Play, Pause, Stop, Fwd, Next |
+
+A cable or satellite source starts with the first two; a streaming source
+with the last two. Switch on only what the device really has.
+
+- The keys go to the Control4 device the source is mapped to.
+- **Favourite channels** (up to 24 per source) dial the number with one
+  press: each digit, then Enter. Switch "Press Enter after the digits" off
+  for a box that tunes by itself. The venue can edit favourites in the Venue
+  Studio.
+- Give staff the permission **Use source controls** in Staff Profiles. Staff
+  then see a remote button beside the source.
+- One box often feeds several screens: a key changes all of them. The remote
+  says how many screens are showing the source.
+- Nothing comes back from a box. VenueFlow shows a press as sent; it does not
+  know the channel.
+
+**Test this on site in Live mode before you rely on it** (HARDWARE_VALIDATION.md).
+It has only been run against the simulator. If a favourite drops a digit on
+a real box, tell us: the gap between digits is fixed at 350 ms in this build.

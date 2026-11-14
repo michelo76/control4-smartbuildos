@@ -162,8 +162,30 @@ only), with no sign-in. Staff with a PIN (a manager) tap the profile chip and
 sign in on that screen; the screen then shows what that profile may see.
 
 Permissions are enforced by the driver. A screen that has been tampered with
-still cannot route a display its profile does not have. Changing the venue's
-configuration is never a profile permission: it needs the Installer Passcode.
+still cannot route a display its profile does not have.
+
+### Source controls
+
+A source can have basic controls: channel up, down and last, a number keypad
+with up to 24 favourite channels, arrows with guide, info and menu, and
+play, pause and skip. Choose the groups per source in Sources (a cable or
+satellite source starts with channel keys and a keypad) and give staff the
+permission **Use source controls**. Staff then get a remote button beside the
+source. The keys go to the Control4 device the source is mapped to. Nothing
+comes back from a box, so a press is shown as sent, and a key changes every
+screen showing that source. Only run against the simulator so far: test it
+on site in Live mode.
+
+### The Venue Studio
+
+The venue's owner or manager can change the day-to-day themselves. Give
+their profile **May open the Venue Studio** in Staff Profiles (the Owner role
+has it) and a PIN. Signed in, they choose Venue Studio from the profile menu
+on a control screen, or pick their name at
+`http://<controller>:47861/studio`. They can change scenes, schedules, staff
+profiles and PINs, source names, channel labels and favourite channels, and
+volume presets, and publish that. Everything else needs the Installer Passcode, and only the
+installer can grant the permission. The driver enforces this.
 
 ## Properties
 
@@ -182,7 +204,9 @@ configuration is never a profile permission: it needs the Installer Passcode.
 | Last Error | The last refused Composer command or internal error |
 | License Status, License Source, Subscription Tier, SmartBuildOS Company | From the SmartBuildOS Agent |
 | Control Mode | Simulation (nothing is sent to Control4) or Live |
-| Installer Passcode | Opens Installer Studio. Hidden. Empty keeps the Studio off |
+| Installer Passcode | Opens Installer Studio. Hidden. Empty keeps the installer's Studio off |
+| Remote Management | What smartbuildos.io may do with this venue's configuration through the Agent: Off (default), Draft only, or Draft and publish. It never controls equipment. The platform pages for it do not exist yet: leave it Off |
+| Remote Management Status | Off, waiting for the Agent, or on, with the last remote command |
 | App Relay Address | Auto, or the controller's address when the tile will not load |
 | Log Level, Log Mode | At "3 - Info" with Print, every command sent to Control4 is printed in the Lua tab |
 

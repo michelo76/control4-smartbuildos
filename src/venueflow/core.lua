@@ -24,10 +24,12 @@ local Audio = require("venueflow.audio")
 local Rules = require("venueflow.rules")
 local Scheduler = require("venueflow.scheduler")
 local Access = require("venueflow.access")
+local ClientScope = require("venueflow.clientscope")
 local Auth = require("venueflow.auth")
 local Diag = require("venueflow.diag")
 local Discovery = require("venueflow.discovery")
 local Sim = require("venueflow.sim")
+local SourceControl = require("venueflow.sourcecontrol")
 local Templates = require("venueflow.templates")
 
 local M = {}
@@ -130,6 +132,13 @@ function M.new(deps)
   }
   self.routing = Routing.new(engineDeps)
   self.audio = Audio.new(engineDeps)
+  self.sourceKeys = SourceControl.new({
+    index = engineDeps.index,
+    adapter = engineDeps.adapter,
+    timers = deps.timers,
+    diag = self.diag,
+    spacingMs = deps.sourceKeyMs,
+  })
   self.runner = Rules.newRunner({
     ops = self:_ops(),
     env = function(context)
@@ -250,6 +259,7 @@ function Core:load(reason)
   local previousSim = self.sim -- its device state is carried into the next one
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:clear()
+  self.sourceKeys:clear()
   self.runner:cancelAll("VF_CANCELLED", "configuration changed")
   if self.adapter and self.adapter.unwatchVariables then
     pcall(self.adapter.unwatchVariables)
@@ -300,7 +310,12 @@ function Core:load(reason)
   self.sampleBlocked = false
   self.config = Schema.normalize(migrated)
   self.ix = Schema.index(self.config)
-  self.publishedMeta = { versionId = published.versionId, publishedAt = published.publishedAt, note = published.note }
+  self.publishedMeta = {
+    versionId = published.versionId,
+    publishedAt = published.publishedAt,
+    note = published.note,
+    by = published.by, -- "installer" or "profile:<id>"
+  }
   self.deviceSource = {}
   for _, s in ipairs(self.config.sources) do
     if s.c4DeviceId ~= nil and self.deviceSource[s.c4DeviceId] == nil then
@@ -1240,6 +1255,10 @@ function Core:_context(req, transport)
       ctx.access = Access.forProfile(profile)
       ctx.who = "profile:" .. profile.id
       ctx.signedIn = true
+      -- Only a PIN session opens the Venue Studio: a tile's default profile
+      -- and a station never do, whatever their permissions say.
+      ctx.studio = ClientScope.holds(profile)
+      ctx.profileName = profile.name
       return ctx
     end
     self.auth:logout(req.session) -- the profile no longer exists
@@ -1348,6 +1367,13 @@ function Core:_schemaInfo()
     requestBytes = Protocol.MAX_REQUEST_BYTES,
     imageBytes = Store.IMAGE_MAX_BYTES,
     roomButtonsMax = Schema.ROOM_BUTTONS_MAX,
+    sourceControl = {
+      groups = SourceControl.GROUPS,
+      defaults = SourceControl.DEFAULTS,
+      favoritesMax = SourceControl.FAVORITES_MAX,
+      favoriteNameMax = SourceControl.FAVORITE_NAME_MAX,
+      channelMax = SourceControl.CHANNEL_MAX,
+    },
     stepTypes = Rules.STEP_TYPES,
     conditionOps = Rules.CONDITION_OPS,
     triggerTypes = Rules.TRIGGER_TYPES,
@@ -1379,6 +1405,8 @@ function H.HELLO(core, _, ctx)
     sampleBlocked = core.sampleBlocked == true or nil,
     studioEnabled = core.auth:studioEnabled(),
     installer = ctx.installer == true,
+    studio = ctx.studio == true or nil, -- this session may open the Venue Studio
+    studioReachable = core:_studioReachable(),
     license = core:_licenseInfo(),
     profiles = {},
   }
@@ -1386,7 +1414,8 @@ function H.HELLO(core, _, ctx)
     data.venueName = core.config.venue.name
     for _, p in ipairs(core.config.profiles) do
       if type(p.pinHash) == "string" and p.pinHash ~= "" then
-        data.profiles[#data.profiles + 1] = { id = p.id, name = p.name, role = p.role }
+        data.profiles[#data.profiles + 1] =
+          { id = p.id, name = p.name, role = p.role, studio = ClientScope.holds(p) or nil }
       end
     end
     if ctx.access ~= nil then
@@ -1422,6 +1451,7 @@ function H.PROFILE_LOGIN(core, p, ctx)
     status = "ok",
     data = {
       session = token,
+      studio = ClientScope.holds(profile) or nil,
       profile = access:describe(),
       config = access:view(core.config),
       state = core:operatorState(access),
@@ -1684,6 +1714,18 @@ function H.IMAGE_GET(core, p, ctx)
   return { ok = true, status = "ok", data = { key = p.key, dataUrl = data } }
 end
 
+function H.SOURCE_KEY(core, p, ctx)
+  return core.sourceKeys:key(p.sourceId, p.key, { access = ctx.access, origin = ctx.who })
+end
+
+function H.SOURCE_TUNE(core, p, ctx)
+  return core.sourceKeys:tune(
+    p.sourceId,
+    { favoriteId = p.favoriteId, channel = p.channel },
+    { access = ctx.access, origin = ctx.who }
+  )
+end
+
 function H.OPERATION_GET(core, p, ctx)
   local op = core.tracker:find(p.operationId)
   if op == nil then
@@ -1694,9 +1736,9 @@ end
 
 -- installer -------------------------------------------------------------------
 
-function H.STUDIO_BOOTSTRAP(core)
+function H.STUDIO_BOOTSTRAP(core, _, ctx)
   local info = {}
-  if type(core.deps.info) == "function" then
+  if ctx.installer and type(core.deps.info) == "function" then
     local ok, t = pcall(core.deps.info)
     if ok and type(t) == "table" then
       info = t
@@ -1717,15 +1759,75 @@ function H.STUDIO_BOOTSTRAP(core)
         timeZone = tz,
         localTime = string.format("%04d-%02d-%02d %02d:%02d", lt.year, lt.month, lt.day, lt.hour, lt.min),
       },
+      role = ctx.installer and "installer" or "client",
+      who = ctx.installer and "Installer" or ctx.profileName,
+      client = not ctx.installer and core:_clientStanding() or nil,
       draft = core:_draftData(),
       published = core.publishedMeta,
       history = core.store:history(),
-      license = core:_licenseDetail(),
+      license = ctx.installer and core:_licenseDetail() or core:_licenseInfo(),
       schema = core:_schemaInfo(),
       venueStatus = core.runtime.venueStatus,
     },
   }
 end
+
+--- The configuration a client's change is measured against: the draft when
+--- there is one, otherwise what is published.
+function Core:_clientBase()
+  local draft = self.store:draft()
+  if draft ~= nil then
+    return Schema.normalize(draft.config)
+  end
+  local published = self.store:published()
+  return published ~= nil and Schema.normalize(published.config) or nil
+end
+
+--- nil when the draft differs from what is published only in what a client
+--- may change (so a client may publish or discard it); otherwise a phrase
+--- for the installer's unfinished change.
+function Core:_installerPending()
+  local draft, published = self.store:draft(), self.store:published()
+  if draft == nil or published == nil then
+    return nil
+  end
+  local _, what = ClientScope.changed(Schema.normalize(published.config), Schema.normalize(draft.config))
+  return what
+end
+
+--- Warnings that are live already: the installer saw and accepted them when
+--- they published. A client is not asked about them again, only about a
+--- warning their own change brings.
+function Core:_liveWarnings()
+  local ids = {}
+  local published = self.store:published()
+  if published ~= nil then
+    for _, i in ipairs(Schema.validate(Schema.normalize(published.config))) do
+      if i.severity == "warning" then
+        ids[#ids + 1] = i.id
+      end
+    end
+  end
+  return ids
+end
+
+--- What the Studio page shows a client about their standing.
+function Core:_clientStanding()
+  local pending = self:_installerPending()
+  return {
+    mayChange = ClientScope.MAY_CHANGE,
+    sourceFields = ClientScope.SOURCE_FIELDS,
+    liveWarnings = self:_liveWarnings(),
+    installerPending = pending, -- the installer has unfinished changes in the draft
+    canPublish = pending == nil,
+  }
+end
+
+local function clientRefusal(what)
+  return fail("VF_FORBIDDEN", "only the installer can change " .. tostring(what), { data = { installerOnly = what } })
+end
+
+local PENDING = "the installer has unfinished changes in the draft"
 
 function Core:_licenseDetail()
   local out = self:_licenseInfo()
@@ -1747,13 +1849,27 @@ function H.DRAFT_GET(core)
   return { ok = true, status = "ok", data = { draft = core:_draftData() } }
 end
 
-function H.DRAFT_SAVE(core, p)
+function H.DRAFT_SAVE(core, p, ctx)
   local ok, encoded = pcall(core.deps.json.encode, p.config)
   if ok and type(encoded) == "string" and #encoded > M.MAX_DRAFT_BYTES then
     return fail("VF_TOO_LARGE", "the configuration is larger than the controller should store")
   end
   local stored = core.store:draft()
   local config = mergePins(U.copy(p.config), stored and stored.config)
+  if not ctx.installer then
+    local base = core:_clientBase()
+    if base == nil then
+      return fail("VF_FORBIDDEN", "the installer sets the venue up first")
+    end
+    if stored == nil then
+      -- No draft yet: PINs come from what is published.
+      config = mergePins(U.copy(p.config), base)
+    end
+    local _, what = ClientScope.changed(base, Schema.normalize(config))
+    if what ~= nil then
+      return clientRefusal(what)
+    end
+  end
   local revision, why, detail = core.store:saveDraft(config, p.baseRevision)
   if revision == nil then
     if why == "stale" then
@@ -1763,7 +1879,7 @@ function H.DRAFT_SAVE(core, p)
     end
     return fail("VF_STORAGE_FAILED", detail)
   end
-  core.diag:add("info", "config", nil, "Draft saved, revision " .. revision)
+  core.diag:add("info", "config", nil, "Draft saved, revision " .. revision, { who = ctx.who })
   local data = core:_draftData()
   return { ok = true, status = "ok", data = { revision = revision, issues = data.issues, summary = data.summary } }
 end
@@ -1780,7 +1896,10 @@ function H.DRAFT_VALIDATE(core)
   }
 end
 
-function H.DRAFT_DISCARD(core, p)
+function H.DRAFT_DISCARD(core, p, ctx)
+  if not ctx.installer and core:_installerPending() ~= nil then
+    return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
   if p.confirm ~= true then
     return fail("VF_CONFIRM_REQUIRED")
   end
@@ -1832,6 +1951,8 @@ function H.PROFILE_PIN_SET(core, p)
   if draft == nil then
     return fail("VF_NOT_FOUND", "there is no draft")
   end
+  -- (A client may set any staff PIN: PINs are not in the installer-owned
+  -- part of the configuration. See clientscope.lua.)
   local profile
   for _, candidate in ipairs(draft.config.profiles) do
     if candidate.id == p.profileId then
@@ -1890,8 +2011,22 @@ function H.PUBLISH(core, p, ctx)
   if draft == nil then
     return fail("VF_NOT_FOUND", "there is no draft to publish")
   end
+  if not ctx.installer and core:_installerPending() ~= nil then
+    -- Publishing would put the installer's unfinished work live.
+    return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
   local issues = Schema.validate(draft.config)
-  local ok, blocking = Schema.publishable(issues, p.acknowledged)
+  local acknowledged = p.acknowledged
+  if not ctx.installer then
+    acknowledged = {}
+    for _, id in ipairs(p.acknowledged or {}) do
+      acknowledged[#acknowledged + 1] = id
+    end
+    for _, id in ipairs(core:_liveWarnings()) do
+      acknowledged[#acknowledged + 1] = id
+    end
+  end
+  local ok, blocking = Schema.publishable(issues, acknowledged)
   if not ok then
     return fail(
       "VF_VALIDATION_FAILED",
@@ -1918,7 +2053,7 @@ function H.PUBLISH(core, p, ctx)
     "config",
     nil,
     "Published " .. versionId,
-    { acknowledged = #(p.acknowledged or {}), note = p.note }
+    { acknowledged = #(p.acknowledged or {}), note = p.note, who = ctx.who }
   )
   core:_hook("fireEvent", "published")
   core:_hook("record", "configuration published", versionId)
@@ -1936,6 +2071,22 @@ end
 function H.ROLLBACK(core, p, ctx)
   if core.restricted then
     return fail("VF_LICENSE_RESTRICTED", "rollback needs a licence")
+  end
+  if not ctx.installer then
+    -- A client may go back only to a version that differs from today's in
+    -- what a client may change.
+    local target, current = core.store:version(p.versionId), core.store:published()
+    if target == nil or current == nil then
+      return fail("VF_NOT_FOUND", "unknown version")
+    end
+    local _, what = ClientScope.changed(Schema.normalize(current.config), Schema.normalize(target.config))
+    if what ~= nil then
+      return fail(
+        "VF_FORBIDDEN",
+        "that version has a different installation; only the installer can go back to it",
+        { data = { installerOnly = what } }
+      )
+    end
   end
   if p.confirm ~= true then
     return fail("VF_CONFIRM_REQUIRED")
@@ -2366,6 +2517,140 @@ local function stripDetail(reply)
   end
 end
 
+-- ─── Remote management (through the SmartBuildOS Agent) ─────────────────────
+--
+-- A dealer working at smartbuildos.io reaches the venue's configuration through
+-- the Agent's restricted module commands (driver.lua wires them; the Agent's
+-- installation credential is the authority, and the "Remote Management"
+-- driver property decides how far a remote change may go). The commands act
+-- on the CONFIGURATION only. Nothing here routes video, changes a volume,
+-- runs a scene, sets a PIN or touches the simulator.
+--
+--   level "draft"    snapshot, save_draft
+--   level "publish"  the above, plus publish and rollback
+--
+-- A remote change is made as the installer would make it (the dealer is the
+-- installer), and is recorded as "remote".
+
+M.REMOTE_COMMANDS = {
+  draft = { "snapshot", "save_draft", "refresh_status" },
+  publish = { "snapshot", "save_draft", "publish", "rollback", "refresh_status" },
+}
+
+local REMOTE = {}
+
+--- What smartbuildos.io needs to show and edit a venue. No PIN material.
+function REMOTE.snapshot(core)
+  local draft = core:_draftData()
+  local published = core.store:published()
+  return {
+    ok = true,
+    data = {
+      kind = "venueflow.config",
+      schema = Schema.SCHEMA_VERSION,
+      driver = { version = core.deps.version, simulation = core:simulation(), mode = core.deps.mode() },
+      venueStatus = core.runtime.venueStatus,
+      draft = draft,
+      published = published ~= nil and {
+        versionId = published.versionId,
+        publishedAt = published.publishedAt,
+        note = published.note,
+        by = published.by,
+        config = stripPins(published.config),
+      } or nil,
+      history = core.store:history(),
+    },
+  }
+end
+
+function REMOTE.refresh_status(core)
+  return { ok = true, data = core:summary() }
+end
+
+function REMOTE.save_draft(core, args, ctx)
+  if type(args.config) ~= "table" then
+    return fail("VF_INVALID_PAYLOAD", "save_draft needs a config")
+  end
+  local base = tonumber(args.baseRevision)
+  if base == nil and core.store:draft() ~= nil then
+    -- A remote editor must say which draft it started from, so it can never
+    -- silently overwrite work done on site in the meantime.
+    return fail("VF_STALE_DRAFT", "save_draft needs the baseRevision it was edited from")
+  end
+  return H.DRAFT_SAVE(core, { config = args.config, baseRevision = base }, ctx)
+end
+
+function REMOTE.publish(core, args, ctx)
+  local draft = core.store:draft()
+  if draft == nil then
+    return fail("VF_NOT_FOUND", "there is no draft to publish")
+  end
+  if tonumber(args.baseRevision) ~= draft.revision then
+    -- Publish exactly what was reviewed remotely, or nothing.
+    return fail(
+      "VF_STALE_DRAFT",
+      "the draft changed since it was reviewed (revision " .. tostring(draft.revision) .. ")"
+    )
+  end
+  local acknowledged = {}
+  for _, id in ipairs(type(args.acknowledged) == "table" and args.acknowledged or {}) do
+    acknowledged[#acknowledged + 1] = tostring(id)
+  end
+  return H.PUBLISH(
+    core,
+    { acknowledged = acknowledged, note = args.note and tostring(args.note):sub(1, 200) or nil },
+    ctx
+  )
+end
+
+function REMOTE.rollback(core, args, ctx)
+  return H.ROLLBACK(core, { versionId = tostring(args.versionId or ""), confirm = true }, ctx)
+end
+
+--- Runs one remote command. level = "draft" | "publish" (anything else: off).
+--- Returns { ok, errorCode?, detail?, data? }; never raises.
+function Core:remote(command, args, level)
+  local allowed = M.REMOTE_COMMANDS[level]
+  if allowed == nil then
+    return fail("VF_FORBIDDEN", "Remote Management is off on this controller")
+  end
+  if not U.contains(allowed, command) or REMOTE[command] == nil then
+    return fail("VF_FORBIDDEN", "Remote Management does not allow " .. tostring(command) .. " on this controller")
+  end
+  local ctx = { installer = true, access = Access.system("remote"), who = "remote", via = "agent" }
+  local ok, out = pcall(REMOTE[command], self, type(args) == "table" and args or {}, ctx)
+  if not ok or type(out) ~= "table" then
+    self.diag:add("error", "driver", "VF_INTERNAL", "Remote " .. tostring(command) .. " failed: " .. tostring(out))
+    return fail("VF_INTERNAL", tostring(out))
+  end
+  self.diag:add(
+    out.ok and "info" or "warning",
+    "config",
+    out.errorCode,
+    "Remote " .. tostring(command) .. (out.ok and " done" or " refused"),
+    { detail = out.detail }
+  )
+  if out.ok and command ~= "snapshot" and command ~= "refresh_status" then
+    self:_hook("record", "remote " .. command, out.data and (out.data.versionId or out.data.revision) or "")
+  end
+  return out
+end
+
+--- Can anyone sign in to the Studio at all? Yes with an Installer Passcode
+--- set, or with a published profile that holds the Venue Studio permission
+--- and has a PIN.
+function Core:_studioReachable()
+  if self.auth:studioEnabled() then
+    return true
+  end
+  for _, p in ipairs(self.config and self.config.profiles or {}) do
+    if ClientScope.holds(p) and type(p.pinHash) == "string" and p.pinHash ~= "" then
+      return true
+    end
+  end
+  return false
+end
+
 --- The single entry point for every page. Always returns a reply envelope.
 function Core:handle(request, transport)
   local now = self.deps.now()
@@ -2384,8 +2669,20 @@ function Core:handle(request, transport)
   local ctx = self:_context(req, transport)
   local result
   if req.scope == "installer" and not ctx.installer then
-    result =
-      fail(self.auth:studioEnabled() and "VF_UNAUTHENTICATED" or "VF_STUDIO_DISABLED", "installer session required")
+    if ctx.studio then
+      result = fail("VF_FORBIDDEN", "this is for the installer")
+    else
+      result =
+        fail(self.auth:studioEnabled() and "VF_UNAUTHENTICATED" or "VF_STUDIO_DISABLED", "installer session required")
+    end
+  elseif req.scope == "studio" and not (ctx.installer or ctx.studio) then
+    -- The Studio is open to the installer and to a signed-in profile that
+    -- holds the Venue Studio permission.
+    if ctx.signedIn then
+      result = fail("VF_FORBIDDEN", "this profile may not open the Venue Studio")
+    else
+      result = fail(self:_studioReachable() and "VF_UNAUTHENTICATED" or "VF_STUDIO_DISABLED", "Studio session required")
+    end
   elseif req.scope == "operator" and self.config == nil and not (ctx.installer and req.command == "IMAGE_GET") then
     -- (The Layout Designer shows a draft floor's picture before anything is published.)
     result = fail("VF_NO_PUBLISHED_CONFIG")
@@ -2410,8 +2707,8 @@ function Core:handle(request, transport)
     )
   end
   local reply = Protocol.reply(req, result, { stateVersion = self.state.version, ts = now })
-  if not ctx.installer then
-    stripDetail(reply)
+  if not (ctx.installer or (ctx.studio and req.scope == "studio")) then
+    stripDetail(reply) -- detail is for a Studio session, on Studio commands
   end
   if
     req.since ~= nil

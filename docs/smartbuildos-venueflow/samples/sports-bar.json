@@ -819,7 +819,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": true,
+      "sourceControl": true,
       "sources": "all",
+      "studio": true,
       "venueStatus": true,
       "viewAlerts": true,
       "zones": "all"
@@ -841,7 +843,9 @@
       "sceneIds": [ "game-day", "happy-hour" ],
       "scenes": true,
       "shades": false,
+      "sourceControl": true,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": [ "zone-bar" ]
@@ -863,7 +867,9 @@
       "sceneIds": [ "opening", "happy-hour" ],
       "scenes": true,
       "shades": false,
+      "sourceControl": false,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": "all"
@@ -1148,66 +1154,102 @@
   "sources": [ {
     "audio": true,
     "c4DeviceId": 3001,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [ {
+      "channel": "206",
+      "id": "sports-a",
+      "name": "Sports A"
+    }, {
+      "channel": "212",
+      "id": "sports-b",
+      "name": "Sports B"
+    }, {
+      "channel": "5-1",
+      "id": "local",
+      "name": "Local 5"
+    } ],
     "id": "sports-1",
     "kind": "satellite",
     "name": "Sports 1",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3002,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [],
     "id": "sports-2",
     "kind": "satellite",
     "name": "Sports 2",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3003,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [],
     "id": "sports-3",
     "kind": "cable",
     "name": "Sports 3",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3004,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [],
     "id": "sports-4",
     "kind": "cable",
     "name": "Sports 4",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3005,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [],
     "id": "news",
     "kind": "cable",
     "name": "Cable News",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": false,
     "c4DeviceId": 3006,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "signage",
     "kind": "signage",
     "name": "Menu Signage",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3007,
+    "controls": [ "navigation", "transport" ],
     "enabled": true,
+    "favorites": [],
     "id": "streaming",
     "kind": "streaming",
     "name": "Streaming",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 3008,
+    "controls": [ "transport" ],
     "enabled": true,
+    "favorites": [],
     "id": "music",
     "kind": "music",
     "name": "House Music",
+    "tuneEnter": true,
     "video": false
   } ],
   "stations": [],

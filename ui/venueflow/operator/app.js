@@ -286,16 +286,65 @@ var Operator = (function () {
     return h('button.btn.danger' + (cls || ''), { type: 'button', onclick: function () { O.allOff(); } }, VF.icon('power'), 'All Off');
   };
 
+  /* ── source remote ──────────────────────────────────────────────────────
+     Basic controls for a source that has them (channel keys, a keypad, arrows, transport)
+     and its favourite channels. The page names a KEY from a fixed vocabulary; the driver
+     turns it into the Control4 command and refuses anything else. A box gives no feedback,
+     so a press is "sent", never "confirmed". */
+  var REMOTE_NAV = [['GUIDE', 'Guide'], ['UP', 'Up'], ['INFO', 'Info'], ['LEFT', 'Left'], ['SELECT', 'OK'], ['RIGHT', 'Right'], ['MENU', 'Menu'], ['DOWN', 'Down'], ['CANCEL', 'Exit']];
+  var REMOTE_TRANSPORT = [['SKIP_REV', 'Prev'], ['SCAN_REV', 'Rew'], ['PLAY', 'Play'], ['PAUSE', 'Pause'], ['STOP', 'Stop'], ['SCAN_FWD', 'Fwd'], ['SKIP_FWD', 'Next']];
+  O.hasRemote = function (s) { return !!(s && s.controls && VF.asList(s.controls.groups).length && O.can('sourceControl')); };
+  function showingCount(sourceId) {
+    var n = 0, displays = VF.asMap(VF.state.doc && VF.state.doc.displays);
+    Object.keys(displays).forEach(function (id) { var c = displays[id] && displays[id].source; if (c && c.value === sourceId) n++; });
+    return n;
+  }
+  O.openRemote = function (s) {
+    if (!O.hasRemote(s)) return;
+    var groups = VF.asList(s.controls.groups), favorites = VF.asList(s.controls.favorites);
+    function has(g) { return groups.indexOf(g) >= 0; }
+    function press(btn, command, payload) {
+      btn.classList.add('sent');
+      setTimeout(function () { btn.classList.remove('sent'); }, 180);
+      VF.api(command, Object.assign({ sourceId: s.id }, payload), { since: false }).then(function (r) { if (!r || !r.ok) VF.toast((r && r.message) || 'That was not sent.', 'bad'); });
+    }
+    function key(k, label, cls) {
+      var b = h('button.btn.op-key' + (cls || ''), { type: 'button', 'aria-label': label, onclick: function () { press(b, 'SOURCE_KEY', { key: k }); } }, label);
+      return b;
+    }
+    var n = showingCount(s.id);
+    var body = h('div.col.op-remote',
+      h('div.small.muted', n > 1 ? 'This changes all ' + n + ' screens showing ' + s.name + '.' : (n === 1 ? 'One screen is showing ' + s.name + '.' : 'No screen is showing ' + s.name + ' right now.')),
+      favorites.length && has('keypad') ? h('div.col.tight', h('div.lbl', 'Favourites'), h('div.op-favs', favorites.map(function (f) {
+        var b = h('button.btn.op-fav', { type: 'button', 'aria-label': f.name + ', channel ' + f.channel, onclick: function () { press(b, 'SOURCE_TUNE', { favoriteId: f.id }); } }, h('span.ellipsis', f.name), h('span.small.muted', f.channel));
+        return b;
+      }))) : null,
+      has('channel') ? h('div.op-keys.c3', key('CH_DOWN', 'CH -', '.lg'), key('RECALL', 'Last'), key('CH_UP', 'CH +', '.lg')) : null,
+      has('keypad') ? h('div.op-keys.c3', [1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (d) { return key('NUM_' + d, String(d), '.num'); }), key('DASH', '-', '.num'), key('NUM_0', '0', '.num'), key('ENTER', 'Enter')) : null,
+      has('navigation') ? h('div.op-keys.c3', REMOTE_NAV.map(function (k) { return key(k[0], k[1]); }), key('PAGE_DOWN', 'Page -'), h('span'), key('PAGE_UP', 'Page +')) : null,
+      has('transport') ? h('div.op-keys.c7', REMOTE_TRANSPORT.map(function (k) { return key(k[0], k[1]); })) : null,
+      h('div.small.muted', 'The box does not report back: look at a screen to see the change.'));
+    VF.modal({ title: s.name + (s.channel ? '  ·  ' + s.channel : ''), icon: 'tv', body: body, actions: [{ label: 'Close', value: null }] });
+  };
+  O.remoteButton = function (s, label) {
+    if (!O.hasRemote(s)) return null;
+    return h('button.btn.op-remote-btn' + (label ? '' : '.icon'), { type: 'button', 'aria-label': 'Remote for ' + s.name, title: 'Remote for ' + s.name, onclick: function (e) { e.stopPropagation(); O.openRemote(s); } }, VF.icon('grid'), label ? h('span.ellipsis', label) : null);
+  };
+
   /* Radio list of the sources that carry video. opts: { get(), set(id), note(source) -> text } */
   O.sourceList = function (opts) {
     var rows = O.videoSources().map(function (s) {
       var note = h('div.small.op-src-note');
       var row = h('button.item.clickable.op-src', { type: 'button', role: 'radio', onclick: function () { opts.set(s.id); } },
-        h('span.op-radio'), O.sourceIcon(s), h('div.grow', h('div.ellipsis', s.name), note));
+        h('span.op-radio'), O.sourceIcon(s), h('div.grow', h('div.ellipsis', s.name, s.channel ? h('span.small.muted.op-src-ch', s.channel) : null), note));
       row._s = s; row._note = note;
       return row;
     });
-    var el = h('div.op-srclist', { role: 'radiogroup', 'aria-label': 'Source' }, rows.length ? rows : h('div.empty', 'No source is available to this profile.'));
+    /* A source with controls gets a remote button beside its row (a sibling: a button cannot hold a button). */
+    var el = h('div.op-srclist', { role: 'radiogroup', 'aria-label': 'Source' }, rows.length ? rows.map(function (row) {
+      var remote = O.remoteButton(row._s);
+      return remote ? h('div.op-src-wrap', row, remote) : row;
+    }) : h('div.empty', 'No source is available to this profile.'));
     el.update = function () {
       var cur = opts.get();
       rows.forEach(function (row) {
@@ -664,7 +713,7 @@ var Operator = (function () {
             clearInterval(lockTimer);
             if (old) VF.api('LOGOUT', {}, { since: false });      // ends the session this one replaces
             VF.session.set(r.data.session);
-            var data = Object.assign({}, d, r.data, { signedIn: true, needsSignIn: false });
+            var data = Object.assign({}, d, r.data, { signedIn: true, needsSignIn: false, studio: r.data.studio === true });
             enter(data);
             VF.toast('Signed in as ' + r.data.profile.name, 'ok');
             return;
@@ -826,6 +875,16 @@ var Operator = (function () {
     }
     if (VF.asList(O.hello && O.hello.profiles).length) {
       items.push({ icon: 'users', label: 'Switch profile', run: function () { var d = O.hello; showSignIn(function () { enter(d); }); } });
+    }
+    /* The Venue Studio (scenes, schedules, staff, names) opens in this same view: a Control4
+       tile has one window. A signed-in profile that holds the permission takes its session
+       along; anyone else is asked for a PIN there. */
+    var holders = VF.asList(O.hello && O.hello.profiles).filter(function (p) { return p.studio === true; });
+    if ((O.signedIn && O.hello && O.hello.studio === true) || holders.length) {
+      items.push({ icon: 'settings', label: 'Venue Studio', run: function () {
+        if (O.signedIn && O.hello && O.hello.studio === true) { try { sessionStorage.setItem('vf.session.studio', VF.session.get()); } catch (e) { /* asked for the PIN there */ } }
+        location.href = studioUrl();
+      } });
     }
     if (O.signedIn) {
       items.push({ icon: 'log-out', label: 'Sign out', run: function () {

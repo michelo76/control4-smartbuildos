@@ -113,6 +113,42 @@ you which TV did not.
 "The scene's condition is not met right now" usually means the venue is
 marked closed: a manager opens the venue first.
 
+## Changing the channel
+
+If your profile may use source controls, a source that has them shows a
+small remote button beside its name (in the Command Center's source list and
+on a room panel). Tap it for:
+
+- **Favourites**: one press dials that channel.
+- **CH +, CH -, Last**, and a number keypad with Enter.
+- Arrows, Guide, Info and Menu, or Play and Pause, on sources that have them.
+
+A box usually feeds several screens. The remote tells you how many are
+showing it: they all change together. The box does not report back, so look
+at a screen to see the change.
+
+## The Venue Studio (owners and managers)
+
+If your installer gave your profile the Venue Studio permission, sign in
+with your PIN, tap your name at the top right and choose **Venue Studio**.
+There you can change:
+
+- **Scenes**: what one press does.
+- **Scheduling**: what happens by itself, and when.
+- **Channels and Names**: what each source is called, a channel label
+  ("ESPN 206") shown beside it (a note for staff; it does not change the
+  channel), and the **favourite channels** on each box's remote.
+- **Volume Presets**: the one-press levels in each audio zone.
+- **Staff Profiles**: who can do what, and their PINs.
+
+Changes are kept as a draft. Nothing changes on the floor until you open
+**Publish** and publish them; from there you can also go back to an earlier
+version of your own changes. **Back to control** returns to the screens.
+
+Devices, the floor plan and routing are your installer's. If the Studio says
+your installer has unfinished changes, you can keep editing, and publishing
+waits until they finish.
+
 ## When something is wrong
 
 | What you see | What to do |

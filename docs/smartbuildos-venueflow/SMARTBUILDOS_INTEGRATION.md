@@ -37,58 +37,62 @@ components own. Nothing here was touched in production.
 Until the SKU exists the Agent answers for an unknown SKU as it does today;
 with enforcement off (the default) the driver works fully.
 
-### 2. Agent module contract (remote features)
+### 2. Remote management from smartbuildos.io
 
-Proposal, following the Flight Recorder's contract
-(`src/sbos/moduleclient.lua`, `src/sbos/envelope.lua`). Not implemented.
+**Driver side: built and tested against the simulator. Platform side: not
+built. Nothing can be managed remotely today.**
 
-- `module_id = "venueflow"`, registered through `sbos.moduleclient`.
-- `M.PREFIXES` in `src/sbos/envelope.lua` gains
-  `venueflow = { "venueflow." }`, and the web repository's `MODULE_PREFIXES`
-  the same (the server refuses a prefix it does not know for a module).
+Built in this repository (build 20261114.230413):
 
-Controller to cloud, envelope v1 events:
-
-| `event_type` | When | `payload` |
+| Piece | Where | Evidence |
 | --- | --- | --- |
-| `venueflow.config.published` | each publish and rollback | `{ versionId, note, by, counts: { displays, sources, zones, scenes, rules, profiles } }` |
-| `venueflow.config.snapshot` | each publish, split to fit the 4 kB payload limit | `{ versionId, part, parts, chunk }` (the backup document in order) |
-| `venueflow.scene.finished` | each scene or rule run | `{ id, name, origin, status, steps: n, failed: [ "path label" ] }` |
-| `venueflow.operation.failed` | an operation with a failed or unknown target | `{ label, origin, targets: [ { id, name, field, errorCode } ] }` |
-| `venueflow.alert.raised` / `.cleared` | alert changes | `{ id, level, title }` |
-| `venueflow.health` | hourly and on change | `{ mode, displays: { total, on, attention, offline }, zones, licence, version }` |
+| "Remote Management" property (Off, Draft only, Draft and publish) and its status | `driver.xml`, `driver.lua` | `test_venueflow_driver.lua` [10b] |
+| Registration with the Agent as module `venueflow`, only while the property is on | `driver.lua`, `src/sbos/moduleclient.lua` | same |
+| Commands `snapshot`, `save_draft`, `refresh_status`, and with the higher level `publish`, `rollback` | `Core:remote` in `src/venueflow/core.lua` | `test_venueflow_remote.lua` |
+| The configuration as one snapshot document (no PIN material) | `driver.lua` (`SBOS_MODULE_SNAPSHOT`) | same |
+| Event `venueflow.config.published` | `driver.lua` | `test_venueflow_remote.lua` |
+| Envelope prefix `venueflow.` | `src/sbos/envelope.lua` | same |
+| Agent allowlist entry `MODULE_COMMANDS.venueflow` | `drivers/smartbuildos/driver.lua` | `make test` |
 
-Cloud to controller, restricted commands (the Agent's `MODULE_COMMANDS`):
+Not built, and needed before a dealer can use it:
 
-| Command | Effect |
-| --- | --- |
-| `venueflow.restore_draft` | puts a stored configuration into the DRAFT (never publishes) |
-| `venueflow.snapshot` | asks for a fresh `config.snapshot` |
+1. **Web repository**
+   - `MODULE_PREFIXES` and `MODULE_OPERATIONS` entries for `venueflow` (the
+     server refuses a prefix or an operation it does not know).
+   - Storage for a venue's snapshot document, keyed by installation.
+   - A VenueFlow section in the dealer's Studio: read the snapshot, edit the
+     configuration (the local Studio's editors are the reference), send
+     `save_draft`, show the driver's validation, send `publish` with the
+     revision that was reviewed, show history and `rollback`.
+   - Authorization: only the dealer that owns the installation; an audit
+     record of who sent what.
+2. **Agent on the controller**: a build of the Agent from this branch (it
+   carries the allowlist entry). The bench Agent does not have it.
+3. **A bench run** of the whole path (HARDWARE_VALIDATION.md).
 
-That is enough for the enhanced features the brief lists:
+Open questions for that work:
 
-| Feature | Built on |
-| --- | --- |
-| Multi-venue overview | `venueflow.health` per installation |
-| Remote configuration backup, version history | `venueflow.config.snapshot`, `.published` |
-| Driver health monitoring, centralized diagnostics, alerts, activity logs | `.health`, `.operation.failed`, `.alert.*`, `.scene.finished` |
-| Licence management, fleet updates | the Agent's existing entitlement and updater paths |
+- The size of a command's `args` the platform can deliver in one response.
+  A configuration is tens of kilobytes; pictures are not in it (they stay on
+  the controller under their key).
+- Whether the remote editor should be the local Studio's code reused, or a
+  new editor in the web repository's stack.
 
-Deliberately absent: any cloud command that routes video, changes volume or
-runs a scene. Remote control of a venue is a different risk and should be
-decided on its own.
+Deliberately absent: any remote command that routes video, changes volume,
+runs a scene or sets a PIN. Remote control of a venue is a different risk
+and should be decided on its own.
 
-### 3. System Studio and Property Studio pages
+### 3. Fleet features
 
-Pages in the web repository that read the events above. None exist. Property
-Studio could deep-link to a venue's local Studio address for a dealer who is
-on site or on a VPN.
+Multi-venue overview, health monitoring, centralized diagnostics and alerts
+would need more events (`venueflow.health`, `venueflow.operation.failed`,
+`venueflow.alert.*`, `venueflow.scene.finished`). None is built.
 
-### 4. Remote access to Installer Studio
+### 4. Remote access to the local Studio
 
-The Studio is served on the venue LAN only. Reaching it from elsewhere today
-means the dealer's own remote access. An Agent-relayed Studio would need an
-authenticated tunnel in the Agent; not designed here.
+The Studio pages are served on the venue LAN only. Reaching them from
+elsewhere means the dealer's own remote access. An Agent-relayed tunnel is
+not designed.
 
 ## Rules any integration must keep
 
@@ -96,4 +100,6 @@ authenticated tunnel in the Agent; not designed here.
 2. Authenticated, scoped APIs: the Agent's installation credential, never a
    tenant named by the client.
 3. The venue keeps working with the cloud unreachable.
-4. A cloud command may fill the draft; publishing stays a deliberate act.
+4. A cloud command may fill the draft. It may publish only where the dealer
+   has set Remote Management to "Draft and publish" on that controller, and
+   then only the revision that was reviewed.

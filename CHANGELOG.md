@@ -37,6 +37,27 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Simulation; it has not yet controlled real equipment
   (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`). `make venueflow`
   builds just this driver and does not copy it into Composer's folder.
+  - **Venue Studio for the client.** A staff profile that holds the new Venue
+    Studio permission (the Owner role by default) opens the Studio with its
+    PIN, from the tile's profile menu or on the page, and changes scenes,
+    schedules, staff and PINs, source names and channel labels and volume
+    presets, and publishes that. The driver refuses a client's change to
+    anything else. Simulation verified; not yet tried on a Navigator.
+  - **Basic source controls.** A source can have channel up, down and last,
+    a number keypad, arrows with guide, info and menu, and transport keys,
+    plus up to 24 favourite channels dialled with one press. Staff with the
+    new "Use source controls" permission get a remote beside the source; the
+    venue edits favourites in the Venue Studio. The page names a key from a
+    closed list; the driver sends the documented Control4 command to the
+    source's own device. Simulation verified only: not yet seen to move a
+    real box, and there is no feedback.
+  - **Remote Management, driver side.** A property (Off by default, Draft
+    only, Draft and publish) lets smartbuildos.io read the configuration,
+    fill the draft and, where allowed, publish and roll back, through the
+    Agent's module contract (module `venueflow`; one new Agent allowlist
+    entry and one envelope prefix). It never controls equipment. **The
+    platform side does not exist yet**, so nothing can be managed remotely
+    today.
 - **A full manual for every driver.** The other 40 drivers now have the
   same kind of manual as the Notification Router and Solar Position: what
   the driver is for and a table of use cases, where the stock way is still

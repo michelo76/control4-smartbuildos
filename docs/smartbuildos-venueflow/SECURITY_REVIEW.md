@@ -20,6 +20,57 @@ or the test shim, not on a controller.
 | 10 | Local operation survives network disruption | Nothing in the core makes a network call. With no Agent, an unreachable cloud or the grace period, everything works. A page that cannot reach the controller says so and recovers | `test_venueflow_license.lua` "cloud outage"; page behaviour: browser check; a real LAN drop: hardware H3 |
 | 11 | Configuration backups can be restored | Export, restore on a second driver, publish, and the venues are equal, pictures and staff PINs included | `test_venueflow_store.lua` "backup and restore" |
 
+## The client session and Remote Management (build 20261114.230413)
+
+**Client session.** The Studio now also opens for a staff profile whose
+`permissions.studio` is true, on a PIN session. What protects the
+installation:
+
+- The driver compares the installer-owned part of the configuration before
+  and after every client save, publish, discard and rollback
+  (`clientscope.lua`). The page's own section list is a convenience.
+- A client cannot grant or remove the permission, for anyone, itself
+  included. Only an installer session can.
+- A tile's default profile and a station never get a client session: it
+  takes a PIN sign-in.
+- Installer-only commands (devices, discovery, tests, live program runs,
+  pictures, backup, restore, diagnostics, licensing, session revocation, the
+  simulator) answer `VF_FORBIDDEN`.
+- Taking the permission away and publishing ends the access at once.
+
+What it costs: day-to-day configuration is now guarded by a 4 to 8 digit
+PIN, which crosses the venue network in clear like any PIN, with the same
+lockout (five wrong attempts per address, forty in ten minutes overall).
+Scene steps and schedules can only name the venue's own configured
+equipment; there is no step that sends an arbitrary Control4 command.
+
+**Remote Management.** Off by default. When the dealer switches it on:
+
+- Authority is the Agent's module contract: a command is accepted only with
+  the token the Agent issued at registration, and the Agent accepts only
+  commands on its allowlist that this instance registered. With "Draft only"
+  the driver does not register `publish` or `rollback`, so the Agent refuses
+  them before they reach the driver, and the driver refuses them again.
+- The commands act on the configuration only. None routes video, changes a
+  volume, runs a scene, sets a PIN or touches the simulator.
+- A remote draft must name the revision it was edited from; a publish must
+  name the revision that was reviewed. Work done on site is never
+  overwritten silently.
+- A snapshot carries no PIN salt or hash and no passcode. It does carry the
+  whole configuration (names, Control4 device and room ids, staff profile
+  names): that is the data the dealer's platform account will hold.
+- **Not reviewed, because it does not exist yet:** the server side. Who at
+  smartbuildos.io may send these commands, tenant isolation and the audit
+  trail are the web repository's to build and must be reviewed there.
+
+**Source controls.** A page sends a key name from a closed list of 33; the
+driver maps it to a Control4 command and refuses anything else, so a page
+cannot make the driver send an arbitrary command. The target is always the
+source's own mapped device. A channel is digits with at most one dash or
+dot, eight characters at most. At most 64 keys wait at once. The permission
+is separate (`sourceControl`), and a client may edit favourites but not which
+controls a source has.
+
 ## Residual risks, stated plainly
 
 These are real and are not closed by this build.

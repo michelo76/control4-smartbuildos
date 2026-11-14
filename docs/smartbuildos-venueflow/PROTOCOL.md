@@ -49,11 +49,13 @@ the devices changed.
 | --- | --- |
 | Installer | `session` from `STUDIO_LOGIN` (Installer Passcode property). Full access to every command. |
 | Staff profile | `session` from `PROFILE_LOGIN` (the profile's PIN). |
+| Client (Venue Studio) | the same PIN session, when the profile's `permissions.studio` is true in the published configuration. Opens the **studio** commands, narrowed as described under "Studio commands". A tile's default profile and a station never qualify. |
 | Navigator tile | the tile token `k` the driver put in the web view URL (or the Navigator bridge). Acts as the profile of the **station** whose address the request comes from, else as `defaultProfileId`; in both cases only when that profile has no PIN. Otherwise the page must sign in. |
 | Anyone else | may only call the public commands. |
 
 A page never states its own profile. Scopes: **public**, **operator** (needs
-a profile identity and a published configuration), **installer**.
+a profile identity and a published configuration), **studio** (an installer
+session or a client session), **installer** (an installer session only).
 
 ## Public commands
 
@@ -158,9 +160,70 @@ Control4 id, route command, program or PIN data is in it.
                "errorCode": null, "message": null, "operationId": "op7", "results": [ ... ] } ] }
 ```
 
+## Source control commands
+
+Scope **operator**. The profile needs the `sourceControl` permission and
+access to the source; the source needs a Control4 device and the key's group
+in its `controls`.
+
+| Command | Payload | Reply `data` |
+| --- | --- | --- |
+| `SOURCE_KEY` | `sourceId`, `key` | `{ sent: 1, feedback: false }` |
+| `SOURCE_TUNE` | `sourceId`, and `favoriteId` or `channel` ("206", "5-1") | `{ sent: n, feedback: false }` |
+
+`key` is one of a closed list (`src/venueflow/sourcecontrol.lua`), never a
+Control4 command name: `CH_UP`, `CH_DOWN`, `RECALL` (group channel);
+`NUM_0` to `NUM_9`, `DASH`, `ENTER` (keypad); `UP`, `DOWN`, `LEFT`, `RIGHT`,
+`SELECT`, `GUIDE`, `INFO`, `MENU`, `CANCEL`, `PAGE_UP`, `PAGE_DOWN`
+(navigation); `PLAY`, `PAUSE`, `STOP`, `SCAN_FWD`, `SCAN_REV`, `SKIP_FWD`,
+`SKIP_REV` (transport). Errors: `VF_INVALID_PAYLOAD` (unknown key, bad
+channel), `VF_UNSUPPORTED` (the source lacks that group, or too many keys
+are waiting), `VF_DEVICE_UNMAPPED`, `VF_FORBIDDEN`, `VF_NOT_FOUND`.
+
+`ok` means the keys were queued to be sent. There is no confirmation: a box
+reports nothing back. A source in the operator configuration carries
+`controls: { groups, favorites }` when the profile may use them.
+
+## Studio commands
+
+`STUDIO_BOOTSTRAP`, `DRAFT_GET`, `DRAFT_SAVE`, `DRAFT_VALIDATE`,
+`DRAFT_DISCARD`, `PROFILE_PIN_SET`, `PUBLISH`, `VERSIONS`, `ROLLBACK`,
+`PROGRAM_VALIDATE`, `PROGRAM_DRY_RUN` and `EXECUTIONS` have scope **studio**:
+an installer session or a client session. Every other command in the table
+below is installer only, and answers `VF_FORBIDDEN` to a client.
+
+For a client session the driver narrows them (`src/venueflow/clientscope.lua`):
+
+| Command | For a client |
+| --- | --- |
+| `STUDIO_BOOTSTRAP` | `role: "client"`, `who`, and `client: { mayChange, sourceFields, liveWarnings, installerPending, canPublish }`. No controller `info`, the short licence summary |
+| `DRAFT_SAVE` | Allowed when the configuration differs from the stored draft only in: `scenes`; `rules` whose trigger is a schedule; `profiles` (except who holds `permissions.studio`); a source's `name`, `channel` and `favorites`; an audio zone's `presets`. Otherwise `VF_FORBIDDEN` with `data.installerOnly` naming the part |
+| `PUBLISH`, `DRAFT_DISCARD` | Refused with `VF_FORBIDDEN` and `data.installerPending` while the draft differs from what is published in an installer-owned part. On publish, warnings that are live already are acknowledged for the client |
+| `ROLLBACK` | Allowed only to a version that differs from the live one in client-owned parts |
+
+`HELLO` adds `studio` (this session may open the Studio), `studioReachable`
+and, on each listed profile, `studio`. `PROFILE_LOGIN` adds `studio`.
+
+## Remote commands
+
+Not page commands. They arrive through the SmartBuildOS Agent's module
+contract (`SBOS_MODULE_COMMAND`, authenticated by the Agent's token) and run
+through `Core:remote(command, args, level)`. The "Remote Management" property
+sets the level; Off refuses everything.
+
+| Command | Level | Args | Result |
+| --- | --- | --- | --- |
+| `snapshot` | draft | none | one document (`SBOS_MODULE_SNAPSHOT`): draft with issues, the live version with its configuration, history. No PIN material |
+| `save_draft` | draft | `config`, `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved |
+| `refresh_status` | draft | none | the driver's summary |
+| `publish` | publish | `baseRevision` (must equal the draft's), `acknowledged`, `note` | `versionId`, recorded as `remote` |
+| `rollback` | publish | `versionId` | `versionId` |
+
+Event to the platform: `venueflow.config.published` `{ versionId, how }`.
+
 ## Installer commands
 
-All need an Installer Studio session.
+All need an Installer Studio session, except the studio commands above.
 
 | Command | Payload | Reply `data` |
 | --- | --- | --- |

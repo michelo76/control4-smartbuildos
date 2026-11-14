@@ -62,7 +62,7 @@
   "maxSteps": 60,
   "maxWaitSeconds": 600,
   "note": "Generated from src/venueflow/schema.lua, rules.lua and errors.lua: the enumerations and limits a configuration is validated against.",
-  "permissionFlags": [ "routeVideo", "power", "audio", "lighting", "shades", "scenes", "venueStatus", "allOff", "viewAlerts" ],
+  "permissionFlags": [ "routeVideo", "power", "audio", "lighting", "shades", "scenes", "venueStatus", "allOff", "viewAlerts", "sourceControl" ],
   "permissionScopes": [ "floors", "areas", "sources", "zones", "sceneIds" ],
   "powerStrategies": [ "room", "device", "none" ],
   "roles": [ "installer", "owner", "manager", "bartender", "host", "conference_staff", "restricted" ],

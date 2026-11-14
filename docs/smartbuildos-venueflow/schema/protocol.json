@@ -130,11 +130,11 @@
       "kind": "b?",
       "name": "confirm"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "DRAFT_GET",
     "fields": [],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "DRAFT_SAVE",
     "fields": [ {
@@ -144,15 +144,15 @@
       "kind": "t",
       "name": "config"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "DRAFT_VALIDATE",
     "fields": [],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "EXECUTIONS",
     "fields": [],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "EXECUTION_CANCEL",
     "fields": [ {
@@ -237,7 +237,7 @@
       "kind": "s",
       "name": "profileId"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "PROGRAM_DRY_RUN",
     "fields": [ {
@@ -250,7 +250,7 @@
       "kind": "t",
       "name": "program"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "PROGRAM_EXECUTE",
     "enum": {
@@ -288,7 +288,7 @@
       "kind": "t?",
       "name": "trigger"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "PUBLISH",
     "fields": [ {
@@ -298,7 +298,7 @@
       "kind": "s?",
       "name": "note"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "QUERY_STATUS",
     "fields": [ {
@@ -315,7 +315,7 @@
       "kind": "s",
       "name": "versionId"
     } ],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "ROUTE_VIDEO",
     "fields": [ {
@@ -387,9 +387,32 @@
     } ],
     "scope": "installer"
   }, {
+    "command": "SOURCE_KEY",
+    "fields": [ {
+      "kind": "s",
+      "name": "key"
+    }, {
+      "kind": "s",
+      "name": "sourceId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "SOURCE_TUNE",
+    "fields": [ {
+      "kind": "s?",
+      "name": "channel"
+    }, {
+      "kind": "s?",
+      "name": "favoriteId"
+    }, {
+      "kind": "s",
+      "name": "sourceId"
+    } ],
+    "scope": "operator"
+  }, {
     "command": "STUDIO_BOOTSTRAP",
     "fields": [],
-    "scope": "installer"
+    "scope": "studio"
   }, {
     "command": "STUDIO_LOGIN",
     "fields": [ {
@@ -455,7 +478,7 @@
   }, {
     "command": "VERSIONS",
     "fields": [],
-    "scope": "installer"
+    "scope": "studio"
   } ],
   "note": "Generated from src/venueflow/protocol.lua. Field kinds: s string, n number, b boolean, t object, l list of ids; a trailing ? means optional.",
   "protocol": 1

@@ -759,13 +759,26 @@
       issueSlot('source', id),
       h('div.form',
         nameField('Name', s.name, function (v) { ed('Rename source', function (x) { x.name = v; }); }),
-        S.select('Kind', opts(schema().sourceKinds || ['other']), s.kind, function (v) { ed('Source kind', function (x) { x.kind = v || 'other'; }); })),
+        S.select('Kind', opts(schema().sourceKinds || ['other']), s.kind, function (v) { ed('Source kind', function (x) { x.kind = v || 'other'; /* a box that had no controls takes its new kind's usual ones */ if (!VF.asList(x.controls).length) x.controls = VF.asList(VF.asMap((schema().sourceControl || {}).defaults)[x.kind]).slice(); }); }),
+        S.text('Channel label', s.channel || '', function (v) { ed('Channel label', function (x) { if (v) x.channel = v; else delete x.channel; }); },
+          { max: 40, placeholder: 'e.g. ESPN 206', hint: 'A note staff see under the name. It does not change the channel. The venue can edit it in the Venue Studio.' })),
       c4Pick('Control4 device', s.c4DeviceId, deviceGroups(['source'], 'Sources'), function (v) { ed('Map source', function (x) { if (v === undefined) delete x.c4DeviceId; else x.c4DeviceId = v; }); },
         { mark: function (x) { return users[x.id] || null; }, hint: disc.loaded && s.c4DeviceId && disc.device(s.c4DeviceId) ? 'The device id a Control4 room selects to show or play this source.' : null }),
       card('What it carries', h('div.col.tight',
         S.toggle('Carries video', s.video !== false, function (on) { media('video', 'audio', on); }, 'Can be shown on displays.'),
         S.toggle('Carries audio', s.audio !== false, function (on) { media('audio', 'video', on); }, 'Can be played in audio zones.'),
         S.toggle('Enabled', s.enabled !== false, function (on) { ed('Source enabled', function (x) { x.enabled = on; }); }, 'Off: operators cannot choose it.'))),
+      card('Basic controls', h('div.col.tight',
+        h('span.hint', 'What staff can press for this source from a control screen. The keys go to the Control4 device mapped above. Nothing comes back from the device, so a press is "sent", not confirmed. Not yet proven on a controller: test it on site.'),
+        h('div.en-checks', VF.asList((schema().sourceControl || {}).groups).map(function (g) {
+          return S.check(CONTROL_LABEL[g] || words(g), VF.asList(s.controls).indexOf(g) >= 0, function (on) {
+            ed('Source controls', function (x) { var cur = VF.asList(x.controls).filter(function (k) { return k !== g; }); if (on) cur.push(g); x.controls = cur; });
+          });
+        })),
+        VF.asList(s.controls).indexOf('keypad') >= 0 ? S.toggle('Press Enter after the digits', s.tuneEnter !== false, function (on) { ed('Dial with Enter', function (x) { x.tuneEnter = on; }); }, 'When dialling a favourite. Switch off for a box that tunes by itself and treats Enter as something else.') : null)),
+      VF.asList(s.controls).indexOf('keypad') >= 0 ? card('Favourite channels', h('div.col.tight',
+        h('span.hint', 'One press dials the number. The venue can edit these in the Venue Studio.'),
+        S.favoritesEditor(s, ed))) : null,
       card('Where it is used', h('div.col.tight',
         h('div.small', 'Can be shown on ' + onDisplays + ' of ' + plural(displays.length, 'display') + ' and played in ' + inZones + ' of ' + plural(zones.length, 'audio zone') + '.'),
         refs.length ? h('ul.small.en-refs', shortRefs(refs).map(function (r) { return h('li', r); })) : h('div.small.muted', 'No scene, rule or default source uses it.'),
@@ -1205,8 +1218,10 @@
     scenes: ['Run scenes', null],
     venueStatus: ['Mark the venue open or closed', null],
     allOff: ['Use All Off', 'Turns every display and zone off.'],
-    viewAlerts: ['See alerts', 'Devices that did not confirm or are not responding.']
+    viewAlerts: ['See alerts', 'Devices that did not confirm or are not responding.'],
+    sourceControl: ['Use source controls', 'Channel up and down, digits, favourite channels, arrows and play, on sources that have them.']
   };
+  var CONTROL_LABEL = { channel: 'Channel up, down, last', keypad: 'Number keypad and favourites', navigation: 'Arrows, guide, info, menu', transport: 'Play, pause, skip' };
   function roleLabel(r) { return ROLE_LABEL[r] || words(r); }
   function addProfile() {
     if (atLimit('profiles', 'staff profiles')) return;
@@ -1295,6 +1310,11 @@
         S.select('Opens with', p.interfaces.map(function (k) { return { value: k, label: IFACE_LABEL[k] || words(k) }; }), p.defaultInterface, function (v) { ed('Profile default interface', function (x) { if (v) x.defaultInterface = v; }); }))),
       card('What this profile may do', h('div.col.tight',
         VF.asList(schema().permissionFlags).map(function (f) { var l = FLAG_LABEL[f] || [words(f), null]; return S.toggle(l[0], perms[f] === true, perm(f), l[1]); }))),
+      card('Venue Studio', S.isClient()
+        ? h('p.small.muted', perms.studio === true ? 'This profile may open the Venue Studio. Only your installer can change that.' : 'This profile may not open the Venue Studio. Only your installer can change that.')
+        : h('div.col.tight',
+          S.toggle('May open the Venue Studio', perms.studio === true, perm('studio'), 'Lets this person change scenes, schedules, staff and PINs, source names and volume presets, and publish that. Not devices, routing or the layout.'),
+          perms.studio === true && !p.hasPin ? h('div.banner.warn', icon('alert', 'sm'), h('div.small', 'Give this profile a PIN: the Venue Studio only opens with one.')) : null)),
       card('Where it applies', h('div.col',
         h('span.hint', 'A display is available to this profile when both its floor and its area are.'),
         S.idPicker('Floors', 'floors', perms.floors, perm('floors')),

@@ -44,6 +44,7 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local moduleclient = require("sbos.moduleclient")
 local RelayHost = require("lib.relayhost")
 local Core = require("venueflow.core")
 local Relay = require("venueflow.relay")
@@ -426,6 +427,127 @@ end
 
 -- ─── Core wiring ────────────────────────────────────────────────────────────
 
+-- ─── Remote Management (smartbuildos.io, through the Agent) ─────────────────
+--
+-- Off by default. The dealer on site chooses how far a change made at
+-- smartbuildos.io may go: "Draft only" lets the platform read the
+-- configuration and fill the draft; "Draft and publish" also lets it publish
+-- and roll back. The Agent's installation credential is the authority (the
+-- module contract, src/sbos/moduleclient.lua); this driver holds no account
+-- secret. No remote command routes video, changes a volume, runs a scene or
+-- sets a PIN (src/venueflow/core.lua, Core:remote).
+
+local MODULE_ID = "venueflow"
+local gRemoteLevel = nil -- nil (off) | "draft" | "publish"
+local gRemoteLast = "none"
+
+local function remoteLevel()
+  local v = tostring(Properties["Remote Management"] or "Off")
+  if v == "Draft and publish" then
+    return "publish"
+  elseif v == "Draft only" then
+    return "draft"
+  end
+  return nil
+end
+
+local function paintRemote()
+  local text
+  if gRemoteLevel == nil then
+    text = "Off"
+  elseif not moduleclient.isRegistered() then
+    text = "On - waiting for the SmartBuildOS Agent"
+  else
+    text = (gRemoteLevel == "publish" and "On - draft and publish" or "On - draft only")
+      .. (gRemoteLast ~= "none" and (" - last: " .. gRemoteLast) or "")
+  end
+  pcall(UpdateProperty, "Remote Management Status", text)
+end
+
+--- Sends one small event to the platform (nothing when remote is off).
+local function remoteEvent(eventType, payload)
+  if gRemoteLevel == nil or not moduleclient.isRegistered() then
+    return
+  end
+  pcall(function()
+    local env = moduleclient.event({ event_type = eventType, evidence_source = "system", payload = payload })
+    if env ~= nil then
+      moduleclient.sendEvents({ env })
+    end
+  end)
+end
+
+--- A restricted command from the platform, already authenticated by the
+--- Agent's token (moduleclient drops anything else).
+function VenueFlowRemoteCommand(request)
+  local id, command = request.request_id, tostring(request.command)
+  if gCore == nil then
+    moduleclient.commandResult(id, "Failed", "VenueFlow is not running")
+    return
+  end
+  moduleclient.commandResult(id, "Executing", command)
+  local out = gCore:remote(command, request.args, gRemoteLevel)
+  if not out.ok then
+    gRemoteLast = command .. " refused"
+    moduleclient.commandResult(id, "Failed", tostring(out.errorCode) .. ": " .. tostring(out.detail or ""))
+    paintRemote()
+    return
+  end
+  local detail = ""
+  if command == "snapshot" then
+    -- The configuration travels as one document, not as events: an event's
+    -- payload is limited to 4 kB.
+    moduleclient.sendSnapshot({ job_id = id, request_id = id, status = "completed", document = out.data })
+  elseif command == "save_draft" then
+    detail = "revision " .. tostring(out.data and out.data.revision)
+  elseif command == "publish" or command == "rollback" then
+    detail = "version " .. tostring(out.data and out.data.versionId)
+  end
+  gRemoteLast = command .. " " .. os.date("%H:%M")
+  moduleclient.commandResult(id, "Succeeded", detail)
+  paintRemote()
+  pcall(paint)
+end
+
+local function startRemote()
+  -- Any earlier registration ends first: its command list may be wider than
+  -- what the property allows now.
+  pcall(moduleclient.stop)
+  gRemoteLevel = remoteLevel()
+  if gRemoteLevel == nil then
+    paintRemote()
+    return
+  end
+  moduleclient.setup({
+    module_id = MODULE_ID,
+    driver_version = tostring(C4:GetDriverConfigInfo("version")),
+    capabilities = gRemoteLevel == "publish" and { "config_read", "config_draft", "config_publish" }
+      or { "config_read", "config_draft" },
+    entitlements = { SKU },
+    commands = Core.REMOTE_COMMANDS[gRemoteLevel],
+    event_types = { "venueflow." },
+    singleton = true,
+    status = function()
+      return "running", gLastError ~= "none" and gLastError or "", {}
+    end,
+    configVersion = function()
+      return "0"
+    end,
+    onRegistered = function()
+      paintRemote()
+    end,
+    onAgentState = function()
+      paintRemote()
+    end,
+    onCommand = VenueFlowRemoteCommand,
+    onConfig = function()
+      return true, 0
+    end,
+  })
+  moduleclient.register()
+  paintRemote()
+end
+
 local function fire(key)
   local id = EVENTS[key]
   if id ~= nil then
@@ -513,7 +635,14 @@ local function buildCore()
       end,
     },
     passcode = passcode,
-    record = record,
+    record = function(name, detail)
+      record(name, detail)
+      -- The platform hears about a new live version (a small event; the
+      -- configuration itself only travels when the platform asks for it).
+      if name == "configuration published" or name == "configuration rolled back" then
+        remoteEvent("venueflow.config.published", { versionId = tostring(detail or ""), how = name })
+      end
+    end,
     fireEvent = function(key)
       fire(key)
       -- Every event marks a change the property page should show at once.
@@ -625,11 +754,13 @@ function OnDriverLateInit()
     paint()
   end, true)
   paint()
+  startRemote()
   record("driver started", controlMode())
 end
 
 function OnDriverDestroyed()
   pcall(license.stop)
+  pcall(moduleclient.stop)
   stopRelay()
   if gCore ~= nil then
     pcall(function()
@@ -677,6 +808,14 @@ function OPC.Control_Mode()
     UpdateProperty("Driver Status", controlMode() == "live" and "Online" or "Online - Simulation")
     record("control mode", controlMode())
     paint()
+  end
+end
+
+--- Remote Management is the dealer's switch, on the controller.
+function OPC.Remote_Management()
+  if gInitialized and gCore ~= nil then
+    startRemote()
+    record("remote management", tostring(Properties["Remote Management"]))
   end
 end
 

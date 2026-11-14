@@ -631,9 +631,21 @@ check("the new one does", studio ~= nil)
 Properties["Installer Passcode"] = ""
 OnPropertyChanged("Installer Passcode")
 eq(
-  "emptying the passcode turns the Studio off",
-  api("DRAFT_GET", {}, { session = studio }).errorCode,
+  "emptying the passcode turns the installer's Studio off",
+  api("STUDIO_LOGIN", { passcode = "another-pass-2" }).errorCode,
   "VF_STUDIO_DISABLED"
+)
+eq(
+  "the installer's old session is gone",
+  api("BACKUP_EXPORT", {}, { session = studio }).errorCode,
+  "VF_STUDIO_DISABLED"
+)
+-- The sample's manager holds the Venue Studio permission and has a PIN, so
+-- the Studio still has someone who can sign in to it.
+eq(
+  "the Venue Studio stays reachable for the client",
+  api("DRAFT_GET", {}, { session = studio }).errorCode,
+  "VF_UNAUTHENTICATED"
 )
 Properties["Installer Passcode"] = "another-pass-2"
 OnPropertyChanged("Installer Passcode")
@@ -647,6 +659,70 @@ eq("End Staff Sessions ends them", api("GET_STATE", {}, { session = manager }).e
 ExecuteCommand("LUA_ACTION", { ACTION = "RESET_SIGNIN_LOCKS" })
 ExecuteCommand("LUA_ACTION", { ACTION = "RELOAD" })
 check("actions run without error", prop("Driver Status") == "Online")
+
+print("[10b] Remote Management: off by default, the dealer's switch, the Agent's token")
+eq("off by default", Properties["Remote Management"], "Off")
+eq("the status says so", Properties["Remote Management Status"], "Off")
+check("nothing registers as a module while it is off", commands(AGENT_ID, "SBOS_MODULE_REGISTER")[1] == nil)
+EC.SBOS_MODULE_COMMAND = nil
+sent = {}
+Properties["Remote Management"] = "Draft only"
+OnPropertyChanged("Remote Management")
+local reg = commands(AGENT_ID, "SBOS_MODULE_REGISTER")[1]
+check("switching it on registers with the Agent", reg ~= nil)
+eq("...as the venueflow module", reg and reg.params.module_id, "venueflow")
+eq("...offering draft commands only", reg and reg.params.commands, "snapshot,save_draft,refresh_status")
+eq("the status waits for the Agent", Properties["Remote Management Status"], "On - waiting for the SmartBuildOS Agent")
+EC.SBOS_MODULE_REGISTERED({
+  module_id = "venueflow",
+  ok = "true",
+  token = "tok-1",
+  protocol = "1",
+  paired = "true",
+  connected = "true",
+})
+eq("registered: the status says draft only", Properties["Remote Management Status"], "On - draft only")
+local function remoteCommand(token, id, command, args)
+  sent = {}
+  EC.SBOS_MODULE_COMMAND({
+    token = token,
+    request_id = id,
+    command = command,
+    args = JSON:encode(args or {}),
+    expires_at = tostring(os.time() + 600),
+    issued_at = tostring(os.time()),
+  })
+  local states = {}
+  for _, c in ipairs(commands(AGENT_ID, "SBOS_MODULE_COMMAND_RESULT")) do
+    states[#states + 1] = c.params.state
+  end
+  return states
+end
+eq("a command with the wrong token is ignored", #remoteCommand("someone-else", "r0", "snapshot"), 0)
+local states = remoteCommand("tok-1", "r1", "snapshot")
+eq("a snapshot is accepted, run and finished", table.concat(states, ","), "Accepted,Executing,Succeeded")
+local doc = commands(AGENT_ID, "SBOS_MODULE_SNAPSHOT")[1]
+check(
+  "the configuration goes up as one document",
+  doc ~= nil and doc.params.document:find('"kind":"venueflow.config"', 1, true) ~= nil
+)
+check("...with no PIN material", doc ~= nil and not doc.params.document:find("pinHash", 1, true))
+states = remoteCommand("tok-1", "r2", "publish", { baseRevision = 1 })
+eq("draft only: a publish fails", states[#states], "Failed")
+Properties["Remote Management"] = "Draft and publish"
+OnPropertyChanged("Remote Management")
+reg = commands(AGENT_ID, "SBOS_MODULE_REGISTER")
+eq(
+  "draft and publish: registers the wider command list",
+  reg[#reg] and reg[#reg].params.commands,
+  "snapshot,save_draft,publish,rollback,refresh_status"
+)
+Properties["Remote Management"] = "Off"
+OnPropertyChanged("Remote Management")
+eq("switching it off says Off", Properties["Remote Management Status"], "Off")
+check("...and unregisters", commands(AGENT_ID, "SBOS_MODULE_UNREGISTER")[1] ~= nil)
+states = remoteCommand("tok-1", "r3", "snapshot")
+check("...and a late command does nothing to the configuration", states[#states] ~= "Succeeded")
 
 print("[11] restart: configuration and status come back; sessions do not")
 local version = persisted.vf_published_v1.versionId

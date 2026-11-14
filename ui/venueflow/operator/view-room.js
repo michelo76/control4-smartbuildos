@@ -154,9 +154,13 @@
             if (b.disabled) return;
             b.disabled = true;
             O.route(s.id, routable.map(function (d) { return d.id; })).then(function () { b.disabled = false; });
-          } }, O.sourceIcon(s), h('span.ellipsis', s.name));
+          } }, O.sourceIcon(s), h('span.ellipsis', s.name, s.channel ? h('span.small.muted.op-src-ch', s.channel) : null));
           b._id = s.id;
           return b;
+        });
+        /* The room's sources that have basic controls each get a remote. */
+        O.videoSources().filter(function (s) { return O.hasRemote(s) && routable.some(function (d) { return O.canShow(d, s.id); }); }).forEach(function (s) {
+          srcBtns.push(O.remoteButton(s, s.name + ' remote'));
         });
         if (srcBtns.length) {
           parts.push(function () {

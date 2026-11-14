@@ -1,14 +1,14 @@
 # VenueFlow release notes
 
-## Build 20261114.191046 (14 November 2026)
+## Build 20261114.230413 (14 November 2026)
 
 **Readiness: SIMULATION VERIFIED.**
 
 | Level | Standing |
 | --- | --- |
 | Development build | Passed |
-| Simulation verified | **Yes**: 1812 automated checks and browser tests against the simulator, all passing (TEST_RESULTS.md) |
-| Hardware validated | **No**: a bench run has started. On the bench controller, in Simulation, H1, the laptop part of H2 and H3 (including a driver restart on this build) passed. It has not controlled real equipment and no Navigator has opened the tile |
+| Simulation verified | **Yes**: 2147 automated checks and browser tests against the simulator, all passing (TEST_RESULTS.md) |
+| Hardware validated | **No**: a bench run has started. On the bench controller, in Simulation, H1, the laptop part of H2 and H3 (including a driver restart) passed, on build `20261114.191046`. **This build has not been on a controller.** Nothing has controlled real equipment and no Navigator has opened the tile |
 | Production ready | **No**: needs HARDWARE_VALIDATION.md H1 to H9 to pass |
 
 Do not install this build at a customer site. Import it on a bench system
@@ -40,6 +40,21 @@ only, in Simulation mode first.
   daylight-saving changes and downtime.
 - **Staff profiles** (seven role templates) with permissions enforced in the
   driver; PIN sign-in; stations (a fixed screen opens as its own profile).
+- **Venue Studio for the client**: a staff profile that holds the Venue
+  Studio permission (the Owner role by default) opens the Studio with its
+  PIN, on the Control4 tile or on the page, and changes scenes, schedules,
+  staff and PINs, source names and channel labels and volume presets, and
+  publishes that. Everything else stays the installer's; the driver enforces
+  it.
+- **Basic source controls**: a source can have channel up, down and last, a
+  number keypad, arrows with guide, info and menu, and transport keys, plus
+  up to 24 favourite channels dialled with one press. A cable or satellite
+  source starts with channel keys and a keypad. Staff open a source's
+  remote from the source list; the venue edits favourites in the Venue
+  Studio.
+- **Remote Management** (driver side only): a property, Off by default, that
+  lets smartbuildos.io read the configuration and fill the draft, or also
+  publish and roll back, through the SmartBuildOS Agent.
 - **Configuration**: draft, published and five previous versions; backup and
   restore; schema version 1 with migration support.
 - **Licensing** through the SmartBuildOS Agent; fail open; a restriction never
@@ -80,8 +95,11 @@ only, in Simulation mode first.
     single-zone amplifier play two things.
 11. **Composer command parameters are typed, not picked from a list** (scene
     and source names).
-12. **No remote (cloud) features**: multi-venue overview, remote backup,
-    fleet views. See SMARTBUILDOS_INTEGRATION.md for what they need.
+12. **Remote management is half built.** The driver side exists and is
+    tested against the simulator; smartbuildos.io has no pages or server side
+    for it, so nothing can be managed remotely today. Multi-venue overview,
+    remote backup and fleet views are not built either. See
+    SMARTBUILDOS_INTEGRATION.md.
 13. **The entitlement cannot be issued yet**: the `SBOS_VENUEFLOW` SKU is not
     in the platform. With enforcement off (the default) the driver works
     fully.
@@ -90,6 +108,58 @@ only, in Simulation mode first.
 15. **No video-wall composition.** A video wall is one display with a custom
     route command.
 16. **Floor rulers show canvas units**, not feet or metres.
+17. **The Venue Studio on a Navigator is untested.** It was checked in a
+    desktop browser against the simulator. A PIN of 4 to 8 digits now guards
+    day-to-day configuration, with the same lockout as any PIN; give the
+    permission to as few profiles as the venue needs.
+18. **PINs cannot be set remotely**, by design.
+19. **Source controls are unproven on hardware.** The command names are the
+    ones Control4 documents for its Satellite, Tuner, TV, DVD and Media
+    Player proxies; there is no published page for a cable box, which is
+    assumed to follow the Satellite set. That a command sent by this driver
+    to a source's device reaches the box is not documented and has not been
+    seen on a controller. There is no feedback: VenueFlow never knows what
+    channel a box is on, and a key changes every screen showing that source.
+    Scenes and schedules cannot change a channel yet.
+
+### Changed since build 20261114.191046
+
+- **The Studio has two doors.** The installer signs in with the Installer
+  Passcode, as before. The venue's own people sign in with a staff PIN when
+  their profile holds the new Venue Studio permission. A client sees seven
+  sections (Home, Channels and Names, Volume Presets, Scenes, Scheduling,
+  Staff Profiles, Publish) and the driver refuses a client's change to
+  anything else, whatever the page sends.
+- **The Studio opens on the tile.** The control page's profile menu has a
+  Venue Studio entry; it opens in the same view and takes the PIN session
+  along. Not yet tried on a touch screen or in the Control4 app.
+- **A client is not asked about warnings that are already live**, only about
+  one their own change brings. A client cannot publish or discard a draft
+  that holds the installer's unfinished work, and can roll back only across
+  their own changes.
+- **Sources have a channel label** ("ESPN 206"), a note shown beside the
+  name. It does not change the channel.
+- **Sources have basic controls.** The installer picks the groups per source
+  (channel, keypad, navigation, transport); a cable or satellite source in an
+  existing configuration gains channel keys and a keypad by default. A new
+  permission, "Use source controls", decides who sees the remote (on for
+  Installer, Owner, Manager and Bartender in the templates; off for profiles
+  in an existing configuration until someone switches it on). The page names
+  a key from a fixed list of 33; the driver turns it into the documented
+  Control4 command (`PULSE_CHANNEL_UP`, `NUMBER_0` to `NUMBER_9`, `ENTER`,
+  `RECALL` and so on) and sends it to the source's own device. A favourite is
+  dialled as its digits 350 ms apart, then Enter.
+- **Remote Management property** (Off, Draft only, Draft and publish) and
+  Remote Management Status. The driver registers with the Agent as the
+  `venueflow` module, answers `snapshot`, `save_draft`, `publish`, `rollback`
+  and `refresh_status`, and reports each new live version. **Not connected
+  end to end:** smartbuildos.io has no VenueFlow pages or server side yet,
+  and the bench Agent does not know the module.
+- The Agent driver gains one allowlist entry for these commands and the
+  event envelope one prefix (`venueflow.`). Both are inert until the
+  platform side exists.
+- The published summary records who published (`installer`, `remote` or
+  `profile:<id>`).
 
 ### Changed since build 20261114.061304
 

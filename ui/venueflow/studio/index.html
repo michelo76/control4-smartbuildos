@@ -16,12 +16,13 @@
 <body>
 <div id="offline" class="banner bad hidden">The controller is not answering. Changes are kept on this screen and saved when it is back.</div>
 <div id="login" class="hidden"></div>
+<div id="pending" class="banner warn hidden"></div>
 <div id="app" class="hidden">
   <div id="sim" class="simbar hidden">Simulation mode: nothing is sent to Control4</div>
   <header id="top">
     <button id="navtoggle" class="btn ghost icon sm" type="button" aria-label="Sections"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="brand"></div>
-    <span class="muted hide-sm nowrap">Installer Studio</span>
+    <span id="studiotitle" class="muted hide-sm nowrap">Installer Studio</span>
     <span class="sep hide-sm"></span>
     <div id="venue" class="grow"></div>
     <div id="mode" class="hide-sm"></div>
@@ -53,6 +54,9 @@
 </script>
 <script>
 //@include studio/sec-stations.js
+</script>
+<script>
+//@include studio/sec-client.js
 </script>
 <script>
 Studio.start();

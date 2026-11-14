@@ -32,6 +32,8 @@ local function perms(overrides)
     venueStatus = false,
     allOff = false,
     viewAlerts = false,
+    sourceControl = false,
+    studio = false,
   }
   for k, v in pairs(overrides or {}) do
     p[k] = v
@@ -49,7 +51,13 @@ local ALL_ON = {
   venueStatus = true,
   allOff = true,
   viewAlerts = true,
+  sourceControl = true,
 }
+
+local function withStudio(p)
+  p.studio = true
+  return p
+end
 
 --- The seven role templates. `installer` is a profile for using the OPERATOR
 --- screens with every permission; configuration is never a profile permission,
@@ -65,7 +73,9 @@ M.PROFILE_TEMPLATES = {
     name = "Owner",
     interfaces = { "manager", "floorplan", "command", "room" },
     defaultInterface = "manager",
-    permissions = perms(ALL_ON),
+    -- The owner looks after the venue day to day in the Venue Studio. The
+    -- installer can grant `studio` to another profile; a client cannot.
+    permissions = withStudio(perms(ALL_ON)),
   },
   manager = {
     name = "Manager",
@@ -77,7 +87,7 @@ M.PROFILE_TEMPLATES = {
     name = "Bartender",
     interfaces = { "command", "floorplan" },
     defaultInterface = "command",
-    permissions = perms({ routeVideo = true, power = true, audio = true, scenes = true }),
+    permissions = perms({ routeVideo = true, power = true, audio = true, scenes = true, sourceControl = true }),
   },
   host = {
     name = "Host",
@@ -389,7 +399,18 @@ function M.sportsBar(hashPin)
     },
   }
   c.sources = {
-    { id = "sports-1", name = "Sports 1", kind = "satellite", c4DeviceId = 3001 },
+    {
+      id = "sports-1",
+      name = "Sports 1",
+      kind = "satellite",
+      c4DeviceId = 3001,
+      -- Invented channel numbers, to show favourites in the sample.
+      favorites = {
+        { id = "sports-a", name = "Sports A", channel = "206" },
+        { id = "sports-b", name = "Sports B", channel = "212" },
+        { id = "local", name = "Local 5", channel = "5-1" },
+      },
+    },
     { id = "sports-2", name = "Sports 2", kind = "satellite", c4DeviceId = 3002 },
     { id = "sports-3", name = "Sports 3", kind = "cable", c4DeviceId = 3003 },
     { id = "sports-4", name = "Sports 4", kind = "cable", c4DeviceId = 3004 },
@@ -691,6 +712,8 @@ function M.sportsBar(hashPin)
     M.profile("bartender"),
     M.profile("host"),
   }
+  -- In the sample the manager looks after the venue in the Venue Studio.
+  c.profiles[1].permissions.studio = true
   -- The bartender tablet is a bar-only device.
   c.profiles[2].permissions.areas = { "bar" }
   c.profiles[2].permissions.zones = { "zone-bar" }

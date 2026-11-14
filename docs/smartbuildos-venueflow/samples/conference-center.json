@@ -371,7 +371,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": true,
+      "sourceControl": true,
       "sources": "all",
+      "studio": false,
       "venueStatus": true,
       "viewAlerts": true,
       "zones": "all"
@@ -393,7 +395,9 @@
       "sceneIds": "all",
       "scenes": true,
       "shades": true,
+      "sourceControl": false,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": "all"
@@ -415,7 +419,9 @@
       "sceneIds": [ "a-present", "a-conference", "a-tv", "a-off" ],
       "scenes": true,
       "shades": true,
+      "sourceControl": false,
       "sources": "all",
+      "studio": false,
       "venueStatus": false,
       "viewAlerts": false,
       "zones": [ "audio-a" ]
@@ -624,50 +630,68 @@
   "sources": [ {
     "audio": true,
     "c4DeviceId": 5001,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "laptop-a",
     "kind": "laptop",
     "name": "Laptop HDMI (A)",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 5002,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "laptop-b",
     "kind": "laptop",
     "name": "Laptop HDMI (B)",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 5003,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "wireless",
     "kind": "laptop",
     "name": "Wireless Presenter",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 5004,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "codec",
     "kind": "conference",
     "name": "Video Conference",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": true,
     "c4DeviceId": 5005,
+    "controls": [ "channel", "keypad" ],
     "enabled": true,
+    "favorites": [],
     "id": "tv-tuner",
     "kind": "cable",
     "name": "Cable TV",
+    "tuneEnter": true,
     "video": true
   }, {
     "audio": false,
     "c4DeviceId": 5006,
+    "controls": [],
     "enabled": true,
+    "favorites": [],
     "id": "signage",
     "kind": "signage",
     "name": "Welcome Signage",
+    "tuneEnter": true,
     "video": true
   } ],
   "stations": [],

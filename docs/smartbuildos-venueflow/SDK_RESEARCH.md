@@ -170,3 +170,49 @@ a custom one the installer types), sent without assuming feedback.
 11. A `STRING` command parameter is used for scene names because it is
     bench-proven; a drop-down (`DYNAMIC_LIST` with `GetCommandParamList`)
     would be nicer and has not been tried on the bench.
+
+## Source control commands (added 14 November 2026)
+
+Read on 14 November 2026 from the per-proxy guides under
+`https://snap-one.github.io/` (`docs-driverworks-proxyprotocol-satellite`,
+`-tuner`, `-tv`, `-dvd`, `-mediaplayer`). The combined proxy guide says it is
+deprecated in favour of these. **There is no `-cable` page** (404).
+
+| Command | Satellite | Tuner | TV | DVD | Media player |
+| --- | --- | --- | --- | --- | --- |
+| `PULSE_CHANNEL_UP`, `PULSE_CHANNEL_DOWN` | yes | yes | yes | no | no |
+| `NUMBER_0` to `NUMBER_9` | yes | yes | yes | yes | yes |
+| `DASH`, `STAR`, `POUND` | yes | yes | yes | yes | yes |
+| `ENTER` | yes | no | no | yes | yes |
+| `RECALL` | yes | yes | yes | yes | yes |
+| `INFO`, `CANCEL`, `PAGE_UP`, `PAGE_DOWN` | yes | yes | yes | yes | yes |
+| `GUIDE` | yes | no | no | yes | yes |
+| `MENU` | no | no | no | yes | yes |
+| `UP`, `DOWN`, `LEFT`, `RIGHT` | partly (`UP` only as `START_UP` / `STOP_UP`) | no | start / stop forms | yes | yes |
+| `PLAY`, `PAUSE` | yes | no | no | yes | yes |
+| `STOP`, `SKIP_REV` | no | no | no | yes | yes |
+| `SCAN_FWD`, `SCAN_REV` | yes | no | no | yes | yes |
+| `SKIP_FWD` | yes | no | no | yes | yes |
+| `SET_CHANNEL` (`CHANNEL`) | yes | yes | yes | no | no |
+
+Not found on any page read: `PULSE_CH_UP` (the name is `PULSE_CHANNEL_UP`),
+`EXIT`, `RECORD`.
+
+What VenueFlow does with this (`src/venueflow/sourcecontrol.lua`): it sends
+these names with `C4:SendToDevice(<the source's device id>, <command>, {})`.
+
+**Not documented, and not yet seen on a controller:**
+
+- That a command sent this way by another driver reaches the box. The guides
+  describe what Director sends to the proxy and what the protocol driver
+  receives; they do not say who else may send. The API guide does document
+  sending a keypress to a ROOM, which forwards it to the room's selected
+  device; VenueFlow does not use that, because one box feeds several rooms
+  and a room may have another device selected.
+- Which names a given cable-box driver honours. A cable box is assumed to
+  follow the Satellite set.
+- The casing of a few names: the guides themselves are inconsistent between
+  headings and name lines.
+
+`SET_CHANNEL` is not used: favourites are dialled as digits, which every
+proxy above lists.

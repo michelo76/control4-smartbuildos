@@ -5,6 +5,7 @@
 --- hiding a button in a page is a convenience, not the protection.
 
 local U = require("venueflow.util")
+local SourceControl = require("venueflow.sourcecontrol")
 
 local M = {}
 
@@ -163,6 +164,9 @@ function Access:view(config)
       out.sources[#out.sources + 1] = {
         id = s.id,
         name = s.name,
+        channel = (type(s.channel) == "string" and s.channel ~= "") and s.channel or nil,
+        -- Its basic controls and favourite channels, for a profile that may use them.
+        controls = self:flag("sourceControl") and SourceControl.describe(s) or nil,
         kind = s.kind,
         video = s.video ~= false,
         audio = s.audio ~= false,
@@ -288,6 +292,7 @@ function Access:describe()
       "venueStatus",
       "allOff",
       "viewAlerts",
+      "sourceControl",
     }) do
       all[name] = true
     end
@@ -313,6 +318,7 @@ function Access:describe()
     "venueStatus",
     "allOff",
     "viewAlerts",
+    "sourceControl",
   }) do
     flags[name] = self.permissions[name] == true
   end

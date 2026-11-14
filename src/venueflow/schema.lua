@@ -12,6 +12,7 @@
 ---   severity "warning" must be fixed OR acknowledged before publishing
 
 local U = require("venueflow.util")
+local SourceControl = require("venueflow.sourcecontrol")
 local Rules = require("venueflow.rules")
 
 local M = {}
@@ -59,10 +60,22 @@ M.LIMITS = {
   name = 80,
 }
 
-local PERMISSION_FLAGS =
-  { "routeVideo", "power", "audio", "lighting", "shades", "scenes", "venueStatus", "allOff", "viewAlerts" }
+local PERMISSION_FLAGS = {
+  "routeVideo",
+  "power",
+  "audio",
+  "lighting",
+  "shades",
+  "scenes",
+  "venueStatus",
+  "allOff",
+  "viewAlerts",
+  "sourceControl",
+}
 local PERMISSION_SCOPES = { "floors", "areas", "sources", "zones", "sceneIds" }
 M.PERMISSION_FLAGS = PERMISSION_FLAGS
+--- A source's channel label ("ESPN 206"): what is on it today. Free text.
+M.CHANNEL_MAX = 40
 M.PERMISSION_SCOPES = PERMISSION_SCOPES
 
 local function set(list)
@@ -192,6 +205,15 @@ function M.normalize(config)
       default(s, "video", true)
       default(s, "audio", true)
       default(s, "enabled", true)
+      -- Basic controls (sourcecontrol.lua): a cable or satellite box starts
+      -- with channel keys and a keypad; the installer can change that.
+      if type(s.controls) ~= "table" then
+        s.controls = SourceControl.defaults(s.kind)
+      end
+      if type(s.favorites) ~= "table" then
+        s.favorites = {}
+      end
+      default(s, "tuneEnter", true)
     end
   end
   for _, d in ipairs(c.displays) do
@@ -272,6 +294,7 @@ function M.normalize(config)
       for _, flag in ipairs(PERMISSION_FLAGS) do
         default(p.permissions, flag, false)
       end
+      default(p.permissions, "studio", false) -- may open the Venue Studio (clientscope.lua)
       default(p, "defaultInterface", p.interfaces[1] or "command")
     end
   end
@@ -582,6 +605,76 @@ function M.validate(config)
       end
       if s.video == false and s.audio == false then
         issue(issues, "error", "SOURCE_NO_MEDIA", path, "A source must carry video, audio or both.", ent)
+      end
+      for _, group in ipairs(U.list(s.controls)) do
+        if not U.contains(SourceControl.GROUPS, group) then
+          issue(issues, "error", "ENUM", path .. ".controls", "Unknown control group.", ent)
+        end
+      end
+      if s.tuneEnter ~= nil and type(s.tuneEnter) ~= "boolean" then
+        issue(issues, "error", "TYPE", path .. ".tuneEnter", "Must be true or false.", ent)
+      end
+      local favorites = U.list(s.favorites)
+      if #favorites > SourceControl.FAVORITES_MAX then
+        issue(
+          issues,
+          "error",
+          "TOO_MANY",
+          path .. ".favorites",
+          "A source holds up to " .. SourceControl.FAVORITES_MAX .. " favourite channels.",
+          ent
+        )
+      end
+      local favoriteIds = {}
+      for j, f in ipairs(favorites) do
+        local fpath = string.format("%s.favorites[%d]", path, j)
+        if type(f) ~= "table" or not U.isId(f.id) or favoriteIds[f.id] then
+          issue(issues, "error", "ID_INVALID", fpath, "A favourite needs its own id.", ent)
+        else
+          favoriteIds[f.id] = true
+          if type(f.name) ~= "string" or f.name == "" or #f.name > SourceControl.FAVORITE_NAME_MAX then
+            issue(
+              issues,
+              "error",
+              "NAME_INVALID",
+              fpath .. ".name",
+              "A favourite needs a name of up to " .. SourceControl.FAVORITE_NAME_MAX .. " characters.",
+              ent
+            )
+          end
+          if not SourceControl.validChannel(f.channel) then
+            issue(
+              issues,
+              "error",
+              "CHANNEL_INVALID",
+              fpath .. ".channel",
+              "A channel is digits, with at most one dash or dot (206, 5-1).",
+              ent
+            )
+          end
+        end
+      end
+      if #favorites > 0 and not SourceControl.has(s, "keypad") then
+        issue(
+          issues,
+          "warning",
+          "FAVORITES_NO_KEYPAD",
+          path .. ".favorites",
+          "Source '"
+            .. tostring(s.name)
+            .. "' has favourite channels but no keypad controls, so they cannot be dialled.",
+          ent
+        )
+      end
+      if s.channel ~= nil and (type(s.channel) ~= "string" or #s.channel > M.CHANNEL_MAX) then
+        issue(
+          issues,
+          "error",
+          "CHANNEL_INVALID",
+          path .. ".channel",
+          "A channel label is text of up to " .. M.CHANNEL_MAX .. " characters.",
+          ent
+        )
       end
     end
   end
@@ -1017,6 +1110,25 @@ function M.validate(config)
         end
       end
       local hasPin = type(p.pinHash) == "string" and p.pinHash ~= ""
+      if perms.studio ~= nil and type(perms.studio) ~= "boolean" then
+        issue(
+          issues,
+          "error",
+          "PERMISSION_INVALID",
+          path .. ".permissions.studio",
+          "Permission must be true or false.",
+          ent
+        )
+      elseif perms.studio == true and not hasPin then
+        issue(
+          issues,
+          "warning",
+          "STUDIO_NO_PIN",
+          path .. ".pinHash",
+          "Profile '" .. tostring(p.name) .. "' may open the Venue Studio but has no PIN, so it cannot sign in to it.",
+          ent
+        )
+      end
       if not hasPin then
         anyOpenProfile = true
         if perms.allOff == true or perms.venueStatus == true or p.role == "owner" or p.role == "manager" then
