@@ -328,9 +328,25 @@ local function cancelAllSteps()
 end
 
 local function sendStep(step)
-  pcall(function()
+  local parts = {}
+  for k, v in pairs(step.params or {}) do
+    parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+  end
+  table.sort(parts)
+  -- One line per command, so a dealer can see what the schedule asked of a room.
+  log:info(
+    "Zone step: %s %s on device %s%s",
+    tostring(step.what or "?"),
+    tostring(step.command),
+    tostring(step.device),
+    #parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or ""
+  )
+  local ok, err = pcall(function()
     C4:SendToDevice(step.device, step.command, step.params or {})
   end)
+  if not ok then
+    log:warn("Zone step failed: %s on device %s: %s", tostring(step.command), tostring(step.device), tostring(err))
+  end
 end
 
 local function saveSoon() end -- replaced below once save() exists
