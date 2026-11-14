@@ -1,0 +1,91 @@
+<devicedata>
+  <name>SmartBuildOS MQTT Shade</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>MQTT Shade</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Shades</category>
+  </composer_categories>
+  <conditionals>
+    <conditional><id>1</id><name>BROKER_CONNECTED</name><type>BOOL</type><condition_statement>MQTT broker is connected</condition_statement><description>NAME is STRING</description><true_text>connected</true_text><false_text>not connected</false_text></conditional>
+    <conditional><id>2</id><name>DEVICE_AVAILABLE</name><type>BOOL</type><condition_statement>Device is available (not reported offline)</condition_statement><description>NAME is STRING</description><true_text>available</true_text><false_text>offline</false_text></conditional>
+    <conditional><id>3</id><name>SHADE_OPEN</name><type>BOOL</type><condition_statement>MQTT shade is at least partly open</condition_statement><description>NAME is STRING</description><true_text>open</true_text><false_text>closed</false_text></conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Device Available</name><description>The device is reachable again (its availability topic says online)</description></event>
+    <event><id>2</id><name>Device Unavailable</name><description>The device reported itself offline</description></event>
+    <event><id>3</id><name>Command Failed</name><description>A command could not be sent (see Last Result)</description></event>
+    <event><id>4</id><name>Shade Fully Open</name><description>The shade reported 100 percent open</description></event>
+    <event><id>5</id><name>Shade Fully Closed</name><description>The shade reported 0 percent open</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Broker</name><command>REFRESH_FROM_BROKER</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Test: Shade Open</name><command>TEST_OPEN</command></action>
+      <action><name>Test: Shade Close</name><command>TEST_CLOSE</command></action>
+      <action><name>Test: Shade Stop</name><command>TEST_STOP</command></action>
+      <action><name>Test: Shade 50%</name><command>TEST_HALF</command></action>
+    </actions>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Broker Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
+      <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
+      <property><name>Device Availability</name><type>STRING</type><default>not reported</default><readonly>true</readonly></property>
+      <property><name>Current State</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Last Message</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Seen</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>State Topic</name><type>STRING</type><default></default><description>The full topic the device publishes its state to, for example zigbee2mqtt/sink_leak. No + or # here: one driver is one device.</description></property>
+      <property><name>Position Field</name><type>STRING</type><default>position</default><description>JSON field with the position as a percentage, 100 = open. Zigbee2MQTT covers: position. Empty reads the whole payload as one number.</description></property>
+      <property><name>Invert Position</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Yes when the device reports 0 for open and 100 for closed.</description></property>
+      <property><name>Set Topic</name><type>STRING</type><default></default><description>Where commands are published, for example zigbee2mqtt/blind/set. Empty makes the shade view-only.</description></property>
+      <property><name>Open Payload</name><type>STRING</type><default>{"state":"OPEN"}</default><description>Published for Open.</description></property>
+      <property><name>Close Payload</name><type>STRING</type><default>{"state":"CLOSE"}</default><description>Published for Close.</description></property>
+      <property><name>Stop Payload</name><type>STRING</type><default>{"state":"STOP"}</default><description>Published for Stop.</description></property>
+      <property><name>Position Payload</name><type>STRING</type><default>{"position":{position}}</default><description>Published for Go To a level. {position} is the number the device expects (Invert Position applied), {percent} the percentage Control4 asked for.</description></property>
+      <property><name>Availability Topic</name><type>STRING</type><default></default><description>Optional. Zigbee2MQTT publishes online or offline to BASE/DEVICE/availability. When set, the device is reported offline here and in the broker's health.</description></property>
+      <property><name>Availability Field</name><type>STRING</type><default>state</default><description>Where online or offline sits in the availability payload. Empty when the payload is just the word online or offline. Zigbee2MQTT uses state.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="MQTT Shade" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">blind</proxy>
+  </proxies>
+  <capabilities>
+    <always_send_level>true</always_send_level>
+    <can_stop>true</can_stop>
+    <driver_handles_toggle>false</driver_handles_toggle>
+    <has_level>true</has_level>
+    <level_resolution>1</level_resolution>
+    <level_closed>0</level_closed>
+    <level_open>100</level_open>
+    <level_discrete_control>true</level_discrete_control>
+    <level_unknown>-1</level_unknown>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Shade</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>BLIND</classname></class></classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -1,0 +1,115 @@
+<devicedata>
+  <name>SmartBuildOS Commissioning Matrix</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Commissioning Matrix</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>RUN_HAS_FAILURES</name>
+      <type>BOOL</type>
+      <condition_statement>Commissioning run has failures</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>has failures</true_text>
+      <false_text>no failures</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>RUN_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>CURRENT_ROOM</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>PASSED_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>FAILED_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>SKIPPED_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>OPEN_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>LAST_FAILED_ITEM</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>LAST_PASSED_ROOM</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Room Passed</name><description>Every item in a room passed (LAST_PASSED_ROOM says which)</description></event>
+    <event><id>2</id><name>Run Completed</name><description>A technician signed the run off</description></event>
+    <event><id>3</id><name>Item Failed</name><description>An item was marked failed (LAST_FAILED_ITEM says which)</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Start Run</name><command>START_RUN_ACTION</command></action>
+      <action><name>Abort Run</name><command>ABORT_RUN_ACTION</command></action>
+      <action><name>Print Results</name><command>PRINT_RESULTS</command></action>
+      <action><name>Print Test List</name><command>PRINT_LIST_ACTION</command></action>
+      <action><name>Rebuild Test List</name><command>REBUILD_LIST_ACTION</command></action>
+      <action><name>Refresh Device Lists</name><command>REFRESH_LISTS_ACTION</command></action>
+      <action><name>Clear Manual Items</name><command>CLEAR_MANUAL_ACTION</command></action>
+      <action><name>New Page Link</name><command>NEW_PAGE_LINK_ACTION</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>Print Page Link</name><command>PRINT_PAGE_LINK</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>START_RUN</name>
+        <description>Start a commissioning run over every room (TECHNICIAN is optional)</description>
+        <params>
+          <param><name>TECHNICIAN</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>START_ROOM</name>
+        <description>Start a run over one room, or pick that room inside the run in progress</description>
+        <params>
+          <param><name>ROOM</name><type>STRING</type></param>
+          <param><name>TECHNICIAN</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>ABORT_RUN</name>
+        <description>Abort the run in progress (it is kept in the history as aborted)</description>
+      </command>
+      <command>
+        <name>PRINT_RESULTS</name>
+        <description>Print the current run, or the last signed-off run, to the Lua output</description>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Run Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Run Summary</name><type>STRING</type><default>no run yet</default><readonly>true</readonly></property>
+      <property><name>Test List</name><type>STRING</type><default>nothing yet</default><readonly>true</readonly></property>
+      <property><name>Technician Page</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Technician Name</name><type>STRING</type><default></default><description>Who signs off when the page does not ask. The technician can type a name on the page.</description></property>
+      <property><name>Add Item</name><type>DYNAMIC_LIST</type><default>-</default><description>Pick a project device to add to the test list by hand. Shown as Name (Room) · id. The list is filled by the driver; use the action Refresh Device Lists after adding devices.</description></property>
+      <property><name>Add Item As</name><type>LIST</type><items><item>Auto-detect</item><item>Light</item><item>Shade</item><item>AV zone</item><item>Sensor</item></items><default>Auto-detect</default><description>The kind given to the next device picked under Add Item.</description></property>
+      <property><name>AV Test Source</name><type>DYNAMIC_LIST</type><default>-</default><description>The source device routed to each AV zone while testing. AV zones are only tested when this is set.</description></property>
+      <property><name>AV Test Volume</name><type>STRING</type><default>15</default><description>Volume (1 to 40) used while testing an AV zone.</description></property>
+      <property><name>Settle Seconds</name><type>STRING</type><default>4</default><description>How long to wait after acting before reading a device back (1 to 30). Shades wait four times as long.</description></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default><description>The controller address the technician page is served on. Leave Auto unless the page link shows no address.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

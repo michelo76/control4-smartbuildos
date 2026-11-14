@@ -1,0 +1,189 @@
+<devicedata>
+  <name>SmartBuildOS PIN Lock</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>PIN Lock</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional><id>1</id><name>CODE_ACTIVE</name><type>STRING</type><condition_statement>Code is active (type the code name; = active, != not active)</condition_statement><description>NAME code LOGIC STRING is active</description></conditional>
+    <conditional><id>2</id><name>ENTRY_LOCKED</name><type>STRING</type><condition_statement>Entry point is locked out (type page, keypad or admin; = locked, != not locked)</condition_statement><description>NAME entry point LOGIC STRING is locked out</description></conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>LAST_CODE_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>LAST_ACTION</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>LAST_ACTION_NUMBER</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>LAST_ENTRY_POINT</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>LAST_DENIAL_REASON</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>LAST_LOCKED_ENTRY</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>ACTIVE_CODES</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>GATE_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Access Granted</name><description>A code was accepted for a guarded action (LAST_CODE_NAME and LAST_ACTION say which)</description></event>
+    <event><id>2</id><name>Access Denied</name><description>A PIN or keypad sequence was refused (LAST_ENTRY_POINT and LAST_DENIAL_REASON; never the PIN)</description></event>
+    <event><id>3</id><name>Entry Point Locked Out</name><description>Too many wrong attempts: LAST_LOCKED_ENTRY (page, keypad or admin) is locked</description></event>
+    <event><id>4</id><name>Licence Restricted</name><description>The SmartBuildOS licence restricted the gate: owner codes only, nothing new can be added</description></event>
+    <event><id>5</id><name>Licence Restored</name><description>The gate is back to normal after a licence restriction</description></event>
+    <event><id>11</id><name>Guarded 1 Granted</name><description>A code was accepted for guarded action 1 (the name set in Guarded 1 Name)</description></event>
+    <event><id>12</id><name>Guarded 2 Granted</name><description>A code was accepted for guarded action 2 (the name set in Guarded 2 Name)</description></event>
+    <event><id>13</id><name>Guarded 3 Granted</name><description>A code was accepted for guarded action 3 (the name set in Guarded 3 Name)</description></event>
+    <event><id>14</id><name>Guarded 4 Granted</name><description>A code was accepted for guarded action 4 (the name set in Guarded 4 Name)</description></event>
+    <event><id>15</id><name>Guarded 5 Granted</name><description>A code was accepted for guarded action 5 (the name set in Guarded 5 Name)</description></event>
+    <event><id>16</id><name>Guarded 6 Granted</name><description>A code was accepted for guarded action 6 (the name set in Guarded 6 Name)</description></event>
+    <event><id>17</id><name>Guarded 7 Granted</name><description>A code was accepted for guarded action 7 (the name set in Guarded 7 Name)</description></event>
+    <event><id>18</id><name>Guarded 8 Granted</name><description>A code was accepted for guarded action 8 (the name set in Guarded 8 Name)</description></event>
+    <event><id>19</id><name>Guarded 9 Granted</name><description>A code was accepted for guarded action 9 (the name set in Guarded 9 Name)</description></event>
+    <event><id>20</id><name>Guarded 10 Granted</name><description>A code was accepted for guarded action 10 (the name set in Guarded 10 Name)</description></event>
+    <event><id>21</id><name>Guarded 11 Granted</name><description>A code was accepted for guarded action 11 (the name set in Guarded 11 Name)</description></event>
+    <event><id>22</id><name>Guarded 12 Granted</name><description>A code was accepted for guarded action 12 (the name set in Guarded 12 Name)</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print State</name><command>PRINT_STATE</command></action>
+      <action><name>Clear Lockouts</name><command>CLEAR_LOCKOUTS</command></action>
+      <action><name>Refresh Device Lists</name><command>REFRESH_TARGETS</command></action>
+      <action><name>Republish App URL</name><command>REPUBLISH_URL</command></action>
+      <action><name>Remove All Codes</name><command>REMOVE_ALL_CODES</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>Print Page Link</name><command>PRINT_PAGE_LINK</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>ENABLE_CODE</name>
+        <description>Turn a disabled code back on (by its name)</description>
+        <params><param><name>NAME</name><type>STRING</type></param></params>
+      </command>
+      <command>
+        <name>DISABLE_CODE</name>
+        <description>Turn a code off without removing it (by its name)</description>
+        <params><param><name>NAME</name><type>STRING</type></param></params>
+      </command>
+      <command>
+        <name>ADD_TEMPORARY_CODE</name>
+        <description>Add a guest code that expires after HOURS. ACTIONS is all, or guarded action numbers/names separated by commas. A PIN typed here is saved in the project file in clear text.</description>
+        <params><param><name>NAME</name><type>STRING</type></param><param><name>PIN</name><type>STRING</type></param><param><name>ACTIONS</name><type>STRING</type></param><param><name>HOURS</name><type>STRING</type></param><param><name>MAX_USES</name><type>STRING</type></param></params>
+      </command>
+      <command>
+        <name>REVOKE_CODE</name>
+        <description>Remove a code for good (by its name)</description>
+        <params><param><name>NAME</name><type>STRING</type></param></params>
+      </command>
+      <command>
+        <name>KEYPAD_PRESS</name>
+        <description>Report one keypad button press (BUTTON is the id you bound; KEYPAD names the keypad so two keypads do not mix their presses)</description>
+        <params><param><name>BUTTON</name><type>STRING</type></param><param><name>KEYPAD</name><type>STRING</type></param></params>
+      </command>
+      <command>
+        <name>CLEAR_LOCKOUTS</name>
+        <description>Unlock every locked entry point and forget the wrong attempts</description>
+        <params></params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Gate Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Codes</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Access</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Entry Points</name><type>STRING</type><default>page open, keypad open, admin open</default><readonly>true</readonly></property>
+      <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Flight Recorder</name><type>STRING</type><default>not checked</default><readonly>true</readonly></property>
+      <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default></property>
+      <property><name>Max Wrong Attempts</name><type>RANGED_INTEGER</type><minimum>3</minimum><maximum>10</maximum><default>5</default></property>
+      <property><name>Lockout Minutes</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>1440</maximum><default>5</default></property>
+      <property><name>Sequence Length</name><type>RANGED_INTEGER</type><minimum>3</minimum><maximum>8</maximum><default>4</default></property>
+      <property><name>Sequence Window Seconds</name><type>RANGED_INTEGER</type><minimum>2</minimum><maximum>30</maximum><default>6</default></property>
+      <property><name>Re-lock After Seconds</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>3600</maximum><default>0</default></property>
+      <property><name>Target List Filter</name><type>STRING</type><default>lock,relay,gate,door,garage,strike</default></property>
+      <property><name>Guarded 1 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 1 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 1 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 2 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 2 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 2 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 3 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 3 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 3 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 4 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 4 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 4 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 5 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 5 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 5 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 6 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 6 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 6 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 7 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 7 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 7 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 8 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 8 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 8 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 9 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 9 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 9 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 10 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 10 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 10 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 11 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 11 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 11 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Guarded 12 Name</name><type>STRING</type><default></default></property>
+      <property><name>Guarded 12 Target</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Guarded 12 Target Action</name><type>LIST</type><items><item>Event only</item><item>Unlock</item><item>Lock</item><item>Open</item><item>Close</item><item>Toggle</item><item>Trigger</item></items><default>Event only</default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="PIN Lock" primary="True" image_source="c4z" large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-pin-lock/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-pin-lock/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-pin-lock/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-pin-lock/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-pin-lock/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-pin-lock/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https: controller:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src *; img-src 'self' data:">
+<meta name="color-scheme" content="light dark">
+<title>PIN Lock</title>
+<style>
+:root {
+  --bg: #f3f4f8; --panel: #ffffff; --ink: #161a23; --muted: #667085; --line: #e3e6ee; --soft: #eef0f6;
+  --accent: #4f46e5; --accent-2: #7c6cf5; --accent-ink: #ffffff; --ok: #12a05c; --warn: #c26a07; --bad: #d92d20;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 6px 20px rgba(16, 24, 40, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1017; --panel: #171b24; --ink: #eef1f7; --muted: #98a2b3; --line: #262c38; --soft: #1e2330;
+    --accent: #8b83ff; --accent-2: #a89cff; --accent-ink: #0d0f1a; --ok: #4cc38a; --warn: #f0b25a; --bad: #ff8a80;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+body { padding: calc(18px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; }
+svg.i { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+button, select, input { font: inherit; color: inherit; }
+button { white-space: nowrap; min-height: 48px; min-width: 48px; padding: 8px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: transform .08s ease, box-shadow .15s ease, background .15s ease; }
+button:active { transform: scale(.97); }
+button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-ink); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px rgba(79, 70, 229, .32); }
+button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+h1 { font-size: 1.7rem; letter-spacing: -.02em; margin: 0; font-weight: 750; display: flex; align-items: center; gap: 10px; }
+h1 .logo { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 6px 16px rgba(79, 70, 229, .3); }
+.sub { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+.muted { color: var(--muted); font-size: .94rem; margin: 8px 0; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-size: .82rem; font-weight: 550; white-space: nowrap; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.chip.ok::before { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+.chip.warn::before { background: var(--warn); } .chip.bad::before { background: var(--bad); }
+.chip.plain::before { display: none; }
+.chip:empty { display: none; }
+.tabs { display: flex; gap: 4px; margin: 16px 0; padding: 4px; background: var(--soft); border-radius: 16px; }
+.tabs button { flex: 1; border: 0; background: transparent; border-radius: 12px; min-height: 48px; font-weight: 600; color: var(--muted); }
+.tabs button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(16, 24, 40, .12); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 16px; margin: 12px 0; box-shadow: var(--shadow); }
+.name { font-weight: 700; word-break: break-word; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.hero { border: 0; color: #fff; position: relative; overflow: hidden; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #0b0d1a)); }
+.hero::after { content: ""; position: absolute; right: -60px; top: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255, 255, 255, .10); }
+.hero.bad { background: linear-gradient(135deg, var(--bad), color-mix(in srgb, var(--bad) 50%, #0b0d1a)); }
+.hero b, .hero div { position: relative; }
+.hero b { font-size: 1.1rem; }
+.acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 12px; }
+button.act { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 14px; text-align: left; white-space: normal; min-height: 132px; padding: 18px; border-radius: 22px; box-shadow: var(--shadow); }
+button.act .ico { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+button.act .ico svg { width: 28px; height: 28px; }
+button.act .nm { font-size: 1.15rem; font-weight: 700; word-break: break-word; }
+button.act.locked .ico { background: var(--soft); color: var(--muted); }
+button.act.locked .nm { color: var(--muted); }
+.role { font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; color: var(--rc, var(--muted)); background: color-mix(in srgb, var(--rc, var(--muted)) 14%, var(--panel)); }
+.role.owner { --rc: var(--accent); } .role.staff { --rc: var(--ok); } .role.vendor { --rc: var(--warn); } .role.guest { --rc: var(--muted); }
+.code { display: flex; gap: 12px; align-items: flex-start; }
+.code .av { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--soft); color: var(--accent); flex: none; }
+.code .body { flex: 1; min-width: 0; }
+.code.off .body, .code.off .av { opacity: .6; }
+.sw { min-width: 56px; width: 56px; padding: 0; border-radius: 999px; background: var(--soft); position: relative; flex: none; }
+.sw::after { content: ""; position: absolute; left: 6px; top: 50%; width: 28px; height: 28px; margin-top: -14px; border-radius: 50%; background: var(--muted); transition: transform .18s ease, background .18s ease; }
+.sw[aria-checked="true"] { background: color-mix(in srgb, var(--ok) 28%, var(--soft)); border-color: var(--ok); }
+.sw[aria-checked="true"]::after { transform: translateX(18px); background: var(--ok); }
+.tools { display: flex; gap: 8px; margin-top: 12px; }
+.tools button { flex: 1; }
+button.add { width: 100%; margin: 6px 0; min-height: 56px; font-size: 1.05rem; }
+h2.sec { font-size: .8rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 24px 0 8px; font-weight: 700; }
+.tl { list-style: none; margin: 0; padding: 0 0 0 4px; }
+.tl li { position: relative; padding: 0 0 14px 24px; border-left: 2px solid var(--line); margin-left: 6px; }
+.tl li::before { content: ""; position: absolute; left: -7px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); border: 2px solid var(--bg); }
+.tl li.granted::before { background: var(--ok); } .tl li.denied::before, .tl li.locked::before { background: var(--bad); }
+.tl .t { font-size: .8rem; color: var(--muted); }
+.tl .w { font-weight: 600; word-break: break-word; }
+label { display: block; font-weight: 650; font-size: .88rem; color: var(--muted); margin: 14px 0 6px; }
+input[type=text], input[type=password], input[type=date], input[type=time], input[type=number], select { width: 100%; min-height: 48px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips label { margin: 0; min-height: 48px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 6px 16px; font-size: .95rem; color: var(--ink); background: var(--soft); cursor: pointer; }
+.chips input { width: 22px; height: 22px; accent-color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal { position: fixed; inset: 0; background: rgba(10, 12, 24, .55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; z-index: 30; }
+.sheet { background: var(--panel); width: min(440px, 94vw); border-radius: 24px; padding: 20px; box-shadow: 0 24px 70px rgba(0, 0, 0, .35); max-height: 94vh; overflow: auto; text-align: center; }
+.sheet.edit { text-align: left; width: min(560px, 94vw); }
+.sheet h2 { margin: 0 0 6px; font-size: 1.3rem; }
+@media (max-width: 560px) { .modal { align-items: flex-end; } .sheet, .sheet.edit { width: 100vw; border-radius: 24px 24px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); } }
+.dots { display: flex; justify-content: center; gap: 14px; height: 40px; align-items: center; margin: 10px 0 16px; }
+.dots i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); background: transparent; transition: background .12s, transform .12s, border-color .12s; }
+.dots i.on { background: var(--accent); border-color: var(--accent); transform: scale(1.1); }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 340px; margin: 0 auto; }
+.pad button { min-height: 68px; font-size: 1.7rem; font-weight: 600; border-radius: 50px; padding: 0; background: var(--soft); border-color: transparent; }
+.pad button.fn { font-size: 1.1rem; color: var(--muted); background: transparent; border-color: var(--line); }
+.bar { display: flex; gap: 10px; margin-top: 18px; }
+.bar button { flex: 1; } .bar button.primary { flex: 2; }
+.shake { animation: shake .45s ease; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(9px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(4px); } }
+.res { text-align: center; padding: 18px 10px 10px; }
+.res .big { width: 96px; height: 96px; border-radius: 50%; margin: 0 auto 14px; display: grid; place-items: center; color: #fff; background: var(--ok); box-shadow: 0 0 0 12px color-mix(in srgb, var(--ok) 20%, transparent); animation: pop .35s ease; }
+.res.bad .big { background: var(--bad); box-shadow: 0 0 0 12px color-mix(in srgb, var(--bad) 20%, transparent); animation: shake .45s ease; }
+.res .big svg { width: 52px; height: 52px; stroke-width: 3; }
+.res h2 { font-size: 1.5rem; }
+.res .cd { font-size: 2.2rem; font-weight: 750; font-variant-numeric: tabular-nums; margin-top: 6px; }
+@keyframes pop { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+#toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(24px + env(safe-area-inset-bottom)); max-width: min(520px, 92vw); background: var(--ink); color: var(--bg); padding: 12px 20px; border-radius: 999px; display: none; z-index: 40; box-shadow: var(--shadow); font-weight: 550; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+</defs></svg>
+<div class="top">
+  <h1><span class="logo"><svg class="i"><use href="#i-lock"/></svg></span>PIN Lock</h1>
+  <span class="chip warn" id="mode"></span>
+</div>
+<div class="tabs"><button id="tabKeypad" class="on">Actions</button><button id="tabAdmin">Codes</button></div>
+<main>
+  <section id="viewKeypad"><div id="actions"><p class="muted">Loading…</p></div></section>
+  <section id="viewAdmin" style="display:none"><div id="admin"></div></section>
+</main>
+<div class="modal" id="padModal"><div class="sheet">
+  <h2 id="padTitle"></h2>
+  <div class="dots" id="padDots" role="img" aria-label="PIN entry"></div>
+  <div class="pad" id="pad"></div>
+  <div class="bar"><button id="padCancel">Cancel</button><button class="primary" id="padGo">Open</button></div>
+</div></div>
+<div class="modal" id="editModal"><div class="sheet edit" id="editSheet"></div></div>
+<div class="modal" id="resModal"><div class="sheet" id="resSheet"></div></div>
+<div id="toast" role="status"></div>
+<!-- Pure helpers: no DOM, no network. -->
+<script id="pinlock-pure">
+var PL = (function () {
+  'use strict';
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function lockText(l) { return 'Locked for ' + (l >= 60 ? Math.ceil(l / 60) + ' min' : l + ' s'); }
+  function clock(s) { s = Math.max(0, Math.ceil(Number(s) || 0)); return Math.floor(s / 60) + ':' + pad2(s % 60); }
+  // Dots to draw: at least 4, never fewer than digits typed, at most 8.
+  function dotCount(len) { return Math.min(8, Math.max(4, len | 0)); }
+  function stateLabel(s) { s = String(s || '').replace(/_/g, ' '); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+  function stateKind(s) { return s === 'active' ? 'ok' : (s === 'disabled' ? 'plain' : 'warn'); }
+  // Days are 1..7 = Sun..Sat. Empty or all seven means every day.
+  function scheduleText(c) {
+    var d = (c.days || []).slice().sort(function (a, b) { return a - b; });
+    var days = (!d.length || d.length === 7) ? 'Every day' : d.map(function (n) { return DAYS[n - 1]; }).join(', ');
+    var hrs = (c.from || c.to) ? (c.from || '00:00') + '–' + (c.to || '24:00') : 'all day';
+    return days + ' · ' + hrs;
+  }
+  function expiryText(expires, now) {
+    if (!expires) return '';
+    var x = new Date(expires * 1000);
+    return (expires * 1000 < now ? 'Expired ' : 'Expires ') + x.getDate() + ' ' + MON[x.getMonth()];
+  }
+  function roleClass(r) { return ['owner', 'staff', 'vendor', 'guest'].indexOf(r) >= 0 ? r : 'guest'; }
+  return { DAYS: DAYS, lockText: lockText, clock: clock, dotCount: dotCount, stateLabel: stateLabel, stateKind: stateKind, scheduleText: scheduleText, expiryText: expiryText, roleClass: roleClass };
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  // The page holds no secret. A PIN lives in a JS variable only while being
+  // typed, goes in a POST body (never the URL), and is cleared on send.
+  var params = {};
+  String(window.location.search).replace(/^\?/, '').split('&').forEach(function (p) {
+    if (!p) return; var kv = p.split('='); params[decodeURIComponent(kv[0])] = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+  });
+  var base = params.relay || (window.location.protocol.indexOf('http') === 0 ? window.location.origin : '');
+  var token = params.k || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var cfg = null, session = '', adminState = null, pin = '', padAction = null, padMode = '';
+  var DAYS = PL.DAYS, lockText = PL.lockText, resTimer = null, cdTimer = null;
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function svg(id) { var w = el('span'); w.style.display = 'contents'; w.innerHTML = '<svg class="i"><use href="#' + id + '"/></svg>'; return w; }
+  function toast(text, kind) {
+    var t = $('toast'); t.textContent = text; t.className = kind || ''; t.style.display = 'block';
+    clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 3200);
+  }
+  function api(method, path, body) {
+    if (!base) return Promise.reject(new Error('no relay address in the page URL'));
+    var url = base + path + '?k=' + encodeURIComponent(token);
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  }
+
+  // ── result overlay (granted / denied / locked) ──
+  function hideResult() { clearTimeout(resTimer); clearInterval(cdTimer); $('resModal').style.display = 'none'; }
+  function showResult(kind, title, sub, seconds) {
+    hideResult();
+    var s = $('resSheet'); s.innerHTML = '';
+    var box = el('div', 'res' + (kind === 'ok' ? '' : ' bad'));
+    var big = el('div', 'big'); big.appendChild(svg(kind === 'ok' ? 'i-check' : 'i-x'));
+    box.appendChild(big); box.appendChild(el('h2', '', title));
+    if (sub) box.appendChild(el('div', 'muted', sub));
+    var cd = null;
+    if (seconds > 0) { cd = el('div', 'cd', PL.clock(seconds)); box.appendChild(cd); }
+    var ok = el('button', 'primary', 'OK'); ok.style.marginTop = '16px'; ok.onclick = hideResult; box.appendChild(ok);
+    s.appendChild(box); $('resModal').style.display = 'flex';
+    $('resModal').onclick = function (e) { if (e.target === $('resModal')) hideResult(); };
+    if (kind === 'ok') resTimer = setTimeout(hideResult, 2200);
+    else if (seconds > 0) {
+      var end = Date.now() + seconds * 1000;
+      cdTimer = setInterval(function () {
+        var left = Math.ceil((end - Date.now()) / 1000);
+        if (left <= 0) { hideResult(); loadConfig(); return; }
+        cd.textContent = PL.clock(left);
+      }, 1000);
+    } else resTimer = setTimeout(hideResult, 3000);
+  }
+
+  // ── tabs ──
+  function show(view) {
+    $('viewKeypad').style.display = view === 'keypad' ? '' : 'none';
+    $('viewAdmin').style.display = view === 'admin' ? '' : 'none';
+    $('tabKeypad').className = view === 'keypad' ? 'on' : '';
+    $('tabAdmin').className = view === 'admin' ? 'on' : '';
+    if (view === 'admin') renderAdmin(); else loadConfig();
+  }
+  $('tabKeypad').onclick = function () { show('keypad'); };
+  $('tabAdmin').onclick = function () { show('admin'); };
+
+  // ── keypad ──
+  function loadConfig() {
+    api('GET', '/config').then(function (c) {
+      cfg = c; renderActions();
+    }).catch(function (e) { $('actions').innerHTML = ''; $('actions').appendChild(el('p', 'muted', 'Cannot reach the controller: ' + e.message)); });
+  }
+  function renderActions() {
+    var box = $('actions'); box.innerHTML = '';
+    $('mode').textContent = cfg.restricted ? 'Licence: owner codes only' : '';
+    if (!cfg.actions.length) { box.appendChild(el('p', 'muted', 'No guarded actions yet. Name them in the driver properties in Composer.')); return; }
+    var pageLock = cfg.locks.page;
+    if (pageLock.locked) {
+      var hero = el('div', 'card hero bad');
+      hero.appendChild(el('b', '', 'Keypad locked after too many wrong codes'));
+      hero.appendChild(el('div', '', lockText(pageLock.seconds) + '.'));
+      box.appendChild(hero);
+    }
+    var grid = el('div', 'acts');
+    cfg.actions.forEach(function (a) {
+      var b = el('button', 'act' + (pageLock.locked ? ' locked' : ''));
+      var ic = el('span', 'ico'); ic.appendChild(svg(pageLock.locked ? 'i-lock' : 'i-unlock'));
+      b.appendChild(ic); b.appendChild(el('span', 'nm', a.name));
+      b.appendChild(el('span', 'chip ' + (pageLock.locked ? 'bad' : 'ok'), pageLock.locked ? 'Locked ' + PL.clock(pageLock.seconds) : 'Ready'));
+      b.onclick = function () { openPad(a, 'unlock'); };
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
+  }
+  function dots() {
+    var d = $('padDots'); d.innerHTML = '';
+    var n = PL.dotCount(pin.length);
+    for (var i = 0; i < n; i++) d.appendChild(el('i', i < pin.length ? 'on' : ''));
+    d.setAttribute('aria-label', pin.length + ' digits entered');
+  }
+  function openPad(a, mode, title, cb) {
+    padAction = a; padMode = mode; pin = ''; dots();
+    $('padTitle').textContent = title || a.name; $('padGo').textContent = mode === 'unlock' ? 'Open' : 'Continue';
+    $('padModal').style.display = 'flex'; padCb = cb || null;
+  }
+  var padCb = null;
+  function closePad() { $('padModal').style.display = 'none'; pin = ''; dots(); }
+  (function buildPad() {
+    var pad = $('pad');
+    ['1','2','3','4','5','6','7','8','9','⌫','0','C'].forEach(function (k) {
+      var b = el('button', (k === '⌫' || k === 'C') ? 'fn' : '', k);
+      if (k === '⌫') b.setAttribute('aria-label', 'Delete last digit');
+      if (k === 'C') b.setAttribute('aria-label', 'Clear');
+      b.onclick = function () {
+        if (k === '⌫') pin = pin.slice(0, -1); else if (k === 'C') pin = ''; else if (pin.length < 8) pin += k;
+        dots();
+      };
+      pad.appendChild(b);
+    });
+  })();
+  $('padCancel').onclick = closePad;
+  $('padGo').onclick = function () {
+    var typed = pin; closePad();
+    if (padCb) { var cb = padCb; padCb = null; cb(typed); return; }
+    api('POST', '/unlock', { action: padAction.n, pin: typed }).then(function (r) {
+      typed = '';
+      if (r.ok) { showResult('ok', r.message || 'Done', padAction.name); toast(r.message || 'Done', 'ok'); }
+      else if (r.locked) { showResult('bad', 'Too many wrong codes', 'Try again in', r.retry_in || 0); loadConfig(); }
+      else { showResult('bad', 'Not allowed', 'That code cannot do this right now.'); toast('Not allowed', 'bad'); }
+    }).catch(function (e) { toast('Could not reach the controller', 'bad'); });
+  };
+
+  // ── admin ──
+  function renderAdmin() {
+    var box = $('admin'); box.innerHTML = '';
+    if (!cfg) { api('GET', '/config').then(function (c) { cfg = c; renderAdmin(); }); return; }
+    if (cfg.setup_needed) { setupForm(box); return; }
+    if (!session) {
+      var card = el('div', 'card');
+      card.appendChild(el('div', 'name', 'Owner PIN needed to manage codes.'));
+      if (cfg.locks.admin.locked) card.appendChild(el('div', 'chip bad', lockText(cfg.locks.admin.seconds)));
+      var b = el('button', 'primary add', 'Sign in with an owner PIN');
+      b.onclick = function () {
+        openPad({ name: 'Owner sign-in' }, 'login', 'Owner PIN', function (typed) {
+          api('POST', '/admin/login', { pin: typed }).then(function (r) {
+            typed = '';
+            if (r.ok) { session = r.session; loadAdmin(); }
+            else if (r.locked) showResult('bad', 'Too many wrong codes', 'Try again in', r.retry_in || 0);
+            else toast('Not allowed', 'bad');
+          });
+        });
+      };
+      card.appendChild(b); box.appendChild(card);
+      return;
+    }
+    loadAdmin();
+  }
+  function setupForm(box) {
+    var card = el('div', 'card');
+    card.appendChild(el('div', 'name', 'First owner code'));
+    card.appendChild(el('p', 'muted', 'No owner code exists yet. Create one now: it manages every other code. Anyone who can open this page can do this once, so do it before handing the system over.'));
+    var n = el('input'); n.type = 'text'; n.placeholder = 'Name, e.g. Owner'; n.maxLength = 40;
+    var p = el('input'); p.type = 'password'; p.inputMode = 'numeric'; p.placeholder = '4 to 8 digits'; p.autocomplete = 'off';
+    var go = el('button', 'primary add', 'Create owner code');
+    go.onclick = function () {
+      api('POST', '/admin/setup', { name: n.value, pin: p.value }).then(function (r) {
+        p.value = '';
+        if (r.ok) { cfg.setup_needed = false; session = r.session || ''; toast('Owner code created', 'ok'); renderAdmin(); }
+        else toast(r.error || 'Refused', 'bad');
+      });
+    };
+    card.appendChild(el('label', '', 'Name')); card.appendChild(n);
+    card.appendChild(el('label', '', 'PIN')); card.appendChild(p);
+    go.style.marginTop = '16px'; card.appendChild(go); box.appendChild(card);
+  }
+  function loadAdmin() {
+    api('POST', '/admin/state', { session: session }).then(function (r) {
+      if (!r.ok) { session = ''; toast('Signed out', 'bad'); renderAdmin(); return; }
+      adminState = r; drawAdmin();
+    });
+  }
+  function drawAdmin() {
+    $('editModal').style.display = 'none';
+    var box = $('admin'); box.innerHTML = '';
+    var s = adminState;
+    var top = el('div', 'row');
+    var cnt = el('div'); cnt.appendChild(el('div', 'name', s.codes.length + (s.codes.length === 1 ? ' code' : ' codes')));
+    if (s.restricted) cnt.appendChild(el('div', 'sub', 'Licence restricted: no new access can be added'));
+    top.appendChild(cnt);
+    var out = el('button', '', 'Sign out'); out.onclick = function () { api('POST', '/admin/logout', { session: session }); session = ''; renderAdmin(); };
+    top.appendChild(out); box.appendChild(top);
+    var add = el('button', 'primary add', ''); add.appendChild(svg('i-plus')); add.appendChild(document.createTextNode('Add a code')); add.onclick = function () { editor(null); }; box.appendChild(add);
+    s.codes.forEach(function (c) {
+      var card = el('div', 'card code' + (c.enabled ? '' : ' off'));
+      var av = el('div', 'av'); av.appendChild(svg('i-user')); card.appendChild(av);
+      var body = el('div', 'body');
+      var head = el('div', 'row');
+      var nm = el('div', 'name', c.name); head.appendChild(nm);
+      var sw = el('button', 'sw'); sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', c.enabled ? 'true' : 'false'); sw.setAttribute('aria-label', (c.enabled ? 'Disable ' : 'Enable ') + c.name);
+      sw.onclick = function () { post(c.enabled ? '/admin/disable' : '/admin/enable', { id: c.id }); };
+      head.appendChild(sw); body.appendChild(head);
+      var chips = el('div', 'chiprow');
+      chips.appendChild(el('span', 'role ' + PL.roleClass(c.role), c.role));
+      chips.appendChild(el('span', 'chip ' + PL.stateKind(c.state), PL.stateLabel(c.state)));
+      var ex = PL.expiryText(c.expires, Date.now()); if (ex) chips.appendChild(el('span', 'chip plain', ex));
+      if (c.max_uses) chips.appendChild(el('span', 'chip plain', c.uses + '/' + c.max_uses + ' uses'));
+      if (c.has_pin) chips.appendChild(el('span', 'chip plain', 'PIN'));
+      if (c.has_seq) chips.appendChild(el('span', 'chip plain', 'Keypad sequence'));
+      body.appendChild(chips);
+      body.appendChild(el('div', 'sub', PL.scheduleText(c)));
+      var names = c.role === 'owner' ? 'All actions' : c.actions.map(function (n) { var a = s.actions.filter(function (x) { return x.n === n; })[0]; return a ? a.name : '#' + n; }).join(', ');
+      body.appendChild(el('div', 'sub', names || 'No actions'));
+      var btns = el('div', 'tools');
+      var e = el('button', '', 'Edit'); e.onclick = function () { editor(c); };
+      var d = el('button', 'danger', 'Revoke'); d.onclick = function () { if (confirm('Revoke ' + c.name + '? This removes the code.')) post('/admin/revoke', { id: c.id }); };
+      btns.appendChild(e); btns.appendChild(d); body.appendChild(btns);
+      card.appendChild(body); box.appendChild(card);
+    });
+    box.appendChild(el('h2', 'sec', 'Entry points'));
+    var ep = el('div', 'chiprow');
+    ['page', 'keypad', 'admin'].forEach(function (k) {
+      var l = s.locks[k];
+      ep.appendChild(el('span', 'chip ' + (l.locked ? 'bad' : 'ok'), k + ': ' + (l.locked ? lockText(l.seconds) : 'open')));
+    });
+    box.appendChild(ep);
+    var clr = el('button', 'danger', 'Clear lockouts'); clr.style.marginTop = '10px'; clr.onclick = function () { post('/admin/clear', {}); };
+    box.appendChild(clr);
+    box.appendChild(el('h2', 'sec', 'Recent attempts (names only, never PINs)'));
+    if (!s.recent.length) box.appendChild(el('div', 'muted', 'None since the last restart'));
+    var tl = el('ul', 'tl');
+    s.recent.forEach(function (x) {
+      var li = el('li', x.result === 'granted' ? 'granted' : (x.result === 'denied' ? 'denied' : 'locked'));
+      li.appendChild(el('div', 'w', (x.code || 'Unknown code') + (x.action ? ' · ' + x.action : '')));
+      li.appendChild(el('div', 't', new Date(x.t * 1000).toLocaleTimeString() + ' · ' + x.result + ' · ' + x.entry + (x.reason ? ' (' + x.reason + ')' : '')));
+      tl.appendChild(li);
+    });
+    box.appendChild(tl);
+  }
+  function post(path, body) {
+    body.session = session;
+    api('POST', path, body).then(function (r) {
+      if (r.ok) { toast('Saved', 'ok'); loadAdmin(); } else toast(r.error || 'Refused', 'bad');
+    });
+  }
+  function fld(label, node) { var w = el('div'); w.appendChild(el('label', '', label)); w.appendChild(node); return w; }
+  function editor(c) {
+    var s = adminState, box = $('editSheet'); box.innerHTML = '';
+    var d = c || { name: '', role: 'guest', actions: [], days: [], from: '', to: '', max_uses: '', keypad_action: '' };
+    var name = el('input'); name.type = 'text'; name.maxLength = 40; name.value = d.name;
+    var role = el('select'); ['owner', 'staff', 'vendor', 'guest'].forEach(function (r) { var o = el('option', '', r); o.value = r; if (r === d.role) o.selected = true; role.appendChild(o); });
+    var pinIn = el('input'); pinIn.type = 'password'; pinIn.inputMode = 'numeric'; pinIn.autocomplete = 'off'; pinIn.placeholder = c && c.has_pin ? 'leave empty to keep' : '4 to 8 digits';
+    var seqIn = el('input'); seqIn.type = 'password'; seqIn.autocomplete = 'off'; seqIn.placeholder = c && c.has_seq ? 'leave empty to keep' : 'optional, e.g. 1-3-3-2';
+    box.appendChild(el('h2', '', c ? 'Edit ' + c.name : 'New code'));
+    box.appendChild(fld('Name', name)); box.appendChild(fld('Role (owner can manage codes and fires every action)', role));
+    box.appendChild(fld('PIN', pinIn)); box.appendChild(fld('Keypad sequence (' + s.sequence_length + ' button ids)', seqIn));
+    var acts = el('div', 'chips'); var boxes = [];
+    s.actions.forEach(function (a) {
+      var l = el('label'); var cb = el('input'); cb.type = 'checkbox'; cb.checked = d.actions.indexOf(a.n) >= 0; cb.value = a.n; boxes.push(cb);
+      l.appendChild(cb); l.appendChild(document.createTextNode(a.name)); acts.appendChild(l);
+    });
+    box.appendChild(fld('May fire', acts));
+    var ka = el('select'); var none = el('option', '', 'first allowed'); none.value = ''; ka.appendChild(none);
+    s.actions.forEach(function (a) { var o = el('option', '', a.name); o.value = a.n; if (d.keypad_action === a.n) o.selected = true; ka.appendChild(o); });
+    box.appendChild(fld('Keypad sequence fires', ka));
+    var days = el('div', 'chips'); var dayBoxes = [];
+    DAYS.forEach(function (n, i) {
+      var l = el('label'); var cb = el('input'); cb.type = 'checkbox'; cb.value = i + 1; cb.checked = !d.days.length || d.days.indexOf(i + 1) >= 0; dayBoxes.push(cb);
+      l.appendChild(cb); l.appendChild(document.createTextNode(n)); days.appendChild(l);
+    });
+    box.appendChild(fld('Days', days));
+    var from = el('input'); from.type = 'time'; from.value = d.from || ''; var to = el('input'); to.type = 'time'; to.value = d.to || '';
+    var g = el('div', 'grid2'); g.appendChild(fld('From (empty = all day)', from)); g.appendChild(fld('To', to)); box.appendChild(g);
+    function ymd(t) { if (!t) return ''; var x = new Date(t * 1000); return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
+    var sd = el('input'); sd.type = 'date'; sd.value = ymd(d.starts); var ed = el('input'); ed.type = 'date'; ed.value = ymd(d.expires);
+    var g2 = el('div', 'grid2'); g2.appendChild(fld('Starts', sd)); g2.appendChild(fld('Expires (end of day)', ed)); box.appendChild(g2);
+    var mu = el('input'); mu.type = 'number'; mu.min = 1; mu.max = 9999; mu.value = d.max_uses || ''; mu.placeholder = 'no limit';
+    box.appendChild(fld('Max uses', mu));
+    var bar = el('div', 'bar'); var cancel = el('button', '', 'Cancel'); cancel.onclick = function () { pinIn.value = ''; seqIn.value = ''; $('editModal').style.display = 'none'; };
+    var save = el('button', 'primary', 'Save');
+    save.onclick = function () {
+      var doc = {
+        session: session, id: c ? c.id : undefined, name: name.value, role: role.value, pin: pinIn.value, seq: seqIn.value,
+        actions: boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
+        keypad_action: ka.value === '' ? '' : Number(ka.value),
+        days: dayBoxes.every(function (b) { return b.checked; }) ? [] : dayBoxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
+        from: from.value, to: to.value, start_date: sd.value, expiry_date: ed.value, max_uses: mu.value === '' ? '' : Number(mu.value)
+      };
+      api('POST', '/admin/save', doc).then(function (r) {
+        pinIn.value = ''; seqIn.value = ''; doc.pin = ''; doc.seq = '';
+        if (r.ok) { toast('Saved', 'ok'); loadAdmin(); } else toast(r.error || 'Refused', 'bad');
+      });
+    };
+    bar.appendChild(cancel); bar.appendChild(save); box.appendChild(bar);
+    $('editModal').style.display = 'flex';
+  }
+
+  loadConfig();
+  setInterval(function () { if ($('viewKeypad').style.display !== 'none' && $('padModal').style.display !== 'flex' && $('resModal').style.display !== 'flex') loadConfig(); }, 20000);
+})();
+</script>
+</body>
+</html>

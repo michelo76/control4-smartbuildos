@@ -1,0 +1,76 @@
+<devicedata>
+  <name>SmartBuildOS MQTT Contact</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>MQTT Contact</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Sensors</category>
+  </composer_categories>
+  <conditionals>
+    <conditional><id>1</id><name>BROKER_CONNECTED</name><type>BOOL</type><condition_statement>MQTT broker is connected</condition_statement><description>NAME is STRING</description><true_text>connected</true_text><false_text>not connected</false_text></conditional>
+    <conditional><id>2</id><name>DEVICE_AVAILABLE</name><type>BOOL</type><condition_statement>Device is available (not reported offline)</condition_statement><description>NAME is STRING</description><true_text>available</true_text><false_text>offline</false_text></conditional>
+    <conditional><id>3</id><name>CONTACT_OPEN</name><type>BOOL</type><condition_statement>MQTT contact is open</condition_statement><description>NAME is STRING</description><true_text>open</true_text><false_text>closed</false_text></conditional>
+  </conditionals>
+  <events>
+    <event><id>1</id><name>Device Available</name><description>The device is reachable again (its availability topic says online)</description></event>
+    <event><id>2</id><name>Device Unavailable</name><description>The device reported itself offline</description></event>
+    <event><id>3</id><name>Command Failed</name><description>A command could not be sent (see Last Result)</description></event>
+    <event><id>4</id><name>Contact Opened</name><description>The sensor reported open</description></event>
+    <event><id>5</id><name>Contact Closed</name><description>The sensor reported closed</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Refresh From Broker</name><command>REFRESH_FROM_BROKER</command></action>
+      <action><name>Print Diagnostics To Log</name><command>PRINT_DIAGNOSTICS</command></action>
+    </actions>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Broker Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
+      <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
+      <property><name>Device Availability</name><type>STRING</type><default>not reported</default><readonly>true</readonly></property>
+      <property><name>Current State</name><type>STRING</type><default>unknown</default><readonly>true</readonly></property>
+      <property><name>Last Message</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Seen</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>State Topic</name><type>STRING</type><default></default><description>The full topic the device publishes its state to, for example zigbee2mqtt/sink_leak. No + or # here: one driver is one device.</description></property>
+      <property><name>State Field</name><type>STRING</type><default>contact</default><description>The JSON field to read, dotted paths allowed (a.b.c). Empty reads the whole payload as one value (ON, true, detected). Zigbee2MQTT door sensors: contact (true = closed, hence Invert = Yes). Leak sensors: water_leak.</description></property>
+      <property><name>Active Values</name><type>STRING</type><default></default><description>Optional. Comma-separated values that mean active (for example detected, ALARM). Empty uses the built-in words: true, on, 1, yes, detected, open, wet, motion, occupied ...</description></property>
+      <property><name>Inactive Values</name><type>STRING</type><default></default><description>Optional. Comma-separated values that mean not active. Empty uses the built-in words: false, off, 0, no, clear, closed, dry, ...</description></property>
+      <property><name>Invert</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>Yes</default><description>Flips active and not active. Default Yes because Zigbee2MQTT reports contact: true for CLOSED.</description></property>
+      <property><name>Report Active As</name><type>LIST</type><items><item>Opened</item><item>Closed</item></items><default>Opened</default><description>What an active value does at the Control4 contact sensor.</description></property>
+      <property><name>Availability Topic</name><type>STRING</type><default></default><description>Optional. Zigbee2MQTT publishes online or offline to BASE/DEVICE/availability. When set, the device is reported offline here and in the broker's health.</description></property>
+      <property><name>Availability Field</name><type>STRING</type><default>state</default><description>Where online or offline sits in the availability payload. Empty when the payload is just the word online or offline. Zigbee2MQTT uses state.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="MQTT Contact" image_source="c4z" small_image="icons/device_sm.png" large_image="icons/device_lg.png">contactsingle</proxy>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>Contact</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes><class><classname>CONTACT_SENSOR</classname></class></classes>
+    </connection>
+  </connections>
+</devicedata>

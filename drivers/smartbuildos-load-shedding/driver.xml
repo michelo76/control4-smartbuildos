@@ -1,0 +1,231 @@
+<devicedata>
+  <name>SmartBuildOS Load Shedding</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Load Shedding</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>OUTAGE_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>An outage is active</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>active</true_text>
+      <false_text>normal</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>TIER_1_SHED</name>
+      <type>BOOL</type>
+      <condition_statement>Tier 1 is shed</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>shed</true_text>
+      <false_text>not shed</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>TIER_2_SHED</name>
+      <type>BOOL</type>
+      <condition_statement>Tier 2 is shed</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>shed</true_text>
+      <false_text>not shed</false_text>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>TIER_3_SHED</name>
+      <type>BOOL</type>
+      <condition_statement>Tier 3 is shed</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>shed</true_text>
+      <false_text>not shed</false_text>
+    </conditional>
+    <conditional>
+      <id>5</id>
+      <name>LS_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Load Shedding is active (not read-only)</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>active</true_text>
+      <false_text>read-only</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>OUTAGE_STATE</name><type>STRING</type><default>Normal</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>OUTAGE_ACTIVE</name><type>STRING</type><default>False</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>TIER_SHED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>LAST_TIER_SHED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>BATTERY_PERCENT</name><type>NUMBER</type><default>-1</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>LOADS_SHED</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>LS_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Outage Started</name><description>The grid dropped (or Set Outage On); tier 1 is shedding</description></event>
+    <event><id>2</id><name>Tier Shed</name><description>A tier was shed (LAST_TIER_SHED says which)</description></event>
+    <event><id>3</id><name>Restored</name><description>Every shed load is back</description></event>
+    <event><id>4</id><name>Restore Delayed</name><description>Power is back; loads wait for it to hold (or the hold started over)</description></event>
+    <event><id>5</id><name>Load Re-shed</name><description>A shed load was switched on and shed again</description></event>
+    <event><id>6</id><name>Load Control Failed</name><description>A shed or restore command could not be sent</description></event>
+    <event><id>7</id><name>Load Shedding Read-Only</name><description>The SmartBuildOS licence halted this driver; everything shed was restored</description></event>
+    <event><id>8</id><name>Load Shedding Active</name><description>The driver is active again after a read-only period</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Status</name><command>PRINT_STATUS</command></action>
+      <action><name>Test Mode (Dry Run)</name><command>TEST_MODE</command></action>
+      <action><name>Restore All Loads</name><command>RESTORE_ALL</command></action>
+      <action><name>Refresh Device Lists</name><command>REFRESH_LISTS</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>SHED_TIER</name>
+        <description>Shed one tier of loads now (they stay shed until Restore All Loads or an outage ends)</description>
+        <params>
+          <param><name>TIER</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items></param>
+        </params>
+      </command>
+      <command>
+        <name>RESTORE_ALL</name>
+        <description>Restore every shed load now, tier 3 first, with the tier delay between tiers</description>
+        <params>
+        </params>
+      </command>
+      <command>
+        <name>SET_OUTAGE</name>
+        <description>Tell the driver the grid is down (On) or back (Off)</description>
+        <params>
+          <param><name>STATE</name><type>LIST</type><items><item>On</item><item>Off</item></items></param>
+        </params>
+      </command>
+      <command>
+        <name>SET_BATTERY</name>
+        <description>Tell the driver the battery percentage (0-100)</description>
+        <params>
+          <param><name>PERCENT</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>TEST_MODE</name>
+        <description>Dry run: log what a full outage would shed and restore, and send nothing</description>
+        <params>
+        </params>
+      </command>
+      <command>
+        <name>WATCH_OUTAGE_VARIABLE</name>
+        <description>Use a variable picked here as the outage input. It is outage when its value is one of WHEN (comma-separated)</description>
+        <params>
+          <param><name>VARIABLE</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>WHEN</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>WATCH_BATTERY_VARIABLE</name>
+        <description>Use a variable picked here as the battery percentage input</description>
+        <params>
+          <param><name>VARIABLE</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Shed Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Summary</name><type>STRING</type><default>nothing shed</default><readonly>true</readonly></property>
+      <property><name>Last Event</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Test Result</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Outage Device</name><type>DYNAMIC_LIST</type><default>-</default><description>The contact sensor or device whose variable says the grid is down. Leave on - to use the Set Outage action only.</description></property>
+      <property><name>Outage Variable</name><type>STRING</type><default>STATE</default><description>Name of the variable on that device (STATE for a contact sensor).</description></property>
+      <property><name>Outage When Value Is</name><type>STRING</type><default>1,closed,true,on</default><description>Comma-separated values that mean the grid is down (case does not matter).</description></property>
+      <property><name>Battery Device</name><type>DYNAMIC_LIST</type><default>-</default><description>Optional: the device that reports battery percentage.</description></property>
+      <property><name>Battery Variable</name><type>STRING</type><default></default><description>Name of the battery percentage variable on that device.</description></property>
+      <property><name>Tier 2 Battery Percent</name><type>STRING</type><default>50</default></property>
+      <property><name>Tier 3 Battery Percent</name><type>STRING</type><default>20</default></property>
+      <property><name>Tier 2 No Data Minutes</name><type>STRING</type><default>15</default><description>Shed tier 2 after this many minutes of outage with no fresh battery reading. 0 = never by time.</description></property>
+      <property><name>Tier 3 No Data Minutes</name><type>STRING</type><default>45</default><description>Shed tier 3 after this many minutes of outage with no fresh battery reading. 0 = never by time.</description></property>
+      <property><name>Stable Hold Seconds</name><type>STRING</type><default>120</default><description>Power must stay back this long before anything is restored.</description></property>
+      <property><name>Tier Delay Seconds</name><type>STRING</type><default>30</default><description>Pause between restored tiers, to spread inrush.</description></property>
+      <property><name>Restore Retries</name><type>STRING</type><default>2</default><description>If a load is not back after a restore, send the command again this many times, then raise a Load Error event. A load whose state cannot be read is retried but cannot be confirmed.</description></property>
+      <property><name>Restore Retry Seconds</name><type>STRING</type><default>15</default><description>Wait this long after a restore before checking the load and retrying.</description></property>
+      <property><name>Manual Shed Auto-Restore Minutes</name><type>STRING</type><default>60</default><description>A tier shed by hand (no outage) is put back after this many minutes. 0 = never; Restore All still works.</description></property>
+      <property><name>Re-shed Loads Turned On</name><type>LIST</type><items><item>No</item><item>Yes</item></items><default>No</default><description>Turn a shed load off again if someone switches it on during an outage.</description></property>
+      <property><name>Record To Flight Recorder</name><type>LIST</type><items><item>Yes</item><item>No</item></items><default>Yes</default></property>
+      <property><name>Load 1 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 1 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 1 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 1 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 2 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 2 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 2 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 2 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 3 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 3 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 3 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 3 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 4 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 4 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 4 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 4 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 5 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 5 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 5 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 5 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 6 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 6 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 6 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 6 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 7 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 7 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 7 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 7 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 8 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 8 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 8 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 8 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 9 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 9 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 9 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 9 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 10 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 10 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 10 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 10 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 11 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 11 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 11 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 11 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Load 12 Device</name><type>DYNAMIC_LIST</type><default>-</default></property>
+      <property><name>Load 12 Kind</name><type>LIST</type><items><item>(unused)</item><item>Light</item><item>Relay</item><item>Thermostat setback</item></items><default>(unused)</default></property>
+      <property><name>Load 12 Tier</name><type>LIST</type><items><item>1</item><item>2</item><item>3</item></items><default>1</default></property>
+      <property><name>Load 12 Setback F</name><type>STRING</type><default></default><description>Thermostat only: the setback temperature in degrees F.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

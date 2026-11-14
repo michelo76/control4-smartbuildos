@@ -1,0 +1,102 @@
+<devicedata>
+  <name>SmartBuildOS MQTT Broker</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>MQTT Broker</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/12/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>BROKER_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>MQTT broker is connected</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>connected</true_text>
+      <false_text>not connected</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>BROKER_STATE</name><type>STRING</type><default>disconnected</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>LAST_TOPIC</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>LAST_PAYLOAD</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>LAST_STALE_DEVICE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>DEVICE_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>STALE_DEVICE_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>DEVICE_HEALTH</name><type>STRING</type><default>[]</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Message Received</name><description>A message arrived on one of the Event Topics (LAST_TOPIC and LAST_PAYLOAD hold it)</description></event>
+    <event><id>2</id><name>Broker Connected</name><description>The MQTT broker accepted the login</description></event>
+    <event><id>3</id><name>Broker Disconnected</name><description>The MQTT broker connection was lost</description></event>
+    <event><id>4</id><name>Device Went Stale</name><description>A linked device has been silent longer than Stale After Minutes, or reported itself offline (LAST_STALE_DEVICE names it)</description></event>
+    <event><id>5</id><name>Device Recovered</name><description>A stale or offline device spoke again (LAST_STALE_DEVICE names it)</description></event>
+    <event><id>6</id><name>Bridge Read-Only</name><description>The SmartBuildOS licence made the bridge read-only: messages still arrive, nothing is published</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Topics</name><command>PRINT_TOPICS</command></action>
+      <action><name>Print Devices</name><command>PRINT_DEVICES</command></action>
+      <action><name>Reconnect Now</name><command>RECONNECT_NOW</command></action>
+      <action><name>Clear Topics Seen</name><command>CLEAR_TOPICS_SEEN</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>PUBLISH_MESSAGE</name>
+        <description>Publish PAYLOAD to TOPIC on the MQTT broker (QoS 0 or 1, optionally retained)</description>
+        <params>
+          <param><name>TOPIC</name><type>STRING</type></param>
+          <param><name>PAYLOAD</name><type>STRING</type></param>
+          <param><name>RETAIN</name><type>LIST</type><items><item>No</item><item>Yes</item></items></param>
+          <param><name>QOS</name><type>LIST</type><items><item>0</item><item>1</item></items></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Bridge Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Connection</name><type>STRING</type><default>Not configured: enter the Broker Host</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Broker Host</name><type>STRING</type><default></default><description>Name or address of the MQTT broker on the local network. Plain TCP only: there is no TLS.</description></property>
+      <property><name>Broker Port</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>65535</maximum><default>1883</default></property>
+      <property><name>Username</name><type>STRING</type><default></default><description>Leave empty when the broker allows anonymous clients.</description></property>
+      <property><name>Password</name><type>STRING</type><password>true</password><default></default><description>Needs a Username. Never written to the log.</description></property>
+      <property><name>Client Id</name><type>STRING</type><default></default><description>Empty makes one from this driver's device id. Two clients with the same id push each other off the broker.</description></property>
+      <property><name>Base Topic</name><type>STRING</type><default>zigbee2mqtt</default><description>Feeds Topics Seen: the broker is asked for BASE/#. Empty turns the list off (the linked devices still work).</description></property>
+      <property><name>Keep Alive Seconds</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>600</maximum><default>60</default></property>
+      <property><name>Event Topics</name><type>STRING</type><default></default><description>Up to five topic filters, separated by commas. A message on any of them fires Message Received. + and # work.</description></property>
+      <property><name>Stale After Minutes</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>10080</maximum><default>1440</default><description>A linked device that has not spoken for this long is reported stale. 0 never reports staleness.</description></property>
+      <property><name>Topics Seen</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Devices</name><type>STRING</type><default>0 linked</default><readonly>true</readonly></property>
+      <property><name>Messages</name><type>STRING</type><default>0 in, 0 out</default><readonly>true</readonly></property>
+      <property><name>Last Publish</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>
