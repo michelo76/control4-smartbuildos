@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>VenueFlow</title>
+<style>
+/*@include shared/base.css*/
+/*@include operator/operator.css*/
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+//@include shared/vf.js
+</script>
+<script>
+//@include operator/app.js
+</script>
+<script>
+//@include operator/view-command.js
+</script>
+<script>
+//@include operator/view-floorplan.js
+</script>
+<script>
+//@include operator/view-room.js
+</script>
+<script>
+//@include operator/view-manager.js
+</script>
+<script>
+Operator.start();
+</script>
+</body>
+</html>

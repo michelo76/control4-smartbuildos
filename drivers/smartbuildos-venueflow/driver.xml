@@ -1,0 +1,159 @@
+<devicedata>
+  <name>SmartBuildOS VenueFlow</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>VenueFlow</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/14/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <small image_source="c4z">www/icons/device_sm.png</small>
+  <large image_source="c4z">www/icons/device_lg.png</large>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>VENUE_OPEN</name>
+      <type>BOOL</type>
+      <condition_statement>Venue is open</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>open</true_text>
+      <false_text>closed</false_text>
+    </conditional>
+    <conditional><id>2</id><name>SCENE_ACTIVE</name><type>STRING</type><condition_statement>Active scene (type the scene name; = is active, != is not)</condition_statement><description>NAME LOGIC STRING is the active scene</description></conditional>
+    <conditional>
+      <id>3</id>
+      <name>HAS_ALERTS</name>
+      <type>BOOL</type>
+      <condition_statement>VenueFlow has alerts</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>showing alerts</true_text>
+      <false_text>clear</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>VENUE_STATUS</name><type>STRING</type><default>closed</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>ACTIVE_SCENE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>NOTIFICATION_TEXT</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>ALERT_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Scene Activated</name><description>A VenueFlow scene started (ACTIVE_SCENE says which)</description></event>
+    <event><id>2</id><name>Notification</name><description>A scene or rule sent a notification (NOTIFICATION_TEXT holds it)</description></event>
+    <event><id>3</id><name>Alert Raised</name><description>VenueFlow raised an alert for the manager (ALERT_COUNT changed)</description></event>
+    <event><id>4</id><name>Configuration Published</name><description>The installer published a new venue configuration</description></event>
+    <event><id>5</id><name>Venue Opened</name><description>The venue was marked open</description></event>
+    <event><id>6</id><name>Venue Closed</name><description>The venue was marked closed</description></event>
+    <event><id>7</id><name>Licence Restricted</name><description>The SmartBuildOS licence restricted scenes, schedules and publishing; manual control continues</description></event>
+    <event><id>8</id><name>Licence Restored</name><description>Scenes, schedules and publishing work again</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Installer Studio Link</name><command>PRINT_STUDIO_LINK</command></action>
+      <action><name>Print Operator Page Link</name><command>PRINT_PAGE_LINK</command></action>
+      <action><name>Print Status</name><command>PRINT_STATUS</command></action>
+      <action><name>Reload Configuration</name><command>RELOAD</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+      <action><name>End Staff Sessions</name><command>END_STAFF_SESSIONS</command></action>
+      <action><name>Reset Sign-in Locks</name><command>RESET_SIGNIN_LOCKS</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>ACTIVATE_SCENE</name>
+        <description>Activate the VenueFlow scene PARAM1</description>
+        <params>
+          <param><name>SCENE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>TRIGGER_EVENT</name>
+        <description>Trigger the VenueFlow event PARAM1 (runs the rules that wait for it)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>ROUTE_SOURCE</name>
+        <description>Route the source PARAM1 to PARAM2 (a display, a display group, or All)</description>
+        <params>
+          <param><name>SOURCE</name><type>STRING</type></param>
+          <param><name>TARGET</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>SET_VENUE_STATUS</name>
+        <description>Mark the venue PARAM1</description>
+        <params>
+          <param><name>STATUS</name><type>LIST</type><items><item>Open</item><item>Closed</item></items></param>
+        </params>
+      </command>
+      <command><name>ALL_OFF</name><description>Turn off every VenueFlow display and audio zone</description></command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Venue</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Configuration</name><type>STRING</type><default>Not published</default><readonly>true</readonly></property>
+      <property><name>Draft</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Venue Status</name><type>STRING</type><default>closed</default><readonly>true</readonly></property>
+      <property><name>Active Scene</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Alerts</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Installer Studio</name><type>STRING</type><default>Off - set an Installer Passcode</default><readonly>true</readonly></property>
+      <property><name>App Data Relay</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Control Mode</name><type>LIST</type><items><item>Simulation</item><item>Live</item></items><default>Simulation</default><description>Simulation sends nothing to Control4.</description></property>
+      <property><name>Installer Passcode</name><type>STRING</type><password>true</password><default></default><description>6+ characters. Empty keeps the Studio off.</description></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default><description>Leave on Auto unless the tile will not load.</description></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-venueflow/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-venueflow/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-venueflow/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-venueflow/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-venueflow/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-venueflow/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <proxies>
+    <proxy proxybindingid="5001" name="VenueFlow" primary="True" image_source="c4z"
+           large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

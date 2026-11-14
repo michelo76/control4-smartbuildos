@@ -21,6 +21,22 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial
+  AV control surface on an existing Control4 project.** Four operator
+  screens on one UI Button tile (Visual Floor Plan, Command Center,
+  Simplified Room Control, Manager Overview) and Installer Studio, served on
+  the venue LAN from the driver's relay: setup wizard, device discovery and
+  mapping with test actions, a drag-and-drop layout designer, a visual
+  programming editor for scenes, rules and schedules with dry run, staff
+  profiles enforced by the driver, diagnostics, backup, publish and rollback.
+  A capability-aware routing engine reports one outcome per display and never
+  reports a dispatched command as done; audio zones are independent of video;
+  the driver starts in Simulation and sends nothing to Control4 until set to
+  Live. **Simulation verified only.** On a bench controller it installs,
+  serves its pages, publishes and survives a driver restart, all in
+  Simulation; it has not yet controlled real equipment
+  (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`). `make venueflow`
+  builds just this driver and does not copy it into Composer's folder.
 - **A full manual for every driver.** The other 40 drivers now have the
   same kind of manual as the Notification Router and Solar Position: what
   the driver is for and a table of use cases, where the stock way is still

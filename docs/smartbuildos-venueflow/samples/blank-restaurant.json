@@ -1,0 +1,227 @@
+{
+  "areas": [ {
+    "color": "#2dd4bf",
+    "floorId": "main-floor",
+    "id": "dining",
+    "layout": {
+      "h": 340,
+      "w": 540,
+      "x": 50,
+      "y": 50
+    },
+    "name": "Dining"
+  }, {
+    "color": "#60a5fa",
+    "floorId": "main-floor",
+    "id": "bar",
+    "layout": {
+      "h": 340,
+      "w": 540,
+      "x": 610,
+      "y": 50
+    },
+    "name": "Bar"
+  }, {
+    "color": "#a78bfa",
+    "floorId": "main-floor",
+    "id": "patio",
+    "layout": {
+      "h": 340,
+      "w": 540,
+      "x": 50,
+      "y": 410
+    },
+    "name": "Patio"
+  } ],
+  "audioZones": [],
+  "defaultProfileId": "host",
+  "displays": [],
+  "floors": [ {
+    "grid": 20,
+    "height": 800,
+    "id": "main-floor",
+    "name": "Main Floor",
+    "width": 1200
+  } ],
+  "groups": [],
+  "layout": {
+    "labels": [],
+    "sceneButtons": []
+  },
+  "lighting": [],
+  "profiles": [ {
+    "defaultInterface": "manager",
+    "id": "manager",
+    "interfaces": [ "manager", "floorplan", "command" ],
+    "name": "Manager",
+    "permissions": {
+      "allOff": true,
+      "areas": "all",
+      "audio": true,
+      "floors": "all",
+      "lighting": true,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": true,
+      "sources": "all",
+      "venueStatus": true,
+      "viewAlerts": true,
+      "zones": "all"
+    },
+    "role": "manager"
+  }, {
+    "defaultInterface": "room",
+    "id": "host",
+    "interfaces": [ "room" ],
+    "name": "Host",
+    "permissions": {
+      "allOff": false,
+      "areas": "all",
+      "audio": false,
+      "floors": "all",
+      "lighting": false,
+      "power": false,
+      "routeVideo": false,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": false,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": "all"
+    },
+    "role": "host"
+  }, {
+    "defaultInterface": "command",
+    "id": "bartender",
+    "interfaces": [ "command", "floorplan" ],
+    "name": "Bartender",
+    "permissions": {
+      "allOff": false,
+      "areas": "all",
+      "audio": true,
+      "floors": "all",
+      "lighting": false,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": false,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": "all"
+    },
+    "role": "bartender"
+  } ],
+  "rooms": [],
+  "rules": [],
+  "scenes": [ {
+    "confirm": false,
+    "description": "Daily start: displays on, venue marked open.",
+    "icon": "sun",
+    "id": "opening",
+    "name": "Opening",
+    "program": {
+      "steps": [ {
+        "status": "open",
+        "type": "set_venue_status"
+      }, {
+        "power": "on",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      } ]
+    },
+    "template": "opening"
+  }, {
+    "condition": {
+      "is": "open",
+      "op": "venue_status"
+    },
+    "confirm": false,
+    "description": "Promotions and upbeat audio. Add your routes and levels.",
+    "icon": "cocktail",
+    "id": "happy-hour",
+    "name": "Happy Hour",
+    "program": {
+      "steps": [ {
+        "power": "on",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      } ]
+    },
+    "template": "happy_hour"
+  }, {
+    "condition": {
+      "is": "open",
+      "op": "venue_status"
+    },
+    "confirm": false,
+    "description": "Quieter room for dinner service. Add your levels.",
+    "icon": "utensils",
+    "id": "dinner",
+    "name": "Dinner",
+    "program": {
+      "steps": []
+    },
+    "template": "dinner"
+  }, {
+    "confirm": true,
+    "description": "End of day: displays off, venue marked closed.",
+    "icon": "moon",
+    "id": "closing",
+    "name": "Closing",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      }, {
+        "status": "closed",
+        "type": "set_venue_status"
+      } ]
+    },
+    "template": "closing"
+  }, {
+    "confirm": true,
+    "description": "Displays off while the venue is cleaned.",
+    "icon": "sparkles",
+    "id": "cleaning",
+    "name": "Cleaning",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      } ]
+    },
+    "template": "cleaning"
+  } ],
+  "schema": 1,
+  "shades": [],
+  "sources": [],
+  "stations": [],
+  "variables": [],
+  "venue": {
+    "defaultInterface": "floorplan",
+    "name": "New Restaurant",
+    "subsystems": {
+      "audio": true,
+      "lighting": true,
+      "shades": false,
+      "video": true
+    },
+    "timezone": "",
+    "type": "restaurant"
+  }
+}

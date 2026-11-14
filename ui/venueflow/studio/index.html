@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VenueFlow Installer Studio</title>
+<style>
+/*@include shared/base.css*/
+/*@include studio/studio.css*/
+/*@include studio/css/setup.css*/
+/*@include studio/css/entities.css*/
+/*@include studio/css/layout.css*/
+/*@include studio/css/programming.css*/
+</style>
+</head>
+<body>
+<div id="offline" class="banner bad hidden">The controller is not answering. Changes are kept on this screen and saved when it is back.</div>
+<div id="login" class="hidden"></div>
+<div id="app" class="hidden">
+  <div id="sim" class="simbar hidden">Simulation mode: nothing is sent to Control4</div>
+  <header id="top">
+    <button id="navtoggle" class="btn ghost icon sm" type="button" aria-label="Sections"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div id="brand"></div>
+    <span class="muted hide-sm nowrap">Installer Studio</span>
+    <span class="sep hide-sm"></span>
+    <div id="venue" class="grow"></div>
+    <div id="mode" class="hide-sm"></div>
+    <div id="save"></div>
+    <div id="issues"></div>
+    <button id="openop" class="btn sm outline hide-sm" type="button">Operator view</button>
+    <button id="signout" class="btn sm ghost" type="button">Sign out</button>
+  </header>
+  <nav id="nav" class="scroll" aria-label="Studio sections"></nav>
+  <main id="main" class="scroll"></main>
+</div>
+<script>
+//@include shared/vf.js
+</script>
+<script>
+//@include studio/shell.js
+</script>
+<script>
+//@include studio/sec-setup.js
+</script>
+<script>
+//@include studio/sec-entities.js
+</script>
+<script>
+//@include studio/sec-layout.js
+</script>
+<script>
+//@include studio/sec-programming.js
+</script>
+<script>
+//@include studio/sec-stations.js
+</script>
+<script>
+Studio.start();
+</script>
+</body>
+</html>
