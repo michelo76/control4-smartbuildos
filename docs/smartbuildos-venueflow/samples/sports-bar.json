@@ -1,0 +1,1233 @@
+{
+  "areas": [ {
+    "color": "#2dd4bf",
+    "floorId": "main-floor",
+    "id": "bar",
+    "layout": {
+      "h": 440,
+      "w": 420,
+      "x": 40,
+      "y": 40
+    },
+    "name": "Bar"
+  }, {
+    "color": "#60a5fa",
+    "floorId": "main-floor",
+    "id": "dining",
+    "layout": {
+      "h": 440,
+      "w": 440,
+      "x": 480,
+      "y": 40
+    },
+    "name": "Dining"
+  }, {
+    "color": "#34d399",
+    "floorId": "main-floor",
+    "id": "patio",
+    "layout": {
+      "h": 720,
+      "w": 220,
+      "x": 940,
+      "y": 40
+    },
+    "name": "Patio"
+  }, {
+    "color": "#a78bfa",
+    "floorId": "main-floor",
+    "id": "lounge",
+    "layout": {
+      "h": 260,
+      "w": 880,
+      "x": 40,
+      "y": 500
+    },
+    "name": "Lounge"
+  } ],
+  "audioZones": [ {
+    "areaId": "bar",
+    "c4RoomId": 1201,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 60,
+    "feedback": "room",
+    "id": "zone-bar",
+    "layout": {
+      "h": 60,
+      "w": 150,
+      "x": 220,
+      "y": 260
+    },
+    "maxVolume": 85,
+    "minVolume": 0,
+    "name": "Bar",
+    "presets": [ {
+      "id": "quiet",
+      "level": 35,
+      "name": "Quiet"
+    }, {
+      "id": "game",
+      "level": 70,
+      "name": "Game"
+    } ],
+    "sources": "all"
+  }, {
+    "areaId": "dining",
+    "c4RoomId": 1202,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 40,
+    "feedback": "room",
+    "id": "zone-dining",
+    "layout": {
+      "h": 60,
+      "w": 150,
+      "x": 600,
+      "y": 260
+    },
+    "maxVolume": 60,
+    "minVolume": 0,
+    "name": "Dining",
+    "presets": [ {
+      "id": "quiet",
+      "level": 25,
+      "name": "Quiet"
+    }, {
+      "id": "normal",
+      "level": 40,
+      "name": "Normal"
+    } ],
+    "sources": "all"
+  }, {
+    "areaId": "patio",
+    "c4RoomId": 1203,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 50,
+    "feedback": "room",
+    "id": "zone-patio",
+    "layout": {
+      "h": 60,
+      "w": 150,
+      "x": 975,
+      "y": 325
+    },
+    "maxVolume": 70,
+    "minVolume": 0,
+    "name": "Patio",
+    "presets": [],
+    "sources": "all"
+  }, {
+    "areaId": "lounge",
+    "c4RoomId": 1204,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 35,
+    "feedback": "room",
+    "id": "zone-lounge",
+    "layout": {
+      "h": 60,
+      "w": 140,
+      "x": 410,
+      "y": 610
+    },
+    "maxVolume": 65,
+    "minVolume": 0,
+    "name": "Lounge",
+    "presets": [],
+    "sources": "all"
+  } ],
+  "defaultProfileId": "bartender",
+  "displays": [ {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2101,
+    "c4RoomId": 1101,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-01",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 50,
+      "y": 50
+    },
+    "name": "TV 01",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2102,
+    "c4RoomId": 1102,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-02",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 152,
+      "y": 50
+    },
+    "name": "TV 02",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2103,
+    "c4RoomId": 1103,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-03",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 254,
+      "y": 50
+    },
+    "name": "TV 03",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2104,
+    "c4RoomId": 1104,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-04",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 356,
+      "y": 50
+    },
+    "name": "TV 04",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2105,
+    "c4RoomId": 1105,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-05",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 50,
+      "y": 140
+    },
+    "name": "TV 05",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2106,
+    "c4RoomId": 1106,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-06",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 50,
+      "y": 210
+    },
+    "name": "TV 06",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2107,
+    "c4RoomId": 1107,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-07",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 50,
+      "y": 280
+    },
+    "name": "TV 07",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "bar",
+    "audioZoneId": "zone-bar",
+    "c4DeviceId": 2108,
+    "c4RoomId": 1108,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-08",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 50,
+      "y": 350
+    },
+    "name": "TV 08",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2109,
+    "c4RoomId": 1109,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-09",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 490,
+      "y": 50
+    },
+    "name": "TV 09",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2110,
+    "c4RoomId": 1110,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-10",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 596,
+      "y": 50
+    },
+    "name": "TV 10",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2111,
+    "c4RoomId": 1111,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-11",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 702,
+      "y": 50
+    },
+    "name": "TV 11",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2112,
+    "c4RoomId": 1112,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-12",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 808,
+      "y": 50
+    },
+    "name": "TV 12",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2113,
+    "c4RoomId": 1113,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-13",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 814,
+      "y": 140
+    },
+    "name": "TV 13",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2114,
+    "c4RoomId": 1114,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-14",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 814,
+      "y": 210
+    },
+    "name": "TV 14",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2115,
+    "c4RoomId": 1115,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-15",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 814,
+      "y": 280
+    },
+    "name": "TV 15",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "dining",
+    "audioZoneId": "zone-dining",
+    "c4DeviceId": 2116,
+    "c4RoomId": 1116,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-16",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 814,
+      "y": 350
+    },
+    "name": "TV 16",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "patio",
+    "audioZoneId": "zone-patio",
+    "c4DeviceId": 2117,
+    "c4RoomId": 1117,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-17",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 1002,
+      "y": 70
+    },
+    "name": "TV 17",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "patio",
+    "audioZoneId": "zone-patio",
+    "c4DeviceId": 2118,
+    "c4RoomId": 1118,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-18",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 1002,
+      "y": 240
+    },
+    "name": "TV 18",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "patio",
+    "audioZoneId": "zone-patio",
+    "c4DeviceId": 2119,
+    "c4RoomId": 1119,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-19",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 1002,
+      "y": 410
+    },
+    "name": "TV 19",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "patio",
+    "audioZoneId": "zone-patio",
+    "c4DeviceId": 2120,
+    "c4RoomId": 1120,
+    "defaultSourceId": "signage",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-20",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 1002,
+      "y": 580
+    },
+    "name": "Patio Menu Board",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "signage" ]
+  }, {
+    "areaId": "lounge",
+    "audioZoneId": "zone-lounge",
+    "c4DeviceId": 2121,
+    "c4RoomId": 1121,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-21",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 90,
+      "y": 690
+    },
+    "name": "TV 21",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "lounge",
+    "audioZoneId": "zone-lounge",
+    "c4DeviceId": 2122,
+    "c4RoomId": 1122,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-22",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 300,
+      "y": 690
+    },
+    "name": "TV 22",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "lounge",
+    "audioZoneId": "zone-lounge",
+    "c4DeviceId": 2123,
+    "c4RoomId": 1123,
+    "defaultSourceId": "sports-1",
+    "feedback": "room",
+    "floorId": "main-floor",
+    "id": "tv-23",
+    "kind": "tv",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 510,
+      "y": 690
+    },
+    "name": "TV 23",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  }, {
+    "areaId": "lounge",
+    "audioZoneId": "zone-lounge",
+    "c4DeviceId": 2124,
+    "defaultSourceId": "sports-1",
+    "feedback": "none",
+    "floorId": "main-floor",
+    "id": "tv-24",
+    "kind": "projector",
+    "layout": {
+      "h": 58,
+      "rot": 0,
+      "w": 96,
+      "x": 720,
+      "y": 690
+    },
+    "name": "Lounge Projector",
+    "power": "device",
+    "route": {
+      "command": {
+        "deviceId": 2900,
+        "name": "SET_INPUT",
+        "params": {
+          "INPUT": "${source}",
+          "OUTPUT": 24
+        }
+      },
+      "strategy": "command"
+    },
+    "sources": [ "sports-1", "sports-2", "sports-3", "sports-4", "news", "signage", "streaming" ]
+  } ],
+  "floors": [ {
+    "grid": 20,
+    "height": 800,
+    "id": "main-floor",
+    "name": "Main Floor",
+    "width": 1200
+  } ],
+  "groups": [ {
+    "color": "#2dd4bf",
+    "displayIds": [ "tv-01", "tv-02", "tv-03", "tv-04", "tv-05", "tv-06", "tv-07", "tv-08" ],
+    "id": "main-bar",
+    "name": "Main Bar"
+  }, {
+    "color": "#60a5fa",
+    "displayIds": [ "tv-09", "tv-10", "tv-11", "tv-12", "tv-13", "tv-14", "tv-15", "tv-16" ],
+    "id": "dining-wall",
+    "name": "Dining Wall"
+  }, {
+    "color": "#34d399",
+    "displayIds": [ "tv-17", "tv-18", "tv-19", "tv-20" ],
+    "id": "patio-screens",
+    "name": "Patio Screens"
+  }, {
+    "color": "#a78bfa",
+    "displayIds": [ "tv-21", "tv-22", "tv-23", "tv-24" ],
+    "id": "lounge-screens",
+    "name": "Lounge Screens"
+  }, {
+    "color": "#f59e0b",
+    "displayIds": [ "tv-01", "tv-02", "tv-03", "tv-09", "tv-10", "tv-11" ],
+    "id": "big-game",
+    "name": "Big Game Wall"
+  } ],
+  "layout": {
+    "labels": [ {
+      "floorId": "main-floor",
+      "id": "lbl-entry",
+      "size": 14,
+      "text": "Main Entry",
+      "x": 560,
+      "y": 775
+    }, {
+      "floorId": "main-floor",
+      "id": "lbl-bar",
+      "size": 22,
+      "text": "BAR",
+      "x": 270,
+      "y": 190
+    } ],
+    "sceneButtons": [ {
+      "floorId": "main-floor",
+      "h": 50,
+      "id": "sb-game",
+      "sceneId": "game-day",
+      "w": 150,
+      "x": 240,
+      "y": 390
+    } ]
+  },
+  "lighting": [ {
+    "areaId": "bar",
+    "id": "house-lights",
+    "name": "House Lights",
+    "presets": [ {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 4001,
+      "id": "game-day",
+      "name": "Game Day",
+      "params": {
+        "SCENE_ID": 11
+      }
+    }, {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 4001,
+      "id": "evening",
+      "name": "Evening",
+      "params": {
+        "SCENE_ID": 12
+      }
+    }, {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 4001,
+      "id": "bright",
+      "name": "Bright",
+      "params": {
+        "SCENE_ID": 13
+      }
+    } ]
+  } ],
+  "profiles": [ {
+    "defaultInterface": "manager",
+    "id": "manager",
+    "interfaces": [ "manager", "floorplan", "command" ],
+    "name": "Manager",
+    "permissions": {
+      "allOff": true,
+      "areas": "all",
+      "audio": true,
+      "floors": "all",
+      "lighting": true,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": true,
+      "sources": "all",
+      "venueStatus": true,
+      "viewAlerts": true,
+      "zones": "all"
+    },
+    "role": "manager"
+  }, {
+    "defaultInterface": "command",
+    "id": "bartender",
+    "interfaces": [ "command", "floorplan" ],
+    "name": "Bartender",
+    "permissions": {
+      "allOff": false,
+      "areas": [ "bar" ],
+      "audio": true,
+      "floors": "all",
+      "lighting": false,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": [ "game-day", "happy-hour" ],
+      "scenes": true,
+      "shades": false,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": [ "zone-bar" ]
+    },
+    "role": "bartender"
+  }, {
+    "defaultInterface": "room",
+    "id": "host",
+    "interfaces": [ "room" ],
+    "name": "Host",
+    "permissions": {
+      "allOff": false,
+      "areas": "all",
+      "audio": false,
+      "floors": "all",
+      "lighting": false,
+      "power": false,
+      "routeVideo": false,
+      "sceneIds": [ "opening", "happy-hour" ],
+      "scenes": true,
+      "shades": false,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": "all"
+    },
+    "role": "host"
+  } ],
+  "rooms": [ {
+    "areaId": "dining",
+    "buttons": [ {
+      "icon": "sun",
+      "id": "open",
+      "label": "Opening",
+      "sceneId": "opening"
+    }, {
+      "icon": "cocktail",
+      "id": "happy",
+      "label": "Happy Hour",
+      "sceneId": "happy-hour"
+    } ],
+    "id": "host-stand",
+    "name": "Host Station",
+    "shadeIds": [],
+    "showSources": false,
+    "volumeZoneId": "zone-dining"
+  } ],
+  "rules": [ {
+    "enabled": true,
+    "id": "open-weekdays",
+    "name": "Open on weekdays",
+    "program": {
+      "steps": [ {
+        "sceneId": "opening",
+        "type": "run_scene"
+      } ]
+    },
+    "trigger": {
+      "days": [ 1, 2, 3, 4, 5 ],
+      "time": "11:00",
+      "type": "schedule"
+    }
+  }, {
+    "condition": {
+      "is": "open",
+      "op": "venue_status"
+    },
+    "enabled": true,
+    "id": "happy-hour-daily",
+    "name": "Happy hour at four",
+    "program": {
+      "steps": [ {
+        "sceneId": "happy-hour",
+        "type": "run_scene"
+      } ]
+    },
+    "trigger": {
+      "days": [ 1, 2, 3, 4, 5 ],
+      "time": "16:00",
+      "type": "schedule"
+    }
+  }, {
+    "enabled": true,
+    "id": "patio-follows-status",
+    "name": "Patio signage when the venue opens",
+    "program": {
+      "steps": [ {
+        "sourceId": "signage",
+        "target": {
+          "displayIds": [ "tv-20" ]
+        },
+        "type": "route_video"
+      } ]
+    },
+    "trigger": {
+      "status": "open",
+      "type": "venue_status"
+    }
+  } ],
+  "scenes": [ {
+    "confirm": false,
+    "description": "Daily startup. TVs on, venue audio on, standard sources.",
+    "icon": "sun",
+    "id": "opening",
+    "name": "Opening",
+    "program": {
+      "steps": [ {
+        "status": "open",
+        "type": "set_venue_status"
+      }, {
+        "sourceId": "news",
+        "target": {
+          "groupIds": [ "main-bar", "dining-wall", "lounge-screens" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "signage",
+        "target": {
+          "groupIds": [ "patio-screens" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "music",
+        "type": "route_audio",
+        "zoneId": "zone-bar"
+      }, {
+        "level": 45,
+        "type": "volume",
+        "zoneId": "zone-bar"
+      }, {
+        "sourceId": "music",
+        "type": "route_audio",
+        "zoneId": "zone-dining"
+      }, {
+        "level": 35,
+        "type": "volume",
+        "zoneId": "zone-dining"
+      }, {
+        "lightingId": "house-lights",
+        "presetId": "bright",
+        "type": "lighting"
+      } ]
+    },
+    "template": "opening"
+  }, {
+    "condition": {
+      "is": "open",
+      "op": "venue_status"
+    },
+    "confirm": false,
+    "description": "All sports displays on, game sources, venue audio optimized.",
+    "icon": "football",
+    "id": "game-day",
+    "name": "Game Day",
+    "program": {
+      "steps": [ {
+        "power": "on",
+        "target": {
+          "groupIds": [ "main-bar" ]
+        },
+        "type": "display_power"
+      }, {
+        "sourceId": "sports-1",
+        "target": {
+          "displayIds": [ "tv-01", "tv-02", "tv-03", "tv-04", "tv-05", "tv-06" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "sports-2",
+        "target": {
+          "displayIds": [ "tv-07", "tv-08", "tv-09", "tv-10", "tv-11", "tv-12" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "sports-1",
+        "type": "route_audio",
+        "zoneId": "zone-bar"
+      }, {
+        "level": 65,
+        "type": "volume",
+        "zoneId": "zone-bar"
+      }, {
+        "lightingId": "house-lights",
+        "presetId": "game-day",
+        "type": "lighting"
+      }, {
+        "type": "set_variable",
+        "value": true,
+        "variableId": "big-game-on"
+      }, {
+        "level": "info",
+        "message": "Game Day is running",
+        "type": "notify"
+      } ]
+    },
+    "template": "game_day"
+  }, {
+    "condition": {
+      "is": "open",
+      "op": "venue_status"
+    },
+    "confirm": false,
+    "description": "Promotions on key displays, upbeat audio at a moderate level.",
+    "icon": "cocktail",
+    "id": "happy-hour",
+    "name": "Happy Hour",
+    "program": {
+      "steps": [ {
+        "sourceId": "signage",
+        "target": {
+          "displayIds": [ "tv-04", "tv-05", "tv-13" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "music",
+        "type": "route_audio",
+        "zoneId": "zone-bar"
+      }, {
+        "level": 55,
+        "type": "volume",
+        "zoneId": "zone-bar"
+      }, {
+        "condition": {
+          "from": "17:00",
+          "op": "time_range",
+          "to": "23:00"
+        },
+        "else": [ {
+          "lightingId": "house-lights",
+          "presetId": "bright",
+          "type": "lighting"
+        } ],
+        "then": [ {
+          "lightingId": "house-lights",
+          "presetId": "evening",
+          "type": "lighting"
+        } ],
+        "type": "if"
+      } ]
+    },
+    "template": "happy_hour"
+  }, {
+    "confirm": true,
+    "description": "End of day. Displays off, venue audio off, systems ready.",
+    "icon": "moon",
+    "id": "closing",
+    "name": "Closing",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      }, {
+        "power": "off",
+        "type": "zone_power",
+        "zoneId": "zone-bar"
+      }, {
+        "power": "off",
+        "type": "zone_power",
+        "zoneId": "zone-dining"
+      }, {
+        "power": "off",
+        "type": "zone_power",
+        "zoneId": "zone-patio"
+      }, {
+        "power": "off",
+        "type": "zone_power",
+        "zoneId": "zone-lounge"
+      }, {
+        "type": "set_variable",
+        "value": false,
+        "variableId": "big-game-on"
+      }, {
+        "status": "closed",
+        "type": "set_venue_status"
+      } ]
+    },
+    "template": "closing"
+  }, {
+    "confirm": true,
+    "description": "Displays off, lights bright.",
+    "icon": "sparkles",
+    "id": "cleaning",
+    "name": "Cleaning",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      }, {
+        "lightingId": "house-lights",
+        "presetId": "bright",
+        "type": "lighting"
+      } ]
+    },
+    "template": "cleaning"
+  } ],
+  "schema": 1,
+  "shades": [],
+  "sources": [ {
+    "audio": true,
+    "c4DeviceId": 3001,
+    "enabled": true,
+    "id": "sports-1",
+    "kind": "satellite",
+    "name": "Sports 1",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3002,
+    "enabled": true,
+    "id": "sports-2",
+    "kind": "satellite",
+    "name": "Sports 2",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3003,
+    "enabled": true,
+    "id": "sports-3",
+    "kind": "cable",
+    "name": "Sports 3",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3004,
+    "enabled": true,
+    "id": "sports-4",
+    "kind": "cable",
+    "name": "Sports 4",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3005,
+    "enabled": true,
+    "id": "news",
+    "kind": "cable",
+    "name": "Cable News",
+    "video": true
+  }, {
+    "audio": false,
+    "c4DeviceId": 3006,
+    "enabled": true,
+    "id": "signage",
+    "kind": "signage",
+    "name": "Menu Signage",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3007,
+    "enabled": true,
+    "id": "streaming",
+    "kind": "streaming",
+    "name": "Streaming",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 3008,
+    "enabled": true,
+    "id": "music",
+    "kind": "music",
+    "name": "House Music",
+    "video": false
+  } ],
+  "stations": [],
+  "variables": [ {
+    "id": "big-game-on",
+    "initial": false,
+    "name": "Big game on",
+    "type": "bool"
+  } ],
+  "venue": {
+    "defaultInterface": "command",
+    "name": "Riverside Sports Bar",
+    "sample": true,
+    "subsystems": {
+      "audio": true,
+      "lighting": true,
+      "shades": false,
+      "video": true
+    },
+    "timezone": "",
+    "type": "sports_bar"
+  }
+}

@@ -1,0 +1,688 @@
+{
+  "areas": [ {
+    "color": "#2dd4bf",
+    "floorId": "level-1",
+    "id": "boardroom-a",
+    "layout": {
+      "h": 340,
+      "w": 540,
+      "x": 40,
+      "y": 40
+    },
+    "name": "Boardroom A"
+  }, {
+    "color": "#60a5fa",
+    "floorId": "level-1",
+    "id": "boardroom-b",
+    "layout": {
+      "h": 340,
+      "w": 540,
+      "x": 620,
+      "y": 40
+    },
+    "name": "Boardroom B"
+  }, {
+    "color": "#f59e0b",
+    "floorId": "level-1",
+    "id": "foyer",
+    "layout": {
+      "h": 340,
+      "w": 1120,
+      "x": 40,
+      "y": 420
+    },
+    "name": "Foyer"
+  }, {
+    "color": "#a78bfa",
+    "floorId": "level-2",
+    "id": "training",
+    "layout": {
+      "h": 720,
+      "w": 1120,
+      "x": 40,
+      "y": 40
+    },
+    "name": "Training Room"
+  } ],
+  "audioZones": [ {
+    "areaId": "boardroom-a",
+    "c4RoomId": 6201,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 35,
+    "feedback": "room",
+    "id": "audio-a",
+    "maxVolume": 70,
+    "minVolume": 0,
+    "name": "Boardroom A",
+    "presets": [],
+    "sources": "all"
+  }, {
+    "areaId": "boardroom-b",
+    "c4RoomId": 6202,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 35,
+    "feedback": "room",
+    "id": "audio-b",
+    "maxVolume": 70,
+    "minVolume": 0,
+    "name": "Boardroom B",
+    "presets": [],
+    "sources": "all"
+  }, {
+    "areaId": "foyer",
+    "c4RoomId": 6203,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 25,
+    "feedback": "room",
+    "id": "audio-foyer",
+    "maxVolume": 50,
+    "minVolume": 0,
+    "name": "Foyer",
+    "presets": [],
+    "sources": "all"
+  }, {
+    "areaId": "training",
+    "c4RoomId": 6204,
+    "can": {
+      "mute": true,
+      "power": true,
+      "source": true,
+      "volume": true
+    },
+    "defaultVolume": 40,
+    "feedback": "room",
+    "id": "audio-training",
+    "maxVolume": 80,
+    "minVolume": 0,
+    "name": "Training Room",
+    "presets": [],
+    "sources": "all"
+  } ],
+  "defaultProfileId": "meeting-room",
+  "displays": [ {
+    "areaId": "boardroom-a",
+    "audioZoneId": "audio-a",
+    "c4DeviceId": 6301,
+    "c4RoomId": 6101,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "a-main",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 200,
+      "y": 60
+    },
+    "name": "Boardroom A Main",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "laptop-a", "wireless", "codec", "tv-tuner" ]
+  }, {
+    "areaId": "boardroom-a",
+    "audioZoneId": "audio-a",
+    "c4DeviceId": 6302,
+    "c4RoomId": 6102,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "a-side",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 60,
+      "y": 200
+    },
+    "name": "Boardroom A Side",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "laptop-a", "wireless", "codec", "tv-tuner" ]
+  }, {
+    "areaId": "boardroom-b",
+    "audioZoneId": "audio-b",
+    "c4DeviceId": 6303,
+    "c4RoomId": 6103,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "b-main",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 800,
+      "y": 60
+    },
+    "name": "Boardroom B Main",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "laptop-b", "wireless", "codec", "tv-tuner" ]
+  }, {
+    "areaId": "boardroom-b",
+    "audioZoneId": "audio-b",
+    "c4DeviceId": 6304,
+    "c4RoomId": 6104,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "b-side",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 1050,
+      "y": 200
+    },
+    "name": "Boardroom B Side",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "laptop-b", "wireless", "codec", "tv-tuner" ]
+  }, {
+    "areaId": "foyer",
+    "audioZoneId": "audio-foyer",
+    "c4DeviceId": 6305,
+    "c4RoomId": 6105,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "foyer-left",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 200,
+      "y": 440
+    },
+    "name": "Foyer Left",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "signage", "tv-tuner" ]
+  }, {
+    "areaId": "foyer",
+    "audioZoneId": "audio-foyer",
+    "c4DeviceId": 6306,
+    "c4RoomId": 6106,
+    "feedback": "room",
+    "floorId": "level-1",
+    "id": "foyer-right",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 900,
+      "y": 440
+    },
+    "name": "Foyer Right",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": [ "signage", "tv-tuner" ]
+  }, {
+    "areaId": "training",
+    "audioZoneId": "audio-training",
+    "c4DeviceId": 6307,
+    "c4RoomId": 6107,
+    "feedback": "room",
+    "floorId": "level-2",
+    "id": "training-projector",
+    "kind": "projector",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 550,
+      "y": 60
+    },
+    "name": "Training Projector",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": "all"
+  }, {
+    "areaId": "training",
+    "audioZoneId": "audio-training",
+    "c4DeviceId": 6308,
+    "c4RoomId": 6108,
+    "feedback": "room",
+    "floorId": "level-2",
+    "id": "training-confidence",
+    "kind": "tv",
+    "layout": {
+      "h": 50,
+      "rot": 0,
+      "w": 90,
+      "x": 550,
+      "y": 680
+    },
+    "name": "Confidence Monitor",
+    "power": "room",
+    "route": {
+      "strategy": "room"
+    },
+    "sources": "all"
+  } ],
+  "floors": [ {
+    "grid": 20,
+    "height": 800,
+    "id": "level-1",
+    "name": "Level 1",
+    "width": 1200
+  }, {
+    "grid": 20,
+    "height": 800,
+    "id": "level-2",
+    "name": "Level 2",
+    "width": 1200
+  } ],
+  "groups": [ {
+    "displayIds": [ "a-main", "a-side" ],
+    "id": "boardroom-a-displays",
+    "name": "Boardroom A"
+  }, {
+    "displayIds": [ "b-main", "b-side" ],
+    "id": "boardroom-b-displays",
+    "name": "Boardroom B"
+  }, {
+    "displayIds": [ "foyer-left", "foyer-right" ],
+    "id": "foyer-displays",
+    "name": "Foyer"
+  }, {
+    "displayIds": [ "training-projector", "training-confidence" ],
+    "id": "training-displays",
+    "name": "Training Room"
+  } ],
+  "layout": {
+    "labels": [],
+    "sceneButtons": []
+  },
+  "lighting": [ {
+    "areaId": "boardroom-a",
+    "id": "lights-a",
+    "name": "Boardroom A Lights",
+    "presets": [ {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 7001,
+      "id": "presentation",
+      "name": "Presentation",
+      "params": {
+        "SCENE_ID": 21
+      }
+    }, {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 7001,
+      "id": "meeting",
+      "name": "Meeting",
+      "params": {
+        "SCENE_ID": 22
+      }
+    }, {
+      "command": "ACTIVATE_SCENE",
+      "deviceId": 7001,
+      "id": "bright",
+      "name": "Bright",
+      "params": {
+        "SCENE_ID": 23
+      }
+    } ]
+  } ],
+  "profiles": [ {
+    "defaultInterface": "manager",
+    "id": "facilities",
+    "interfaces": [ "manager", "floorplan", "command" ],
+    "name": "Facilities Manager",
+    "permissions": {
+      "allOff": true,
+      "areas": "all",
+      "audio": true,
+      "floors": "all",
+      "lighting": true,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": true,
+      "sources": "all",
+      "venueStatus": true,
+      "viewAlerts": true,
+      "zones": "all"
+    },
+    "role": "manager"
+  }, {
+    "defaultInterface": "room",
+    "id": "conference-staff",
+    "interfaces": [ "room", "command" ],
+    "name": "Conference Staff",
+    "permissions": {
+      "allOff": false,
+      "areas": "all",
+      "audio": true,
+      "floors": "all",
+      "lighting": true,
+      "power": true,
+      "routeVideo": true,
+      "sceneIds": "all",
+      "scenes": true,
+      "shades": true,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": "all"
+    },
+    "role": "conference_staff"
+  }, {
+    "defaultInterface": "room",
+    "id": "meeting-room",
+    "interfaces": [ "room" ],
+    "name": "Meeting Room Panel",
+    "permissions": {
+      "allOff": false,
+      "areas": [ "boardroom-a" ],
+      "audio": true,
+      "floors": "all",
+      "lighting": true,
+      "power": false,
+      "routeVideo": false,
+      "sceneIds": [ "a-present", "a-conference", "a-tv", "a-off" ],
+      "scenes": true,
+      "shades": true,
+      "sources": "all",
+      "venueStatus": false,
+      "viewAlerts": false,
+      "zones": [ "audio-a" ]
+    },
+    "role": "restricted"
+  } ],
+  "rooms": [ {
+    "areaId": "boardroom-a",
+    "buttons": [ {
+      "icon": "laptop",
+      "id": "present",
+      "label": "Present Laptop",
+      "sceneId": "a-present"
+    }, {
+      "icon": "video",
+      "id": "conference",
+      "label": "Video Conference",
+      "sceneId": "a-conference"
+    }, {
+      "icon": "tv",
+      "id": "tv",
+      "label": "Watch TV",
+      "sceneId": "a-tv"
+    }, {
+      "icon": "power",
+      "id": "off",
+      "label": "Room Off",
+      "sceneId": "a-off"
+    } ],
+    "displayIds": [ "a-main", "a-side" ],
+    "id": "panel-boardroom-a",
+    "lightingId": "lights-a",
+    "name": "Boardroom A",
+    "shadeIds": [ "shades-a" ],
+    "showSources": true,
+    "volumeZoneId": "audio-a"
+  } ],
+  "rules": [ {
+    "enabled": true,
+    "id": "weekday-open",
+    "name": "Open at 7:30 on weekdays",
+    "program": {
+      "steps": [ {
+        "sceneId": "opening",
+        "type": "run_scene"
+      } ]
+    },
+    "trigger": {
+      "days": [ 1, 2, 3, 4, 5 ],
+      "time": "07:30",
+      "type": "schedule"
+    }
+  } ],
+  "scenes": [ {
+    "confirm": false,
+    "description": "Boardroom A: laptop on both displays, presentation lighting, shades closed.",
+    "icon": "laptop",
+    "id": "a-present",
+    "name": "Present Laptop",
+    "program": {
+      "steps": [ {
+        "sourceId": "laptop-a",
+        "target": {
+          "groupIds": [ "boardroom-a-displays" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "laptop-a",
+        "type": "route_audio",
+        "zoneId": "audio-a"
+      }, {
+        "level": 35,
+        "type": "volume",
+        "zoneId": "audio-a"
+      }, {
+        "lightingId": "lights-a",
+        "presetId": "presentation",
+        "type": "lighting"
+      }, {
+        "action": "close",
+        "shadeId": "shades-a",
+        "type": "shade"
+      } ]
+    },
+    "template": "presentation"
+  }, {
+    "confirm": false,
+    "description": "Boardroom A: conference codec on the main display.",
+    "icon": "video",
+    "id": "a-conference",
+    "name": "Video Conference",
+    "program": {
+      "steps": [ {
+        "sourceId": "codec",
+        "target": {
+          "displayIds": [ "a-main" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "codec",
+        "type": "route_audio",
+        "zoneId": "audio-a"
+      }, {
+        "level": 45,
+        "type": "volume",
+        "zoneId": "audio-a"
+      }, {
+        "lightingId": "lights-a",
+        "presetId": "meeting",
+        "type": "lighting"
+      } ]
+    },
+    "template": "conference"
+  }, {
+    "confirm": false,
+    "description": "Boardroom A: cable TV on the main display.",
+    "icon": "tv",
+    "id": "a-tv",
+    "name": "Watch TV",
+    "program": {
+      "steps": [ {
+        "sourceId": "tv-tuner",
+        "target": {
+          "displayIds": [ "a-main" ]
+        },
+        "type": "route_video"
+      }, {
+        "sourceId": "tv-tuner",
+        "type": "route_audio",
+        "zoneId": "audio-a"
+      } ]
+    }
+  }, {
+    "confirm": false,
+    "description": "Boardroom A: displays and audio off, lights bright, shades open.",
+    "icon": "power",
+    "id": "a-off",
+    "name": "Room Off",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "groupIds": [ "boardroom-a-displays" ]
+        },
+        "type": "display_power"
+      }, {
+        "power": "off",
+        "type": "zone_power",
+        "zoneId": "audio-a"
+      }, {
+        "lightingId": "lights-a",
+        "presetId": "bright",
+        "type": "lighting"
+      }, {
+        "action": "open",
+        "shadeId": "shades-a",
+        "type": "shade"
+      } ]
+    }
+  }, {
+    "confirm": false,
+    "description": "Welcome signage in the foyer; venue marked open.",
+    "icon": "sun",
+    "id": "opening",
+    "name": "Opening",
+    "program": {
+      "steps": [ {
+        "status": "open",
+        "type": "set_venue_status"
+      }, {
+        "sourceId": "signage",
+        "target": {
+          "groupIds": [ "foyer-displays" ]
+        },
+        "type": "route_video"
+      } ]
+    },
+    "template": "opening"
+  }, {
+    "confirm": true,
+    "description": "Every display off; venue marked closed.",
+    "icon": "moon",
+    "id": "closing",
+    "name": "Closing",
+    "program": {
+      "steps": [ {
+        "power": "off",
+        "target": {
+          "all": true
+        },
+        "type": "display_power"
+      }, {
+        "status": "closed",
+        "type": "set_venue_status"
+      } ]
+    },
+    "template": "closing"
+  } ],
+  "schema": 1,
+  "shades": [ {
+    "areaId": "boardroom-a",
+    "deviceId": 7101,
+    "id": "shades-a",
+    "name": "Boardroom A Shades"
+  } ],
+  "sources": [ {
+    "audio": true,
+    "c4DeviceId": 5001,
+    "enabled": true,
+    "id": "laptop-a",
+    "kind": "laptop",
+    "name": "Laptop HDMI (A)",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 5002,
+    "enabled": true,
+    "id": "laptop-b",
+    "kind": "laptop",
+    "name": "Laptop HDMI (B)",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 5003,
+    "enabled": true,
+    "id": "wireless",
+    "kind": "laptop",
+    "name": "Wireless Presenter",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 5004,
+    "enabled": true,
+    "id": "codec",
+    "kind": "conference",
+    "name": "Video Conference",
+    "video": true
+  }, {
+    "audio": true,
+    "c4DeviceId": 5005,
+    "enabled": true,
+    "id": "tv-tuner",
+    "kind": "cable",
+    "name": "Cable TV",
+    "video": true
+  }, {
+    "audio": false,
+    "c4DeviceId": 5006,
+    "enabled": true,
+    "id": "signage",
+    "kind": "signage",
+    "name": "Welcome Signage",
+    "video": true
+  } ],
+  "stations": [],
+  "variables": [],
+  "venue": {
+    "defaultInterface": "room",
+    "name": "Sterling Conference Centre",
+    "sample": true,
+    "subsystems": {
+      "audio": true,
+      "lighting": true,
+      "shades": true,
+      "video": true
+    },
+    "timezone": "",
+    "type": "conference_center"
+  }
+}

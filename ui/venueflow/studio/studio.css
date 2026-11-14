@@ -1,0 +1,40 @@
+/* Installer Studio shell layout. Section-specific styles live in css/<section>.css. */
+#login { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
+.login-card { width: min(440px, 100%); }
+.brand { display: inline-flex; align-items: center; gap: 9px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+.brand b { color: var(--teal); font-weight: 700; }
+.brandmark { color: var(--teal); display: inline-flex; }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "top top" "nav main"; }
+#sim { grid-area: sim; }
+#top { grid-area: top; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: rgba(7, 13, 24, .85); min-width: 0; }
+#top .sep { width: 1px; height: 26px; background: var(--line-2); flex: none; }
+#venue { font-weight: 650; font-size: 16px; min-width: 0; display: flex; }
+#save, #mode, #issues { display: flex; align-items: center; gap: 8px; flex: none; }
+#nav { grid-area: nav; border-right: 1px solid var(--line); padding: 10px 10px 24px; overflow: auto; background: rgba(11, 20, 36, .6); }
+#nav h4 { margin: 16px 8px 6px; }
+.navitem { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 11px; border: 1px solid transparent; background: transparent; color: var(--ink-2); cursor: pointer; text-align: left; font-weight: 550; }
+.navitem:hover { background: var(--panel-2); color: var(--ink); }
+.navitem.on { background: var(--teal-soft); border-color: var(--teal-line); color: var(--teal); }
+.navitem .chip { padding: 1px 8px; font-size: 11.5px; }
+#main { grid-area: main; overflow: auto; padding: 22px 24px 60px; min-width: 0; }
+.sec { max-width: 1280px; margin: 0 auto; }
+.sec.wide { max-width: none; }
+#navtoggle { display: none; }
+#offline { position: fixed; top: 0; left: 0; right: 0; z-index: 900; }
+.split { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; align-items: start; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.stat { display: flex; align-items: center; gap: 14px; }
+.stat .n { font-size: 30px; font-weight: 750; letter-spacing: -.02em; line-height: 1; }
+@media (max-width: 1000px) {
+  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "top" "main"; }
+  #nav { position: fixed; top: 0; bottom: 0; left: 0; width: 270px; z-index: 800; transform: translateX(-100%); transition: transform .16s; background: var(--bg-2); box-shadow: 20px 0 60px rgba(0, 0, 0, .5); }
+  #app.navopen #nav { transform: none; }
+  #navtoggle { display: inline-flex; }
+  #main { padding: 16px 14px 60px; }
+  .split { grid-template-columns: 1fr; }
+  #top .hide-sm { display: none; }
+}
+.wizbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin: 0 auto 14px; max-width: 1280px; border-color: var(--teal-line); flex-wrap: wrap; }
+@media (max-width: 1180px) { #top { gap: 8px; padding: 8px 10px; } #top #openop { display: none; } #top .brand { font-size: 18px; } }
+@media (max-width: 1060px) { #top #mode { display: none; } }
+#top > * { flex-shrink: 0; } #top > #venue { flex-shrink: 1; }

@@ -1,0 +1,462 @@
+{
+  "commands": [ {
+    "command": "ALERT_DISMISS",
+    "fields": [ {
+      "kind": "s",
+      "name": "alertId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "ALL_OFF",
+    "fields": [ {
+      "kind": "b?",
+      "name": "confirm"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "ALL_OFF_PREVIEW",
+    "fields": [],
+    "scope": "operator"
+  }, {
+    "command": "AUDIO_MUTE",
+    "fields": [ {
+      "kind": "b",
+      "name": "muted"
+    }, {
+      "kind": "s",
+      "name": "zoneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "AUDIO_POWER",
+    "enum": {
+      "power": [ "off" ]
+    },
+    "fields": [ {
+      "kind": "s",
+      "name": "power"
+    }, {
+      "kind": "s",
+      "name": "zoneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "AUDIO_PRESET",
+    "fields": [ {
+      "kind": "s",
+      "name": "presetId"
+    }, {
+      "kind": "s",
+      "name": "zoneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "AUDIO_SOURCE",
+    "fields": [ {
+      "kind": "s",
+      "name": "sourceId"
+    }, {
+      "kind": "s",
+      "name": "zoneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "AUDIO_VOLUME",
+    "fields": [ {
+      "kind": "n",
+      "name": "level"
+    }, {
+      "kind": "s",
+      "name": "zoneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "BACKUP_EXPORT",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "BACKUP_RESTORE",
+    "fields": [ {
+      "kind": "t",
+      "name": "backup"
+    }, {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s?",
+      "name": "which"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "DIAG_CLEAR",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "DIAG_GET",
+    "fields": [ {
+      "kind": "s?",
+      "name": "category"
+    }, {
+      "kind": "s?",
+      "name": "level"
+    }, {
+      "kind": "n?",
+      "name": "limit"
+    }, {
+      "kind": "n?",
+      "name": "sinceSeq"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "DISCOVER",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "DISPLAY_POWER",
+    "enum": {
+      "power": [ "on", "off" ]
+    },
+    "fields": [ {
+      "kind": "l",
+      "name": "displayIds"
+    }, {
+      "kind": "s",
+      "name": "power"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "DRAFT_DISCARD",
+    "fields": [ {
+      "kind": "b?",
+      "name": "confirm"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "DRAFT_GET",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "DRAFT_SAVE",
+    "fields": [ {
+      "kind": "n?",
+      "name": "baseRevision"
+    }, {
+      "kind": "t",
+      "name": "config"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "DRAFT_VALIDATE",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "EXECUTIONS",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "EXECUTION_CANCEL",
+    "fields": [ {
+      "kind": "s",
+      "name": "executionId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "GET_STATE",
+    "fields": [],
+    "scope": "operator"
+  }, {
+    "command": "HELLO",
+    "fields": [],
+    "scope": "public"
+  }, {
+    "command": "IMAGE_GET",
+    "fields": [ {
+      "kind": "s",
+      "name": "key"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "IMAGE_PUT",
+    "fields": [ {
+      "kind": "s",
+      "name": "dataUrl"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "LICENSE_GET",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "LICENSE_REFRESH",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "LIGHTING_PRESET",
+    "fields": [ {
+      "kind": "s",
+      "name": "lightingId"
+    }, {
+      "kind": "s",
+      "name": "presetId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "LOGOUT",
+    "fields": [],
+    "scope": "public"
+  }, {
+    "command": "OPERATION_GET",
+    "fields": [ {
+      "kind": "s",
+      "name": "operationId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "PING",
+    "fields": [],
+    "scope": "public"
+  }, {
+    "command": "PROFILE_LOGIN",
+    "fields": [ {
+      "kind": "s",
+      "name": "pin"
+    }, {
+      "kind": "s",
+      "name": "profileId"
+    } ],
+    "scope": "public"
+  }, {
+    "command": "PROFILE_PIN_SET",
+    "fields": [ {
+      "kind": "n?",
+      "name": "baseRevision"
+    }, {
+      "kind": "s?",
+      "name": "pin"
+    }, {
+      "kind": "s",
+      "name": "profileId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "PROGRAM_DRY_RUN",
+    "fields": [ {
+      "kind": "t?",
+      "name": "condition"
+    }, {
+      "kind": "s?",
+      "name": "name"
+    }, {
+      "kind": "t",
+      "name": "program"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "PROGRAM_EXECUTE",
+    "enum": {
+      "refKind": [ "scene", "rule" ]
+    },
+    "fields": [ {
+      "kind": "t?",
+      "name": "condition"
+    }, {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s?",
+      "name": "name"
+    }, {
+      "kind": "t",
+      "name": "program"
+    }, {
+      "kind": "s?",
+      "name": "refId"
+    }, {
+      "kind": "s?",
+      "name": "refKind"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "PROGRAM_VALIDATE",
+    "fields": [ {
+      "kind": "t?",
+      "name": "condition"
+    }, {
+      "kind": "t",
+      "name": "program"
+    }, {
+      "kind": "t?",
+      "name": "trigger"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "PUBLISH",
+    "fields": [ {
+      "kind": "l?",
+      "name": "acknowledged"
+    }, {
+      "kind": "s?",
+      "name": "note"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "QUERY_STATUS",
+    "fields": [ {
+      "kind": "l?",
+      "name": "displayIds"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "ROLLBACK",
+    "fields": [ {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s",
+      "name": "versionId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "ROUTE_VIDEO",
+    "fields": [ {
+      "kind": "s?",
+      "name": "audioZoneId"
+    }, {
+      "kind": "l",
+      "name": "displayIds"
+    }, {
+      "kind": "s",
+      "name": "sourceId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "SCENE_ACTIVATE",
+    "fields": [ {
+      "kind": "s?",
+      "name": "areaId"
+    }, {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s",
+      "name": "sceneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "SCENE_PREVIEW",
+    "fields": [ {
+      "kind": "s",
+      "name": "sceneId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "SESSIONS_REVOKE",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "SHADE",
+    "enum": {
+      "action": [ "open", "close" ]
+    },
+    "fields": [ {
+      "kind": "s",
+      "name": "action"
+    }, {
+      "kind": "s",
+      "name": "shadeId"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "SIM_EXTERNAL",
+    "fields": [ {
+      "kind": "t",
+      "name": "changes"
+    }, {
+      "kind": "n",
+      "name": "roomId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "SIM_FAULT",
+    "fields": [ {
+      "kind": "s?",
+      "name": "fault"
+    }, {
+      "kind": "n",
+      "name": "targetId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "STUDIO_BOOTSTRAP",
+    "fields": [],
+    "scope": "installer"
+  }, {
+    "command": "STUDIO_LOGIN",
+    "fields": [ {
+      "kind": "s",
+      "name": "passcode"
+    } ],
+    "scope": "public"
+  }, {
+    "command": "TEMPLATE_APPLY",
+    "fields": [ {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s?",
+      "name": "name"
+    }, {
+      "kind": "b?",
+      "name": "sample"
+    }, {
+      "kind": "s",
+      "name": "venueType"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "TEST_DEVICE",
+    "enum": {
+      "test": [ "power_on", "power_off", "source", "route", "status" ]
+    },
+    "fields": [ {
+      "kind": "b?",
+      "name": "confirm"
+    }, {
+      "kind": "s?",
+      "name": "displayId"
+    }, {
+      "kind": "s?",
+      "name": "sourceId"
+    }, {
+      "kind": "s",
+      "name": "test"
+    }, {
+      "kind": "s?",
+      "name": "zoneId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "TEST_RESULT",
+    "fields": [ {
+      "kind": "s",
+      "name": "testId"
+    } ],
+    "scope": "installer"
+  }, {
+    "command": "VENUE_STATUS",
+    "enum": {
+      "status": [ "open", "closed" ]
+    },
+    "fields": [ {
+      "kind": "s",
+      "name": "status"
+    } ],
+    "scope": "operator"
+  }, {
+    "command": "VERSIONS",
+    "fields": [],
+    "scope": "installer"
+  } ],
+  "note": "Generated from src/venueflow/protocol.lua. Field kinds: s string, n number, b boolean, t object, l list of ids; a trailing ? means optional.",
+  "protocol": 1
+}
