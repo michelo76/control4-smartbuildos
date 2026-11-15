@@ -328,13 +328,14 @@ var DP = (function () {
       var ci = cb ? DP.colorIndex(zn, cb.source) : 'none';
       n.style.setProperty('--hc', 'var(--' + (ci === 'off' ? 'coff' : ci === 'none' ? 'cnone' : 'c' + ci) + ')');
     } else { n.style.removeProperty('--hc'); }
-    n.appendChild(el('div', 'eyebrow', live ? 'Playing now' : 'Right now'));
+    n.appendChild(el('div', 'eyebrow', live ? (state.paused ? 'Scheduled now \u00b7 paused' : 'Playing now') : 'Right now'));
     n.appendChild(el('div', 'big', zn.current ? zn.current.name : hand ? hand : 'Nothing scheduled'));
     n.appendChild(el('div', 'meta', zn.current ? (zn.current.from + ' – ' + zn.current.to) : hand ? 'Started by hand' : 'No block is running in this zone.'));
     if (zn.current) {
       var p = DP.progress(state.minute, zn.current.from, zn.current.to);
       if (p !== null) { var tr = el('div', 'track'), fill = el('i'); fill.style.width = Math.round(p * 100) + '%'; tr.appendChild(fill); n.appendChild(tr); }
     }
+    if (live && state.paused) { n.appendChild(el('div', 'meta', 'The schedule is paused, so nothing is being sent to the room.')); }
     var nx = el('div', 'next');
     nx.appendChild(icon('i-clock'));
     nx.appendChild(el('span', '', zn.next ? ('Next: ' + zn.next.name + ' at ' + (zn.next.in_days ? zn.next.date + ' ' : '') + zn.next.from) : 'Next: nothing scheduled'));

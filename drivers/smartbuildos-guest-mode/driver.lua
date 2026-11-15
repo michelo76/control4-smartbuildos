@@ -657,6 +657,12 @@ function EC.CHECK_OUT_NOW()
   tick()
 end
 
+-- At Log Level 5 - Trace the command dispatcher prints every command with its
+-- parameters to the Lua tab and the controller log. This command's parameter
+-- IS the password, so the dispatcher is told to stay quiet about it.
+EC.suppressDebug = EC.suppressDebug or {}
+EC.suppressDebug.SET_GUEST_WIFI_PASSWORD = true
+
 function EC.SET_GUEST_WIFI_PASSWORD(tParams)
   tParams = tParams or {}
   gWifi = tostring(tParams.PASSWORD or ""):sub(1, 63)

@@ -10,7 +10,6 @@
   <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
   <created>11/12/2026 12:00 PM</created>
   <modified></modified>
-  <combo>true</combo>
   <minimum_os_version>3.3.2</minimum_os_version>
   <small image_source="c4z">www/icons/device_sm.png</small>
   <large image_source="c4z">www/icons/device_lg.png</large>

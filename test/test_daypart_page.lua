@@ -44,6 +44,11 @@ check(
 )
 check("the pure helpers are in their own script", html:find('<script id="daypart-pure">', 1, true) ~= nil)
 check("the page never puts the PIN in a URL", not html:find("pin=", 1, true))
+check(
+  "a paused schedule is not called Playing now",
+  html:find("state.paused ? 'Scheduled now", 1, true) ~= nil
+    and html:find("The schedule is paused, so nothing is being sent", 1, true) ~= nil
+)
 
 print("[2] pure JavaScript helpers (node)")
 local node = io.popen("command -v node 2>/dev/null")

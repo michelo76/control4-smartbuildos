@@ -141,6 +141,14 @@
       <readonly>true</readonly>
       <hidden>false</hidden>
     </variable>
+    <variable>
+      <id>2012</id>
+      <name>DIRECTOR_RELOADS_TODAY</name>
+      <type>NUMBER</type>
+      <default>0</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
   </variables>
   <events>
     <event>
@@ -603,6 +611,13 @@
         <description>How many times Director has come back up under this driver. A driver update is not counted — it restarts the driver without the controller having gone anywhere.</description>
       </property>
       <property>
+        <name>Director Reloads Today</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+        <description>Director reloads since local midnight</description>
+      </property>
+      <property>
         <name>Last Reload</name>
         <type>STRING</type>
         <default/>
@@ -659,7 +674,7 @@
           <item>On</item>
           <item>Off</item>
         </items>
-        <description>Email when the controller reboots or Director reloads, including how many times it has happened</description>
+        <description>Email on a controller reboot or Director reload</description>
       </property>
       <property>
         <name>Email on Device Offline</name>
