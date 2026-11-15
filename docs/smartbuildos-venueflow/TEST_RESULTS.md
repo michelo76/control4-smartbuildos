@@ -1,7 +1,7 @@
 # VenueFlow test results
 
 Run on 14 November 2026 on macOS with LuaJIT, against build
-`20261114.230413` of `smartbuildos-venueflow.c4z`.
+`20261114.233926` of `smartbuildos-venueflow.c4z`.
 
 **Everything here ran against the simulator (`src/venueflow/sim.lua`), the
 test shim (`test/c4_shim.lua`) with a scripted Director, or a desktop
@@ -27,12 +27,12 @@ make venueflow-test
 | `test_venueflow_core.lua` | 209 | 0 | both reference venues, a publish keeping simulated device state, the room-panel profile, All Off and confirm-required scenes, alerts and Resolve, installer test actions, discovery, Composer commands, control mode (sample refused in Live), the diagnostic log (bounded, redacted) |
 | `test_venueflow_license.lua` | 55 | 0 | the licensing SDK's decision table, a venue through a cloud outage and with no Agent, a definitive denial (automation stops, control does not, nothing switched off), restore |
 | `test_venueflow_schema.lua` | 102 | 0 | defaults, identifiers, every class of error and warning, publishability, mapping integrity under layout changes and deletion |
-| `test_venueflow_driver.lua` | 139 | 0 | `driver.lua` under the shim: start, Agent registration, the socket, the Navigator bridge, Live-mode commands and variable listeners, Composer commands and conditionals, the licence gate, passcode change, actions, the Remote Management switch and the Agent token, restart |
+| `test_venueflow_driver.lua` | 145 | 0 | `driver.lua` under the shim: start, Agent registration, the socket, the Navigator bridge, Live-mode commands and variable listeners, Composer commands and conditionals, the licence gate, passcode change, actions, the Remote Management switch and the Agent token, restart |
 | `test_venueflow_security.lua` | 350 | 0 | no code evaluation in engines or pages, pages self-contained, no credential in what ships, built pages and embedded modules current, the `.c4z` contents and integrity |
 | `test_venueflow_clientstudio.lua` | 137 | 0 | the Venue Studio as a client gets it: who may open it, what a client may change and publish, every installer-owned part refused to a hand-made request, installer-only commands, the installer's unfinished draft, rollback, losing the permission, live warnings not asked again |
-| `test_venueflow_remote.lua` | 54 | 0 | Remote Management in the core: off, draft only, draft and publish; a remote draft cannot overwrite on-site work; publish only what was reviewed; no PIN material leaves; nothing remote controls equipment. The Agent and the platform are not in this test |
+| `test_venueflow_remote.lua` | 77 | 0 | Remote Management in the core: off, draft only, draft and publish; a remote draft cannot overwrite on-site work; publish only what was reviewed; no PIN material leaves; nothing remote controls equipment. The Agent and the platform are not in this test |
 | `test_venueflow_sourcecontrol.lua` | 134 | 0 | basic source controls: the closed key vocabulary and the Control4 command each key becomes, a page naming anything else, who may press, groups per source, an unmapped source, favourites dialled digit by digit in order and spaced, a box that does not answer, a flood of keys, the schema, a client editing favourites but not the controls. "Sent" means the simulator logged the command |
-| **Total** | **2147** | **0** | |
+| **Total** | **2176** | **0** | |
 
 The brief's seventeen required cases map to these suites:
 
@@ -62,7 +62,7 @@ The brief's seventeen required cases map to these suites:
 make test
 ```
 
-Exit code 0. 129 test files. The suites that print a total add up to 8902
+Exit code 0. 129 test files. The suites that print a total add up to 8931
 checks passed, 0 failed. This includes the repository guards the new driver
 must pass: driver XML structure, licensing through the Agent, every
 `require` at module scope, locals declared before use, and embedded pages
@@ -89,9 +89,9 @@ make venueflow
 | | |
 | --- | --- |
 | File | `dist/oss/smartbuildos-venueflow.c4z` |
-| Size | 621,416 bytes |
-| Version | `20261114.230413` |
-| SHA-256 | `be3920a6fcd8f00e5fb9310d4c1871f8e73b166029423ead04d135ffe5d0d2b3` |
+| Size | 622,303 bytes |
+| Version | `20261114.233926` |
+| SHA-256 | `4406b77d9fbc218060cc3445adb0c786609a101a5934f4378986449651a8c446` |
 | Contents | `driver.xml`, `driver.lua` (squished, 42 modules), `www/app/index.html`, `www/studio/index.html`, `www/documentation/index.html` and `index.md`, seven icons |
 | Integrity | `unzip -t` passes; no absolute or parent path; the squished driver loads under the shim and defines its handlers |
 

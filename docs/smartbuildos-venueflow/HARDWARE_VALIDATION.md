@@ -3,9 +3,9 @@
 **Status: started 14 November 2026.** On the bench controller H1 passed, the
 laptop part of H2 passed, and H3 passed including a driver restart (see
 Results). The bench runs build `20261114.191046`, which carries the
-fixes for the three defects found. Build `20261114.230413` (the Venue Studio for
+fixes for the three defects found. Build `20261114.233926` (the Venue Studio for
 the client, the channel label, source controls, Remote Management) is newer and **has not
-been on a controller**: see "Not yet run for build 20261114.230413" below. Still to do: H2 on Navigators, the H3
+been on a controller**: see "Not yet run for build 20261114.233926" below. Still to do: H2 on Navigators, the H3
 network drop and a restart of the controller itself, H4 to H10. Everything
 so far was in Simulation: nothing has been sent to real equipment. Until H1
 to H9 pass, the build is "simulation verified", not production ready.
@@ -258,7 +258,7 @@ session" above: a route to a display outside the Bartender profile was
 refused with `VF_FORBIDDEN` on the controller, and the Studio page served by
 the new build is 539,888 bytes, identical in size to the built page.
 
-## Not yet run for build 20261114.230413
+## Not yet run for build 20261114.233926
 
 Everything in this section is simulation verified only (desktop browser and
 test suites). None of it has run on a controller.
@@ -272,4 +272,5 @@ test suites). None of it has run on a controller.
 | Source controls, other kinds | The same for a streaming box (arrows, OK, play, pause) and a media player | Not run |
 | One box, many screens | Route one box to three displays, press CH +: all three change. The remote says how many screens are showing it | Not run |
 | Remote Management, registration | Set the property to Draft only. Remote Management Status must reach "On - draft only" once the Agent answers | Not run. Needs an Agent build that knows the `venueflow` module |
-| Remote Management, end to end | From smartbuildos.io: read the configuration, save a draft, publish, roll back | Not run. **Cannot be run yet: the pages and the server side do not exist** (SMARTBUILDOS_INTEGRATION.md) |
+| Remote Management, end to end | From smartbuildos.io (System Studio, Drivers & Licenses, VenueFlow): Refresh from controller, change a channel label, Send as draft, check the draft on the local Studio, Publish, Roll back. Time each step. Then edit the draft on site and send a remote draft made from the older copy: it must be refused as stale | Not run. Needs the web repository's branch `codex/venueflow-studio` deployed and an Agent build from this branch |
+| Remote Management, a large venue | Send a draft near the size limit (about 170 kB of JSON) and watch the controller: Agent check-in time, driver responsiveness | Not run |

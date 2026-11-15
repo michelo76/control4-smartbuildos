@@ -495,16 +495,28 @@ function VenueFlowRemoteCommand(request)
   end
   local detail = ""
   if command == "snapshot" then
-    -- The configuration travels as one document, not as events: an event's
-    -- payload is limited to 4 kB.
-    moduleclient.sendSnapshot({ job_id = id, request_id = id, status = "completed", document = out.data })
+    -- The configuration travels as one document, not as events (an event's
+    -- payload is limited to 4 kB), and as JSON text in parts, which the
+    -- Agent's snapshot redaction leaves intact (Core.snapshotDocument).
+    local document, why = Core.snapshotDocument(out.data, function(t)
+      return JSON:encode(t)
+    end)
+    if document == nil then
+      gRemoteLast = "snapshot refused"
+      moduleclient.commandResult(id, "Failed", "VF_TOO_LARGE: " .. tostring(why))
+      paintRemote()
+      return
+    end
+    moduleclient.sendSnapshot({ job_id = id, request_id = id, status = "completed", document = document })
   elseif command == "save_draft" then
     detail = "revision " .. tostring(out.data and out.data.revision)
   elseif command == "publish" or command == "rollback" then
     detail = "version " .. tostring(out.data and out.data.versionId)
   end
   gRemoteLast = command .. " " .. os.date("%H:%M")
-  moduleclient.commandResult(id, "Succeeded", detail)
+  -- The Agent's closed list of states: Accepted, Executing, Completed, Failed,
+  -- Expired, Unverified (drivers/smartbuildos/driver.lua MODULE_COMMAND_STATES).
+  moduleclient.commandResult(id, "Completed", detail)
   paintRemote()
   pcall(paint)
 end

@@ -144,6 +144,95 @@ end
 eq("a broken argument does not raise", core:remote("save_draft", "nonsense", "draft").errorCode, "VF_INVALID_PAYLOAD")
 eq("a status refresh answers", core:remote("refresh_status", {}, "draft").ok, true)
 
+print("how a snapshot travels")
+-- Two redactors stand between the driver and the platform's storage. A
+-- configuration must survive both untouched, so it goes as base64 groups.
+local U = require("venueflow.util")
+eq(
+  "base64 of the usual vectors",
+  U.base64("f") .. " " .. U.base64("fo") .. " " .. U.base64("foo") .. " " .. U.base64("foobar"),
+  "Zg Zm8 Zm9v Zm9vYmFy"
+)
+eq("...and back", U.unbase64("Zm9vYmFy") .. U.unbase64("Zm8"), "foobarfo")
+local every = {}
+for b = 0, 255 do
+  every[#every + 1] = string.char(b)
+end
+every = table.concat(every)
+eq("every byte value survives the round trip", U.unbase64(U.base64(every)), every)
+
+local live = core:remote("snapshot", {}, "publish")
+local function encodeJson(t)
+  return H.JSON:encode(t)
+end
+local document, why = Core.snapshotDocument(live.data, encodeJson)
+check("a snapshot becomes a document", document ~= nil, why)
+eq("...marked as a VenueFlow configuration", document.kind, "venueflow.config")
+eq("...in the base64-groups form", document.encoding .. "/" .. document.format, "base64-groups/2")
+check("...in several parts", #document.parts >= 2)
+local clean = true
+for _, part in ipairs(document.parts) do
+  if #part > Core.SNAPSHOT_PART_BYTES or part:find("[^%w%+/,]") then
+    clean = false
+  end
+  for group in part:gmatch("[^,]+") do
+    if #group > Core.SNAPSHOT_GROUP then
+      clean = false
+    end
+  end
+end
+check("every part is short groups of base64 and commas, nothing else", clean)
+local redacted = Envelope.redact(document)
+eq("the Agent's redaction leaves every part alone", H.JSON:encode(redacted.parts), H.JSON:encode(document.parts))
+local rebuilt = H.JSON:decode(U.unbase64(table.concat(redacted.parts)))
+eq(
+  "the parts decode back into the same snapshot",
+  H.JSON:encode(rebuilt),
+  H.JSON:encode(H.JSON:decode(H.JSON:encode(live.data)))
+)
+eq("...deep scene steps included", type(rebuilt.draft.config.scenes[1].program.steps[1].type), "string")
+eq("...and an issue keeps its code", type(rebuilt.draft.issues[1].code), "string")
+local naive = Envelope.redact(H.JSON:decode(H.JSON:encode(live.data)))
+check("(sent as a plain object it would not have survived)", H.JSON:encode(naive):find("[redacted]", 1, true) ~= nil)
+eq("the bytes are the JSON's", document.bytes, #H.JSON:encode(live.data))
+check(
+  "while the draft differs, the live configuration is sent too",
+  live.data.published.sameAsDraft == nil and type(live.data.published.config) == "table"
+)
+eq("the installer discards the draft", env.send("DRAFT_DISCARD", { confirm = true }, I).ok, true)
+local same = core:remote("snapshot", {}, "draft")
+check(
+  "once the draft is the live configuration, it is sent once",
+  same.data.published.sameAsDraft == true and same.data.published.config == nil
+)
+local tooBig, bigWhy = Core.snapshotDocument({ blob = string.rep("x", Core.SNAPSHOT_MAX_BYTES + 10) }, encodeJson)
+check("an oversized configuration is refused, with a reason", tooBig == nil and type(bigWhy) == "string")
+local largest = Core.snapshotDocument({ blob = string.rep("x", Core.SNAPSHOT_MAX_BYTES - 20) }, encodeJson)
+check("the largest allowed one fits the Agent's 256 kB", largest ~= nil and #H.JSON:encode(largest) < 256 * 1024)
+
+print("a draft arriving as parts")
+local snapP = core:remote("snapshot", {}, "draft")
+local cfgP = copy(snapP.data.draft.config)
+cfgP.venue.name = "Riverside (parts)"
+local textP = H.JSON:encode(cfgP)
+local partsP = {}
+for i = 1, #textP, 3000 do
+  partsP[#partsP + 1] = textP:sub(i, i + 2999)
+end
+local savedP = core:remote("save_draft", { configParts = partsP, baseRevision = snapP.data.draft.revision }, "draft")
+eq("a configuration sent as JSON text in parts is saved", savedP.ok, true)
+eq("...and is the draft", core.store:draft().config.venue.name, "Riverside (parts)")
+eq(
+  "parts that are not JSON are refused",
+  core:remote("save_draft", { configParts = { "{not json" }, baseRevision = savedP.data.revision }, "draft").errorCode,
+  "VF_INVALID_PAYLOAD"
+)
+eq(
+  "parts that are not text are refused",
+  core:remote("save_draft", { configParts = { { a = 1 } }, baseRevision = savedP.data.revision }, "draft").errorCode,
+  "VF_INVALID_PAYLOAD"
+)
+
 print("the module contract")
 check(
   "VenueFlow owns the venueflow. event prefix",

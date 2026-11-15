@@ -128,6 +128,49 @@ function M.isId(s)
   return type(s) == "string" and #s >= 1 and #s <= M.ID_MAX and s:match(M.ID_PATTERN) ~= nil
 end
 
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+--- Standard base64 WITHOUT padding (pure Lua: the core does not reach for C4).
+function M.base64(text)
+  local out, n = {}, #text
+  for i = 1, n, 3 do
+    local a, b, c = text:byte(i, i + 2)
+    local v = a * 65536 + (b or 0) * 256 + (c or 0)
+    local c1 = math.floor(v / 262144) % 64
+    local c2 = math.floor(v / 4096) % 64
+    local c3 = math.floor(v / 64) % 64
+    local c4 = v % 64
+    out[#out + 1] = B64:sub(c1 + 1, c1 + 1)
+      .. B64:sub(c2 + 1, c2 + 1)
+      .. (b and B64:sub(c3 + 1, c3 + 1) or "")
+      .. (c and B64:sub(c4 + 1, c4 + 1) or "")
+  end
+  return table.concat(out)
+end
+
+--- The reverse, for tests and for tools. Ignores anything outside the alphabet.
+function M.unbase64(text)
+  local index = {}
+  for i = 1, #B64 do
+    index[B64:byte(i)] = i - 1
+  end
+  local out, acc, bits = {}, 0, 0
+  for i = 1, #text do
+    local v = index[text:byte(i)]
+    if v ~= nil then
+      acc = acc * 64 + v
+      bits = bits + 6
+      if bits >= 8 then
+        bits = bits - 8
+        local byte = math.floor(acc / 2 ^ bits)
+        out[#out + 1] = string.char(byte)
+        acc = acc - byte * 2 ^ bits
+      end
+    end
+  end
+  return table.concat(out)
+end
+
 --- "Bar TV 01" -> "bar-tv-01".
 function M.slug(text)
   local s = tostring(text or ""):lower():gsub("[^a-z0-9]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")

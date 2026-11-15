@@ -20,7 +20,7 @@ or the test shim, not on a controller.
 | 10 | Local operation survives network disruption | Nothing in the core makes a network call. With no Agent, an unreachable cloud or the grace period, everything works. A page that cannot reach the controller says so and recovers | `test_venueflow_license.lua` "cloud outage"; page behaviour: browser check; a real LAN drop: hardware H3 |
 | 11 | Configuration backups can be restored | Export, restore on a second driver, publish, and the venues are equal, pictures and staff PINs included | `test_venueflow_store.lua` "backup and restore" |
 
-## The client session and Remote Management (build 20261114.230413)
+## The client session and Remote Management (build 20261114.233926)
 
 **Client session.** The Studio now also opens for a staff profile whose
 `permissions.studio` is true, on a PIN session. What protects the
@@ -56,12 +56,21 @@ equipment; there is no step that sends an arbitrary Control4 command.
 - A remote draft must name the revision it was edited from; a publish must
   name the revision that was reviewed. Work done on site is never
   overwritten silently.
+- A snapshot travels as base64 groups, which neither the Agent's snapshot
+  redaction nor the platform's can look inside. That is deliberate (a
+  redacted configuration cannot be edited and sent back; both redactors
+  rewrite ordinary configuration text) and it means VenueFlow's own stripping
+  is the only filter: PIN salts and hashes are removed before encoding and
+  the passcode is never in the configuration (tested).
 - A snapshot carries no PIN salt or hash and no passcode. It does carry the
   whole configuration (names, Control4 device and room ids, staff profile
   names): that is the data the dealer's platform account will hold.
-- **Not reviewed, because it does not exist yet:** the server side. Who at
-  smartbuildos.io may send these commands, tenant isolation and the audit
-  trail are the web repository's to build and must be reviewed there.
+- The server side is built on the web repository's branch
+  `codex/venueflow-studio` (its `docs/venueflow/README.md`): the route
+  requires `monitoring:manage`, resolves the system inside the caller's
+  company, and every change goes through the existing command gateway with
+  its audit row. It has not been reviewed by anyone else and has not been run
+  against a controller.
 
 **Source controls.** A page sends a key name from a closed list of 33; the
 driver maps it to a Control4 command and refuses anything else, so a page

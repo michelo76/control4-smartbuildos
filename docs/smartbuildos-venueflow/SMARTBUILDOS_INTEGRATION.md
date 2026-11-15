@@ -39,10 +39,12 @@ with enforcement off (the default) the driver works fully.
 
 ### 2. Remote management from smartbuildos.io
 
-**Driver side: built and tested against the simulator. Platform side: not
-built. Nothing can be managed remotely today.**
+**Driver side: built and tested against the simulator. Platform side: built
+on the web repository's branch `codex/venueflow-studio`, unit-tested, not
+merged. The two have never talked to each other: nothing can be managed
+remotely until both are merged and a bench run passes.**
 
-Built in this repository (build 20261114.230413):
+Built in this repository (build 20261114.233926):
 
 | Piece | Where | Evidence |
 | --- | --- | --- |
@@ -54,29 +56,29 @@ Built in this repository (build 20261114.230413):
 | Envelope prefix `venueflow.` | `src/sbos/envelope.lua` | same |
 | Agent allowlist entry `MODULE_COMMANDS.venueflow` | `drivers/smartbuildos/driver.lua` | `make test` |
 
-Not built, and needed before a dealer can use it:
+Built on the web repository's branch (see its `docs/venueflow/README.md`):
+the `venueflow` prefix and operations, closed operation arguments, a 200 kB
+ceiling for `save_draft`, a status route that decodes the newest snapshot,
+and a VenueFlow section in System Studio (Overview, Sources, Audio,
+Schedules, Whole configuration, Publish, Driver). No new table or migration.
+Its tests read this repository to check that the Agent, the driver and the
+platform list the same five operations, and run a snapshot produced by this
+driver's code through both of the platform's redactors.
 
-1. **Web repository**
-   - `MODULE_PREFIXES` and `MODULE_OPERATIONS` entries for `venueflow` (the
-     server refuses a prefix or an operation it does not know).
-   - Storage for a venue's snapshot document, keyed by installation.
-   - A VenueFlow section in the dealer's Studio: read the snapshot, edit the
-     configuration (the local Studio's editors are the reference), send
-     `save_draft`, show the driver's validation, send `publish` with the
-     revision that was reviewed, show history and `rollback`.
-   - Authorization: only the dealer that owns the installation; an audit
-     record of who sent what.
-2. **Agent on the controller**: a build of the Agent from this branch (it
-   carries the allowlist entry). The bench Agent does not have it.
-3. **A bench run** of the whole path (HARDWARE_VALIDATION.md).
+Still needed before a dealer can use it:
 
-Open questions for that work:
+1. Both branches merged, and the bench Agent updated to a build from this
+   branch (it carries the allowlist entry).
+2. **A bench run of the whole path** (HARDWARE_VALIDATION.md). Unmeasured:
+   whether a controller handles a 200 kB `save_draft` comfortably (the sample
+   venue is about 40 kB), and how long a round trip takes on the Agent's
+   check-in cadence.
+3. A `driver_catalog` row for `SBOS_VENUEFLOW` (pricing and tier are the
+   owner's decision; nothing invents them).
 
-- The size of a command's `args` the platform can deliver in one response.
-  A configuration is tens of kilobytes; pictures are not in it (they stay on
-  the controller under their key).
-- Whether the remote editor should be the local Studio's code reused, or a
-  new editor in the web repository's stack.
+Not built on the platform: full editors for scenes' steps, the floor layout,
+device mapping and staff profiles (the platform has focused editors for
+sources, audio zones and schedules, and the whole configuration as JSON).
 
 Deliberately absent: any remote command that routes video, changes volume,
 runs a scene or sets a PIN. Remote control of a venue is a different risk

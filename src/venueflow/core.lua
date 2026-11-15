@@ -2556,11 +2556,52 @@ function REMOTE.snapshot(core)
         publishedAt = published.publishedAt,
         note = published.note,
         by = published.by,
-        config = stripPins(published.config),
+        -- The live configuration is left out when the draft is the same
+        -- thing: a venue's configuration is tens of kilobytes and the
+        -- Agent's snapshot path stops at 256 kB.
+        sameAsDraft = (draft ~= nil and draft.matchesPublished == true) or nil,
+        config = not (draft ~= nil and draft.matchesPublished == true) and stripPins(published.config) or nil,
       } or nil,
       history = core.store:history(),
     },
   }
+end
+
+--- How a snapshot travels. Two redactors stand between this driver and the
+--- platform's storage: the Agent's (any key named like a credential, such as
+--- an issue's `code`; anything nested more than six levels deep; any long
+--- token-like string) and the platform's (credential-shaped TEXT inside any
+--- string: "Basic settings" in a scene description becomes "Basic
+--- [REDACTED]"). Both are right for diagnostics and fatal for a
+--- configuration that will be edited and sent back. So the configuration
+--- goes as base64 in comma-separated groups of 64 characters: no whitespace,
+--- no ':' or '=', no '.', and never 40 token characters in a row, which is
+--- everything those rules look for. VenueFlow removes its own secrets first
+--- (stripPins): that is the only filter this document gets.
+M.SNAPSHOT_GROUP = 64
+M.SNAPSHOT_PART_BYTES = 3900 -- 60 groups and their commas
+M.SNAPSHOT_MAX_BYTES = 170 * 1024 -- of JSON; about 235 kB once encoded (the Agent stops at 256 kB)
+
+--- data = REMOTE.snapshot's data; encode(table) -> JSON text.
+--- Returns the document for the Agent, or nil + reason.
+function M.snapshotDocument(data, encode)
+  local ok, text = pcall(encode, data)
+  if not ok or type(text) ~= "string" then
+    return nil, "the configuration could not be encoded"
+  end
+  if #text > M.SNAPSHOT_MAX_BYTES then
+    return nil, "the configuration is too large to send (" .. math.ceil(#text / 1024) .. " kB)"
+  end
+  local b64 = U.base64(text)
+  local groups = {}
+  for at = 1, #b64, M.SNAPSHOT_GROUP do
+    groups[#groups + 1] = b64:sub(at, at + M.SNAPSHOT_GROUP - 1)
+  end
+  local parts, perPart = {}, math.floor(M.SNAPSHOT_PART_BYTES / (M.SNAPSHOT_GROUP + 1))
+  for at = 1, #groups, perPart do
+    parts[#parts + 1] = table.concat(groups, ",", at, math.min(#groups, at + perPart - 1))
+  end
+  return { kind = "venueflow.config", format = 2, encoding = "base64-groups", bytes = #text, parts = parts }
 end
 
 function REMOTE.refresh_status(core)
@@ -2568,6 +2609,26 @@ function REMOTE.refresh_status(core)
 end
 
 function REMOTE.save_draft(core, args, ctx)
+  -- The configuration arrives as an object, or as JSON text in parts (the
+  -- same form a snapshot leaves in).
+  if type(args.config) ~= "table" and type(args.configParts) == "table" then
+    local pieces = {}
+    for i, part in ipairs(args.configParts) do
+      if type(part) ~= "string" then
+        return fail("VF_INVALID_PAYLOAD", "configParts must be text")
+      end
+      pieces[i] = part
+    end
+    local text = table.concat(pieces)
+    if #text > M.MAX_DRAFT_BYTES then
+      return fail("VF_TOO_LARGE", "the configuration is larger than the controller should store")
+    end
+    local ok, decoded = pcall(core.deps.json.decode, text)
+    if not ok or type(decoded) ~= "table" then
+      return fail("VF_INVALID_PAYLOAD", "configParts is not a JSON object")
+    end
+    args = { config = decoded, baseRevision = args.baseRevision }
+  end
   if type(args.config) ~= "table" then
     return fail("VF_INVALID_PAYLOAD", "save_draft needs a config")
   end

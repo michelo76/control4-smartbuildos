@@ -698,15 +698,24 @@ local function remoteCommand(token, id, command, args)
   end
   return states
 end
+-- Every state the driver reports must be one the Agent accepts, or the Agent
+-- drops the report and the command never finishes on the platform.
+local agentSource = io.open("drivers/smartbuildos/driver.lua"):read("*a")
+local agentStates = agentSource:match("MODULE_COMMAND_STATES%s*=%s*(%b{})") or ""
+local driverSource = io.open("drivers/smartbuildos-venueflow/driver.lua"):read("*a")
+for state in driverSource:gmatch('commandResult%(id, "(%a+)"') do
+  check("the Agent accepts the state " .. state, agentStates:find(state .. " = true", 1, true) ~= nil)
+end
 eq("a command with the wrong token is ignored", #remoteCommand("someone-else", "r0", "snapshot"), 0)
 local states = remoteCommand("tok-1", "r1", "snapshot")
-eq("a snapshot is accepted, run and finished", table.concat(states, ","), "Accepted,Executing,Succeeded")
+eq("a snapshot is accepted, run and finished", table.concat(states, ","), "Accepted,Executing,Completed")
 local doc = commands(AGENT_ID, "SBOS_MODULE_SNAPSHOT")[1]
 check(
   "the configuration goes up as one document",
   doc ~= nil and doc.params.document:find('"kind":"venueflow.config"', 1, true) ~= nil
 )
-check("...with no PIN material", doc ~= nil and not doc.params.document:find("pinHash", 1, true))
+check("...as base64 groups", doc ~= nil and doc.params.document:find('"encoding":"base64-groups"', 1, true) ~= nil)
+check("...with nothing readable in it", doc ~= nil and not doc.params.document:find("Riverside", 1, true))
 states = remoteCommand("tok-1", "r2", "publish", { baseRevision = 1 })
 eq("draft only: a publish fails", states[#states], "Failed")
 Properties["Remote Management"] = "Draft and publish"
@@ -722,7 +731,7 @@ OnPropertyChanged("Remote Management")
 eq("switching it off says Off", Properties["Remote Management Status"], "Off")
 check("...and unregisters", commands(AGENT_ID, "SBOS_MODULE_UNREGISTER")[1] ~= nil)
 states = remoteCommand("tok-1", "r3", "snapshot")
-check("...and a late command does nothing to the configuration", states[#states] ~= "Succeeded")
+check("...and a late command does nothing to the configuration", states[#states] ~= "Completed")
 
 print("[11] restart: configuration and status come back; sessions do not")
 local version = persisted.vf_published_v1.versionId

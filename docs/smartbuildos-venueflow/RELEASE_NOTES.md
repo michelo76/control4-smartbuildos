@@ -1,13 +1,13 @@
 # VenueFlow release notes
 
-## Build 20261114.230413 (14 November 2026)
+## Build 20261114.233926 (14 November 2026)
 
 **Readiness: SIMULATION VERIFIED.**
 
 | Level | Standing |
 | --- | --- |
 | Development build | Passed |
-| Simulation verified | **Yes**: 2147 automated checks and browser tests against the simulator, all passing (TEST_RESULTS.md) |
+| Simulation verified | **Yes**: 2176 automated checks and browser tests against the simulator, all passing (TEST_RESULTS.md) |
 | Hardware validated | **No**: a bench run has started. On the bench controller, in Simulation, H1, the laptop part of H2 and H3 (including a driver restart) passed, on build `20261114.191046`. **This build has not been on a controller.** Nothing has controlled real equipment and no Navigator has opened the tile |
 | Production ready | **No**: needs HARDWARE_VALIDATION.md H1 to H9 to pass |
 
@@ -95,9 +95,11 @@ only, in Simulation mode first.
     single-zone amplifier play two things.
 11. **Composer command parameters are typed, not picked from a list** (scene
     and source names).
-12. **Remote management is half built.** The driver side exists and is
-    tested against the simulator; smartbuildos.io has no pages or server side
-    for it, so nothing can be managed remotely today. Multi-venue overview,
+12. **Remote management has never run end to end.** The driver side is
+    tested against the simulator and the smartbuildos.io side is built on the
+    web repository's branch `codex/venueflow-studio` (unit-tested, not
+    merged), but no controller has received an operation from the platform,
+    so nothing can be managed remotely today. Multi-venue overview,
     remote backup and fleet views are not built either. See
     SMARTBUILDOS_INTEGRATION.md.
 13. **The entitlement cannot be issued yet**: the `SBOS_VENUEFLOW` SKU is not
@@ -152,9 +154,11 @@ only, in Simulation mode first.
 - **Remote Management property** (Off, Draft only, Draft and publish) and
   Remote Management Status. The driver registers with the Agent as the
   `venueflow` module, answers `snapshot`, `save_draft`, `publish`, `rollback`
-  and `refresh_status`, and reports each new live version. **Not connected
-  end to end:** smartbuildos.io has no VenueFlow pages or server side yet,
-  and the bench Agent does not know the module.
+  and `refresh_status`, and reports each new live version. The configuration
+  snapshot travels as base64 groups, the one form neither the Agent's nor
+  the platform's redaction rewrites. **Not connected end to end:** the
+  smartbuildos.io side is on an unmerged branch of the web repository, and
+  the bench Agent does not know the module.
 - The Agent driver gains one allowlist entry for these commands and the
   event envelope one prefix (`venueflow.`). Both are inert until the
   platform side exists.

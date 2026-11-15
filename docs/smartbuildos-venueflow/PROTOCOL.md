@@ -213,11 +213,31 @@ sets the level; Off refuses everything.
 
 | Command | Level | Args | Result |
 | --- | --- | --- | --- |
-| `snapshot` | draft | none | one document (`SBOS_MODULE_SNAPSHOT`): draft with issues, the live version with its configuration, history. No PIN material |
-| `save_draft` | draft | `config`, `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved |
+| `snapshot` | draft | none | one document (`SBOS_MODULE_SNAPSHOT`), see below. No PIN material |
+| `save_draft` | draft | `config` (object) or `configParts` (JSON text in parts), and `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved |
 | `refresh_status` | draft | none | the driver's summary |
 | `publish` | publish | `baseRevision` (must equal the draft's), `acknowledged`, `note` | `versionId`, recorded as `remote` |
 | `rollback` | publish | `versionId` | `versionId` |
+
+The snapshot document is
+`{ kind: "venueflow.config", format: 2, encoding: "base64-groups", bytes, parts: [text, ...] }`.
+Join `parts`, drop the commas, base64-decode (no padding is sent) and parse
+the result as JSON to get
+`{ kind, schema, driver, venueStatus, draft: { config, revision, savedAt, basedOn, matchesPublished, issues, summary }, published: { versionId, publishedAt, note, by, sameAsDraft?, config? }, history }`.
+`published.config` is left out when `sameAsDraft` is true.
+
+It travels as base64 in comma-separated groups of 64 characters because two
+redactors stand between the driver and the platform's storage: the Agent's
+(keys named like a credential, such as an issue's `code`; anything nested
+more than six levels deep; long token-like strings) and the platform's
+(credential-shaped text inside any string). A configuration sent as an
+object, or as JSON text, would come back damaged, and would then be written
+back into the venue. Groups of base64 match none of their rules. Each part is
+at most 3900 characters. A configuration over 170 kB of JSON is refused
+(`VF_TOO_LARGE`): encoded, it must fit the Agent's 256 kB.
+
+A finished operation is reported to the Agent as `Completed` or `Failed`
+(the Agent's closed list of states).
 
 Event to the platform: `venueflow.config.published` `{ versionId, how }`.
 
