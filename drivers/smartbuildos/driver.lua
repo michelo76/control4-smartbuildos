@@ -187,6 +187,8 @@ RESTART_KEYS = {
   restart = "director_reload_restart",
   shutdown = "director_shutdown_seen_at",
   os_update = "director_os_update_seen_at",
+  -- { date = "YYYY-MM-DD", count = n }: reloads on the current local day.
+  today = "director_reload_today",
 }
 --- Versioned System Studio Agent state. Configuration and runtime state are
 --- separate documents: replacing a settings revision must never reset startup
@@ -327,7 +329,7 @@ local gThermostatSnapshot = {}
 local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- What this driver start was: count, timestamp, and cause.
 --- @type table
-local gStart = { count = 0, at = nil, kind = nil, restart = nil }
+local gStart = { count = 0, at = nil, kind = nil, restart = nil, today = 0, day = nil }
 --- Every Director system event seen since this start, by name. Shipped on
 --- the heartbeat so the fleet tells us which events each OS actually fires.
 gSystemEventCounts = {}
@@ -491,7 +493,12 @@ local function recordStart()
   persist:delete(RESTART_KEYS.shutdown)
   persist:delete(RESTART_KEYS.os_update)
 
+  -- The same reload, counted for the local day it happened on. This is the
+  -- number a notice leads with: the lifetime count says little a year in.
+  local today = AgentTelemetry.reloadsToday(persist:get(RESTART_KEYS.today, nil), os.date("%Y-%m-%d"), kind == "reload")
+
   persist:set(RELOAD_COUNT_KEY, count)
+  persist:set(RESTART_KEYS.today, today)
   persist:set(RELOAD_AT_KEY, at)
   persist:set(RELOAD_KIND_KEY, kind)
   if restart ~= nil then
@@ -503,6 +510,8 @@ local function recordStart()
 
   return {
     count = count,
+    today = today.count,
+    day = today.date,
     at = at,
     kind = kind,
     restart = restart,
@@ -549,6 +558,7 @@ end
 local function announceStart()
   local ok, err = pcall(function()
     UpdateProperty("Director Reloads", tostring(gStart.count))
+    UpdateProperty("Director Reloads Today", tostring(gStart.today or 0))
     UpdateProperty(
       "Last Reload",
       string.format(
@@ -559,6 +569,7 @@ local function announceStart()
       )
     )
     C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
+    C4:SetVariable("DIRECTOR_RELOADS_TODAY", gStart.today or 0)
     C4:SetVariable("LAST_RELOAD", gStart.at)
   end)
   if not ok then
@@ -584,7 +595,7 @@ local function announceStart()
   pcall(
     ModulesNotifyEvent,
     "director_reloaded",
-    { count = gStart.count, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
+    { count = gStart.count, today = gStart.today, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
   )
   if gStart.restart == "unexpected" then
     pcall(ModulesNotifyEvent, "unexpected_restart", { count = gStart.count, at = gStart.at })
@@ -1172,13 +1183,65 @@ function AgentReportReload()
   send("event", {
     kind = "event",
     name = "director_reloaded",
-    detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
+    detail = string.format(
+      "Director reload #%d, %d today (%s)",
+      gStart.count,
+      gStart.today or 0,
+      gStart.restart or "cause unknown"
+    ),
     director_reloads = gStart.count,
+    -- Counted on the controller, because "today" is the house's local day
+    -- and the platform does not know where its midnight falls.
+    director_reloads_today = gStart.today,
+    local_date = gStart.day,
     restart = gStart.restart,
     last_reload_at = gStart.at,
     alerts = alertPreferences(),
   }, "director reload")
   return true
+end
+
+--- Start a new local day when the date has moved on.
+---
+--- Both "today" counters used to start again only when the NEXT restart
+--- arrived, so a controller that restarted three times on Monday still said
+--- three on Tuesday afternoon. Cheap enough (two string comparisons) to run
+--- from the midnight timer AND from every heartbeat: the timer makes the
+--- reset prompt, the heartbeat makes it certain when the controller's clock
+--- was wrong at the moment the timer was armed.
+--- @return boolean changed
+function AgentRollDay()
+  local today = os.date("%Y-%m-%d")
+  local rolled = AgentTelemetry.reloadsToday({ date = gStart.day, count = gStart.today }, today, false)
+  local changed = rolled.date ~= gStart.day
+  if changed then
+    gStart.day, gStart.today = rolled.date, rolled.count
+    persist:set(RESTART_KEYS.today, rolled)
+    pcall(function()
+      UpdateProperty("Director Reloads Today", tostring(gStart.today))
+      C4:SetVariable("DIRECTOR_RELOADS_TODAY", gStart.today)
+    end)
+  end
+  local state, stateChanged = AgentContract.rollDay(gAgentState, today)
+  if stateChanged then
+    gAgentState = state
+    PersistAgentState()
+    PublishAgentStatus()
+  end
+  if changed or stateChanged then
+    log:info("A new day (%s): today's restart counts start again at 0", today)
+  end
+  return changed or stateChanged
+end
+
+--- Arms the one-shot timer for the next local midnight, and re-arms itself.
+--- Five seconds late on purpose, so the date has certainly changed.
+function ArmAgentMidnightTimer()
+  local seconds = AgentTelemetry.secondsUntilLocalMidnight(os.time()) + 5
+  SetTimer("SmartBuildOSAgentMidnight", seconds * ONE_SECOND, function()
+    pcall(AgentRollDay)
+    ArmAgentMidnightTimer()
+  end)
 end
 
 -- ─── System Studio Agent Contract v1 ────────────────────────────────────────
@@ -3012,6 +3075,8 @@ end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
+  -- The backstop for the midnight timer: see AgentRollDay.
+  pcall(AgentRollDay)
   send(
     "heartbeat",
     {
@@ -3035,6 +3100,7 @@ local function sendHeartbeat()
       -- On the heartbeat rather than only on the event, so a platform that
       -- missed the event still converges on the truth.
       director_reloads = gStart.count,
+      director_reloads_today = gStart.today,
       last_reload_at = gStart.at,
       last_reload_kind = gStart.kind,
       last_reload_restart = gStart.restart,
@@ -6086,6 +6152,7 @@ function registerBridgeVariables()
     { "NOTICE_TEXT", "" },
     { "SYSTEM_STARTUPS_TODAY", 0, "NUMBER" },
     { "CONTROLLER_REBOOTS_OBSERVED_TODAY", 0, "NUMBER" },
+    { "DIRECTOR_RELOADS_TODAY", 0, "NUMBER" },
     { "SERVICE_MODE_ACTIVE", false, "BOOL" },
     { "CLOUD_CONNECTED", false, "BOOL" },
     { "REPORT_STATUS", "not-requested", "STRING" },
@@ -6161,6 +6228,8 @@ function OnDriverLateInit(reason)
       or (gStart.kind == "first" and "DIT_ADDING" or "DIT_STARTUP")
   end
   PublishAgentStatus()
+  -- Today's counts start again at local midnight, restart or no restart.
+  pcall(ArmAgentMidnightTimer)
   -- Modules that started before this Agent re-register on this hello.
   pcall(ModulesHello)
 

@@ -21,6 +21,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **Agent: restarts counted per day.** New property **Director Reloads
+  Today** and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the
+  controller's local midnight, back to 0 every midnight. The reload report to
+  SmartBuildOS carries the day's count, so the email can say "restart number
+  3 today" instead of only the count since monitoring began. **System
+  Startups Today** and **Controller Reboots Observed Today** now also return
+  to 0 at midnight; they used to wait for the next restart.
 - **A full manual for every driver.** The other 40 drivers now have the
   same kind of manual as the Notification Router and Solar Position: what
   the driver is for and a table of use cases, where the stock way is still

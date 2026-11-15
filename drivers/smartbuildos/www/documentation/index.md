@@ -25,7 +25,7 @@ and this manual is where it is explained.
 | A switch, access point or NAS with no Control4 driver watched as well | **Non Control4 Devices** |
 | To tell SmartBuildOS something only programming can see (a rack door, a UPS on battery) | `SEND_EVENT`, `REPORT_STATE`, `REPORT_MEASUREMENT`, `REPORT_COUNTER`, `REPORT_FAULT`, `REPORT_SERVICE_EVENT` |
 | A SmartBuildOS notice on the homeowner's phone | *Service Update*, *Issue Detected*, *Issue Updated*, *Issue Resolved*, wired to a push notification |
-| To notice a controller that keeps restarting | *Director Reloaded*, `DIRECTOR_RELOADS`, **System Startups Today**, *Startup Threshold Reached* |
+| To notice a controller that keeps restarting | *Director Reloaded*, `DIRECTOR_RELOADS_TODAY`, `DIRECTOR_RELOADS`, **System Startups Today**, *Startup Threshold Reached* |
 | Restart notices held back while you work on site | *Enter Service Mode* |
 | To decide what SmartBuildOS may operate in this home | **Remote Control** |
 | A read-only status page on a touchscreen | *Generate Touchpanel URL* |
@@ -321,12 +321,17 @@ when the History agent is installed.
 **Last Reload** shows the time and `first`, `update` or `reload`. Only a
 reload, where Director came back under an unchanged driver, adds to
 **Director Reloads** and fires *Director Reloaded*; a driver update does not.
+**Director Reloads Today** is the same count for the current day only: it
+starts again at 0 at the controller's local midnight, whether or not anything
+restarted, and it is the number the reload email leads with ("restart number
+3 today"). The lifetime count carries on beside it.
 Separately, **System Startups Today** and
 **Controller Reboots Observed Today** count Director startups and changes of
 the controller's boot identity, and the start fires one of
 *System Startup Observed*, *Controller Reboot Observed* or
 *Startup Threshold Reached* (when today's count reaches
-**Startup Threshold**). Adding or updating the driver is never counted. The
+**Startup Threshold**). Adding or updating the driver is never counted.
+These two also go back to 0 at local midnight. The
 counters and any startup report not yet delivered survive a driver restart.
 
 **Service mode.** *Enter Service Mode* marks the system as being worked on for
@@ -395,6 +400,7 @@ paired. The variables are all read-only:
 | Variable | Holds |
 | --- | --- |
 | `DIRECTOR_RELOADS`, `LAST_RELOAD` | The number in **Director Reloads**, and the time of the last start in UTC |
+| `DIRECTOR_RELOADS_TODAY` | The number in **Director Reloads Today**: reloads since local midnight. Use it in a message, or in a condition such as "more than 2 today" |
 | `NOTICE_TYPE`, `NOTICE_TEXT`, `ISSUE_TEXT`, `ISSUE_SEVERITY` | The last notice. See [Notices](#notices-restarts-and-service-mode) |
 | `SYSTEM_STARTUPS_TODAY`, `CONTROLLER_REBOOTS_OBSERVED_TODAY` | The two daily counters |
 | `SERVICE_MODE_ACTIVE`, `CLOUD_CONNECTED` | True while service mode is on; true while deliveries succeed |
@@ -433,6 +439,7 @@ paired. The variables are all read-only:
 | **Non Control4 Devices** | Hosts to ping |
 | **Devices Offline**, **Last Device Change** | Read-only. How many monitored devices are down, and the last one to change |
 | **Director Reloads**, **Last Reload** | Read-only. The reload count, and the last start with its kind |
+| **Director Reloads Today** | Read-only. Reloads since local midnight; back to 0 every midnight |
 | **Agent Contract**, **Agent Configuration Version**, **Monitoring State**, **Agent Version**, **Pairing State**, **Cloud Connection State**, **Agent License State** | Read-only summary. **Agent License State** repeats **License Cloud** |
 | **System Startups Today**, **System Startups Lifetime**, **Controller Reboots Observed Today**, **Controller Reboots Observed Lifetime**, **Last Startup Classification**, **Last Startup Confidence** | Read-only. The startup counters, and how the last start was read |
 | **Last Report Status**, **Last Report At**, **Service Mode Expires At** | Read-only. The last report request; `Inactive`, or when service mode ends |

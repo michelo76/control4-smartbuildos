@@ -299,6 +299,31 @@ local function configuredDecision(policy, eventNumber, threshold, serviceModeAct
   return "record-only"
 end
 
+local function startDay(state, localDate)
+  state.localDate = localDate
+  state.systemStartupsToday = 0
+  state.controllerRebootsObservedToday = 0
+  state.notificationIntentsToday = 0
+  state.stormAggregateIssuedForDate = nil
+end
+
+--- Start a new local day without a startup to prompt it.
+---
+--- recordStartup opens a new day only when a startup arrives, so on a day
+--- with no restart the "today" counters went on showing yesterday's numbers.
+--- The Agent calls this at local midnight. The rule is recordStartup's: only
+--- a LATER date opens a day; an unreadable or earlier one changes nothing.
+--- @return table state
+--- @return boolean changed
+function M.rollDay(stateInput, localDate)
+  local state = M.restoreState(stateInput)
+  if not validDate(localDate) or (state.localDate ~= nil and localDate <= state.localDate) then
+    return state, false
+  end
+  startDay(state, localDate)
+  return state, true
+end
+
 --- Record one driver lifecycle observation.
 --- @return table result { duplicate, observed, state, event? }
 function M.recordStartup(stateInput, input, configInput)
@@ -321,11 +346,7 @@ function M.recordStartup(stateInput, input, configInput)
     localDate = nil
     clockStatus = "regressed"
   elseif state.localDate ~= localDate then
-    state.localDate = localDate
-    state.systemStartupsToday = 0
-    state.controllerRebootsObservedToday = 0
-    state.notificationIntentsToday = 0
-    state.stormAggregateIssuedForDate = nil
+    startDay(state, localDate)
   end
 
   local systemStartup, controllerReboot, classification, confidence = classify(input, state)
