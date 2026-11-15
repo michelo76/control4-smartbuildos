@@ -132,13 +132,27 @@ function Persist:_get(key, default, encrypted)
   end
 end
 
+--- What a log line may show of a value being stored. One stored encrypted
+--- is a secret (a guest's door code, a Wi-Fi password, a bridge token), and
+--- Log Level Trace is something a dealer turns on and then copies out of
+--- Composer into an email: the line says a value was written, never what.
+--- @param value any The value being stored.
+--- @param encrypted? boolean Whether it is stored encrypted.
+--- @return any shown The value, or "<hidden>" for an encrypted one.
+local function shownInLog(value, encrypted)
+  if encrypted and value ~= nil then
+    return "<hidden>"
+  end
+  return value
+end
+
 --- Sets a value in the persistence store.
 --- @param key string The key to set the value for.
 --- @param value any The value to store. If nil, the key will be deleted.
 --- @param encrypted? boolean Whether to encrypt the value (optional).
 --- @return void
 function Persist:set(key, value, encrypted)
-  log:trace("Persist:set(%s, %s, %s)", key, value, encrypted)
+  log:trace("Persist:set(%s, %s, %s)", key, shownInLog(value, encrypted), encrypted)
   if value == nil then
     self._persist[key] = EMPTY
     PersistDeleteValue(key)

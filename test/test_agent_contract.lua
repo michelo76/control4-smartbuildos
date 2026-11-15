@@ -123,6 +123,34 @@ check(
 )
 check("lifetime evidence remains usable under bad time", regressed.state.systemStartupsLifetime == 3)
 
+print("\n[4b] Midnight opens a new day without waiting for a startup")
+local rolled, rolledChanged = Agent.rollDay(tomorrow.state, "2026-10-21")
+check(
+  "a later date zeroes the daily counters and keeps the lifetime ones",
+  rolledChanged
+    and rolled.localDate == "2026-10-21"
+    and rolled.systemStartupsToday == 0
+    and rolled.controllerRebootsObservedToday == 0
+    and rolled.notificationIntentsToday == 0
+    and rolled.systemStartupsLifetime == tomorrow.state.systemStartupsLifetime
+)
+local sameDay, sameChanged = Agent.rollDay(tomorrow.state, "2026-10-20")
+check("the same date changes nothing", not sameChanged and sameDay.systemStartupsToday == 1)
+local earlier, earlierChanged = Agent.rollDay(tomorrow.state, "2026-10-01")
+check("an earlier date changes nothing", not earlierChanged and earlier.localDate == "2026-10-20")
+local _, badChanged = Agent.rollDay(tomorrow.state, "yesterday")
+check("an unreadable date changes nothing", not badChanged)
+local afterRoll = Agent.recordStartup(rolled, {
+  eventId = "agent-start:19:105:6",
+  observedAt = "2026-10-21T09:00:00Z",
+  localDate = "2026-10-21",
+  initReason = "DIT_STARTUP",
+  observedBootId = "boot-b",
+  bootIdSupported = true,
+  nowEpoch = 105,
+}, defaults)
+check("the first startup after the roll is number 1 for that day", afterRoll.state.systemStartupsToday == 1)
+
 print("\n[5] Service mode is bounded, visible and suppresses notices")
 local service = Agent.enterServiceMode(started.state, 1000, 60, "2026-10-19T13:00:00Z")
 check("service mode is active", Agent.serviceModeActive(service, 1001))

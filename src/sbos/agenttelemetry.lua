@@ -452,6 +452,62 @@ function M.classifyRestart(kind, markers, now)
   return "unexpected"
 end
 
+-- ─── How many times today? ───────────────────────────────────────────────────
+--
+-- "It has restarted 14 times since monitoring began" says little a year in.
+-- "It has restarted 3 times today" is the number somebody acts on. The count
+-- is kept per LOCAL day (the house's own midnight, which is what the person
+-- reading the notice means by "today") and starts again at midnight.
+
+--- @return boolean
+function M.validLocalDate(value)
+  return type(value) == "string" and value:match("^%d%d%d%d%-%d%d%-%d%d$") ~= nil
+end
+
+--- Advance the per-day reload count.
+---
+--- A new local date starts the count again. A date that is unreadable, or
+--- EARLIER than the stored one, does not: a controller that starts before it
+--- has network time reports a date in the past, and letting that open a new
+--- day would lose the restarts already counted today, then lose this one
+--- again when the clock corrects itself. Such a restart is counted against
+--- the last day known.
+--- @param stored table|nil { date = "YYYY-MM-DD"|nil, count = integer }
+--- @param today string|nil the controller's local date, "YYYY-MM-DD"
+--- @param counted boolean whether this call is a reload to add
+--- @return table { date = string|nil, count = integer }
+function M.reloadsToday(stored, today, counted)
+  stored = type(stored) == "table" and stored or {}
+  local date = M.validLocalDate(stored.date) and stored.date or nil
+  local count = type(stored.count) == "number" and stored.count >= 0 and math.floor(stored.count) or 0
+  if M.validLocalDate(today) and (date == nil or today > date) then
+    date, count = today, 0
+  end
+  if counted then
+    count = count + 1
+  end
+  return { date = date, count = count }
+end
+
+--- Seconds from `now` to the next local midnight.
+---
+--- Asked of the C library rather than computed from 86400: a day that gains
+--- or loses an hour to daylight saving is 25 or 23 hours long.
+--- @param now number epoch
+--- @return number seconds, always between 1 and 25 hours
+function M.secondsUntilLocalMidnight(now)
+  local ok, seconds = pcall(function()
+    local t = os.date("*t", now)
+    return os.time({ year = t.year, month = t.month, day = t.day + 1, hour = 0, min = 0, sec = 0 }) - now
+  end)
+  if not ok or type(seconds) ~= "number" or seconds < 1 or seconds > 25 * 3600 then
+    -- An answer that makes no sense is not worth trusting for a day: look
+    -- again in an hour.
+    return 3600
+  end
+  return seconds
+end
+
 -- ─── Zigbee counters ─────────────────────────────────────────────────────────
 
 function M.zigbeeText(z)

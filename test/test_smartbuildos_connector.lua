@@ -3670,5 +3670,54 @@ EC.SEND_HEARTBEAT()
 -- so the record is empty here: the field must then be ABSENT, never a claim.
 check("no restart cause is claimed when none was classified", requests[#requests].data.last_reload_restart == nil)
 
+print("\n[55] The Agent registers for Director's system events")
+-- OnDriverLateInit named a `local function` declared further down the file,
+-- so it read an unset global and the step was nil: nothing was ever
+-- registered, and Project Changed, Programming Changed and OS Update Started
+-- could not fire on a controller. The step now calls this global.
+check("RegisterSystemEvents is reachable from OnDriverLateInit", type(RegisterSystemEvents) == "function")
+-- In a function of its own: this file is at Lua's limit of 200 locals.
+local function registrationChecks()
+  local registeredFor = {}
+  local savedRegister = C4.RegisterSystemEvent
+  C4.RegisterSystemEvent = function(_, id, deviceId)
+    registeredFor[id] = deviceId
+  end
+  local acceptedCount = RegisterSystemEvents()
+  local AgentTelemetryNames = require("sbos.agenttelemetry").SYSTEM_EVENT_NAMES
+  local wantedCount, missingIds = 0, {}
+  for id in pairs(AgentTelemetryNames) do
+    wantedCount = wantedCount + 1
+    if registeredFor[id] ~= 0 then
+      missingIds[#missingIds + 1] = tostring(id)
+    end
+  end
+  check(
+    "every listed event is registered system-wide (device 0)",
+    #missingIds == 0 and acceptedCount == wantedCount,
+    "missing " .. table.concat(missingIds, ",") .. "; accepted " .. tostring(acceptedCount) .. " of " .. wantedCount
+  )
+  check(
+    "Project Changed has its sources (OnProjectChanged 3, OnItemAdded 7, OnItemRemoved 11)",
+    registeredFor[3] == 0 and registeredFor[7] == 0 and registeredFor[11] == 0
+  )
+  check(
+    "Programming Changed has its sources (OnCodeItemAdded 21, Removed 22, Moved 23)",
+    registeredFor[21] == 0 and registeredFor[22] == 0 and registeredFor[23] == 0
+  )
+  check("OS Update Started has its source (OnSystemUpdateStarted 86)", registeredFor[86] == 0)
+  check("a clean shutdown is heard (OnSystemShutDown 85)", registeredFor[85] == 0)
+  C4.RegisterSystemEvent = function()
+    error("refused")
+  end
+  local okRefused, refusedCount = pcall(RegisterSystemEvents)
+  check("a refusal by Director is logged, not thrown", okRefused and refusedCount == 0, tostring(refusedCount))
+  C4.RegisterSystemEvent = nil
+  local okOld, oldCount = pcall(RegisterSystemEvents)
+  check("an OS without RegisterSystemEvent falls back to polling", okOld and oldCount == 0, tostring(oldCount))
+  C4.RegisterSystemEvent = savedRegister
+end
+registrationChecks()
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -28,6 +28,7 @@ for id, name in pairs({
   [2003] = "ISSUE_SEVERITY",
   [2004] = "ISSUE_TEXT",
   [2005] = "NOTICE_TEXT",
+  [2012] = "DIRECTOR_RELOADS_TODAY",
 }) do
   check(
     "variable " .. id .. " remains " .. name,
