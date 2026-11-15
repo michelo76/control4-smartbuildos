@@ -69,6 +69,11 @@ Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
 Envelope = require("sbos.envelope")
 SlProtocol = require("systemlink.protocol")
+-- Send Push Notification: the message variables are the Notification
+-- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
+-- both drivers; the gate bounds, de-duplicates and rate-limits.
+NotifyTemplate = require("notify.template")
+AgentPush = require("sbos.agentpush")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 local sbosUpdater = require("lib.sbos-updater")
@@ -8308,6 +8313,152 @@ function EC.SEND_EVENT(tParams)
     name = name,
     detail = tParams.DETAIL or "",
   }, "event '" .. name .. "'")
+end
+
+-- ─── Send Push Notification (programming) ───────────────────────────────────
+--
+-- A push that needs no Control4 4Sight / Connect subscription: the Agent
+-- posts the message to SmartBuildOS over its own authenticated path, and the
+-- platform sends it as an Apple push to the SmartBuildOS Field app and as a
+-- web push, to the people named in this system's recipient profile, each
+-- through their own notification preferences and quiet hours.
+--
+-- Globals, not locals: the main chunk is at Lua's 200-local ceiling.
+
+AgentPushState = { gate = nil, seq = 0 }
+
+function AgentPushGate()
+  if AgentPushState.gate == nil then
+    AgentPushState.gate = AgentPush.new({ now = os.time })
+  end
+  return AgentPushState.gate
+end
+
+function AgentPushNote(text)
+  UpdateProperty("Last Push Notification", os.date("%H:%M:%S") .. " " .. tostring(text))
+end
+
+--- Sends one push through the gate. `Notification Failed` fires only for a
+--- push that was ATTEMPTED and did not go (SmartBuildOS refused it, or could
+--- not be reached). A duplicate, a rate-limited or an empty push is logged
+--- and nothing else: programming that answers Notification Failed with
+--- another push would otherwise feed itself.
+--- @param fields table { title, body, severity }
+--- @param source string "programming" | "test"
+--- @param options table|nil { fresh = true } to skip the dedupe check
+--- @return boolean attempted, string|nil whyNot
+function SendAgentPush(fields, source, options)
+  local msg, why = AgentPush.message(fields)
+  if msg == nil then
+    log:warn("Push notification ignored: %s", tostring(why))
+    AgentPushNote("ignored: " .. tostring(why))
+    return false, why
+  end
+  local gate = AgentPushGate()
+  local label = msg.title ~= "" and msg.title or msg.body
+  local admitted, refusal = gate:admit(msg, options)
+  if not admitted then
+    if refusal == "duplicate" then
+      log:info(
+        "Push notification not repeated: the same message was sent in the last %d s: %s",
+        AgentPush.LIMITS.dedupe_seconds,
+        label
+      )
+      AgentPushNote("not repeated (same message within 5 minutes): " .. label)
+    else
+      log:warn("Push notification dropped: %d already sent in the last hour: %s", AgentPush.LIMITS.per_hour, label)
+      AgentPushNote(string.format("dropped: hourly limit of %d reached", AgentPush.LIMITS.per_hour))
+    end
+    return false, refusal
+  end
+
+  AgentPushState.seq = AgentPushState.seq + 1
+  local settled = false
+  local function finish(accepted, detail)
+    if settled then
+      return
+    end
+    settled = true
+    gate:settle(accepted)
+    if accepted then
+      log:info("Push notification accepted by SmartBuildOS for %d recipient(s): %s", detail, label)
+      AgentPushNote(string.format("accepted for %d recipient(s): %s", detail, label))
+      return
+    end
+    log:error("Push notification not sent (%s): %s", AgentPush.explain(detail), label)
+    AgentPushNote("not sent: " .. AgentPush.explain(detail))
+    pcall(function()
+      C4:FireEvent("Notification Failed")
+    end)
+  end
+  send(
+    "push",
+    {
+      kind = "push",
+      source_event_id = string.format("agent-push:%s:%d:%d", tostring(C4:GetDeviceID()), os.time(), AgentPushState.seq),
+      observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+      title = msg.title,
+      body = msg.body,
+      severity = msg.severity,
+      source = source,
+    },
+    "push notification",
+    function(body)
+      finish(AgentPush.readAnswer(body))
+    end,
+    function()
+      -- Overwritten at once by the answer; stays only if SmartBuildOS said 200
+      -- with nothing readable in it.
+      AgentPushNote("delivered to SmartBuildOS, no answer read: " .. label)
+    end,
+    function(reason)
+      finish(false, reason)
+    end
+  )
+  return true
+end
+
+--- Send Push Notification, from the programming window. TITLE and MESSAGE
+--- may carry ${1}..${4} (the variable picked in VARIABLE 1..4) or
+--- ${Room->Device::VARIABLE}; a picked variable that neither names is added
+--- after the message. A variable that cannot be read is sent as "?" and
+--- logged; it never blocks the push.
+function EC.SEND_PUSH_NOTIFICATION(tParams)
+  tParams = tParams or {}
+  local function picked(n)
+    return tParams["VARIABLE " .. n]
+  end
+  local resolve = NotifyTemplate.resolver({
+    picked = picked,
+    devices = function()
+      local ok, list = pcall(function()
+        return C4:GetDevices({})
+      end)
+      return ok and type(list) == "table" and list or {}
+    end,
+    readVariables = function(deviceId)
+      local ok, vars = pcall(function()
+        return C4:GetDeviceVariables(deviceId)
+      end)
+      return ok and type(vars) == "table" and vars or nil
+    end,
+  })
+  local title, body, problems = NotifyTemplate.fill(tParams.TITLE, tParams.MESSAGE, resolve, picked)
+  for _, p in ipairs(problems) do
+    log:warn("Push notification variable %s not filled: %s", p.token, p.reason)
+  end
+  SendAgentPush({ title = title, body = body, severity = tParams.SEVERITY }, "programming")
+end
+
+--- Actions > Send Test Push. Skips the dedupe check so a second press sends
+--- again; the hourly limit still applies.
+function EC.SEND_TEST_PUSH()
+  log:info("Sending a test push through SmartBuildOS")
+  SendAgentPush({
+    title = "SmartBuildOS test push",
+    body = "Sent from the SmartBuildOS Agent in Composer. If this reached your phone, Send Push Notification works for this system.",
+    severity = "info",
+  }, "test", { fresh = true })
 end
 
 -- ─── Conditionals ─────────────────────────────────────────────────────────────
