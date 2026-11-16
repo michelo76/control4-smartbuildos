@@ -1,5 +1,24 @@
 # VenueFlow release notes
 
+## Source after build 20261114.233926 (15 November 2026): review fixes, not built
+
+Six defects found by the automated review of the VenueFlow pull request,
+each reproduced by a new test against the old code and then fixed. **No
+package was built from this source and none of it has run on a controller.**
+The readiness table below still describes build `20261114.233926`, which has
+all six defects.
+
+| Defect | Fix |
+| --- | --- |
+| **A sample venue left in the draft could be test-driven in Live mode.** Test Power, Test Route and Test Source acted on the draft without the sample check that stops a published sample, so they addressed the sample's invented Control4 ids in the real project | `TEST_DEVICE` answers `VF_SIMULATION_ONLY` for a sample draft in Live, Query Status included; nothing is read or sent |
+| Two rules watching the same Control4 variable: only the last one fired. A rule on a mapped room's variable silenced that room's feedback | The adapter keeps one callback per device and variable and calls every watcher from it |
+| Stopping a scene stopped its remaining steps, but the commands its current step had queued kept reaching Control4. After All Off, a stopped scene's queued routes could arrive and bring displays back on | Stopping a run removes its unsent commands from the queue; the displays go back to what was known before. A command already sent, or one a manual request also asked for, is left alone |
+| Any signed-in operator could read any operation by its id (`op1`, `op2` ...), including displays and zones outside their profile | `OPERATION_GET` returns only the targets the profile may see, with counts over those; an operation it can see none of answers as not found. The state document's counts are filtered the same way |
+| A schedule falling due within 20 seconds of a driver start or a publish was skipped | The scheduler's baseline is set when it is installed and carried across a publish. Downtime is still not replayed |
+| A display or zone remapped to other hardware kept the old hardware's confirmed readings, indefinitely if the new mapping gave no feedback | State is kept across a publish only where the mapping is unchanged; otherwise it starts again as unknown |
+
+Hardware checks these add are in HARDWARE_VALIDATION.md, "Not yet run".
+
 ## Build 20261114.233926 (14 November 2026)
 
 **Readiness: SIMULATION VERIFIED.**
@@ -7,7 +26,7 @@
 | Level | Standing |
 | --- | --- |
 | Development build | Passed |
-| Simulation verified | **Yes**: 2176 automated checks and browser tests against the simulator, all passing (TEST_RESULTS.md) |
+| Simulation verified | **Yes**: 2176 automated checks and browser tests against the simulator, all passing for this build (TEST_RESULTS.md; 2282 on the source with the review fixes above) |
 | Hardware validated | **No**: a bench run has started. On the bench controller, in Simulation, H1, the laptop part of H2 and H3 (including a driver restart) passed, on build `20261114.191046`. **This build has not been on a controller.** Nothing has controlled real equipment and no Navigator has opened the tile |
 | Production ready | **No**: needs HARDWARE_VALIDATION.md H1 to H9 to pass |
 

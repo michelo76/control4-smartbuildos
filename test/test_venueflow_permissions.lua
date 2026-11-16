@@ -411,4 +411,58 @@ eq(
   "error"
 )
 
+-- ── operation detail, by id ─────────────────────────────────────────────────
+-- Operation ids are sequential, so a signed-in operator can ask for any of
+-- them. What comes back is filtered like the state document (reviewer finding
+-- on PR #40: it used to return every target, hidden areas included).
+print("operation detail is filtered by the profile's access")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  local tile = { tile = true }
+  e.settle(5000)
+  local function latest()
+    return e.core.tracker.ops[1].id
+  end
+  e.send("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-01", "tv-09", "tv-17" } }, mgr)
+  local mixed = latest()
+  e.send("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-10", "tv-18" } }, mgr)
+  local hidden = latest()
+  e.settle(8000)
+
+  local r = e.send("OPERATION_GET", { operationId = mixed }, mgr)
+  eq("the manager sees every target of an operation", #r.data.operation.targets, 3)
+  r = e.send("OPERATION_GET", { operationId = mixed }, tile)
+  eq("the bartender gets the operation it can partly see", r.ok, true)
+  eq("...with only the bar's display in it", #r.data.operation.targets, 1)
+  eq("...which is the bar's display", r.data.operation.targets[1].id, "tv-01")
+  eq("...and counts that cover only that display", r.data.operation.summary.total, 1)
+  local text = H.JSON:encode(r)
+  check(
+    "no dining or patio display is named anywhere in the answer",
+    not text:find("tv-09", 1, true) and not text:find("tv-17", 1, true)
+  )
+  r = e.send("OPERATION_GET", { operationId = hidden }, tile)
+  eq("an operation on displays the bartender cannot see is not found", r.errorCode, "VF_NOT_FOUND")
+  local unknown = e.send("OPERATION_GET", { operationId = "op99999" }, tile)
+  eq(
+    "...and answers exactly like an operation that does not exist",
+    H.JSON:encode({ r.errorCode, r.status, r.message, r.detail }),
+    H.JSON:encode({ unknown.errorCode, unknown.status, unknown.message, unknown.detail })
+  )
+  r = e.send("OPERATION_GET", { operationId = hidden }, st)
+  eq("the installer sees it in full", #r.data.operation.targets, 2)
+  -- The state document's recent operations: same filter, same counts.
+  local ops = e.send("GET_STATE", {}, tile).data.state.operations
+  local seen
+  for _, op in ipairs(ops) do
+    if op.id == mixed then
+      seen = op
+    end
+    check("the state document lists no operation the profile cannot see (" .. op.id .. ")", op.id ~= hidden)
+  end
+  eq("the state document counts only what the profile sees", seen and seen.summary.total, 1)
+end
+
 T.done()

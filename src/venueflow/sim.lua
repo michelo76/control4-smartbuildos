@@ -427,8 +427,11 @@ function Sim:adapter()
   end
 
   function A.watchVariable(deviceId, name, callback)
+    -- Every watcher of a variable hears it, as on the live adapter.
     sim.variableWatchers = sim.variableWatchers or {}
-    sim.variableWatchers[deviceId .. ":" .. name] = callback
+    local key = deviceId .. ":" .. name
+    sim.variableWatchers[key] = sim.variableWatchers[key] or {}
+    table.insert(sim.variableWatchers[key], callback)
     return true
   end
 
@@ -475,8 +478,8 @@ end
 function Sim:setVariable(deviceId, name, value)
   self.variables[deviceId] = self.variables[deviceId] or {}
   self.variables[deviceId][name] = value
-  local cb = self.variableWatchers and self.variableWatchers[deviceId .. ":" .. name]
-  if cb then
+  local watchers = self.variableWatchers and self.variableWatchers[deviceId .. ":" .. name]
+  for _, cb in ipairs({ unpack(watchers or {}) }) do
     pcall(cb, deviceId, name, value)
   end
 end

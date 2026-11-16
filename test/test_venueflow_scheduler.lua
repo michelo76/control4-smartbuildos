@@ -64,6 +64,58 @@ local function rule(id, days, time, enabled)
   return { id = id, name = id, enabled = enabled, trigger = { type = "schedule", days = days, time = time } }
 end
 
+-- ── the baseline ────────────────────────────────────────────────────────────
+-- Reviewer finding on PR #40: a scheduler that learns "previous" from its
+-- first tick skips whatever fell due before that tick.
+print("baseline")
+do
+  local open11 = { rule("open", { 1, 2, 3, 4, 5 }, "11:00") }
+  local t = make(open11, plain)
+  t.now = hm(0, 10, 59, 50)
+  t.s:prime()
+  eq("primed at 10:59:50, the tick at 11:00:10 fires 11:00", t.at(hm(0, 11, 0, 10)), 1)
+  eq("...once", t.at(hm(0, 11, 0, 30)), 0)
+  eq("...as the 11:00 schedule", t.fired[1], "open@2026-11-09 11:00")
+
+  local unprimed = make(open11, plain)
+  eq("without a baseline the first tick only records the time", unprimed.at(hm(0, 11, 0, 10)), 0)
+
+  -- A publish replaces the scheduler: the new one continues from the old one's baseline.
+  local old = make(open11, plain)
+  old.at(hm(0, 10, 59, 50))
+  local fresh = make(open11, plain, old.s.lastFired)
+  fresh.now = hm(0, 11, 0, 5) -- the publish, after 11:00 and before the next tick
+  fresh.s:prime(old.s.prev)
+  eq(
+    "a scheduler installed at 11:00:05 over one that ticked at 10:59:50 still fires 11:00",
+    fresh.at(hm(0, 11, 0, 10)),
+    1
+  )
+
+  -- ...and does not repeat what the old one already fired.
+  local old2 = make(open11, plain)
+  old2.at(hm(0, 10, 59, 50))
+  eq("the running scheduler fires 11:00", old2.at(hm(0, 11, 0, 10)), 1)
+  local fresh2 = make(open11, plain, old2.s.lastFired)
+  fresh2.now = hm(0, 11, 0, 15)
+  fresh2.s:prime(old2.s.prev)
+  eq("its replacement does not fire 11:00 again", fresh2.at(hm(0, 11, 0, 30)), 0)
+
+  -- A start is not a replay: the driver was not running at 11:00.
+  local late = make(open11, plain)
+  late.now = hm(0, 11, 0, 40)
+  late.s:prime()
+  eq("started at 11:00:40, the 11:00 schedule is not run late", late.at(hm(0, 11, 1, 0)), 0)
+  eq("...nor reported as missed by the scheduler itself", #late.missed, 0)
+
+  -- A baseline taken over from long ago is downtime, not a window to replay.
+  local stale = make(open11, plain)
+  stale.now = hm(0, 12, 0, 0)
+  stale.s:prime(Scheduler.moment({ localtime = plain }, hm(0, 10, 0, 0)))
+  eq("a two-hour-old baseline fires nothing", stale.at(hm(0, 12, 0, 20)), 0)
+  eq("...and reports 11:00 as missed", stale.missed[1], "open@2026-11-09 11:00")
+end
+
 -- ── ordinary firing ─────────────────────────────────────────────────────────
 print("ordinary schedules")
 local rules = {

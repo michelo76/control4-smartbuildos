@@ -113,7 +113,7 @@ Control4 id, route command, program or PIN data is in it.
 | `QUERY_STATUS` | `displayIds`? | re-reads Control4; clears a stale failure |
 | `ALERT_DISMISS` | `alertId` | only alerts marked `dismissable` |
 | `IMAGE_GET` | `key` | `data: { key, dataUrl }`. An installer session may read any stored picture, also before anything is published |
-| `OPERATION_GET` | `operationId` | `data.operation` |
+| `OPERATION_GET` | `operationId` | `data.operation`. A profile gets only the targets it may see, with `summary` counted over those; an operation it can see nothing of is `VF_NOT_FOUND`, as if it did not exist. An installer session gets every target, with detail |
 
 ### State document
 
@@ -266,7 +266,7 @@ All need an Installer Studio session, except the studio commands above.
 | `PROGRAM_VALIDATE` | `program`, `condition`?, `trigger`? | `{ issues, summary }` (against the draft) |
 | `PROGRAM_DRY_RUN` | `program`, `condition`?, `name`? | `{ execution }` (against the published configuration; nothing is sent) |
 | `PROGRAM_EXECUTE` | `program`, `condition`?, `name`?, `confirm`, `refKind`? (scene or rule), `refId`? | `{ execution }` (live). With `refKind` and `refId` the run is recorded as that scene's or rule's last run; it does not make the scene active or fire rules that wait for it |
-| `EXECUTION_CANCEL` | `executionId` | |
+| `EXECUTION_CANCEL` | `executionId` | Stops the remaining steps and the commands the run had queued and not yet sent; their targets end `superseded` with `VF_CANCELLED`. A command already sent is not recalled |
 | `EXECUTIONS` | | `{ executions, lastRun, lastSuccess, upcoming, operations, variables, controller }`; `lastRun` and `lastSuccess` are keyed `scene:<id>` and `rule:<id>` |
 | `DIAG_GET` | `limit`?, `level`?, `category`?, `sinceSeq`? | `{ entries: [ { seq, at, level, category, code, message, data } ], counts, size, max, sessions, queue, simFaults? }` (`simFaults`: the simulator's current faults, Simulation mode only) |
 | `DIAG_CLEAR` | | |

@@ -923,6 +923,8 @@ Runner.__index = Runner
 ---   timers   = { set(id, ms, fn), cancel(id) }
 ---   now()    -> epoch seconds
 ---   onUpdate(exec)  called whenever an execution record changes
+---   cancelPending(exec, reason, by)  optional: stop the device commands this
+---            run queued and that have not been sent (see Runner:cancel)
 ---   keep     how many finished executions to remember (default 40)
 --- }
 function M.newRunner(deps)
@@ -1332,8 +1334,9 @@ function Runner:start(spec)
   return exec
 end
 
---- Stops a run: remaining steps do not happen. Never silent: the record says
---- who stopped it.
+--- Stops a run: remaining steps do not happen, and neither do the device
+--- commands its current step had queued and not yet sent. Never silent: the
+--- record says who stopped it.
 function Runner:cancel(execId, reason, by)
   local exec = self.running[execId]
   if exec == nil then
@@ -1354,6 +1357,11 @@ function Runner:cancel(execId, reason, by)
   end
   exec._frames = {}
   self:_finish(exec)
+  -- After the run is final, so that an operation settling here finds no
+  -- running execution to finish a second time.
+  if self.deps.cancelPending ~= nil then
+    pcall(self.deps.cancelPending, exec, exec.cancelReason, by)
+  end
   return true
 end
 

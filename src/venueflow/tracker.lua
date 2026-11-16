@@ -385,6 +385,47 @@ function Tracker:cancelAll(code)
   end
 end
 
+--- Stops what one execution (a scene or rule run) asked for and has NOT been
+--- sent yet: the commands leave the queue and never reach Control4. Stopping
+--- a run would otherwise only stop its remaining STEPS, while the commands the
+--- current step had already queued kept arriving after the run was reported
+--- as stopped.
+---
+--- Left alone, on purpose:
+---   * a command already sent: it happened, and its outcome is still reported;
+---   * a command another request also wants (the same value, asked for by
+---     someone else and folded into this one): they did not stop anything.
+---
+--- A cell goes back to what was known before the command was queued.
+--- Returns how many commands were stopped.
+function Tracker:cancelExecution(executionId, code, detail)
+  if executionId == nil then
+    return 0
+  end
+  local stopped = 0
+  for _, key in ipairs(U.sortedKeys(self.active)) do
+    local action = self.active[key]
+    if action ~= nil and not action.settled and not action.target.sent and action.op.executionId == executionId then
+      local shared = false
+      for _, f in ipairs(action.followers or {}) do
+        if f.op.executionId ~= executionId then
+          shared = true
+        end
+      end
+      if not shared then
+        self.deps.queue:drop(key)
+        -- Back to what was known before the command was queued. Not through
+        -- state:set: nothing changed on the device, and a device-state rule
+        -- must not fire because a command was withdrawn.
+        self.deps.state:restore(action.kind, action.id, action.field, action.previous)
+        self:_settle(action, "superseded", code or "VF_CANCELLED", detail or "stopped before it was sent")
+        stopped = stopped + 1
+      end
+    end
+  end
+  return stopped
+end
+
 function M.publicOp(op, includeDetail)
   local out = {
     id = op.id,

@@ -221,6 +221,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **VenueFlow: six defects from the review of its pull request**, each
+  reproduced by a test first (simulation and shim; not built, not run on a
+  controller). Mapping tests on a sample venue left in the draft are refused
+  in Live mode (they addressed the sample's invented Control4 ids in the
+  real project). Several rules, or a rule and a room's feedback, can watch
+  the same Control4 variable. Stopping a scene also stops the commands it
+  had queued and not sent. `OPERATION_GET` is filtered by the profile's
+  access. A schedule due just after a driver start or a publish is no longer
+  skipped. A display or zone remapped to other hardware no longer keeps the
+  old hardware's readings. See
+  `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 - **The Agent registers for Director's system events** (`smartbuildos`).
   `OnDriverLateInit` named a `local function` declared further down the file,
   so the name was an unset global and the guarded init step was nil: one error

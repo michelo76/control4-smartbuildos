@@ -315,6 +315,126 @@ env.settle(70000)
 eq("a cancelled run never runs its remaining steps", env.cell("zone", "zone-dining", "volume").value, 50)
 eq("cancelled status", lastExecution("cancel-me").status, "cancelled")
 
+-- Stopping a run also stops the commands its current step had queued and not
+-- yet sent (reviewer finding on PR #40: they kept arriving after "cancelled").
+print("stopping a run stops its queued commands")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  e.settle(10000)
+  local twelve = {}
+  for i = 1, 12 do
+    twelve[i] = string.format("tv-%02d", i)
+  end
+  local function videoCalls(from)
+    local n = 0
+    for i = from + 1, e.sim():callCount() do
+      if e.sim().calls[i].command == "SELECT_VIDEO_DEVICE" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+  local function big(name)
+    return e.send("PROGRAM_EXECUTE", {
+      confirm = true,
+      name = name,
+      program = {
+        steps = {
+          { type = "route_video", sourceId = "sports-3", target = { displayIds = twelve } },
+          { type = "wait", seconds = 30 },
+        },
+      },
+    }, st)
+  end
+  local function find(name)
+    for _, x in ipairs(e.core.runner:list(true)) do
+      if x.name == name then
+        return x
+      end
+    end
+  end
+
+  local before12 = e.cell("display", "tv-12", "source")
+  local wasValue, wasStatus = before12.value, before12.status
+  local mark = e.sim():callCount()
+  local run = big("stop-me")
+  eq("one command has left, eleven wait in the queue", e.core.queue:size(), 11)
+  eq("a queued display shows as pending", e.cell("display", "tv-12", "source").status, "pending")
+  local hooked, hook = 0, e.core.state.onChange
+  e.core.state.onChange = function(kind, id, ...)
+    if id == "tv-12" then
+      hooked = hooked + 1
+    end
+    return hook(kind, id, ...)
+  end
+  eq("the installer stops the run", e.send("EXECUTION_CANCEL", { executionId = run.data.execution.id }, st).ok, true)
+  e.core.state.onChange = hook
+  eq("the queue is empty at once", e.core.queue:size(), 0)
+  eq("withdrawing a command is not reported as a device change (no rule fires on it)", hooked, 0)
+  e.settle(20000)
+  eq("only the command already sent reached Control4", videoCalls(mark), 1)
+  eq("the display that was sent to is confirmed", e.cell("display", "tv-01", "source").value, "sports-3")
+  eq("a display never sent to shows what it showed before", e.cell("display", "tv-12", "source").value, wasValue)
+  eq("...with the standing it had before, not pending", e.cell("display", "tv-12", "source").status, wasStatus)
+  local op = e.core.tracker.ops[1]
+  eq("the operation is finished", op.done, true)
+  eq("...one target confirmed", op.summary.confirmed, 1)
+  eq("...eleven stopped", op.summary.superseded, 11)
+  eq("...and they say why", op.targets[12].errorCode, "VF_CANCELLED")
+  eq("the run is recorded as cancelled", find("stop-me").status, "cancelled")
+  check(
+    "the diagnostic log says how many commands were not sent",
+    (function()
+      for _, entry in ipairs(e.core.diag:list({ limit = 30 })) do
+        if entry.message:find("11 queued commands not sent", 1, true) then
+          return true
+        end
+      end
+      return false
+    end)()
+  )
+  -- The next manual command is not held up by the stopped ones.
+  mark = e.sim():callCount()
+  e.send("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-12" } }, mgr)
+  eq("a manual command right after the stop leaves at once", videoCalls(mark), 1)
+  e.settle(8000)
+  eq("...and is confirmed", e.cell("display", "tv-12", "source").value, "sports-2")
+
+  -- A command someone else also asked for is not stopped with the run.
+  e.send("ROUTE_VIDEO", { sourceId = "sports-4", displayIds = twelve }, mgr)
+  e.settle(10000)
+  mark = e.sim():callCount()
+  e.send("ROUTE_VIDEO", { sourceId = "sports-3", displayIds = twelve }, mgr) -- 1 sent, 11 queued
+  local manualOp = e.core.tracker.ops[1]
+  run = e.send("PROGRAM_EXECUTE", {
+    confirm = true,
+    name = "same-as-manual",
+    program = {
+      steps = {
+        { type = "route_video", sourceId = "sports-3", target = { displayIds = { "tv-10", "tv-11", "tv-12" } } },
+        { type = "wait", seconds = 30 },
+      },
+    },
+  }, st)
+  eq("the run is stopped", e.send("EXECUTION_CANCEL", { executionId = run.data.execution.id }, st).ok, true)
+  e.settle(20000)
+  eq("every command of the manual request still went out", videoCalls(mark), 12)
+  eq("...and the manual request is confirmed on all twelve", manualOp.summary.confirmed, 12)
+  eq("...including a display the stopped run also named", e.cell("display", "tv-11", "source").value, "sports-3")
+
+  -- All Off stops running scenes: their queued routes must not arrive after it.
+  e.send("ROUTE_VIDEO", { sourceId = "sports-4", displayIds = twelve }, mgr)
+  e.settle(10000)
+  big("before-all-off")
+  mark = e.sim():callCount()
+  check("All Off is accepted", e.send("ALL_OFF", { confirm = true }, mgr).ok)
+  e.settle(30000)
+  eq("no route from the stopped scene arrives after All Off", videoCalls(mark), 0)
+  eq("...and the displays end off", e.cell("display", "tv-12", "power").value, "off")
+end
+
 -- ── overlap protection ──────────────────────────────────────────────────────
 print("overlapping runs")
 local a = env.send("PROGRAM_EXECUTE", {
@@ -637,6 +757,63 @@ for _, e in ipairs(env.core.diag:list({ limit = 200, category = "scene" })) do
   end
 end
 check("a partial run is in diagnostics with its failing steps", sawSceneDiag)
+
+-- ── a schedule due just after a start or a publish ──────────────────────────
+-- Reviewer finding on PR #40: the scheduler learned its baseline from its
+-- first tick, 20 s after it was installed, so a schedule falling due inside
+-- that gap never ran. The tick timer here runs from the driver's start.
+print("schedules across a start and a publish")
+do
+  local ELEVEN = H.MONDAY_NOON - 3600
+  local function withSchedule(e, session)
+    local draft = e.send("DRAFT_GET", {}, session).data.draft
+    local rules = draft.config.rules
+    rules[#rules + 1] = {
+      id = "t-open",
+      name = "Test open",
+      enabled = true,
+      trigger = { type = "schedule", days = { 1 }, time = "11:00" },
+      program = { steps = { { type = "volume", zoneId = "zone-dining", level = 33 } } },
+    }
+    local saved = e.send("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, session)
+    assert(saved.ok, "draft not saved: " .. tostring(saved.errorCode) .. " " .. tostring(saved.detail))
+    local acks = {}
+    for _, i in ipairs(e.send("DRAFT_GET", {}, session).data.draft.issues) do
+      acks[#acks + 1] = i.id
+    end
+    local p = e.send("PUBLISH", { acknowledged = acks }, session)
+    assert(p.ok, "not published: " .. tostring(p.errorCode) .. " " .. tostring(p.detail))
+  end
+  local function ranAt(e)
+    local last = e.core.runtime.lastRun["rule:t-open"]
+    return last and last.status or nil
+  end
+
+  -- A publish at 10:59:55, between the 10:59:50 tick and the 11:00:10 one.
+  local e = H.new({ start = ELEVEN - 610 }) -- 10:49:50; ticks land on :10, :30, :50
+  local st = { session = e.publishSample("sports_bar") }
+  e.clock.advance((ELEVEN - 5 - e.clock.now()) * 1000) -- to 10:59:55
+  withSchedule(e, st)
+  eq("published at 10:59:55, nothing has run yet", ranAt(e), nil)
+  e.clock.advance(30000) -- past the 11:00:10 tick
+  e.settle(8000)
+  eq("the 11:00 schedule runs although the publish replaced the scheduler", ranAt(e), "ok")
+  eq("...and did what it says", e.cell("zone", "zone-dining", "volume").value, 33)
+
+  -- A driver start at 10:59:50 with that venue already stored.
+  local again = H.new({ kv = e.kv, start = ELEVEN + 7 * 86400 - 10 }) -- the next Monday, 10:59:50
+  again.core.runtime.lastRun["rule:t-open"] = nil
+  again.clock.advance(25000) -- the first tick, at 11:00:10
+  again.settle(8000)
+  eq("started at 10:59:50, the 11:00 schedule runs at the first tick", ranAt(again), "ok")
+
+  -- A start after the minute has passed is downtime: not run late.
+  local late = H.new({ kv = e.kv, start = ELEVEN + 14 * 86400 + 65 }) -- 11:01:05
+  late.core.runtime.lastRun["rule:t-open"] = nil
+  late.clock.advance(60000)
+  late.settle(8000)
+  eq("started at 11:01:05, the 11:00 schedule is not run late", ranAt(late), nil)
+end
 
 -- ── regressions found while building the editor ───────────────────────────
 print("regressions")
