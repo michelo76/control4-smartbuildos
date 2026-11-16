@@ -32,10 +32,6 @@
     <script file="driver.lua" />
     <actions>
       <action>
-        <name>Get URL From Connector</name>
-        <command>PULL_URL</command>
-      </action>
-      <action>
         <name>Reload Now</name>
         <command>RELOAD</command>
       </action>
@@ -61,7 +57,7 @@
              unconfigured panel that says so is honest; one that silently shows
              somebody's home page looks configured and is not. -->
         <default></default>
-        <description>The Home Insights URL for this property. Generate it in SmartBuildOS, or in the SmartBuildOS Connector driver's Generate Touchpanel URL action, then paste it here. This URL is a credential — treat it like one.</description>
+        <description>The https address of the page this button opens. Paste it here. If the address gives access to something private, treat it like a credential.</description>
       </property>
       <property>
         <name>Status</name>
