@@ -23,20 +23,21 @@ modes, no control. For those, see SmartBuildOS System Link Thermostat.
 ## Setup
 
 <!-- walkthrough: Add a linked temperature -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `temperature`, pick the sensor or thermostat in **Export Device**, fill in
    **Export Name** and run *Export Selected Device*. A temperature export is
    always view only.
 1. On this project, select SmartBuildOS System Link. **Pending Exports** lists
-   the export, for example `Pool_Temp (temperature)`. Pick it in
-   **Pending Export** and run *Add Companion For Pending Export*. This driver is
-   added, linked to the export and named after it. *Auto Setup* does the same
-   for every pending export in one go.
+   the export, for example `Pool_Temp (temperature)`. Pick it in **Pending
+   Export** and run *Add Companion For Pending Export*. This driver is added,
+   linked to the export and named after it. *Auto Setup* does the same for every
+   pending export in one go.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds temperature exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** shows the reading, for example `72.5 °F`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** shows the reading, for example `72.5 °F`.
 1. In Connections, bind this driver's **Temperature** connection to the driver
    that should receive the reading.
 
@@ -46,11 +47,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | The temperature in Fahrenheit and in Celsius, to one decimal |
-| Here to the owner | Nothing |
-| Not carried | Humidity, setpoints, modes, battery, any other value of the device |
+| Direction         | What                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| Owner to here     | The temperature in Fahrenheit and in Celsius, to one decimal       |
+| Here to the owner | Nothing                                                            |
+| Not carried       | Humidity, setpoints, modes, battery, any other value of the device |
 
 The owner reads two variables from the device it exported: a Fahrenheit one
 (`TEMPERATURE_F`, or else `TEMPERATURE` or `Temperature`) and a Celsius one
@@ -69,14 +70,14 @@ arrive.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no temperature export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: both values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device does not supply both values |
-| **Confirmed State** | The last reading in Fahrenheit, for example `72.5 °F`; in Celsius if there is no Fahrenheit value; `unavailable` if there is neither |
-| **Control** | `view only`, or `view only / suspended` once a state has arrived: a temperature export never allows control |
-| **Requested State**, **Last Result** | Not used: this driver sends no requests |
+| Property                             | What it tells you                                                                                                                                                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**                      | Whether SmartBuildOS System Link was found and answered. If the link carries no temperature export it says so and names what the link does carry                                                                                   |
+| **Remote System State**              | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                |
+| **Freshness**                        | `current`: both values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device does not supply both values |
+| **Confirmed State**                  | The last reading in Fahrenheit, for example `72.5 °F`; in Celsius if there is no Fahrenheit value; `unavailable` if there is neither                                                                                               |
+| **Control**                          | `view only`, or `view only / suspended` once a state has arrived: a temperature export never allows control                                                                                                                        |
+| **Requested State**, **Last Result** | Not used: this driver sends no requests                                                                                                                                                                                            |
 
 ## Programming
 

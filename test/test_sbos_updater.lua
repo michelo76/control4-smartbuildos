@@ -88,6 +88,17 @@ out = updater.outdated({
 }, FILES, true)
 check("force selects the current build", #out == 1, #out)
 
+print("\n[6a] Forced updates do not downgrade")
+out = updater.outdated({
+  { filename = "smartbuildos.c4z", version = "20260829.160000", download_url = "https://x/a.c4z" },
+}, FILES, true)
+check("force never selects an older build", #out == 0, #out)
+local installed = updater.installedVersions({ FILES[1], FILES[2], FILES[1], "../foreign.c4z" })
+check(
+  "version inventory only includes installed safe filenames once",
+  #installed == 1 and installed[1].version == INSTALLED[FILES[1]]
+)
+
 -- ── The call convention ─────────────────────────────────────────────────────
 
 print("\n[7] updateAll is a MODULE function — a colon call shifts every argument")

@@ -24,6 +24,7 @@ has no proxy, so it does not appear on the Navigators.
 ## Setup
 
 <!-- walkthrough: Add a linked room -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `media`, pick the room in **Export Device** (the room, not a device in
    it), fill in **Export Name** and run *Export Selected Device*. A media export
@@ -48,12 +49,12 @@ action again.
 
 ## What crosses the link
 
-| Value | Variable here | What the owner reads from its room |
-| --- | --- | --- |
-| On or off | `Powered` | `POWER_STATE` |
-| Source | `Source` | `CURRENT_SELECTED_DEVICE`, sent as that device's name |
-| Volume, 0 to 100 | `Volume` | `CURRENT_VOLUME` or `VOLUME_LEVEL` |
-| Media text | `Media` | `CURRENT MEDIA INFO`, `CURRENT_MEDIA` or `MEDIA WALL INFO` |
+| Value            | Variable here | What the owner reads from its room                         |
+| ---------------- | ------------- | ---------------------------------------------------------- |
+| On or off        | `Powered`     | `POWER_STATE`                                              |
+| Source           | `Source`      | `CURRENT_SELECTED_DEVICE`, sent as that device's name      |
+| Volume, 0 to 100 | `Volume`      | `CURRENT_VOLUME` or `VOLUME_LEVEL`                         |
+| Media text       | `Media`       | `CURRENT MEDIA INFO`, `CURRENT_MEDIA` or `MEDIA WALL INFO` |
 
 Nothing travels the other way. Mute, transport state, the queue and cover art
 are not carried. The media text is passed on as the room reports it, with runs
@@ -70,24 +71,23 @@ their variables are up to date. This matters for the events: see Programming.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no media export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: all four values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the room does not supply at least one of the four |
-| **Confirmed State** | `On`, then the source, the volume and the media text where the room supplies them; `Off`; `Power unknown` first when only the power state is missing; `unavailable` when nothing is supplied |
-| **Control** | `view only`, or `view only / suspended` once a state has arrived: a media export never allows control |
-| **Requested State**, **Last Result** | Not used: this driver sends no requests |
+| Property                             | What it tells you                                                                                                                                                                                                                         |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**                      | Whether SmartBuildOS System Link was found and answered. If the link carries no media export it says so and names what the link does carry                                                                                                |
+| **Remote System State**              | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                       |
+| **Freshness**                        | `current`: all four values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the room does not supply at least one of the four |
+| **Confirmed State**                  | `On`, then the source, the volume and the media text where the room supplies them; `Off`; `Power unknown` first when only the power state is missing; `unavailable` when nothing is supplied                                              |
+| **Control**                          | `view only`, or `view only / suspended` once a state has arrived: a media export never allows control                                                                                                                                     |
+| **Requested State**, **Last Result** | Not used: this driver sends no requests                                                                                                                                                                                                   |
 
 ## Programming
 
 - Variables: `Powered` (Boolean), `Source` (text), `Volume` (number), `Media`
   (text). All read-only. They are updated on every message from the owner,
   whatever **Freshness** says. A value that is unavailable reads 0 or empty.
-- Events: *Remote Room On*, *Remote Room Off*, *Remote Media Changed*,
-  *Remote Value Current* and *Remote Value Stale* (**Freshness** became
-  `current` or stopped being `current`). *Control Refused* is listed and never
-  fires.
+- Events: *Remote Room On*, *Remote Room Off*, *Remote Media Changed*, *Remote
+  Value Current* and *Remote Value Stale* (**Freshness** became `current` or
+  stopped being `current`). *Control Refused* is listed and never fires.
 - Conditionals: *Remote Room Is On*, *Remote Value Is Current*.
 - Actions: *Refresh From Bridge* (ask for the export list and state again),
   *Rename From Export* (name the device after the export even if you renamed

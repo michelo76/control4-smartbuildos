@@ -32,6 +32,24 @@ DRIVER_FILENAMES = {
   "unifi-protect-light.c4z",
   "unifi-protect-sensor.c4z",
   "unifi-protect-viewport.c4z",
+  "smartbuildos-system-link.c4z",
+  "smartbuildos-system-link-contact.c4z",
+  "smartbuildos-system-link-light.c4z",
+  "smartbuildos-system-link-relay.c4z",
+  "smartbuildos-system-link-shade.c4z",
+  "smartbuildos-system-link-temperature.c4z",
+  "smartbuildos-system-link-thermostat.c4z",
+  "smartbuildos-insights.c4z",
+  "bond-bridge.c4z",
+  "bond-color-light.c4z",
+  "bond-fan.c4z",
+  "bond-fireplace.c4z",
+  "bond-generic.c4z",
+  "bond-heater.c4z",
+  "bond-keypad.c4z",
+  "bond-light.c4z",
+  "bond-shade.c4z",
+  "bond-weather.c4z",
 }
 --#endif
 
@@ -6763,7 +6781,18 @@ function UpdateDrivers(forceUpdate)
   local source = Properties["Update Source"] or "Auto"
   local prerelease = Properties["Update Channel"] == "Prerelease"
 
+  local function showInventory(inventory)
+    local details = {}
+    for _, entry in ipairs(inventory) do
+      details[#details + 1] = entry.filename:gsub("%.c4z$", "")
+        .. " "
+        .. (entry.version ~= "" and entry.version or "unknown")
+    end
+    UpdateProperty("Installed Driver Versions", #details > 0 and table.concat(details, ", ") or "No drivers found")
+  end
+
   local function fromGitHub()
+    showInventory(sbosUpdater.installedVersions(DRIVER_FILENAMES))
     githubUpdater:updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, prerelease, forceUpdate):next(function(updated)
       if not IsEmpty(updated) then
         log:info("Updated driver(s) from GitHub: %s", table.concat(updated, ","))
@@ -6786,7 +6815,7 @@ function UpdateDrivers(forceUpdate)
     -- string" before a single request is made. Two updaters side by side with
     -- opposite call conventions is the whole trap.
     sbosUpdater
-      .updateAll(url, authHeaders(), DRIVER_FILENAMES, prerelease and "Prerelease" or "Production", forceUpdate)
+      .updateAll(url, authHeaders(), DRIVER_FILENAMES, prerelease and "Prerelease" or "Production", forceUpdate, showInventory)
       :next(function(updated)
         if not IsEmpty(updated) then
           log:info("Updated driver(s) from SmartBuildOS: %s", table.concat(updated, ","))
@@ -8052,54 +8081,6 @@ function EC.SCAN_NETWORK()
   end
 end
 
---- Mints a touchpanel URL and writes it into the driver's own properties.
----
---- Exists because the person configuring a panel is standing at the rack in
---- Composer and very often has no SmartBuildOS session -- the owner of the
---- client record and the installer wiring the house are frequently not the same
---- person, and the second cannot be blocked on the first.
----
---- The URL is stored HERE, in the driver, because SmartBuildOS keeps only a hash
---- and cannot show it again. That is not a weakening: this driver already holds
---- a device token, which is a strictly stronger credential, and it lives inside
---- the client's own rack.
----
---- Every run mints a NEW panel and deliberately does not revoke the last one, so
---- an installer who runs this twice -- or a year later, adding a second panel --
---- cannot silently kill the panel already hanging on the wall.
-function EC.GENERATE_DISPLAY_URL()
-  log:trace("EC.GENERATE_DISPLAY_URL()")
-
-  if not isPaired() then
-    -- Said in the property itself rather than only the log. An installer runs
-    -- an action and looks at the property; nobody opens Lua output for this.
-    UpdateProperty("Touchpanel URL", "Pair the driver first")
-    log:warn("Cannot generate a touchpanel URL: driver is not paired")
-    return
-  end
-
-  local label = Properties["Touchpanel Name"] or ""
-  label = label:match("^%s*(.-)%s*$")
-  if label == "" then
-    label = "Touchpanel"
-  end
-
-  UpdateProperty("Touchpanel URL", "Generating...")
-
-  send("display", { kind = "display", label = label }, "touchpanel URL request", function(body)
-    -- Only ever set from a URL the server actually returned. Writing anything
-    -- optimistic here would hand the installer a link that 404s on the panel
-    -- they just configured.
-    if type(body.url) == "string" and body.url ~= "" then
-      UpdateProperty("Touchpanel URL", body.url)
-      log:info("Touchpanel URL generated for '%s'", label)
-    else
-      UpdateProperty("Touchpanel URL", "Failed - see Lua output")
-      log:error("Touchpanel URL response carried no url")
-    end
-  end)
-end
-
 --- Forgets the token locally. SmartBuildOS is told first so the property stops
 --- expecting heartbeats, but a failure there must not strand the driver in a
 --- paired state it cannot leave -- the local wipe happens either way.
@@ -8128,10 +8109,6 @@ function EC.UNPAIR()
   persist:delete(ENTITLEMENT_CACHE_KEY)
   CancelTimer(ENTITLEMENT_TIMER)
   updateLicenseProperties()
-  -- The panels themselves keep working: a display URL is its own credential and
-  -- is revoked from SmartBuildOS, not from here. What is cleared is this
-  -- driver's COPY, which after unpairing is no longer a URL it can vouch for.
-  UpdateProperty("Touchpanel URL", "Not generated")
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -8856,6 +8833,20 @@ local function statusForSku(sku)
   end
   local cacheDays = tonumber(cache.cache_days) or 7
   local status = fieldOrEmpty(a.status)
+  if status == "TRIAL" or (status == "ENTITLEMENT_EXPIRED" and answer.license_type == "TRIAL") then
+    local expires = isoToEpoch(a.valid_until)
+    if expires then
+      answer.trial_expires_epoch = tostring(expires)
+      if status == "ENTITLEMENT_EXPIRED" or os.time() >= expires then
+        answer.status = "ENTITLEMENT_EXPIRED"
+        answer.features = ""
+        return answer
+      end
+      -- A trial is never converted to the offline grace for paid licenses.
+      answer.status = "TRIAL"
+      return answer
+    end
+  end
   local authorizedish = status == "AUTHORIZED_SUBSCRIPTION"
     or status == "AUTHORIZED_PERPETUAL"
     or status == "AUTHORIZED_GRACE"
@@ -8943,6 +8934,7 @@ local function answerEntitlement(requester, sku)
     grace_until = answer.grace_until,
     enforcement = answer.enforcement,
     checked_at = answer.checked_at,
+    trial_expires_epoch = answer.trial_expires_epoch or "",
   })
 end
 
@@ -8970,12 +8962,29 @@ function refreshEntitlements(reason)
 
   local installed = {}
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  local ok, project = pcall(function()
+    return C4:GetDevices({})
+  end)
+  local known = {}
+  if ok and type(project) == "table" then
+    for id in pairs(project) do
+      if tonumber(id) then
+        known[tonumber(id)] = true
+      end
+    end
+  end
+  local changed = false
   for sku, entry in pairs(inventory) do
-    installed[#installed + 1] = {
-      sku = sku,
-      version = tostring(entry.version or ""),
-      device_id = tonumber(entry.device_id),
-    }
+    local id = tonumber(entry.device_id)
+    if next(known) and not known[id] then
+      inventory[sku] = nil
+      changed = true
+    else
+      installed[#installed + 1] = { sku = sku, version = tostring(entry.version or ""), device_id = id }
+    end
+  end
+  if changed then
+    persist:set(SBOS_DRIVERS_PERSIST, inventory)
   end
   installed[#installed + 1] = {
     sku = "SBOS_AGENT",
@@ -8984,103 +8993,105 @@ function refreshEntitlements(reason)
   }
 
   log:info("Refreshing entitlements (%s)", reason)
-  http:post(url, { installed = installed }, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
-    gEntitlements.inFlight = false
-    local body = response.body
-    if type(body) == "string" then
-      local okDecode, decoded = pcall(function()
-        return JSON:decode(body)
-      end)
-      body = okDecode and decoded or nil
-    end
-    if type(body) ~= "table" or type(body.assertions) ~= "table" then
-      gEntitlements.lastError = "unexpected response"
-      log:warn("Entitlement refresh returned an unexpected response")
-      return
-    end
-
-    local secret = agentSecret()
-    local assertions = {}
-    -- Per-SKU enforcement policy from the server (unsigned). Whitelisted to
-    -- the two known modes so a malformed value degrades to observe, never to
-    -- surprise enforcement.
-    local enforcement = {}
-    if type(body.enforcement) == "table" then
-      for sku, mode in pairs(body.enforcement) do
-        enforcement[tostring(sku)] = tostring(mode) == "enforce" and "enforce" or "observe"
+  http
+    :post(url, { installed = installed, site_trials = true }, authHeaders(), { timeout = REQUEST_TIMEOUT })
+    :next(function(response)
+      gEntitlements.inFlight = false
+      local body = response.body
+      if type(body) == "string" then
+        local okDecode, decoded = pcall(function()
+          return JSON:decode(body)
+        end)
+        body = okDecode and decoded or nil
       end
-    end
-    local rejected = 0
-    for _, a in ipairs(body.assertions) do
-      local sku = fieldOrEmpty(a.driver_sku)
-      if sku ~= "" then
-        if secret == "" or verifyAssertion(a, secret) then
-          assertions[sku] = a
-        else
-          rejected = rejected + 1
-          log:error("Assertion for %s failed verification at fetch - dropped", sku)
+      if type(body) ~= "table" or type(body.assertions) ~= "table" then
+        gEntitlements.lastError = "unexpected response"
+        log:warn("Entitlement refresh returned an unexpected response")
+        return
+      end
+
+      local secret = agentSecret()
+      local assertions = {}
+      -- Per-SKU enforcement policy from the server (unsigned). Whitelisted to
+      -- the two known modes so a malformed value degrades to observe, never to
+      -- surprise enforcement.
+      local enforcement = {}
+      if type(body.enforcement) == "table" then
+        for sku, mode in pairs(body.enforcement) do
+          enforcement[tostring(sku)] = tostring(mode) == "enforce" and "enforce" or "observe"
         end
       end
-    end
-    if rejected > 0 then
-      licenseEvent(
-        "CRITICAL",
-        "SECURITY",
-        "assertion_verify_failed",
-        string.format("%d assertion(s) failed HMAC verification at fetch", rejected)
-      )
-    end
+      local rejected = 0
+      for _, a in ipairs(body.assertions) do
+        local sku = fieldOrEmpty(a.driver_sku)
+        if sku ~= "" then
+          if secret == "" or verifyAssertion(a, secret) then
+            assertions[sku] = a
+          else
+            rejected = rejected + 1
+            log:error("Assertion for %s failed verification at fetch - dropped", sku)
+          end
+        end
+      end
+      if rejected > 0 then
+        licenseEvent(
+          "CRITICAL",
+          "SECURITY",
+          "assertion_verify_failed",
+          string.format("%d assertion(s) failed HMAC verification at fetch", rejected)
+        )
+      end
 
-    persist:set(ENTITLEMENT_CACHE_KEY, {
-      fetched_at = os.time(),
-      checked_at = fieldOrEmpty(body.checked_at),
-      support_id = fieldOrEmpty(body.support_id),
-      revalidate_hours = tonumber(body.revalidate_after_hours) or 24,
-      cache_days = tonumber(body.offline_cache_days) or 7,
-      verified = secret ~= "",
-      assertions = assertions,
-      enforcement = enforcement,
-      -- Account-level display config (#3), unsigned like enforcement mode.
-      subscription_in_grace = body.subscription_in_grace == true,
-    }, true)
-    if fieldOrEmpty(body.support_id) ~= "" then
-      persist:set(SUPPORT_ID_KEY, body.support_id)
-    end
-    -- The tier + company the platform re-resolves each refresh. Blank means
-    -- "could not confirm"; keep the last known rather than blanking a paid
-    -- customer's display (mirrors the pairing path).
-    if fieldOrEmpty(body.subscription_tier) ~= "" then
-      persist:set(SUBSCRIPTION_TIER_KEY, body.subscription_tier)
-    end
-    if fieldOrEmpty(body.company_name) ~= "" then
-      persist:set(COMPANY_NAME_KEY, body.company_name)
-    end
-    gEntitlements.lastError = ""
-    gEntitlements.verifyWarned = {}
-    noteClockSkew(fieldOrEmpty(body.checked_at))
-    local count = 0
-    for _ in pairs(assertions) do
-      count = count + 1
-    end
-    log:info(
-      "Entitlements refreshed: %d assertion(s)%s",
-      count,
-      secret == "" and " (unsigned - pre-Phase-5 pairing, re-pair to enable signing)" or ""
-    )
-    updateLicenseProperties()
-    pushEntitlements()
-  end, function(err)
-    gEntitlements.inFlight = false
-    local detail = tostring(err and (err.error or err.code) or err)
-    -- An unreachable cloud is a CONNECTION condition, never a licensing
-    -- one: the cache and its grace ladder carry the answers (fail-secure
-    -- but an outage must never dark a home).
-    if gEntitlements.lastError == "" then
-      log:warn("Entitlement refresh failed (%s) - cache and grace ladder remain in effect", detail)
-    end
-    gEntitlements.lastError = detail
-    updateLicenseProperties()
-  end)
+      persist:set(ENTITLEMENT_CACHE_KEY, {
+        fetched_at = os.time(),
+        checked_at = fieldOrEmpty(body.checked_at),
+        support_id = fieldOrEmpty(body.support_id),
+        revalidate_hours = tonumber(body.revalidate_after_hours) or 24,
+        cache_days = tonumber(body.offline_cache_days) or 7,
+        verified = secret ~= "",
+        assertions = assertions,
+        enforcement = enforcement,
+        -- Account-level display config (#3), unsigned like enforcement mode.
+        subscription_in_grace = body.subscription_in_grace == true,
+      }, true)
+      if fieldOrEmpty(body.support_id) ~= "" then
+        persist:set(SUPPORT_ID_KEY, body.support_id)
+      end
+      -- The tier + company the platform re-resolves each refresh. Blank means
+      -- "could not confirm"; keep the last known rather than blanking a paid
+      -- customer's display (mirrors the pairing path).
+      if fieldOrEmpty(body.subscription_tier) ~= "" then
+        persist:set(SUBSCRIPTION_TIER_KEY, body.subscription_tier)
+      end
+      if fieldOrEmpty(body.company_name) ~= "" then
+        persist:set(COMPANY_NAME_KEY, body.company_name)
+      end
+      gEntitlements.lastError = ""
+      gEntitlements.verifyWarned = {}
+      noteClockSkew(fieldOrEmpty(body.checked_at))
+      local count = 0
+      for _ in pairs(assertions) do
+        count = count + 1
+      end
+      log:info(
+        "Entitlements refreshed: %d assertion(s)%s",
+        count,
+        secret == "" and " (unsigned - pre-Phase-5 pairing, re-pair to enable signing)" or ""
+      )
+      updateLicenseProperties()
+      pushEntitlements()
+    end, function(err)
+      gEntitlements.inFlight = false
+      local detail = tostring(err and (err.error or err.code) or err)
+      -- An unreachable cloud is a CONNECTION condition, never a licensing
+      -- one: the cache and its grace ladder carry the answers (fail-secure
+      -- but an outage must never dark a home).
+      if gEntitlements.lastError == "" then
+        log:warn("Entitlement refresh failed (%s) - cache and grace ladder remain in effect", detail)
+      end
+      gEntitlements.lastError = detail
+      updateLicenseProperties()
+    end)
 end
 
 --- The hourly tick: refresh only once the cache is older than the server's
@@ -9137,6 +9148,7 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   end
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   local now = os.date("%Y-%m-%d %H:%M:%S")
+  local newInstallation = inventory[sku] == nil
   local entry = inventory[sku] or { registered_at = now }
   entry.version = tostring(tParams.version or "")
   entry.device_id = requester
@@ -9154,8 +9166,10 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   -- a Director restart registers everybody at once, and one refresh serves
   -- them all).
   local cache = entitlementCache()
-  if isPaired() and (cache == nil or cache.assertions[sku] == nil) and os.time() - gEntitlements.lastAttempt > 300 then
-    refreshEntitlements("new driver " .. sku)
+  if isPaired() and (newInstallation or cache == nil or cache.assertions[sku] == nil) then
+    SetTimer("NewDriverEntitlement", 10 * ONE_SECOND, function()
+      refreshEntitlements("driver inventory changed")
+    end, false)
   end
 end
 
@@ -9180,22 +9194,27 @@ local function cloudProvisioningAllowed(status)
     or status == "TRIAL"
 end
 
---- Exchanges the Agent's paired-controller bearer for a capability restricted
---- to one controller, one catalog SKU and the driver's current app token. The
---- dependent driver then publishes its own state over outbound HTTPS, avoiding
---- the inter-driver CreateServer path that hangs on CORE hardware.
 --- System Link: the bridge asks for its endpoint credential. The Agent trades
 --- its controller bearer for a credential scoped to ONE endpoint at ONE
 --- generation (platform: /api/driver-cloud/system-link/provision) and hands
 --- the whole provision document back as JSON. The bearer never leaves here.
 --- A request from an unlicensed bridge is still answered: provisioning is
 --- how the bridge learns whether a link exists at all.
-gSystemLinkProvisioning = gSystemLinkProvisioning or false
+local gSystemLinkProvisioning = false
 function EC.SBOS_LINK_PROVISION_REQUEST(tParams)
   tParams = tParams or {}
   local requester = tonumber(tParams.requester)
   local requestId = tostring(tParams.request_id or "")
   if requester == nil or #requestId < 8 or #requestId > 128 or requestId:find("^[%w%-]+$") == nil or not isPaired() then
+    return
+  end
+  local bridgeFound = false
+  for id in pairs(C4:GetDevicesByC4iName("smartbuildos-system-link.c4z") or {}) do
+    if tonumber(id) == requester then
+      bridgeFound = true
+    end
+  end
+  if not bridgeFound then
     return
   end
   if gSystemLinkProvisioning then
@@ -9251,6 +9270,10 @@ function EC.SBOS_LINK_PROVISION_REQUEST(tParams)
     end)
 end
 
+--- Exchanges the Agent's paired-controller bearer for a capability restricted
+--- to one controller, one catalog SKU and the driver's current app token. The
+--- dependent driver then publishes its own state over outbound HTTPS, avoiding
+--- the inter-driver CreateServer path that hangs on CORE hardware.
 function EC.SBOS_DRIVER_CLOUD_REQUEST(tParams)
   tParams = tParams or {}
   local sku = tostring(tParams.sku or "")

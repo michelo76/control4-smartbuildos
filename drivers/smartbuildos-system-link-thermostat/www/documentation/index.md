@@ -26,22 +26,22 @@ Temperature is the smaller tool.
 ## Setup
 
 <!-- walkthrough: Add a linked thermostat -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
-   to `thermostat`, pick the thermostat in **Export Device**, fill in
-   **Export Name**, set **Export Control** to `Control allowed` if this project
-   is to change it, and run *Export Selected Device*. If the licence lacks
+   to `thermostat`, pick the thermostat in **Export Device**, fill in **Export
+   Name**, set **Export Control** to `Control allowed` if this project is to
+   change it, and run *Export Selected Device*. If the licence lacks
    `THERMOSTAT`, **Last Error** there says so.
 1. On this project, select SmartBuildOS System Link. **Pending Exports** lists
-   the export, for example `Hall_Stat (thermostat)`. Pick it in
-   **Pending Export** and run *Add Companion For Pending Export*. This driver is
-   added, linked to the export and named after it: `Hall_Stat` becomes "Hall
-   Stat". *Auto Setup* does the same for every pending export in one go.
+   the export, for example `Hall_Stat (thermostat)`. Pick it in **Pending
+   Export** and run *Add Companion For Pending Export*. This driver is added,
+   linked to the export and named after it: `Hall_Stat` becomes "Hall Stat".
+   *Auto Setup* does the same for every pending export in one go.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds thermostat exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** shows the thermostat, for example
-   `72°F · heat 68 · cool 76 · Heat`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** shows the thermostat, for example `72°F · heat 68 · cool 76 · Heat`.
 1. Move the thermostat to the room where it should appear.
 1. On the Actions tab press *Test: Heat Setpoint 68*. **Requested State** reads
    `heat 68` with the time, **Last Result** goes from `sent` to `accepted` to
@@ -54,11 +54,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | Temperature, heat setpoint, cool setpoint, HVAC mode, HVAC state (what the system is doing now), fan mode |
-| Here to the owner | Heat setpoint, cool setpoint, HVAC mode, fan mode |
-| Not carried | Humidity, a single setpoint, hold, presets and schedules, a change of scale, outdoor temperature, messages |
+| Direction         | What                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| Owner to here     | Temperature, heat setpoint, cool setpoint, HVAC mode, HVAC state (what the system is doing now), fan mode  |
+| Here to the owner | Heat setpoint, cool setpoint, HVAC mode, fan mode                                                          |
+| Not carried       | Humidity, a single setpoint, hold, presets and schedules, a change of scale, outdoor temperature, messages |
 
 The owner reads seven variables from its thermostat: the temperature, the two
 setpoints, `HVAC_MODE`, `HVAC_STATE`, `FAN_MODE` and `SCALE`. For the
@@ -81,16 +81,16 @@ up to that thermostat.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no thermostat export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: all seven values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's thermostat does not supply at least one of the seven |
-| **Control** | `control permitted` when the owner exported the thermostat with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now, by the owner's clock. `none` when there is no schedule. While it is closed a change is refused here without being sent: **Last Result** reads `refused: outside the control window` with the schedule, and *Control Refused* fires |
-| **Confirmed State** | The owner's last report: temperature, heat setpoint, cool setpoint and mode. A `?` stands for a value that did not arrive |
-| **Requested State** | The last request sent from here and when, for example `mode Cool at 18:04:10` |
-| **Last Result** | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the thermostat) or `failed:` with the reason, for example `failed: feature THERMOSTAT is not licensed` |
+| Property                | What it tells you                                                                                                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no thermostat export it says so and names what the link does carry                                                                                                                                                     |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                                                                                 |
+| **Freshness**           | `current`: all seven values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's thermostat does not supply at least one of the seven                                           |
+| **Control**             | `control permitted` when the owner exported the thermostat with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended`                                                                                                |
+| **Control Window**      | The owner's schedule for this export and whether it is open now, by the owner's clock. `none` when there is no schedule. While it is closed a change is refused here without being sent: **Last Result** reads `refused: outside the control window` with the schedule, and *Control Refused* fires |
+| **Confirmed State**     | The owner's last report: temperature, heat setpoint, cool setpoint and mode. A `?` stands for a value that did not arrive                                                                                                                                                                           |
+| **Requested State**     | The last request sent from here and when, for example `mode Cool at 18:04:10`                                                                                                                                                                                                                       |
+| **Last Result**         | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the thermostat) or `failed:` with the reason, for example `failed: feature THERMOSTAT is not licensed`                                                                                                       |
 
 ## Programming
 
@@ -103,10 +103,10 @@ are sent to the owner; the others do nothing. The driver adds these of its own:
   `current` or stopped being `current`), *Control Refused* (a request was
   refused; **Last Result** has the reason).
 - Conditional: *Remote Value Is Current*.
-- Actions: *Test: Heat Setpoint 68*, *Test: Cool Setpoint 76*,
-  *Test: Mode Heat*, *Test: Mode Off*, *Refresh From Bridge* (ask for the export
-  list and state again), *Rename From Export* (name the device after the export
-  even if you renamed it), *Print Diagnostics To Log*.
+- Actions: *Test: Heat Setpoint 68*, *Test: Cool Setpoint 76*, *Test: Mode
+  Heat*, *Test: Mode Off*, *Refresh From Bridge* (ask for the export list and
+  state again), *Rename From Export* (name the device after the export even if
+  you renamed it), *Print Diagnostics To Log*.
 
 It has no variables and no commands of its own. The export's values are also
 variables of SmartBuildOS System Link, named after the owner's alias and the
@@ -123,10 +123,9 @@ effect when **Confirmed State** shows `heat 62`.
 
 ### Do not act on an old reading
 
-Put any programming that reads this thermostat's temperature inside
-*Remote Value Is Current*. When the value is not current, the thermostat here
-keeps showing the last numbers it was told; this driver does not report it as
-lost.
+Put any programming that reads this thermostat's temperature inside *Remote
+Value Is Current*. When the value is not current, the thermostat here keeps
+showing the last numbers it was told; this driver does not report it as lost.
 
 ## Limits
 

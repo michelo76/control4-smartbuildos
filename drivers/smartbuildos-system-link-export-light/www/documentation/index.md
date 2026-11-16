@@ -8,10 +8,10 @@ project can switch the light.
 
 It is the sending half of a pair, and it does not present anything itself:
 
-| Driver | Goes in | What it does |
-| --- | --- | --- |
-| SmartBuildOS System Link Export Light (this one) | The project that has the real light (the owner) | Shares the light as an export |
-| SmartBuildOS System Link Light | The other project | Shows that export as a Control4 light |
+| Driver                                           | Goes in                                         | What it does                          |
+| ------------------------------------------------ | ----------------------------------------------- | ------------------------------------- |
+| SmartBuildOS System Link Export Light (this one) | The project that has the real light (the owner) | Shares the light as an export         |
+| SmartBuildOS System Link Light                   | The other project                               | Shows that export as a Control4 light |
 
 The same export can be made without this driver, from the **Device Exports**
 block of SmartBuildOS System Link. This driver exists because binding in
@@ -30,6 +30,7 @@ one that carries its state, never the hardware driver that shares its name.
 ## Setup
 
 <!-- walkthrough: Share a light -->
+
 1. Add this driver to the project that has the real light. Use one per light you
    want to share. **Export Status** reads
    `Bind the light to this driver's Light connection in Composer Connections`.
@@ -53,11 +54,11 @@ one that carries its state, never the hardware driver that shares its name.
 Once the export is registered, SmartBuildOS System Link does the work. This
 driver neither reads nor drives the light.
 
-| Direction | What |
-| --- | --- |
-| Here to the other project | On or off, and the level from 0 to 100, each time the light reports a change |
-| Other project to here, with `Control allowed` | On, off, and a level with a ramp time, limited to the operations you listed |
-| Not carried | Colour, presets, button and LED behaviour |
+| Direction                                     | What                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------- |
+| Here to the other project                     | On or off, and the level from 0 to 100, each time the light reports a change |
+| Other project to here, with `Control allowed` | On, off, and a level with a ramp time, limited to the operations you listed  |
+| Not carried                                   | Colour, presets, button and LED behaviour                                    |
 
 On the other project the two values appear as the variables `<Alias>.<Name>_On`
 and `<Alias>.<Name>_Level`, where the alias is this project's name on the link.
@@ -68,18 +69,18 @@ ramp command.
 
 ## Reading the status
 
-| **Export Status** | Meaning |
-| --- | --- |
-| `Bind the light to this driver's Light connection in Composer Connections` | Nothing is bound yet |
-| `No SmartBuildOS System Link found in this project` | Add SmartBuildOS System Link first |
-| `Fill in Export Name` | The light's name gave nothing usable; type a name |
-| `Registering … with the bridge…` | Sent, no answer yet. If it stays, SmartBuildOS System Link did not answer |
-| `Exported as … (exported)` | The export was created |
-| `Exported as … (already exported)` | The same light was already exported under this name; nothing changed |
-| `Refused: …` | SmartBuildOS System Link turned it down. `link is not provisioned yet`: finish linking the two projects. A message about variables: the bound device is not a light |
-| `Unbound — export removed` | The binding was removed and the export with it |
-| `Export … removed` | *Remove Export* was run |
-| `Nothing exported yet` | *Remove Export* was run with nothing to remove |
+| **Export Status**                                                          | Meaning                                                                                                                                                             |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Bind the light to this driver's Light connection in Composer Connections` | Nothing is bound yet                                                                                                                                                |
+| `No SmartBuildOS System Link found in this project`                        | Add SmartBuildOS System Link first                                                                                                                                  |
+| `Fill in Export Name`                                                      | The light's name gave nothing usable; type a name                                                                                                                   |
+| `Registering … with the bridge…`                                           | Sent, no answer yet. If it stays, SmartBuildOS System Link did not answer                                                                                           |
+| `Exported as … (exported)`                                                 | The export was created                                                                                                                                              |
+| `Exported as … (already exported)`                                         | The same light was already exported under this name; nothing changed                                                                                                |
+| `Refused: …`                                                               | SmartBuildOS System Link turned it down. `link is not provisioned yet`: finish linking the two projects. A message about variables: the bound device is not a light |
+| `Unbound — export removed`                                                 | The binding was removed and the export with it                                                                                                                      |
+| `Export … removed`                                                         | *Remove Export* was run                                                                                                                                             |
+| `Nothing exported yet`                                                     | *Remove Export* was run with nothing to remove                                                                                                                      |
 
 ## Programming
 
@@ -88,9 +89,9 @@ actions:
 
 - *Register Export* sends the registration again.
 - *Remove Export* stops sharing the light. The binding stays, so the light is
-  shared again at the next *Register Export*, the next change to
-  **Export Name**, **Export Control** or **Export Operations**, or the next
-  start of the driver. To stop for good, unbind the light or delete the driver.
+  shared again at the next *Register Export*, the next change to **Export
+  Name**, **Export Control** or **Export Operations**, or the next start of the
+  driver. To stop for good, unbind the light or delete the driver.
 
 ## Examples
 
@@ -102,9 +103,9 @@ but cannot switch: a tap there comes back as a refusal.
 
 ### Give control later
 
-Set **Export Control** to `Control allowed`, run *Remove Export*, then
-*Register Export*. Changing **Export Control** or **Export Operations** on an
-export that already exists does not change it: SmartBuildOS System Link answers
+Set **Export Control** to `Control allowed`, run *Remove Export*, then *Register
+Export*. Changing **Export Control** or **Export Operations** on an export that
+already exists does not change it: SmartBuildOS System Link answers
 `already exported` and keeps the old setting. Removing and registering creates
 the export again, so check the linked light on the other project afterwards.
 

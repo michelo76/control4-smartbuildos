@@ -24,6 +24,7 @@ programming no way to lock or unlock.
 ## Setup
 
 <!-- walkthrough: Add a linked lock -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `lock`, pick the lock in **Export Device**, fill in **Export Name**, leave
    **Export Control** on `View only`, and run *Export Selected Device*.
@@ -35,8 +36,8 @@ programming no way to lock or unlock.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds lock exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** reads `Locked` or `Unlocked`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** reads `Locked` or `Unlocked`.
 1. Lock and unlock the door on the owner's side and watch **Confirmed State**
    follow.
 
@@ -46,11 +47,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | Locked or unlocked |
-| Here to the owner | Only the two Test actions: lock, unlock |
-| Not carried | Who locked or unlocked it, codes and users, battery, jammed or other fault states, history |
+| Direction         | What                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| Owner to here     | Locked or unlocked                                                                         |
+| Here to the owner | Only the two Test actions: lock, unlock                                                    |
+| Not carried       | Who locked or unlocked it, codes and users, battery, jammed or other fault states, history |
 
 The owner reads the lock's status variable (`LOCK_STATUS`, `LOCK STATUS`,
 `LOCKED`, `LOCK_STATE` or `LOCKSTATE`, whichever the device has). It understands
@@ -68,24 +69,24 @@ run *Allow Unlock For Selected Export*. That action is itself refused while
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no lock export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's lock supplies nothing that reads as locked or unlocked |
-| **Control** | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now. `none` when there is no schedule |
-| **Confirmed State** | `Locked`, `Unlocked` or `unavailable` |
-| **Requested State** | The last Test request and when |
-| **Last Result** | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason: `export is view-only`, `feature LOCK is not licensed`, or `unlock requires Allow Unlock on this export, set on purpose by the owner` |
+| Property                | What it tells you                                                                                                                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no lock export it says so and names what the link does carry                                                                                                             |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                                   |
+| **Freshness**           | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's lock supplies nothing that reads as locked or unlocked |
+| **Control**             | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended`                                                                                                              |
+| **Control Window**      | The owner's schedule for this export and whether it is open now. `none` when there is no schedule                                                                                                                                                     |
+| **Confirmed State**     | `Locked`, `Unlocked` or `unavailable`                                                                                                                                                                                                                 |
+| **Requested State**     | The last Test request and when                                                                                                                                                                                                                        |
+| **Last Result**         | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason: `export is view-only`, `feature LOCK is not licensed`, or `unlock requires Allow Unlock on this export, set on purpose by the owner`                                       |
 
 ## Programming
 
 - Variable: `Locked` (Boolean, read-only).
-- Events: *Remote Locked*, *Remote Unlocked*, *Remote Value Current* and
-  *Remote Value Stale* (**Freshness** became `current` or stopped being
-  `current`), *Control Refused* (a Test request was refused; **Last Result** has
-  the reason).
+- Events: *Remote Locked*, *Remote Unlocked*, *Remote Value Current* and *Remote
+  Value Stale* (**Freshness** became `current` or stopped being `current`),
+  *Control Refused* (a Test request was refused; **Last Result** has the
+  reason).
 - Conditionals: *Remote Lock Is Locked*, *Remote Value Is Current*.
 - Actions: *Test: Remote Lock*, *Test: Remote Unlock*, *Refresh From Bridge*
   (ask for the export list and state again), *Rename From Export* (name the
