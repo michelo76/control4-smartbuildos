@@ -71,6 +71,18 @@ function Queue:enqueue(job)
   self:_pump()
 end
 
+--- Removes the waiting job with this key, silently: the caller settles what
+--- the job stood for. Returns true when a job was waiting.
+function Queue:drop(key)
+  for i, job in ipairs(self.waiting) do
+    if job.key == key then
+      table.remove(self.waiting, i)
+      return true
+    end
+  end
+  return false
+end
+
 --- Drops everything still waiting (used when a configuration is replaced).
 function Queue:clear()
   local dropped = self.waiting

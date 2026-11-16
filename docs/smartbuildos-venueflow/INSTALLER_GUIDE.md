@@ -116,6 +116,11 @@ minimum, maximum and default volume, presets).
   mode) and then read the room back. They warn first: a test interrupts what
   the display is showing. A test is "confirmed" only when Control4 reports
   the change.
+- **A sample venue cannot be tested in Live mode.** Its Control4 ids are
+  invented and could belong to real devices in the project, so with a sample
+  in the draft every test, Query Status included, answers "simulation only".
+  Map the real devices (Setup Wizard with a template), or go back to
+  Simulation.
 
 In Simulation the tests run against the simulator, which is how to learn the
 tool; they prove nothing about the venue.

@@ -500,6 +500,181 @@ eq(
   "America/New_York"
 )
 
+-- A sample left in the DRAFT is as invented as a published one: in Live its
+-- mapping tests must not reach the project (reviewer finding on PR #40).
+do
+  local calls = {}
+  local function rec(name)
+    return function(...)
+      calls[#calls + 1] = { name, ... }
+      return true
+    end
+  end
+  local sampleEnv = H.new({
+    liveAdapter = function()
+      return {
+        simulation = false,
+        selectVideo = rec("selectVideo"),
+        selectAudio = rec("selectAudio"),
+        roomOff = rec("roomOff"),
+        setVolume = rec("setVolume"),
+        setMute = rec("setMute"),
+        devicePower = rec("devicePower"),
+        deviceCommand = rec("deviceCommand"),
+        readRoom = function(...)
+          calls[#calls + 1] = { "readRoom", ... }
+          return nil
+        end,
+        deviceOnline = function(...)
+          calls[#calls + 1] = { "deviceOnline", ... }
+          return nil
+        end,
+        watchRooms = function() end,
+        readVariable = function()
+          return nil
+        end,
+        watchVariable = function()
+          return false, "variable not found"
+        end,
+        unwatchVariables = function() end,
+        listDevices = function()
+          return {}
+        end,
+        timeZone = function()
+          return "America/New_York"
+        end,
+      }
+    end,
+  })
+  local ss = { session = sampleEnv.studio() }
+  check(
+    "a sample is loaded into the draft in Simulation",
+    sampleEnv.send("TEMPLATE_APPLY", { venueType = "sports_bar", sample = true, confirm = true }, ss).ok
+  )
+  eq(
+    "in Simulation the sample draft can be test-driven",
+    sampleEnv.send("TEST_DEVICE", { test = "power_off", displayId = "tv-01", confirm = true }, ss).ok,
+    true
+  )
+  sampleEnv.mode = "live"
+  sampleEnv.core:modeChanged()
+  check(
+    "the sample draft is still there after the switch to Live",
+    sampleEnv.send("DRAFT_GET", {}, ss).data.draft.config.venue.sample == true
+  )
+  calls = {}
+  for _, t in ipairs({
+    { test = "power_off", displayId = "tv-01", confirm = true },
+    { test = "power_on", displayId = "tv-01", sourceId = "sports-1", confirm = true },
+    { test = "route", displayId = "tv-01", sourceId = "sports-2", confirm = true },
+    { test = "source", zoneId = "zone-bar", sourceId = "music", confirm = true },
+    { test = "status", displayId = "tv-01" },
+  }) do
+    eq(
+      "Live refuses test " .. t.test .. " on a sample draft",
+      sampleEnv.send("TEST_DEVICE", t, ss).errorCode,
+      "VF_SIMULATION_ONLY"
+    )
+  end
+  sampleEnv.settle(6000)
+  eq("...and nothing was read from or sent to the project", #calls, 0)
+  -- The same draft, once it is the real venue, is testable in Live.
+  local draft = sampleEnv.send("DRAFT_GET", {}, ss).data.draft
+  draft.config.venue.sample = nil
+  check(
+    "the real venue is saved",
+    sampleEnv.send("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, ss).ok
+  )
+  calls = {}
+  check(
+    "Live runs a mapping test on a draft that is not a sample",
+    sampleEnv.send("TEST_DEVICE", { test = "power_off", displayId = "tv-01", confirm = true }, ss).ok
+  )
+  local sent = nil
+  for _, c in ipairs(calls) do
+    if c[1] == "roomOff" then
+      sent = c[2]
+    end
+  end
+  eq("...and it reaches the mapped room", sent, 1101)
+end
+
+-- ── retained state and a changed mapping ───────────────────────────────────
+-- Reviewer finding on PR #40: state was kept by id alone, so a display
+-- remapped to other hardware kept the old hardware's confirmed readings.
+print("state across a publish")
+do
+  local State = require("venueflow.state")
+  local st = State.new({
+    now = function()
+      return 1
+    end,
+  })
+  local function cfg(room, feedback)
+    return {
+      displays = {
+        { id = "a", c4RoomId = room, c4DeviceId = 2101, feedback = feedback or "room", power = "room" },
+        { id = "b", c4RoomId = 1102, c4DeviceId = 2102, feedback = "room", power = "room" },
+      },
+      audioZones = { { id = "z", c4RoomId = 1201, feedback = "room" } },
+      lighting = {},
+      shades = {},
+    }
+  end
+  st:reset(cfg(1101))
+  st:set("display", "a", "source", "sports-1", "confirmed")
+  st:set("display", "b", "source", "sports-2", "confirmed")
+  st:set("zone", "z", "volume", 40, "confirmed")
+  st:reset(cfg(1101))
+  eq("the same mapping published again keeps what was known", st:cell("display", "a", "source").value, "sports-1")
+  eq("...and the last source", st.lastSource.a, "sports-1")
+  st:reset(cfg(1199))
+  eq("a display mapped to another room starts again as unknown", st:cell("display", "a", "source").status, "unknown")
+  eq("...with no value carried over", st:cell("display", "a", "source").value, nil)
+  eq("...and no remembered last source", st.lastSource.a, nil)
+  eq("a display whose mapping did not change keeps its reading", st:cell("display", "b", "source").value, "sports-2")
+  eq("...and so does a zone", st:cell("zone", "z", "volume").value, 40)
+  st:set("display", "a", "power", "on", "confirmed")
+  st:reset(cfg(1199, "none"))
+  eq("a changed feedback setting also starts the display again", st:cell("display", "a", "power").status, "unknown")
+  local renamed = cfg(1199, "none")
+  renamed.displays[2].name = "Renamed"
+  st:reset(renamed)
+  eq("a change that is not about hardware keeps the reading", st:cell("display", "b", "source").value, "sports-2")
+
+  -- Through the driver: remap a display whose new room gives no feedback.
+  local e = H.new()
+  local ss = { session = e.publishSample("sports_bar") }
+  e.send("ROUTE_VIDEO", { sourceId = "sports-1", displayIds = { "tv-01", "tv-02" } }, ss)
+  e.settle(8000)
+  eq("before the remap tv-01 is confirmed on its source", e.cell("display", "tv-01", "source").status, "confirmed")
+  local draft = e.send("DRAFT_GET", {}, ss).data.draft
+  for _, d in ipairs(draft.config.displays) do
+    if d.id == "tv-01" then
+      d.c4RoomId = 1999
+      d.feedback = "none"
+    end
+  end
+  check(
+    "the remapped venue is saved",
+    e.send("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, ss).ok
+  )
+  local acks = {}
+  for _, i in ipairs(e.send("DRAFT_GET", {}, ss).data.draft.issues) do
+    acks[#acks + 1] = i.id
+  end
+  check("...and published", e.send("PUBLISH", { acknowledged = acks }, ss).ok)
+  e.settle(3000)
+  eq(
+    "after the remap tv-01 is unknown, not confirmed on the old room's reading",
+    e.cell("display", "tv-01", "source").status,
+    "unknown"
+  )
+  eq("...with no source shown", e.cell("display", "tv-01", "source").value, nil)
+  eq("...and unknown power", e.cell("display", "tv-01", "power").status, "unknown")
+  eq("the display beside it, not remapped, is still confirmed", e.cell("display", "tv-02", "source").value, "sports-1")
+end
+
 -- ── the diagnostic log ──────────────────────────────────────────────────────
 print("diagnostic log")
 local d = Diag.new({

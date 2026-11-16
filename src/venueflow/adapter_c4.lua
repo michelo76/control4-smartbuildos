@@ -50,7 +50,62 @@ function M.new(deps)
   local log = deps.log
   local A = { simulation = false }
   local watchedRooms = {}
-  local watchedVars = {}
+
+  -- One callback per device/variable pair, however many things here want to
+  -- hear it. The house wrapper (and Director behind it) keeps a single
+  -- callback per pair, so a second registration REPLACES the first: two rules
+  -- on one variable would leave only the last one firing, and a rule on a
+  -- mapped room's variable would silence that room's feedback. Each pair has
+  -- one slot: the room-feedback subscriber (at most one) and the rule
+  -- subscribers, all called from the slot's single registered callback.
+  --
+  -- The pair is still registered once per subscriber, as it always was, with
+  -- that same callback: the API documentation says a listener is called with
+  -- the current value as soon as it is set, and a rule that starts watching
+  -- should get that call whether it is the first on its variable or not.
+  -- (Earlier subscribers hear it again; the rule cool-down absorbs that.)
+  local slots = {} -- [deviceId][variableId] = { room = fn | nil, rules = { fn, ... }, dispatch = fn }
+
+  local function slotFor(deviceId, variableId)
+    slots[deviceId] = slots[deviceId] or {}
+    local slot = slots[deviceId][variableId]
+    if slot == nil then
+      slot = { rules = {} }
+      slot.dispatch = function(_, _, value)
+        if slot.room ~= nil then
+          pcall(slot.room)
+        end
+        -- A copy: a rule's action may republish and change the list mid-walk.
+        local rules = {}
+        for i, fn in ipairs(slot.rules) do
+          rules[i] = fn
+        end
+        for _, fn in ipairs(rules) do
+          pcall(fn, value)
+        end
+      end
+      slots[deviceId][variableId] = slot
+    end
+    return slot
+  end
+
+  --- (Re)registers the pair with its slot's callback. Call AFTER adding the
+  --- subscriber, so a call made during registration reaches it.
+  local function listen(deviceId, variableId)
+    pcall(deps.register, deviceId, variableId, slotFor(deviceId, variableId).dispatch)
+  end
+
+  --- Drops the Control4 listener once nothing here listens to the pair.
+  local function releaseIfIdle(deviceId, variableId)
+    local slot = slots[deviceId] and slots[deviceId][variableId]
+    if slot ~= nil and slot.room == nil and #slot.rules == 0 then
+      pcall(deps.unregister, deviceId, variableId)
+      slots[deviceId][variableId] = nil
+      if next(slots[deviceId]) == nil then
+        slots[deviceId] = nil
+      end
+    end
+  end
 
   local function send(deviceId, command, params)
     if type(deviceId) ~= "number" then
@@ -140,7 +195,11 @@ function M.new(deps)
   function A.watchRooms(roomIds, callback)
     for roomId in pairs(watchedRooms) do
       for _, name in ipairs(WATCHED) do
-        pcall(deps.unregister, roomId, M.ROOM_VARS[name])
+        local slot = slots[roomId] and slots[roomId][M.ROOM_VARS[name]]
+        if slot ~= nil then
+          slot.room = nil
+          releaseIfIdle(roomId, M.ROOM_VARS[name])
+        end
       end
     end
     watchedRooms = {}
@@ -148,9 +207,10 @@ function M.new(deps)
       if type(roomId) == "number" and not watchedRooms[roomId] then
         watchedRooms[roomId] = true
         for _, name in ipairs(WATCHED) do
-          pcall(deps.register, roomId, M.ROOM_VARS[name], function()
+          slotFor(roomId, M.ROOM_VARS[name]).room = function()
             pcall(callback, roomId)
-          end)
+          end
+          listen(roomId, M.ROOM_VARS[name])
         end
       end
     end
@@ -192,18 +252,28 @@ function M.new(deps)
     if entry == nil or entry.id == nil then
       return false, "variable not found"
     end
-    watchedVars[#watchedVars + 1] = { deviceId, entry.id }
-    pcall(deps.register, deviceId, entry.id, function(_, _, value)
+    local rules = slotFor(deviceId, entry.id).rules
+    rules[#rules + 1] = function(value)
       pcall(callback, deviceId, name, value)
-    end)
+    end
+    listen(deviceId, entry.id)
     return true
   end
 
+  --- Ends every rule's watch. Room feedback on the same pairs keeps listening.
   function A.unwatchVariables()
-    for _, pair in ipairs(watchedVars) do
-      pcall(deps.unregister, pair[1], pair[2])
+    local pairsToCheck = {}
+    for deviceId, byVariable in pairs(slots) do
+      for variableId, slot in pairs(byVariable) do
+        if #slot.rules > 0 then
+          slot.rules = {}
+          pairsToCheck[#pairsToCheck + 1] = { deviceId, variableId }
+        end
+      end
     end
-    watchedVars = {}
+    for _, pair in ipairs(pairsToCheck) do
+      releaseIfIdle(pair[1], pair[2])
+    end
   end
 
   --- Every project device as { id, name, room, roomId, driverFile, proxies }.

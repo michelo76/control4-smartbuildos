@@ -14,6 +14,14 @@
 ---   * a long gap in REAL time (driver stopped, controller off) is not caught
 ---     up: opening a venue's AV three hours late is worse than not at all.
 ---     Those schedules are reported as missed.
+---
+--- The comparison needs a "previous" moment. A scheduler that waited for its
+--- first tick to get one would skip whatever fell due before that tick: a
+--- driver started at 10:59:50 would let 11:00 pass. So the baseline is set
+--- when the scheduler is installed (prime). A scheduler that replaces a
+--- running one (a publish) takes over ITS baseline, so the seconds between
+--- the last tick and the publish are not lost either. Downtime is still not
+--- replayed: a fresh start's baseline is the moment of the start.
 
 local U = require("venueflow.util")
 
@@ -45,6 +53,13 @@ local function moment(deps, epoch)
   }
 end
 M.moment = moment
+
+--- Sets the moment the next tick compares with: `baseline` (the previous
+--- scheduler's, when one was running) or now.
+function Scheduler:prime(baseline)
+  self.prev = baseline or moment(self.deps, self.deps.now())
+  return self.prev
+end
 
 --- Rules due between two local moments on the same date: time in (from, to].
 local function dueBetween(rules, fromMinute, toMinute, weekday)

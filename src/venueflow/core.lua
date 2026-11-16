@@ -155,6 +155,24 @@ function M.new(deps)
     onUpdate = function(exec)
       self:_executionUpdated(exec)
     end,
+    cancelPending = function(exec, reason, by)
+      local stopped = self.tracker:cancelExecution(exec.id, reason, "stopped before it was sent")
+      if stopped > 0 then
+        self.diag:add(
+          "info",
+          "scene",
+          nil,
+          string.format(
+            "'%s' was stopped (%s): %d queued command%s not sent",
+            tostring(exec.name),
+            tostring(by or reason),
+            stopped,
+            stopped == 1 and "" or "s"
+          ),
+          { execution = exec.id }
+        )
+      end
+    end,
     onSceneRun = function(scene, exec)
       self:_fireRules(function(rule)
         return rule.trigger.type == "scene_activated" and rule.trigger.sceneId == scene.id
@@ -366,6 +384,9 @@ function Core:load(reason)
       end
     end
   end
+  -- What the scheduler being replaced last compared with (nil on a start, or
+  -- when schedules were paused): see Scheduler:prime.
+  local scheduleBaseline = self.scheduler and self.scheduler.prev or nil
   self.scheduler = Scheduler.new({
     now = deps.now,
     localtime = deps.localtime,
@@ -394,6 +415,7 @@ function Core:load(reason)
       self:_saveRuntimeSoon()
     end,
   })
+  self.scheduler:prime(scheduleBaseline)
   self:refreshAll()
   self:_checkOnline()
   self.diag:add(
@@ -1125,6 +1147,58 @@ function Core:_derivedAlerts(access)
   return out
 end
 
+--- An operation as one profile may see it: only the targets in `visible`
+--- ("kind:id" -> true), with the counts recomputed over those, so nothing
+--- about a display or zone outside the profile's access is told, not even
+--- how many there were. nil when the profile can see none of it.
+local function visibleOperation(op, visible, includeDetail)
+  local pub = Tracker.publicOp(op, includeDetail)
+  local targets = {}
+  for _, t in ipairs(pub.targets) do
+    if visible[t.kind .. ":" .. t.id] then
+      targets[#targets + 1] = t
+    end
+  end
+  if #targets == 0 then
+    return nil
+  end
+  if #targets ~= #pub.targets then
+    pub.targets = targets
+    pub.summary = Tracker.summarize({ targets = targets })
+  end
+  return pub
+end
+
+--- "kind:id" -> true for everything this access may see in the published venue.
+function Core:_visibleEntities(access)
+  local visible = {}
+  local config = self.config
+  if config == nil then
+    return visible
+  end
+  for _, d in ipairs(config.displays) do
+    if access:display(d) then
+      visible["display:" .. d.id] = true
+    end
+  end
+  for _, z in ipairs(config.audioZones) do
+    if access:zone(z) then
+      visible["zone:" .. z.id] = true
+    end
+  end
+  for _, l in ipairs(config.lighting) do
+    if access:lightingControl(l) then
+      visible["lighting:" .. l.id] = true
+    end
+  end
+  for _, sh in ipairs(config.shades) do
+    if access:shade(sh) then
+      visible["shade:" .. sh.id] = true
+    end
+  end
+  return visible
+end
+
 function Core:operatorState(access)
   local config = self.config
   local doc = {
@@ -1218,15 +1292,8 @@ function Core:operatorState(access)
     if #doc.operations >= 8 then
       break
     end
-    local pub = Tracker.publicOp(op, false)
-    local targets = {}
-    for _, t in ipairs(pub.targets) do
-      if visible[t.kind .. ":" .. t.id] then
-        targets[#targets + 1] = t
-      end
-    end
-    if #targets > 0 then
-      pub.targets = targets
+    local pub = visibleOperation(op, visible, false)
+    if pub ~= nil then
       doc.operations[#doc.operations + 1] = pub
     end
   end
@@ -1731,7 +1798,18 @@ function H.OPERATION_GET(core, p, ctx)
   if op == nil then
     return fail("VF_NOT_FOUND", "unknown operation")
   end
-  return { ok = true, status = "ok", data = { operation = Tracker.publicOp(op, ctx.installer) } }
+  if ctx.installer then
+    return { ok = true, status = "ok", data = { operation = Tracker.publicOp(op, true) } }
+  end
+  -- Operation ids are sequential (op1, op2 ...), so anyone signed in can ask
+  -- for any of them. A profile gets the targets it may see, as in the state
+  -- document, and an operation it can see nothing of answers exactly like
+  -- one that does not exist.
+  local pub = visibleOperation(op, core:_visibleEntities(ctx.access), false)
+  if pub == nil then
+    return fail("VF_NOT_FOUND", "unknown operation")
+  end
+  return { ok = true, status = "ok", data = { operation = pub } }
 end
 
 -- installer -------------------------------------------------------------------
@@ -2172,6 +2250,16 @@ function H.TEST_DEVICE(core, p)
   local config = draft and draft.config or core.config
   if config == nil then
     return fail("VF_NOT_FOUND", "nothing to test yet")
+  end
+  -- A sample venue's Control4 ids are invented. Core:load refuses to run a
+  -- published sample in Live, and the same holds for a sample still sitting
+  -- in the draft: in Live those ids could name real rooms and devices, so
+  -- nothing is read from them or sent to them, "status" included.
+  if not core:simulation() and type(config.venue) == "table" and config.venue.sample == true then
+    return fail(
+      "VF_SIMULATION_ONLY",
+      "this is a sample venue with invented Control4 ids; map the real devices, or return to Simulation"
+    )
   end
   local display = p.displayId and findIn(config.displays, p.displayId) or nil
   local zone = p.zoneId and findIn(config.audioZones, p.zoneId) or nil
