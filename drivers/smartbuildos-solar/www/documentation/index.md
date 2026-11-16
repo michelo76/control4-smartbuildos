@@ -42,7 +42,7 @@ the Scheduler cannot know.
 | You want | Use |
 | --- | --- |
 | Shades that come down only while the sun is on that glass, all year, with no seasonal edits | *Sun Hits Facade* and *Sun Leaves Facade* |
-| The same for glass under an overhang or a balcony, where a high sun never gets in | **Facade Max Elevation** |
+| The same for glass under an overhang or a balcony, where a high sun never gets in | **Facade N Max Elevation** |
 | A light that comes on with motion only when it is dark | The conditional *It is night*, or *The sun is up* |
 | Exterior lights on at sunset and off once it is properly light | *Sunset* and *Morning Golden Hour Ended* |
 | A scene when it is actually dark, not just after sunset | *Night Began* |
@@ -105,7 +105,7 @@ Near midsummer the sun stands almost overhead at noon. It is in front of the
 south glass and puts next to nothing through it, and an overhang or a balcony
 above cuts it off completely. With no ceiling the driver would still say "sun".
 
-Set **Facade Max Elevation** to the angle above which the glass is in shadow.
+Set **Facade N Max Elevation** (N is the facade's number) to the angle above which the glass is in shadow.
 For an overhang: measure how far it sticks out, and the height from the bottom
 of the glass up to its underside.
 
@@ -339,7 +339,8 @@ right the moment the controller restarts.
   `DAY_PHASE`, `NEXT_SUNRISE`, `NEXT_SUNSET` (local HH:MM),
   `MINUTES_TO_SUNSET`, `MINUTES_TO_SUNRISE`, `SUN_ON_FACADE_1..4`,
   `LOCATION_SOURCE`.
-- Command: *Recompute Sun* (also runs every minute).
+- Command: `RECOMPUTE_SUN` recomputes the sun and the facades now (it also
+  runs every minute).
 
 ## Actions
 

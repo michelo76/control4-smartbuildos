@@ -21,6 +21,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **A full manual for every driver.** The other 40 drivers now have the
+  same kind of manual as the Notification Router and Solar Position: what
+  the driver is for and a table of use cases, where the stock way is still
+  the right tool, setup as a walkthrough, how it behaves, worked examples
+  that name the exact event, conditional, variable or command, a programming
+  reference, how to read the status, and what is not claimed. Each was
+  written from the driver's code and tests, not from the old page, and every
+  name was checked against `driver.xml`. Where the code and the old manual
+  disagreed the manual now follows the code (the camera's snapshots and PTZ,
+  the Agent as an agent and not a project driver, commands by their real
+  names, limits and defaults), and behaviour that surprised us is written
+  down as it is, under the section it affects.
 - **Solar Position: a ceiling per facade.** `Facade N Max Elevation` (90 =
   no limit) is the highest sun that still counts, for glass under an
   overhang or a balcony and for the midsummer sun that stands in front of
@@ -117,6 +129,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **Sunrise and sunset use the site's day, not the UTC day** (Atmosphere and
+  Solar Position, `src/atmosphere/solar.lua`). In a western evening the UTC
+  date has already turned, and the driver answered with tomorrow's sun: at
+  34°N 118°W in June `IS_DAYTIME` went false at 17:00 against a 20:06
+  sunset, `MINUTES_TO_SUNSET` read a day too long and *Sunset Approaching*
+  never fired. In an eastern morning it answered with yesterday's, and the
+  next sunrise could be in the past. The next sunrise and sunset are now
+  searched over the days around today, so they are also right for a driver
+  pointed at coordinates far from its controller.
 - **Solar Position: `MINUTES_TO_SUNSET` and `MINUTES_TO_SUNRISE` never skip
   a number.** The value is a floor on a 60-second tick, so a few
   milliseconds of drift could take it from 31 straight to 29 and programming
