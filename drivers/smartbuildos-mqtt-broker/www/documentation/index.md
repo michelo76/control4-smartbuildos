@@ -69,6 +69,9 @@ simpler.
 5. On the child, **Broker Link** should read *Connected*, and **Last Message**
    and **Current State** follow the first message. Retained messages arrive at
    once, so a device that published its state earlier shows it immediately.
+   The same holds after a child driver is updated or reloaded: the Broker
+   driver asks the broker for that child's topics again, and the retained
+   state comes back.
 6. Put the child in a room as usual.
 
 ## Choosing topics

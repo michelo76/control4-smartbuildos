@@ -102,6 +102,13 @@ was, except that an item that was being tested goes back to "not tested".
 **Abort this run** closes the run and keeps what was recorded, marked as
 aborted.
 
+A verdict or an abort given while an item is still in its test state (the
+light at full, the shade at the other end, the room on the test source) sends
+the device back at once to where it was. For the same Settle Seconds after
+that, **Test again** on that item answers that the last test is still being
+put back. A controller restart in those few seconds is the one case where a
+device can be left in its test state: check the item after a restart.
+
 ## Programming surface
 
 Everything a dealer programs is in the Composer programming window, not in

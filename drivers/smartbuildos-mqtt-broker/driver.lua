@@ -974,7 +974,28 @@ function EC.SBOS_MQTT_HELLO(tParams)
   if #rejected > 0 then
     text = string.format("ignored topic '%s': %s", rejected[1].filter, rejected[1].why)
   end
+  -- The topics this child names that the session already held before this
+  -- hello. A child that reloaded (or a second child on a shared topic) adds
+  -- no new filter, so no SUBSCRIBE would go out and the broker would not
+  -- send the retained state again: the child would show "unknown", or a
+  -- stale availability, until the device next published. Ask for those
+  -- topics again; the retained messages come back and are routed as usual.
+  local held = {}
+  if gClient ~= nil then
+    for _, f in ipairs(gClient:subscriptions()) do
+      held[f] = true
+    end
+  end
   syncSubscriptions()
+  if gClient ~= nil then
+    local again = {}
+    for _, f in ipairs(entity.filters or {}) do
+      if held[f] then
+        again[#again + 1] = f
+      end
+    end
+    gClient:resubscribe(again)
+  end
   tellChild(id, text)
   paint()
 end

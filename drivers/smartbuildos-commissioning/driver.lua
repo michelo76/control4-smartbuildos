@@ -350,6 +350,9 @@ local function onEngineEvent(kind, f)
     )
     pushResult()
     fire(EVENT_RUN_COMPLETED)
+  elseif kind == "item_restored" then
+    -- A verdict or an abort came while the device was still in its test state.
+    recordHistory("Test interrupted, device returned", tostring(f.name) .. " (" .. tostring(f.room) .. ")")
   elseif kind == "run_aborted" then
     recordHistory("Commissioning run aborted", tostring(f.run_id))
   end

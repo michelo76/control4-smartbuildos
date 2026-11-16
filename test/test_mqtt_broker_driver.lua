@@ -296,6 +296,66 @@ check(
   #env.sentOf("SBOS_MQTT_MESSAGE", LIGHT) == 1 and #take(sock, "puback") == 1
 )
 
+print("[5b] a child that reloads gets its retained state again (reviewer finding on PR #39)")
+do
+  take(sock, "subscribe")
+  take(sock, "unsubscribe")
+  -- The contact sensor's driver reloads and says hello with the same topics.
+  EC.SBOS_MQTT_HELLO({
+    requester = tostring(SENSOR),
+    kind = "contact",
+    name = "Sink leak",
+    filters = "zigbee2mqtt/sink_leak",
+    availability = "zigbee2mqtt/sink_leak/availability",
+    availability_field = "state",
+  })
+  local again = take(sock, "subscribe")
+  check(
+    "its topics, already subscribed, are asked for again",
+    #again == 1 and topicsOf(again[1]) == "zigbee2mqtt/sink_leak,zigbee2mqtt/sink_leak/availability",
+    again[1] and topicsOf(again[1]) or #again
+  )
+  check("nothing is unsubscribed for it", #take(sock, "unsubscribe") == 0)
+  check("the child is answered as before", env.lastSent("SBOS_MQTT_ENTITY", SENSOR).params.state == "connected")
+  if again[1] then
+    sock:deliver(Packet.suback(again[1].id, { 1, 1 }))
+  end
+  -- MQTT 3.1.1: the broker answers a repeated SUBSCRIBE with the retained messages.
+  local had = #env.sentOf("SBOS_MQTT_MESSAGE", SENSOR)
+  sock:deliver(
+    Packet.publish({ topic = "zigbee2mqtt/sink_leak", payload = '{"water_leak":true,"battery":90}', retain = true })
+  )
+  local replay = env.lastSent("SBOS_MQTT_MESSAGE", SENSOR)
+  check(
+    "the reloaded child receives the retained state",
+    #env.sentOf("SBOS_MQTT_MESSAGE", SENSOR) == had + 1 and replay.params.retain == "true" and replay.params.role == "state"
+  )
+  check("still connected, no protocol error", TC.BROKER_CONNECTED() == true)
+  -- A hello that also brings a NEW topic: the new one is subscribed once, the old one asked again.
+  EC.SBOS_MQTT_HELLO({
+    requester = tostring(LIGHT),
+    kind = "light",
+    name = "Lamp",
+    filters = "zigbee2mqtt/lamp\nzigbee2mqtt/lamp/extra",
+    availability = "",
+  })
+  local names = {}
+  for _, pkt in ipairs(take(sock, "subscribe")) do
+    names[#names + 1] = topicsOf(pkt)
+  end
+  table.sort(names)
+  check(
+    "a new topic is subscribed once and the existing one asked for again",
+    table.concat(names, " | ") == "zigbee2mqtt/lamp | zigbee2mqtt/lamp/extra",
+    table.concat(names, " | ")
+  )
+  -- Back to what the rest of this suite expects.
+  EC.SBOS_MQTT_HELLO({ requester = tostring(LIGHT), kind = "light", name = "Lamp", filters = "zigbee2mqtt/lamp", availability = "" })
+  check("dropping the extra topic unsubscribes it", #take(sock, "unsubscribe") == 1)
+  take(sock, "subscribe")
+  env.advance(5000)
+end
+
 print("[6] availability marks a device offline without refreshing last seen")
 sock:deliver(
   Packet.publish({ topic = "zigbee2mqtt/sink_leak/availability", payload = '{"state":"offline"}', retain = true })

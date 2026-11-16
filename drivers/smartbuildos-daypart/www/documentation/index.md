@@ -49,7 +49,7 @@ A **block** is one stretch of the day with one behaviour. It has:
 - a **volume**,
 - and a **display** choice: leave the television alone, switch it on, or switch it off.
 
-When a block starts, the driver selects the source, moves the volume to the block's level over a set number of seconds (the *ramp*, so it never jumps), and switches the displays. When the last block of the day ends and nothing follows, the driver does what the dealer chose: **hold** (leave the room as it is), **fade out** (lower the volume to silence, then turn the room off) or **off**.
+When a block starts, the driver selects the source, moves the volume to the block's level over a set number of seconds (the *ramp*, so it never jumps), and switches the displays. A ramp cut short by a pause or a controller restart carries on to the block's level when the schedule resumes, for a scheduled block and for one started by hand. When the last block of the day ends and nothing follows, the driver does what the dealer chose: **hold** (leave the room as it is), **fade out** (lower the volume to silence, then turn the room off) or **off**.
 
 A block may run past midnight (22:00 to 02:00). It belongs to the day it starts on.
 

@@ -492,6 +492,61 @@ check(
   "it ends when the block it replaced would have ended",
   #acts == 1 and acts[1].kind == "end" and acts[1].manual == true and acts[1].gap == true
 )
+-- A manual block's ramp cut short by a pause or a restart is carried on
+-- (reviewer finding on PR #39: the hold skipped the resume).
+e = newEngine()
+e:addBlock(1, "week", block("Morning", WEEKDAYS, "07:00", "11:00", { volume = 30 }))
+party = e:addBlock(1, "week", block("Party", WEEKDAYS, "20:00", "23:00", { volume = 45 }))
+e:reconcile(at(MON, "08:00"))
+e:markSteady(1)
+clock.t = at(MON, "08:00")
+e:startManual(1, party.block.id, "week") -- ramping towards 45
+check("a manual run is ramping until the driver says steady", e.run[1].state == "ramping")
+acts = e:reconcile(at(MON, "08:00"))
+check("an ordinary tick during the manual ramp sends nothing", #acts == 0)
+e:invalidateRuntime() -- the schedule was paused and resumed
+acts = e:reconcile(at(MON, "08:03"))
+check(
+  "after a pause the manual block's ramp is resumed",
+  #acts == 1 and acts[1].kind == "start" and acts[1].resume == true and acts[1].manual == true,
+  #acts
+)
+check("...towards the manual block's volume", acts[1] and acts[1].block.volume == 45 and acts[1].block.name == "Party")
+check("...knowing how long ago it began", acts[1] and acts[1].minutes_in == 3, acts[1] and acts[1].minutes_in)
+check("...and the manual run is still the one held", e.run[1].manual == true and e.run[1].name == "Party")
+acts = e:reconcile(at(MON, "08:04"))
+check("the resume is offered once", #acts == 0)
+-- the same across a controller restart
+e2 = newEngine()
+e2:restore(e:serialize())
+acts = e2:reconcile(at(MON, "08:05"))
+check(
+  "after a restart the manual block's ramp is resumed too",
+  #acts == 1 and acts[1].resume == true and acts[1].block.volume == 45 and acts[1].minutes_in == 5,
+  #acts
+)
+-- a manual run whose ramp had finished is left alone
+e:markSteady(1)
+e:invalidateRuntime()
+check("a manual block already at its volume is not touched after a pause", #e:reconcile(at(MON, "08:10")) == 0)
+-- the block was deleted while its manual run was ramping
+local e3 = newEngine()
+e3:addBlock(1, "week", block("Morning", WEEKDAYS, "07:00", "11:00", { volume = 30 }))
+local party3 = e3:addBlock(1, "week", block("Party", WEEKDAYS, "20:00", "23:00", { volume = 45 }))
+e3:reconcile(at(MON, "08:00"))
+clock.t = at(MON, "08:00")
+e3:startManual(1, party3.block.id, "week")
+e3.doc.zones[1].week[2] = nil
+e3:invalidateRuntime()
+acts = e3:reconcile(at(MON, "08:01"))
+check(
+  "a manual block deleted mid-ramp still reaches the volume it was started with",
+  #acts == 1 and acts[1].resume == true and acts[1].block.volume == 45 and acts[1].block.source == nil,
+  #acts
+)
+-- and the hold still ends when the schedule moves on
+acts = e3:reconcile(at(MON, "11:00"))
+check("the hold still ends when the schedule moves on", #acts == 1 and acts[1].kind == "end" and acts[1].manual == true)
 check("name lookup is case-insensitive", e:findBlockByName(1, "party", at(MON, "08:00")) == party.block.id)
 check("unknown name", e:findBlockByName(1, "nope", at(MON, "08:00")) == nil)
 e = newEngine()

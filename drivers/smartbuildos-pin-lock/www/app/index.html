@@ -442,6 +442,7 @@ var PL = (function () {
     var g = el('div', 'grid2'); g.appendChild(fld('From (empty = all day)', from)); g.appendChild(fld('To', to)); box.appendChild(g);
     function ymd(t) { if (!t) return ''; var x = new Date(t * 1000); return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
     var sd = el('input'); sd.type = 'date'; sd.value = ymd(d.starts); var ed = el('input'); ed.type = 'date'; ed.value = ymd(d.expires);
+    var sdWas = sd.value, edWas = ed.value; // sent back: an unchanged date keeps the code's exact stored time
     var g2 = el('div', 'grid2'); g2.appendChild(fld('Starts', sd)); g2.appendChild(fld('Expires (end of day)', ed)); box.appendChild(g2);
     var mu = el('input'); mu.type = 'number'; mu.min = 1; mu.max = 9999; mu.value = d.max_uses || ''; mu.placeholder = 'no limit';
     box.appendChild(fld('Max uses', mu));
@@ -453,7 +454,7 @@ var PL = (function () {
         actions: boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
         keypad_action: ka.value === '' ? '' : Number(ka.value),
         days: dayBoxes.every(function (b) { return b.checked; }) ? [] : dayBoxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); }),
-        from: from.value, to: to.value, start_date: sd.value, expiry_date: ed.value, max_uses: mu.value === '' ? '' : Number(mu.value)
+        from: from.value, to: to.value, start_date: sd.value, expiry_date: ed.value, start_date_was: sdWas, expiry_date_was: edWas, max_uses: mu.value === '' ? '' : Number(mu.value)
       };
       api('POST', '/admin/save', doc).then(function (r) {
         pinIn.value = ''; seqIn.value = ''; doc.pin = ''; doc.seq = '';

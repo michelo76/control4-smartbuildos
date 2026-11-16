@@ -378,6 +378,33 @@ function Client:setSubscriptions(filters)
   return rejected
 end
 
+--- Asks the broker again for filters this session already holds, to get
+--- their RETAINED messages again. MQTT 3.1.1, section 3.8.4: a SUBSCRIBE for
+--- a filter identical to an existing subscription replaces it, and the
+--- retained messages that match are sent again; the flow of publications is
+--- not interrupted. setSubscriptions() sends SUBSCRIBE only for filters that
+--- are new, so a listener that lost its state (a child driver that reloaded)
+--- would otherwise wait for the next publication or the next reconnect.
+--- Filters this session does not hold are ignored. Nothing is sent while not
+--- connected: every filter is subscribed again when the session comes up.
+--- @return number how many filters were asked for again
+function Client:resubscribe(filters)
+  if self.state ~= "connected" then
+    return 0
+  end
+  local again, seen = {}, {}
+  for _, f in ipairs(filters or {}) do
+    if self.wanted[f] and not seen[f] then
+      seen[f] = true
+      again[#again + 1] = f
+    end
+  end
+  if #again > 0 then
+    sendSubscribe(self, again)
+  end
+  return #again
+end
+
 function Client:subscriptions()
   local out = {}
   for _, f in ipairs(self.wantedOrder) do

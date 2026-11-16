@@ -656,6 +656,38 @@ check(
   prop("Last Refusal")
 )
 
+-- A block run by hand, paused mid-ramp, then resumed: the ramp carries on to
+-- the block's volume (reviewer finding on PR #39: it stayed where it was).
+reset()
+roomVars = { POWER_STATE = "1", CURRENT_VOLUME = "10" }
+EC.RUN_BLOCK_NOW({ ZONE = "dining", BLOCK = "morning" })
+advance(5000) -- a quarter of the 20 s ramp
+local before = levels()
+check(
+  "the manual block's ramp has begun and not finished",
+  #before >= 1 and before[#before] < 30,
+  table.concat(before, ",")
+)
+EC.PAUSE_SCHEDULE()
+reset()
+roomVars = { POWER_STATE = "1", CURRENT_VOLUME = tostring(before[#before]) }
+advance(30000)
+check("paused: the rest of the ramp is not sent", #commands(ROOM) == 0)
+EC.RESUME_SCHEDULE()
+advance(30000)
+lv = levels()
+check(
+  "resumed: the manual block's ramp carries on to its volume",
+  #lv >= 1 and lv[#lv] == 30 and lv[1] >= before[#before],
+  table.concat(lv, ",")
+)
+check("...without selecting the source again", #commands(ROOM, "SELECT_AUDIO_DEVICE") == 0)
+check("...or announcing the block again", firedCount(1) == 0)
+check("...and the manual block is still the current one", vars["CURRENT_BLOCK_1"] == "Morning")
+reset()
+advance(60000)
+check("once at its volume nothing more is sent", #commands(ROOM) == 0)
+
 print("[8] the clock jumps")
 reset()
 toWall("2026-11-13", "06:00")

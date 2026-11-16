@@ -219,7 +219,7 @@ Engine.__index = Engine
 ---   now = fun():number
 ---   schedule = fun(ms, fn)            -- one-shot timer (a test pins it)
 ---   actuator = table                  -- see src/commissioning/actuate.lua
----   emit = fun(kind, fields)|nil      -- run_started item_failed room_passed run_completed run_aborted
+---   emit = fun(kind, fields)|nil      -- run_started item_failed item_restored room_passed run_completed run_aborted
 ---   settle_ms = number|nil            -- wait between acting and reading back (default 4000)
 ---   watch = fun(item):table|nil       -- sensors: { id, name, value } of the state variable
 ---   unwatch = fun(item)|nil
@@ -232,6 +232,9 @@ function M.new(deps)
   self.history = {}
   self.last_signed = nil
   self.seq = 0
+  -- Not persisted (timers do not survive a restart either):
+  self.acted = {} -- key -> { item, adapter, baseline, settle }: acted on, restore not yet sent
+  self.undoing = {} -- key -> true while an interrupted test is being put back
   return self
 end
 
@@ -375,6 +378,27 @@ local function stamp(self, r, field)
   r[field] = self:_now()
 end
 
+--- An item's test was interrupted between acting and restoring (a verdict or
+--- an abort before the settle timer). The settle timer will find the item no
+--- longer "testing" and stop, so the restore is sent here: otherwise the light
+--- stays at full, the shade at its test position, the AV room on the test
+--- source. The item cannot be tested again until the device has had the same
+--- settle time to return: a new baseline read mid-way would be the test state.
+function Engine:_undo(r)
+  local a = self.acted[r.key]
+  if a == nil then
+    return false
+  end
+  self.acted[r.key] = nil
+  self.deps.actuator.send(a.item, a.adapter.steps(a.item, "restore", a.baseline, self.deps.options))
+  self.undoing[r.key] = true
+  self.deps.schedule(a.settle, function()
+    self.undoing[r.key] = nil
+  end)
+  self:_emit("item_restored", { key = r.key, name = r.name, room = r.room })
+  return true
+end
+
 --- Acts on one item and reads it back; the item then waits for a verdict.
 --- A sensor is armed instead: it passes when its variable changes.
 --- @return boolean ok, string|nil why
@@ -389,6 +413,9 @@ function Engine:test(key)
   end
   if r.status == "testing" then
     return false, "already being tested"
+  end
+  if self.undoing[r.key] then
+    return false, "the last test of this item is still being put back; try again in a few seconds"
   end
   local adapter = self.deps.actuator and self.deps.actuator.adapter(item.kind)
   if adapter == nil then
@@ -435,14 +462,16 @@ function Engine:test(key)
     return r.attempts ~= attempt or r.status ~= "testing" or self.run == nil
   end
   self.deps.actuator.send(item, adapter.steps(item, "act", r.baseline, self.deps.options))
+  self.acted[r.key] = { item = item, adapter = adapter, baseline = r.baseline, settle = settle }
   self.deps.schedule(settle, function()
     if stale() then
-      return
+      return -- interrupted: Engine:_undo already sent the restore
     end
     local act = adapter.read(self.deps.actuator.read(item) or {})
     local reported, detail = adapter.check("act", act, r.baseline, item)
     r.readback = { act = act }
     r.reported, r.detail = reported, detail
+    self.acted[r.key] = nil
     self.deps.actuator.send(item, adapter.steps(item, "restore", r.baseline, self.deps.options))
     self.deps.schedule(settle, function()
       if stale() then
@@ -494,6 +523,7 @@ function Engine:_settle(r)
 end
 
 local function finish(self, r, status, note, auto)
+  self:_undo(r) -- a verdict given while the device is still in its test state
   if self.deps.unwatch and r.status == "armed" then
     local item = self:_item(r.key)
     if item then
@@ -594,6 +624,7 @@ function Engine:abort()
         pcall(self.deps.unwatch, item)
       end
     end
+    self:_undo(r)
     if r.status == "testing" or r.status == "armed" then
       r.status = "pending"
     end
