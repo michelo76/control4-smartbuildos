@@ -76,7 +76,9 @@ def read_driver_xml(path: Path) -> str | None:
         if path.suffix.lower() == ".c4z":
             with zipfile.ZipFile(path) as z:
                 for member in z.namelist():
-                    if member.lower() == "driver.xml" or member.lower().endswith("/driver.xml"):
+                    if member.lower() == "driver.xml" or member.lower().endswith(
+                        "/driver.xml"
+                    ):
                         return z.read(member).decode("utf-8", errors="replace")
             return None
         if path.suffix.lower() == ".c4i":
@@ -91,7 +93,9 @@ def lua_string(s: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    dirs = [Path(a).expanduser() for a in argv[1:]] or [Path("~/Documents/Control4/Drivers").expanduser()]
+    dirs = [Path(a).expanduser() for a in argv[1:]] or [
+        Path("~/Documents/Control4/Drivers").expanduser()
+    ]
     catalog: dict[str, dict[int, str]] = {}
     scanned = 0
     unreadable: list[str] = []
@@ -125,14 +129,20 @@ def main(argv: list[str]) -> int:
     ]
     for file in sorted(catalog):
         events = catalog[file]
-        items = ", ".join(f"[{eid}] = {lua_string(events[eid])}" for eid in sorted(events))
+        items = ", ".join(
+            f"[{eid}] = {lua_string(events[eid])}" for eid in sorted(events)
+        )
         lines.append(f"  [{lua_string(file)}] = {{ {items} }},")
     lines.append("}")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"scanned {scanned} files; {len(catalog)} with events; {total_events} events → {OUT}")
+    print(
+        f"scanned {scanned} files; {len(catalog)} with events; {total_events} events → {OUT}"
+    )
     if unreadable:
-        print(f"unreadable: {len(unreadable)} ({', '.join(unreadable[:8])}{'…' if len(unreadable) > 8 else ''})")
+        print(
+            f"unreadable: {len(unreadable)} ({', '.join(unreadable[:8])}{'…' if len(unreadable) > 8 else ''})"
+        )
     return 0
 
 
