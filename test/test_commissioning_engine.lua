@@ -71,15 +71,12 @@ check("a device with no room is Unassigned", items[6].room == "Unassigned")
 check("AV items carry the test source", items[2].source == 99)
 local noAv = Engine.buildList(devices, {})
 check("without an AV test source there are no AV items", #noAv == 5)
-local merged = Engine.buildList(
-  devices,
-  {
-    manual = {
-      { id = 15, name = "Fan", room = "Den", kind = "light" },
-      { id = 10, name = "Pendant Lamp", room = "Kitchen", kind = "light" },
-    },
-  }
-)
+local merged = Engine.buildList(devices, {
+  manual = {
+    { id = 15, name = "Fan", room = "Den", kind = "light" },
+    { id = 10, name = "Pendant Lamp", room = "Kitchen", kind = "light" },
+  },
+})
 local byKey = {}
 for _, it in ipairs(merged) do
   byKey[it.key] = it
