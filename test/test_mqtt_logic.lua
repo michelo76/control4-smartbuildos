@@ -202,9 +202,8 @@ check(
 )
 do
   local many = Router.new({ now = now })
-  local last
   for i = 1, 128 do
-    last = many:setEntity(i, { filters = { "t/" .. i } })
+    many:setEntity(i, { filters = { "t/" .. i } })
   end
   local over, why = many:setEntity(129, { filters = { "t/129" } })
   check("entity cap", over == nil and why[1].why:find("128"))

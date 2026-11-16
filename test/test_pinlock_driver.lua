@@ -467,7 +467,6 @@ check("Entry Point Locked Out fired for the page", firedCount(3) == 2 and vars["
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })
 check("the RIGHT PIN is refused during the lockout", status == 429 and doc.ok == false)
 check("Entry Points property shows the lock", prop("Entry Points"):find("page LOCKED") ~= nil, prop("Entry Points"))
-local grantedBefore = firedCount(1)
 advance(3000) -- let the 2 s persist timer run
 fired, sent = {}, {}
 loadDriver() -- a reboot: the persisted store survives, the process does not

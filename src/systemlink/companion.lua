@@ -14,7 +14,6 @@
 ---   SBOS_LINK_COMPANION_STATE   { export, fields (json { suffix = value|null }), fresh, state }
 ---   SBOS_LINK_COMPANION_RESULT  { export, op, status, reason }
 
-local log = require("lib.logging")
 local persist = require("lib.persist")
 JSON = JSON or require("JSON")
 

@@ -80,7 +80,6 @@ local gGate = nil
 local gHost = nil
 local gPaused = false
 local gHalted = false
-local gDirty = false
 local gLastTick = nil
 local gStepTimers = {} -- slot -> { timerId, ... }
 local gStepSeq = 0
@@ -94,7 +93,6 @@ local gRelayBuffers = {}
 local gAppHtml = nil
 local gAppHtmlReported = 0
 local gAppHtmlWhy = ""
-local gPublishedUrl = nil
 local gLastError = "none"
 
 -- ─── Small helpers ──────────────────────────────────────────────────────────
@@ -128,10 +126,6 @@ local function setVar(name, value)
   pcall(function()
     C4:SetVariable(name, value)
   end)
-end
-
-local function prop(name)
-  return Properties[name]
 end
 
 -- ─── Flight Recorder (quiet when absent) ────────────────────────────────────
@@ -472,14 +466,12 @@ local function save()
   if gEngine == nil then
     return
   end
-  gDirty = false
   local state = gEngine:serialize()
   state.paused = gPaused
   persist:set(STATE_KEY, state)
 end
 
 saveSoon = function()
-  gDirty = true
   SetTimer(PERSIST_TIMER, 2 * ONE_SECOND, save)
 end
 
@@ -972,9 +964,9 @@ local function appHtml()
   end
   if html == nil then
     -- The page cannot be served: say so (at most once a minute) and say why.
-    local now = os.time()
-    if now - gAppHtmlReported >= 60 then
-      gAppHtmlReported = now
+    local stamp = os.time()
+    if stamp - gAppHtmlReported >= 60 then
+      gAppHtmlReported = stamp
       log:warn("Page file not found: %s", report)
     end
   elseif gAppHtmlReported >= 0 then
@@ -1093,7 +1085,6 @@ local function publishWebViewUrl(reason)
   pcall(function()
     C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", { url = url })
   end)
-  gPublishedUrl = url
   paintRelay()
   log:debug("Daypart URL published (%s): %s", tostring(reason), (url:gsub("k=[%w]+", "k=[token]")))
 end

@@ -104,7 +104,6 @@ env.sim():setFault(1103, nil)
 -- ── dry run sends nothing ───────────────────────────────────────────────────
 print("dry run")
 calls = env.sim():callCount()
-local version = env.core.state.version
 r = env.send("SCENE_PREVIEW", { sceneId = "closing" }, M)
 eq("preview is planned", r.status, "planned")
 eq("preview lists every step", #r.data.execution.steps, 7)

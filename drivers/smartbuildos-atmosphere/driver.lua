@@ -77,7 +77,6 @@ local P_SNAPSHOT = "atmos_snapshot"
 local P_DAILY = "atmos_daily"
 local P_HOURLY = "atmos_hourly"
 local P_ALERTS = "atmos_alerts"
-local P_FETCHED = "atmos_fetched"
 local P_LOCATION = "atmos_location"
 local P_GRID = "atmos_grid"
 local P_HISTORY = "atmos_history"
@@ -171,7 +170,6 @@ gDiag = {
   lastError = {},
   lastLatencyMs = {},
 }
-gUiSubscribed = false
 gNavigateHint = nil -- { screen, at } — a one-shot hint for an open app
 gRelayPort = nil -- LAN state relay: listening port, or nil when stopped
 gRelayToken = nil -- minted once, persisted; rides the web_view_url query
@@ -1048,7 +1046,6 @@ end
 --- Registered in UIR (Navigator JS API), RFP (proxy path) and EC (Composer/
 --- programming) — belt and braces, same dispatch (repo pattern).
 local function uiGetState()
-  gUiSubscribed = true
   local ok, encoded = pcall(function()
     return JSON:encode(buildUiState())
   end)

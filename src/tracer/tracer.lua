@@ -194,10 +194,10 @@ end
 M.REPORT_EXCLUSIONS = 30
 
 function M.policyReport(policy)
-  local function head(list, n, map)
+  local function head(items, n, map)
     local out = {}
-    for i = 1, math.min(#list, n) do
-      out[i] = map(list[i])
+    for i = 1, math.min(#items, n) do
+      out[i] = map(items[i])
     end
     return out
   end
@@ -623,7 +623,7 @@ function Tracer:apply(policy)
   if self.ring.capacity ~= policy.ring_size then
     self.ring:resize(policy.ring_size)
   end
-  local desired, coverage, summary = {}, {}, nil
+  local desired, coverage, summary = {}, {}
   if policy.enabled and not self.paused then
     desired, coverage, summary = self:_plan(policy)
   else

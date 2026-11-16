@@ -94,10 +94,6 @@ function Registry:serialize()
   return { v = 1, entries = self.entries }
 end
 
-local function key(moduleId, instanceId)
-  return tostring(moduleId) .. "@" .. tostring(instanceId)
-end
-
 function Registry:find(moduleId, instanceId)
   for i, e in ipairs(self.entries) do
     if e.module_id == moduleId and tostring(e.instance_id) == tostring(instanceId) then

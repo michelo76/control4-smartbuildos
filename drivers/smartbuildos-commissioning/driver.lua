@@ -165,7 +165,8 @@ local function findRecorder()
     return C4:GetDevicesByC4iName(RECORDER_FILE)
   end)
   if ok and type(found) == "table" then
-    for id in pairs(found) do
+    -- Only the first entry is wanted.
+    for id in pairs(found) do -- luacheck: ignore 512
       gRecorderId = tonumber(id)
       return gRecorderId
     end
@@ -566,9 +567,9 @@ end
 local function stateDoc()
   local counts = gEngine:counts()
   local items = {}
-  local run = gEngine.run
+  local current = gEngine.run
   local byKey = {}
-  for _, r in ipairs(run and run.results or {}) do
+  for _, r in ipairs(current and current.results or {}) do
     byKey[r.key] = r
   end
   -- Two devices in one room can carry the same name (bench, 13 Nov: two
@@ -581,7 +582,7 @@ local function stateDoc()
   end
   for _, it in ipairs(gEngine.items) do
     local r = byKey[it.key]
-    if run == nil or r ~= nil then
+    if current == nil or r ~= nil then
       local dup = seen[tostring(it.room) .. "\0" .. tostring(it.name)] > 1
       items[#items + 1] = {
         key = it.key,
@@ -603,10 +604,10 @@ local function stateDoc()
     status = runStatus(),
     read_only = gHalted,
     licence = license.statusLabel(),
-    run_id = run and run.id or nil,
-    scope = run and run.scope or nil,
-    technician = run and run.technician or trim(Properties["Technician Name"]),
-    signed_off_by = run and run.signed_by or nil,
+    run_id = current and current.id or nil,
+    scope = current and current.scope or nil,
+    technician = current and current.technician or trim(Properties["Technician Name"]),
+    signed_off_by = current and current.signed_by or nil,
     current_room = gEngine:currentRoom(),
     counts = counts,
     rooms = gEngine:rooms(),

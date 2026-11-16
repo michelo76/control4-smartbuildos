@@ -406,8 +406,6 @@ local MAX_LIGHTS = 150
 --- listeners inside the plan's §P budget.
 local MAX_LIGHT_LISTENERS = 40
 local MAX_KEYPAD_LISTENERS = 30
---- @type boolean Whether listeners are currently registered.
-local gListening = false
 
 local TELEMETRY_TIMER = "SmartBuildOSTelemetry"
 local CLIMATE_TIMER = "SmartBuildOSClimate"
@@ -1737,7 +1735,7 @@ function macFromUuid(uuid)
   -- "...-2D-1200-D4:6A:91:4F:16:55" and produced "00d46a914f16" — a
   -- well-formed MAC that belongs to no device, which would have silently
   -- mis-joined this device to whatever else happened to carry it.
-  local a, sep, b, c, d, e, f = uuid:match("(%x%x)([:%-])(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)")
+  local a, _sep, b, c, d, e, f = uuid:match("(%x%x)([:%-])(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)%2(%x%x)")
   if a == nil then
     return nil
   end
@@ -4884,7 +4882,6 @@ function applyMonitoring()
     end)
   end
   gRoomVarNames = {}
-  gListening = false
 
   if not gMonitor.enabled then
     log:info("Room monitoring is off")
@@ -4938,7 +4935,6 @@ function applyMonitoring()
     end
   end
 
-  gListening = registered > 0
   log:info("Room monitoring on: %d listener(s)", registered)
 
   -- Seeded state is uploaded immediately rather than at the first timer tick.
@@ -7405,7 +7401,7 @@ local function surveyTelemetry(lines)
     note("GetProjectHierarchy -> %d location(s)", count(hierarchy))
     -- The shape is documented loosely ("a table with entries of all of the
     -- location's children"). Dump one verbatim rather than assume it.
-    for id, loc in pairs(hierarchy) do
+    for id, loc in pairs(hierarchy) do -- luacheck: ignore 512
       note("  sample location [%s] = %s", tostring(id), JSON:encode(loc):sub(1, 700))
       break
     end
@@ -7526,7 +7522,7 @@ local function surveyTelemetry(lines)
   if not okC or type(codeItems) ~= "table" then
     note("GetAllCodeItems -> %s %s", tostring(okC), tostring(codeItems))
   else
-    local groups, total, disabled, lines, withText = 0, 0, 0, 0, 0
+    local groups, total, disabled, lineCount, withText = 0, 0, 0, 0, 0
     local sampleText = nil
 
     --- Programming nests: a code item's `subitems` hold the actual commands,
@@ -7537,7 +7533,7 @@ local function surveyTelemetry(lines)
       if type(ci) ~= "table" or depth > 12 then
         return
       end
-      lines = lines + 1
+      lineCount = lineCount + 1
       if ci.enabled == false then
         disabled = disabled + 1
       end
@@ -7568,7 +7564,7 @@ local function surveyTelemetry(lines)
       note("  group %s: %d attachment(s)", tostring(groupName), total)
     end
     note("GetAllCodeItems -> %d group(s), %d event attachment(s)", groups, total)
-    note("  programming lines (incl. nested): %d, with readable text: %d, disabled: %d", lines, withText, disabled)
+    note("  programming lines (incl. nested): %d, with readable text: %d, disabled: %d", lineCount, withText, disabled)
     if sampleText then
       note("  sample line: %s", sampleText:sub(1, 200))
     end
@@ -7696,7 +7692,7 @@ local function probeCapabilities(lines)
   -- why, dump one entry whole. The previous run's null results were a broken
   -- method reporting nothing, not a project containing nothing, and that
   -- distinction is worth a single line of output.
-  for rawId, device in pairs(devices) do
+  for rawId, device in pairs(devices) do -- luacheck: ignore 512
     note("PROBE devsample [%s] = %s", tostring(rawId), dump(device, 700))
     break
   end
@@ -7937,7 +7933,7 @@ local function probeCapabilities(lines)
       n = n + 1
     end
     note("PROBE codeitems=%d", n)
-    for _, item in pairs(items) do
+    for _, item in pairs(items) do -- luacheck: ignore 512
       note("PROBE codeitem sample = %s", dump(item, 620))
       break
     end

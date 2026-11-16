@@ -35,8 +35,6 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
-local Solar = require("atmosphere.solar")
-local Position = require("solarpos.position")
 local Engine = require("solarpos.engine")
 
 gInitialized = false
@@ -68,7 +66,6 @@ local gLocation = nil
 local gLast = nil
 local gLastError = "none"
 local gLicenceHalted = false
-local gLastHealthy = nil
 local gFacadeRefusals = {}
 
 --- UTC epoch now. A test may pin the clock by defining SOLAR_NOW first.
@@ -247,8 +244,6 @@ local function paint()
       setVar("SUN_ON_FACADE_" .. i, r.facades[i] ~= nil and r.facades[i].lit == true)
     end
   end
-  local healthy = status == "tracking"
-  gLastHealthy = healthy
 end
 
 -- ─── Tick ───────────────────────────────────────────────────────────────────

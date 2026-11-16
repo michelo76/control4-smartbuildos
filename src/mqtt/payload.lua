@@ -89,7 +89,7 @@ end
 --- The value a field setting names. An empty field takes the whole payload.
 --- @return any value  nil when the payload has no such field
 function M.extract(payload, field)
-  local value, text = M.decode(payload)
+  local value = M.decode(payload)
   field = tostring(field or ""):gsub("^%s+", ""):gsub("%s+$", "")
   if field == "" then
     if type(value) == "table" then

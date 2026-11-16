@@ -260,6 +260,16 @@ zip: $(VENV_STAMP) ## Zip .c4z and .pdf files per distribution
 				"$$repo.zip" *.c4z *.pdf); \
 	done
 
+# ─── Lint ─────────────────────────────────────────────────────────────────────
+
+.PHONY: lint
+# luacheck is a standalone binary (brew install luacheck). The known globals and
+# the per-folder rules are in .luacheckrc. It exits non-zero on any finding. Not
+# a step of `make build`, and CI does not run it: run it before a push.
+lint: ## Check Lua for unknown names and dead code (luacheck)
+	@command -v luacheck >/dev/null || { echo "luacheck not found: brew install luacheck"; exit 1; }
+	@luacheck drivers src test tools
+
 # ─── Test ─────────────────────────────────────────────────────────────────────
 
 .PHONY: test

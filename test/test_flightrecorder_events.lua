@@ -1137,7 +1137,7 @@ advance(31000)
 OnDriverDestroyed()
 sent = {}
 subscriptions = {}
-listeners = {}
+listeners = {} -- luacheck: ignore 331
 OnDriverInit()
 OnDriverLateInit("DIT_STARTUP")
 agentRegisters(true, { token = "tok-5" })

@@ -15,8 +15,7 @@ local T = H.checker()
 local check, eq = T.check, T.eq
 
 local env = H.new()
-local studio = env.publishSample("sports_bar")
-local S = { session = studio }
+env.publishSample("sports_bar")
 local TILE = { tile = true }
 
 -- ── what the tile's default profile (Bartender: bar only) receives ──────────

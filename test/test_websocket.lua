@@ -22,7 +22,6 @@ end
 -- C4 shim
 --------------------------------------------------------------------------------
 local bindingAddress = {} -- [binding] = host   (never cleared: mirrors the real leak)
-local bindingPort = {}
 local sentFrames = {}
 
 -- Real C4 timers, so tests can drive the actual Close()/delete() path rather
@@ -38,9 +37,7 @@ end
 function C4:CreateNetworkConnection(binding, host, _type)
   bindingAddress[binding] = host
 end
-function C4:NetPortOptions(binding, port, _t, _o)
-  bindingPort[binding] = port
-end
+function C4:NetPortOptions(_binding, _port, _t, _o) end
 function C4:NetConnect() end
 function C4:NetDisconnect() end
 function C4:SendToNetwork(binding, port, data)
@@ -128,7 +125,7 @@ local function bindingsInUse()
 end
 
 local function resetBindings()
-  bindingAddress, bindingPort = {}, {}
+  bindingAddress = {}
 end
 
 --------------------------------------------------------------------------------

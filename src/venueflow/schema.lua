@@ -1159,7 +1159,6 @@ function M.validate(config)
     end
   elseif #U.list(config.profiles) > 0 and not anyOpenProfile then
     -- Fine: every screen starts at the sign-in pad.
-    anyOpenProfile = false
   end
   if #U.list(config.profiles) == 0 then
     issue(issues, "error", "NO_PROFILE", "profiles", "Add at least one staff profile.")

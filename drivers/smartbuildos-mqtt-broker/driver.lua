@@ -87,7 +87,6 @@ local gEventsSuppressed = 0
 local gOversize = 0
 local gLastHealthEvent = 0
 local gLastHealthKey = ""
-local gConnectedAt = nil
 
 local function now()
   return os.time()
@@ -491,7 +490,6 @@ local function onClientState(state, detail, info)
     gConnectionText = "Logging in to the broker..."
   elseif state == "connected" then
     gConnected = true
-    gConnectedAt = now()
     -- The backoff resets only once the link has stayed up STABLE_LINK_SECONDS;
     -- a broker that accepts the login then drops us must not reset it.
     SetTimer(STABLE_TIMER, STABLE_LINK_SECONDS * ONE_SECOND, function()
@@ -713,7 +711,7 @@ function OnDriverLateInit(reason)
       end)
       return ok and result ~= false
     end,
-    close = function(reason)
+    close = function()
       closeSocket()
     end,
     onMessage = onMessage,

@@ -19,13 +19,6 @@ local function count(t)
   end
   return n
 end
-local function types(list)
-  local out = {}
-  for _, e in ipairs(list) do
-    out[#out + 1] = e.event_type
-  end
-  return table.concat(out, " ")
-end
 
 -- ── a fake Director ─────────────────────────────────────────────────────────
 local clock = { t = 1000 }
@@ -409,10 +402,9 @@ do
     selfDeviceId = 999,
   })
   local lowest = 20 -- the budget: five known events, fifteen left for guesses
-  local s3, cov3
+  local s3
   local policy3 = T.validatePolicy({ probe_unknown = true, probe_range = 32, max_subscriptions = lowest })
   s3 = tr3:apply(policy3)
-  cov3 = tr3.coverage or {}
   check(
     "the catalogued devices are fully covered, though their ids come last",
     reg["900:1"] and reg["900:2"] and reg["901:1"] and reg["901:2"] and reg["901:3"],

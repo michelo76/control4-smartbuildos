@@ -32,7 +32,7 @@ gInitialized = false
 -- SET_LEVEL_TARGET/OPEN/CLOSE/STOP), not from a cached proxy document. The
 -- bridge refuses to export a shade unless the pair licence carries SHADE.
 local PROXY = 5001
-local gLevel, gMoving = nil, nil
+local gLevel = nil
 
 base.install({
   kind = "shade",
@@ -54,10 +54,8 @@ base.install({
       gLevel = level
     end
     if moving == true then
-      gMoving = true
       SendToProxy(PROXY, "MOVING", { LEVEL_TARGET = gLevel or -1, RAMP_RATE = 0, LEVEL = gLevel or -1 }, "NOTIFY")
     elseif gLevel ~= nil then
-      gMoving = false
       -- Requested versus actual: STOPPED carries the owner's confirmed level.
       SendToProxy(PROXY, "STOPPED", { LEVEL = gLevel }, "NOTIFY")
     end

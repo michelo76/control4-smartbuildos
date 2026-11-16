@@ -426,7 +426,7 @@ local function dispatch(msg, source)
     return 0
   end
   gLastNotification = string.format("%s (%s)", msg.title, Router.PRIORITY_NAMES[msg.priority] or "normal")
-  local decisions, sends, matched = gRouter:route(msg)
+  local decisions, _, matched = gRouter:route(msg)
   if matched == 0 then
     gLastError = "no target called '" .. tostring(msg.channel) .. "'"
     gRouter:record({
@@ -1325,7 +1325,7 @@ function EC.REPLY(tParams)
     return refuse("unknown channel " .. tostring(gLast.channel))
   end
   local _, body, problems = fillFrom(tParams, "")
-  local msg, why = Router.message({ channel = gLast.channel, priority = "normal", title = "", body = body })
+  local msg = Router.message({ channel = gLast.channel, priority = "normal", title = "", body = body })
   if msg == nil then
     return refuse("a reply needs a MESSAGE")
   end

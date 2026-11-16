@@ -107,7 +107,7 @@ local REAL = "<mediainfo><roomId>16</roomId><mediatype>SONG</mediatype><artist>G
   .. "<album>BeNi</album><title>Beni</title>"
   .. "<img>aHR0cDovLzE5Mi4xNjguMS4xMDM6MTQwMC9nZXRhYT9zPTE=</img>"
   .. "<deviceid>83</deviceid></mediainfo>"
-local rTitle, rArtist, rType, rAlbum, rImage, rDevice = Rooms.parseMedia(REAL)
+local rTitle, rArtist, _, rAlbum, rImage, rDevice = Rooms.parseMedia(REAL)
 check("title from a real record", rTitle == "Beni", rTitle)
 check("artist from a real record", rArtist == "Gabel", rArtist)
 check("album from a real record", rAlbum == "BeNi", rAlbum)
@@ -128,7 +128,7 @@ check("an empty shell yields nothing", eTitle == nil and eArtist == nil, tostrin
 
 -- MEDIA WALL INFO nests a whole mediainfo inside wallmediainfo. A greedy match
 -- would span from the outer tag to the inner close and capture rubbish.
-local wTitle, wArtist = Rooms.parseMedia(
+local _, wArtist = Rooms.parseMedia(
   "<wallmediainfo><notifyDevId>83</notifyDevId><mediainfo><roomId>16</roomId>"
     .. "<mediatype>SONG</mediatype><artist>Joseph Zenny Jr</artist></mediainfo></wallmediainfo>"
 )
