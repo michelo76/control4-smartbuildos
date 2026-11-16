@@ -28,7 +28,6 @@ and this manual is where it is explained.
 | To notice a controller that keeps restarting | *Director Reloaded*, `DIRECTOR_RELOADS`, **System Startups Today**, *Startup Threshold Reached* |
 | Restart notices held back while you work on site | *Enter Service Mode* |
 | To decide what SmartBuildOS may operate in this home | **Remote Control** |
-| A read-only status page on a touchscreen | *Generate Touchpanel URL* |
 | The SmartBuildOS drivers kept current | *Update Drivers*, **Automatic Updates** |
 | A note on the service record from Composer | `RECORD_SERVICE_NOTE` |
 
@@ -86,7 +85,7 @@ under the account, which a dealer links to a property from the console.
 > pair it again if **Connection Status** then reads `Not paired`.
 
 *Unpair* tells SmartBuildOS, then forgets the token, the backup, the cached
-licences and the touchpanel URL, and stops reporting. It does so even when
+licences, and stops reporting. It does so even when
 SmartBuildOS cannot be reached, so an Agent is never stuck in a pairing it
 cannot leave. The other drivers keep running and show
 *SmartBuildOS Agent Found - Not Linked* at their next check.
@@ -427,7 +426,6 @@ paired. The variables are all read-only:
 | **Remote Control** | `Off`, `Identify only` (default), `Comfort`, `Full control` |
 | **Paired Property**, **Connection Status**, **Last Successful Sync** | Read-only. The site, the state of the link, the last accepted payload |
 | **License Cloud**, **Support ID**, **SmartBuildOS Company**, **Subscription Tier**, **Licensed Drivers** | Read-only. See [Licensing](#licensing) |
-| **Touchpanel Name**, **Touchpanel URL** | The label for the next panel, and the address *Generate Touchpanel URL* returned |
 | **Device Poll Interval** | `1m`, `5m` (default), `15m`, `30m` |
 | **Discover Network Devices**, **Network Scan**, **Last Network Scan** | Both off by default. Scan intervals `1h`, `6h`, `12h`, `24h` |
 | **Non Control4 Devices** | Hosts to ping |
@@ -459,7 +457,6 @@ paired. The variables are all read-only:
 | Report Diagnostics | Prints what Director returns for this project, and sends it. Run it when the device list looks wrong |
 | Report Telemetry Survey | Surveys rooms, room and device variables and programming. Considerably more work than a poll; never run on a timer |
 | Probe Capabilities, Camera Read-Only Probe | Run the capability probe and send it. It needs a paired Agent to upload |
-| Generate Touchpanel URL | Makes a read-only status page (what is playing, temperatures, system health) for the panel named in **Touchpanel Name**, for example `Kitchen T4`. Paste **Touchpanel URL** into a Web View driver. Each run makes a new address and leaves earlier panels working |
 | Generate System Report, Send System Report | Record a report request with SmartBuildOS. **Last Report Status** ends at `request-recorded` |
 | Send Test Notification | Fires *Service Update* with a test text |
 | Enter Service Mode, Exit Service Mode | Start and end service mode |
