@@ -458,7 +458,9 @@ function M.planStart(zone, block, ctx)
       -- when the source change may have brought the room up: never leave the
       -- room at whatever it last played at.
       local gradual = #ramp > 1 or ramp[1].at > 0
-      if gradual and (block.source ~= nil or ctx.roomOn == false or (ctx.currentVolume == nil and not resumeUnknown)) then
+      if
+        gradual and (block.source ~= nil or ctx.roomOn == false or (ctx.currentVolume == nil and not resumeUnknown))
+      then
         steps[#steps + 1] =
           { at = 0, device = room, command = "SET_VOLUME_LEVEL", params = { LEVEL = from }, what = "volume" }
       end

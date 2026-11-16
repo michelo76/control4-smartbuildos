@@ -328,7 +328,9 @@ do
   local replay = env.lastSent("SBOS_MQTT_MESSAGE", SENSOR)
   check(
     "the reloaded child receives the retained state",
-    #env.sentOf("SBOS_MQTT_MESSAGE", SENSOR) == had + 1 and replay.params.retain == "true" and replay.params.role == "state"
+    #env.sentOf("SBOS_MQTT_MESSAGE", SENSOR) == had + 1
+      and replay.params.retain == "true"
+      and replay.params.role == "state"
   )
   check("still connected, no protocol error", TC.BROKER_CONNECTED() == true)
   -- A hello that also brings a NEW topic: the new one is subscribed once, the old one asked again.
@@ -350,7 +352,13 @@ do
     table.concat(names, " | ")
   )
   -- Back to what the rest of this suite expects.
-  EC.SBOS_MQTT_HELLO({ requester = tostring(LIGHT), kind = "light", name = "Lamp", filters = "zigbee2mqtt/lamp", availability = "" })
+  EC.SBOS_MQTT_HELLO({
+    requester = tostring(LIGHT),
+    kind = "light",
+    name = "Lamp",
+    filters = "zigbee2mqtt/lamp",
+    availability = "",
+  })
   check("dropping the extra topic unsubscribes it", #take(sock, "unsubscribe") == 1)
   take(sock, "subscribe")
   env.advance(5000)
@@ -696,7 +704,11 @@ do
   )
   idle(65000) -- the link now stays up past the stability window
   local after = dropAndTimeRetry()
-  check("after a long-lived link the wait starts over", after < d[3] and after <= 3000, after .. " vs " .. table.concat(d, ","))
+  check(
+    "after a long-lived link the wait starts over",
+    after < d[3] and after <= 3000,
+    after .. " vs " .. table.concat(d, ",")
+  )
 end
 
 print("[17] shutdown")

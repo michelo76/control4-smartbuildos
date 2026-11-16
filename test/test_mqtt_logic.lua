@@ -153,15 +153,12 @@ local function now()
   return clock.t
 end
 local R = Router.new({ now = now, seen_cap = 3 })
-local e = R:setEntity(
-  11,
-  {
-    kind = "sensor",
-    name = "Sink leak",
-    filters = { "zigbee2mqtt/sink_leak" },
-    availability = "zigbee2mqtt/sink_leak/availability",
-  }
-)
+local e = R:setEntity(11, {
+  kind = "sensor",
+  name = "Sink leak",
+  filters = { "zigbee2mqtt/sink_leak" },
+  availability = "zigbee2mqtt/sink_leak/availability",
+})
 check("entity registered", e ~= nil and R:entityCount() == 1)
 R:setEntity(12, { kind = "light", name = "Lamp", filters = { "zigbee2mqtt/lamp" } })
 R:setEntity(13, { kind = "sensor", name = "Wild", filters = { "zigbee2mqtt/+/set_ack" } })

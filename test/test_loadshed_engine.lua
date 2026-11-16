@@ -97,14 +97,26 @@ local function rig(cfg, loadsOverride)
 end
 
 print("[1] helpers")
-check("valueMatches list/case/number", E.valueMatches("Closed", "1, closed") and E.valueMatches("1.0", "1") and not E.valueMatches("0", "1,closed"))
+check(
+  "valueMatches list/case/number",
+  E.valueMatches("Closed", "1, closed") and E.valueMatches("1.0", "1") and not E.valueMatches("0", "1,closed")
+)
 check("valueMatches empty never matches", not E.valueMatches("", "1") and not E.valueMatches("x", ""))
 check("device label id", E.parseDeviceId("Pool Pump (Yard) · 142") == 142 and E.parseDeviceId("-") == nil)
 local d, v = E.parseVariablePick("82,5015")
 check("variable pick", d == 82 and v == 5015 and E.parseVariablePick("") == nil)
-check("light reader", E.readLight({ LIGHT_STATE = "0" }).on == false and E.readLight({ ["Brightness Percent"] = "40" }).level == 40 and E.readLight({}) == nil)
+check(
+  "light reader",
+  E.readLight({ LIGHT_STATE = "0" }).on == false
+    and E.readLight({ ["Brightness Percent"] = "40" }).level == 40
+    and E.readLight({}) == nil
+)
 check("thermostat reader", E.readThermostat({ HVAC_MODE = "Heat", HEAT_SETPOINT_F = "70" }).heat_f == 70)
-check("normalise rejects bad tier and setback", E.normaliseLoad({ slot = 1, device_id = 5, kind = "light", tier = 4 }) == nil and E.normaliseLoad({ slot = 1, device_id = 5, kind = "thermostat", tier = 1 }) == nil)
+check(
+  "normalise rejects bad tier and setback",
+  E.normaliseLoad({ slot = 1, device_id = 5, kind = "light", tier = 4 }) == nil
+    and E.normaliseLoad({ slot = 1, device_id = 5, kind = "thermostat", tier = 1 }) == nil
+)
 
 print("[2] tier 1 sheds at once, prior states remembered")
 local h = rig()
@@ -128,7 +140,10 @@ check("shed count", h.e:shedCount() == 4)
 print("[4] power returns: hold, then restore tier 3 -> 1 with delay")
 h.e:setBattery(30)
 h.e:setOutage(false)
-check("holding, Restore Delayed fired, nothing restored", h.e.st.phase == "holding" and h.count("restore_delayed") == 1 and h.cmds(104) == "OFF")
+check(
+  "holding, Restore Delayed fired, nothing restored",
+  h.e.st.phase == "holding" and h.count("restore_delayed") == 1 and h.cmds(104) == "OFF"
+)
 h.advance(119)
 check("still holding at 119 s", h.e.st.phase == "holding")
 h.advance(2)
@@ -137,10 +152,16 @@ h.advance(28)
 check("delay between tiers", h.cmds(102) == "OFF")
 h.advance(2)
 check("tier 2 next: dimmer back to its level", h.cmds(102) == "OFF,RAMP_TO_LEVEL" and h.cmds(101) == "OPEN")
-check("thermostat setpoint restored", h.sent[#h.sent].cmd == "SET_SETPOINT_HEAT" and h.sent[#h.sent].params.FAHRENHEIT == 70)
+check(
+  "thermostat setpoint restored",
+  h.sent[#h.sent].cmd == "SET_SETPOINT_HEAT" and h.sent[#h.sent].params.FAHRENHEIT == 70
+)
 h.advance(31)
 check("tier 1 last", h.cmds(101) == "OPEN,CLOSE")
-check("back to normal, nothing remembered", h.e.st.phase == "normal" and next(h.e.st.shed) == nil and h.count("restored") == 1)
+check(
+  "back to normal, nothing remembered",
+  h.e.st.phase == "normal" and next(h.e.st.shed) == nil and h.count("restored") == 1
+)
 
 print("[5] already-off loads are not turned on at restore")
 h = rig()
@@ -161,7 +182,10 @@ h.e:setOutage(true)
 h.e:setOutage(false)
 h.advance(60)
 h.e:setOutage(true)
-check("hold abandoned, flap counted, still shed", h.e.st.phase == "outage" and h.e.st.flaps == 1 and h.cmds(101) == "OPEN")
+check(
+  "hold abandoned, flap counted, still shed",
+  h.e.st.phase == "outage" and h.e.st.flaps == 1 and h.cmds(101) == "OPEN"
+)
 h.advance(500)
 check("nothing restored by the dead hold timer", h.cmds(101) == "OPEN" and h.count("restored") == 0)
 h.e:setOutage(false)
@@ -175,7 +199,10 @@ h.e:setBattery(5)
 h.e:setOutage(false)
 h.advance(121)
 h.e:setOutage(true)
-check("outage during restore: restore stops, restored tier is shed again by the low battery", h.e.st.phase == "outage" and h.e:isTierShed(3) == true and #h.e.st.queue == 0)
+check(
+  "outage during restore: restore stops, restored tier is shed again by the low battery",
+  h.e.st.phase == "outage" and h.e:isTierShed(3) == true and #h.e.st.queue == 0
+)
 
 print("[7] outage during restore keeps un-restored tiers and re-sheds restored ones")
 h = rig()
@@ -229,8 +256,15 @@ check("shed state back", h3.e:highestShedTier() == 3 and h3.e:shedCount() == 4 a
 h3.e:setOutage(false)
 h3.advance(125)
 h3.advance(70)
-check("restored after reboot, using the saved prior states", h3.cmds(104) == "ON" and h3.cmds(102) == "RAMP_TO_LEVEL" and h3.cmds(101) == "CLOSE", h3.cmds(101) .. "|" .. h3.cmds(102))
-check("thermostat restored to 70 from the saved prior", h3.sent[#h3.sent - 1].params.FAHRENHEIT == 70 or h3.sent[#h3.sent].params.FAHRENHEIT ~= nil)
+check(
+  "restored after reboot, using the saved prior states",
+  h3.cmds(104) == "ON" and h3.cmds(102) == "RAMP_TO_LEVEL" and h3.cmds(101) == "CLOSE",
+  h3.cmds(101) .. "|" .. h3.cmds(102)
+)
+check(
+  "thermostat restored to 70 from the saved prior",
+  h3.sent[#h3.sent - 1].params.FAHRENHEIT == 70 or h3.sent[#h3.sent].params.FAHRENHEIT ~= nil
+)
 local h4 = rig()
 h4.e:setOutage(true)
 h4.e:setOutage(false)
@@ -240,7 +274,11 @@ local h5 = rig()
 h5.t = h4.t + 60
 h5.e:restore(b4)
 h5.advance(30)
-check("holding resumes with the time already served", h5.e.st.phase == "normal" and h5.cmds(101) == "CLOSE", h5.e.st.phase)
+check(
+  "holding resumes with the time already served",
+  h5.e.st.phase == "normal" and h5.cmds(101) == "CLOSE",
+  h5.e.st.phase
+)
 check("garbage state refused", select(1, rig().e:restore({ v = 99 })) == false)
 local h6 = rig()
 h6.e:setOutage(true)
@@ -252,7 +290,10 @@ local h7 = rig()
 h7.devices = h6.devices
 h7.e:restore(b6)
 h7.advance(200)
-check("a restore interrupted by reboot finishes", h7.e.st.phase == "normal" and h7.cmds(101) == "CLOSE" and h7.cmds(102) == "RAMP_TO_LEVEL")
+check(
+  "a restore interrupted by reboot finishes",
+  h7.e.st.phase == "normal" and h7.cmds(101) == "CLOSE" and h7.cmds(102) == "RAMP_TO_LEVEL"
+)
 
 print("[11] licence halt mid-outage restores everything, then read-only")
 h = rig()
@@ -260,7 +301,10 @@ h.e:setOutage(true)
 h.e:setBattery(10)
 h.e:setReadOnly(true)
 h.advance(200)
-check("every shed load put back", h.cmds(101) == "OPEN,CLOSE" and h.cmds(104) == "OFF,ON" and h.cmds(102):find("RAMP", 1, true) ~= nil)
+check(
+  "every shed load put back",
+  h.cmds(101) == "OPEN,CLOSE" and h.cmds(104) == "OFF,ON" and h.cmds(102):find("RAMP", 1, true) ~= nil
+)
 check("nothing left shed", h.e:shedCount() == 0 and h.e.st.phase == "normal")
 local okS, why = h.e:setOutage(true)
 check("read-only refuses a new outage", okS == false and why == "read-only")
@@ -277,7 +321,10 @@ check("manual tier 2, outage phase untouched", h.e:isTierShed(2) and h.e.st.phas
 check("bad tier refused", h.e:shedTierNow(7) == false)
 h.e:restoreAll()
 h.advance(5)
-check("restore all returns it", h.cmds(102):find("RAMP", 1, true) ~= nil and not h.e:isTierShed(2) and h.e.st.phase == "normal")
+check(
+  "restore all returns it",
+  h.cmds(102):find("RAMP", 1, true) ~= nil and not h.e:isTierShed(2) and h.e.st.phase == "normal"
+)
 check("restore all with nothing shed is a no-op", h.e:restoreAll() == true)
 h = rig()
 h.e:setOutage(true)
@@ -298,22 +345,38 @@ for _ = 1, 7 do
   h.advance(10)
   h.e:observe(2, true)
 end
-check("capped per outage", h.cmds(102):gsub("OFF", "") ~= nil and select(2, h.cmds(102):gsub("OFF", "")) <= 1 + E.LIMITS.resheds_per_outage)
+check(
+  "capped per outage",
+  h.cmds(102):gsub("OFF", "") ~= nil and select(2, h.cmds(102):gsub("OFF", "")) <= 1 + E.LIMITS.resheds_per_outage
+)
 local hn = rig()
 hn.e:setOutage(true)
 hn.advance(10)
 check("re-shed off by default", hn.e:observe(1, true) == false)
 
 print("[14] thermostat setback rules")
-check("cool mode raises the cool setpoint", E.shedCommands({ kind = "thermostat", setback_f = 82 }, { known = true, hvac_mode = "Cool", cool_f = 74 })[1][1] == "SET_SETPOINT_COOL")
-check("already past the setback: nothing", E.shedCommands({ kind = "thermostat", setback_f = 82 }, { known = true, hvac_mode = "Cool", cool_f = 85 }) == nil)
-check("auto/off mode left alone", E.shedCommands({ kind = "thermostat", setback_f = 62 }, { known = true, hvac_mode = "Auto", heat_f = 70 }) == nil)
+check(
+  "cool mode raises the cool setpoint",
+  E.shedCommands({ kind = "thermostat", setback_f = 82 }, { known = true, hvac_mode = "Cool", cool_f = 74 })[1][1]
+    == "SET_SETPOINT_COOL"
+)
+check(
+  "already past the setback: nothing",
+  E.shedCommands({ kind = "thermostat", setback_f = 82 }, { known = true, hvac_mode = "Cool", cool_f = 85 }) == nil
+)
+check(
+  "auto/off mode left alone",
+  E.shedCommands({ kind = "thermostat", setback_f = 62 }, { known = true, hvac_mode = "Auto", heat_f = 70 }) == nil
+)
 check("unknown thermostat left alone", E.shedCommands({ kind = "thermostat", setback_f = 62 }, {}) == nil)
 
 print("[15] test mode (dry run) sends nothing and changes nothing")
 h = rig()
 local lines = h.e:dryRun()
-check("lists sheds then restores in order", #lines == 8 and lines[1].phase == "shed" and lines[5].phase == "restore" and lines[5].tier == 3)
+check(
+  "lists sheds then restores in order",
+  #lines == 8 and lines[1].phase == "shed" and lines[5].phase == "restore" and lines[5].tier == 3
+)
 check("no command sent, no state", #h.sent == 0 and h.e.st.phase == "normal")
 
 print("[16] flap with no shed loads and zero hold")
@@ -339,21 +402,36 @@ check("first retry sent after the delay", h.cmds(101) == "OPEN,CLOSE,CLOSE" and 
 h.advance(16)
 check("second retry sent", h.cmds(101) == "OPEN,CLOSE,CLOSE,CLOSE")
 h.advance(16)
-check("gave up: no more sends, restore_failed event for slot 1", h.cmds(101) == "OPEN,CLOSE,CLOSE,CLOSE" and h.count("restore_failed") == 1 and h.e.st.verify[1] == nil)
+check(
+  "gave up: no more sends, restore_failed event for slot 1",
+  h.cmds(101) == "OPEN,CLOSE,CLOSE,CLOSE" and h.count("restore_failed") == 1 and h.e.st.verify[1] == nil
+)
 
 h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
 h.e:setOutage(true)
 h.e:setOutage(false)
 h.devices[101] = { known = true, closed = true }
 h.advance(16)
-check("confirmed: no retry, no failure", h.cmds(101) == "OPEN,CLOSE" and h.count("restore_confirmed") >= 1 and h.count("restore_failed") == 0 and h.e.st.verify[1] == nil)
+check(
+  "confirmed: no retry, no failure",
+  h.cmds(101) == "OPEN,CLOSE"
+    and h.count("restore_confirmed") >= 1
+    and h.count("restore_failed") == 0
+    and h.e.st.verify[1] == nil
+)
 
 h = rig({ stable_hold_s = 0, tier_delay_s = 0, restore_retries = 1, restore_retry_s = 5 })
 h.e:setOutage(true)
 h.e:setOutage(false)
 h.devices[101] = nil -- state cannot be read
 h.advance(60)
-check("unreadable load: retry only, never reported failed", h.cmds(101) == "OPEN,CLOSE,CLOSE" and h.count("restore_failed") == 0 and h.count("restore_unverified") == 1 and h.e.st.verify[1] == nil)
+check(
+  "unreadable load: retry only, never reported failed",
+  h.cmds(101) == "OPEN,CLOSE,CLOSE"
+    and h.count("restore_failed") == 0
+    and h.count("restore_unverified") == 1
+    and h.e.st.verify[1] == nil
+)
 
 h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
 h.e:setOutage(true)
@@ -373,7 +451,10 @@ check("manual shed", h.e:shedTierNow(1) and h.cmds(101) == "OPEN")
 h.advance(59 * 60)
 check("still shed before the timer", h.cmds(101) == "OPEN")
 h.advance(2 * 60)
-check("auto-restored after 60 min", h.cmds(101) == "OPEN,CLOSE" and h.e.st.phase == "normal" and not h.e:anyShed() and h.count("manual_auto_restore") == 1)
+check(
+  "auto-restored after 60 min",
+  h.cmds(101) == "OPEN,CLOSE" and h.e.st.phase == "normal" and not h.e:anyShed() and h.count("manual_auto_restore") == 1
+)
 h = rig({ manual_restore_min = 0, stable_hold_s = 0, tier_delay_s = 0 })
 h.e:shedTierNow(1)
 h.advance(24 * 3600)
@@ -384,7 +465,10 @@ h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
 h.e:shedTierNow(1)
 h.e:restoreAll()
 h.advance(24 * 3600)
-check("Restore All restores it and the timer does not fire later", h.cmds(101) == "OPEN,CLOSE" and h.count("manual_auto_restore") == 0)
+check(
+  "Restore All restores it and the timer does not fire later",
+  h.cmds(101) == "OPEN,CLOSE" and h.count("manual_auto_restore") == 0
+)
 h = rig({ stable_hold_s = 0, tier_delay_s = 0 })
 h.e:shedTierNow(1)
 local mid = h.e:serialize()

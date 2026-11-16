@@ -1197,7 +1197,12 @@ check(
 )
 
 print("[25] a pause and a resume while unlicensed are both in the history")
-EC.SBOS_ENTITLEMENT({ sku = "SBOS_FLIGHT_RECORDER", status = "NOT_ENTITLED", registered = "true", enforcement = "enforce" })
+EC.SBOS_ENTITLEMENT({
+  sku = "SBOS_FLIGHT_RECORDER",
+  status = "NOT_ENTITLED",
+  registered = "true",
+  enforcement = "enforce",
+})
 EC.PAUSE_RECORDING({ REASON = "y" })
 EC.RESUME_RECORDING()
 local unlicensedLines = printed(EC.PRINT_RECENT)

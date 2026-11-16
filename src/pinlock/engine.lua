@@ -300,13 +300,7 @@ end
 
 function Engine:_salt()
   self.counter = self.counter + 1
-  local seed = string.format(
-    "%s|%d|%.9f|%.9f",
-    tostring(self:now()),
-    self.counter,
-    self.random(),
-    self.random()
-  )
+  local seed = string.format("%s|%d|%.9f|%.9f", tostring(self:now()), self.counter, self.random(), self.random())
   return (self.hmac("pinlock-salt", seed)):sub(1, 24)
 end
 
@@ -1114,7 +1108,10 @@ function Engine:_newSession()
     self.sessions[oldest] = nil
   end
   self.counter = self.counter + 1
-  local token = (self.hmac("pinlock-session", string.format("%s|%d|%.9f|%.9f", tostring(t), self.counter, self.random(), self.random()))):sub(1, 32)
+  local token = (self.hmac(
+    "pinlock-session",
+    string.format("%s|%d|%.9f|%.9f", tostring(t), self.counter, self.random(), self.random())
+  )):sub(1, 32)
   self.sessions[token] = t + self.settings.sessionSeconds
   return token
 end

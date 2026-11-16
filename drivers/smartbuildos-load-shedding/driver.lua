@@ -320,11 +320,23 @@ local function onEngineEvent(kind, f)
     fire(EVENT_FAILED)
   elseif kind == "restore_failed" then
     stamp(string.format("load %s did not come back after %s retries", tostring(f.slot), tostring(f.tries)))
-    record("Load restore not confirmed", string.format("slot %s (%s) still not back after %s retries; check it by hand", tostring(f.slot), tostring(f.name or "?"), tostring(f.tries)))
+    record(
+      "Load restore not confirmed",
+      string.format(
+        "slot %s (%s) still not back after %s retries; check it by hand",
+        tostring(f.slot),
+        tostring(f.name or "?"),
+        tostring(f.tries)
+      )
+    )
     log:error("load %s restore not confirmed after %s retries", tostring(f.slot), tostring(f.tries))
     fire(EVENT_FAILED)
   elseif kind == "restore_unverified" then
-    log:info("load %s restore sent %s more time(s); its state cannot be read, so it is unconfirmed", tostring(f.slot), tostring(f.tries))
+    log:info(
+      "load %s restore sent %s more time(s); its state cannot be read, so it is unconfirmed",
+      tostring(f.slot),
+      tostring(f.tries)
+    )
   elseif kind == "restore_retry" then
     log:warn("load %s not back yet, restore sent again (try %s)", tostring(f.slot), tostring(f.try))
   elseif kind == "manual_auto_restore" then
@@ -526,7 +538,10 @@ local function reconcileLicence()
     gHalted = true
     -- Restore first, then read-only: the engine does both in this order.
     gEngine:setReadOnly(true)
-    log:warn("SmartBuildOS licence: %s - Load Shedding restored every load and is read-only", tostring(license.statusLabel()))
+    log:warn(
+      "SmartBuildOS licence: %s - Load Shedding restored every load and is read-only",
+      tostring(license.statusLabel())
+    )
     fire(EVENT_READONLY)
   elseif not halt and gHalted then
     gHalted = false
