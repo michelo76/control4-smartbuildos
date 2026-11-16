@@ -28,6 +28,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   3 today" instead of only the count since monitoring began. **System
   Startups Today** and **Controller Reboots Observed Today** now also return
   to 0 at midnight; they used to wait for the next restart.
+- **Agent: Send Push Notification, with no 4Sight subscription.** A new
+  programming command on the SmartBuildOS Agent, `SEND_PUSH_NOTIFICATION`,
+  with `TITLE`, `MESSAGE`, `SEVERITY` (Info, Warning, Critical) and four
+  variable pickers that work as they do in the Notification Router (`${1}`
+  to `${4}`, `${Room->Device::VARIABLE}`, `${1|Open|Closed}`). The Agent
+  posts the message to SmartBuildOS on its own connection, and SmartBuildOS
+  sends it as a push to the SmartBuildOS Field app and as a web push to the
+  people in the system's recipient profile, through each person's own
+  notification settings and quiet hours. Control4's Push Notification agent
+  is not involved. The same message is sent once in five minutes and at
+  most 30 leave in an hour; *Notification Failed* fires when a push was
+  attempted and SmartBuildOS refused it or could not be reached. New action
+  *Send Test Push* and read-only property **Last Push Notification**. Needs
+  the matching push service on SmartBuildOS; not yet run on a controller.
 - **A full manual for every driver.** The other 40 drivers now have the
   same kind of manual as the Notification Router and Solar Position: what
   the driver is for and a table of use cases, where the stock way is still
