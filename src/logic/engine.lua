@@ -247,7 +247,7 @@ function Engine:toggleFlag(raw)
   if key == nil then
     return self:_refuse(why)
   end
-  return self:_setFlag(key, not (self.flags[key] == true))
+  return self:_setFlag(key, self.flags[key] ~= true)
 end
 
 function Engine:flag(raw)

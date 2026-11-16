@@ -440,7 +440,7 @@ check(
 
 print("\n[8] Sensitive action refused until explicitly allowed")
 EC.Include_Device_In_Mode({ NAME = "Movie", DEVICE = 3001, SETTING = "unlocked" })
-local plan = require("modes.plan").build(gConfig, movie.id, {
+require("modes.plan").build(gConfig, movie.id, {
   resolve = function(k)
     return nil
   end,

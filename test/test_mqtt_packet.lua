@@ -290,13 +290,12 @@ do
   -- next packet still arrives.
   local parser = P.newParser({ max_packet = 100 })
   local big = P.publish({ topic = "zigbee2mqtt/bridge/devices", payload = string.rep("x", 300000), retain = true })
-  local got, errs, maxPending = {}, {}, 0
+  local got, maxPending = {}, 0
   for i = 1, #big, 7001 do
-    local pkts, err = parser:feed(big:sub(i, i + 7000))
+    local pkts = parser:feed(big:sub(i, i + 7000))
     for _, p in ipairs(pkts) do
       got[#got + 1] = p
     end
-    errs[#errs + 1] = err
     maxPending = math.max(maxPending, parser:pending())
   end
   check("oversize PUBLISH: no error, nothing delivered", #got == 0 and parser.failed == nil)

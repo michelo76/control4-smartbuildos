@@ -369,7 +369,6 @@ do
   check("QoS 2 refused", r.client:publish("a/b", "x", { qos = 2 }) == false)
   check("empty payload allowed", r.client:publish("a/b", "") == true and r.take("publish")[2].payload == "")
   r.take("publish")
-  local ids = {}
   for i = 1, 64 do
     assert(r.client:publish("a/b", tostring(i), { qos = 1 }))
   end

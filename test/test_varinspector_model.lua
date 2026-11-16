@@ -109,7 +109,7 @@ check(
   "listeners registered for the open device's variables",
   registered["12:1001"] and registered["12:1002"] and registered["12:1003"] and ins.counters.listeners == 3
 )
-local s2 = ins:openDevice(20)
+ins:openDevice(20)
 check("opening another releases the previous", registered["12:1001"] == nil and registered["20:2001"] ~= nil)
 check("masked variable gets no listener", registered["20:2002"] == nil)
 check("open unknown device refused", (ins:openDevice(77)) == nil)

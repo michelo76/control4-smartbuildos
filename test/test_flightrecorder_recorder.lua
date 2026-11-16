@@ -15,7 +15,6 @@ end
 -- A fake Director: variables per device, listener bookkeeping, scheduled timers.
 local clock = { t = 1000 }
 local timers = {}
-local registered = {}
 local regCalls, unregCalls = 0, 0
 local emitted = {}
 local vars = {
@@ -38,12 +37,10 @@ local deps = {
   end,
   register = function(d, v)
     regCalls = regCalls + 1
-    registered[d .. ":" .. v] = true
     return true
   end,
   unregister = function(d, v)
     unregCalls = unregCalls + 1
-    registered[d .. ":" .. v] = nil
   end,
   readVariables = function(d)
     return vars[d]

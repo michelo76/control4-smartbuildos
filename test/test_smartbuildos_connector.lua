@@ -2948,7 +2948,6 @@ function FakeWS:delete()
   self.deleted = true
 end
 
-local savedWS = getmetatable and nil
 -- Swap the module the glue captured: it holds a local, so patch through the
 -- global the glue actually calls. The glue calls WebSocket:new — expose ours.
 local realNew

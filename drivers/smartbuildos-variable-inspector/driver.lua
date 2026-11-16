@@ -65,7 +65,6 @@ local gRelayPort = nil
 local gRelayBuffers = {}
 local gRelayToken = nil
 local gAppHtml = nil
-local gPublishedUrl = nil
 local gLastError = "none"
 local gLicenceHalted = false
 
@@ -347,7 +346,6 @@ local function publishWebViewUrl(reason)
   pcall(function()
     C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", { url = url })
   end)
-  gPublishedUrl = url
   log:debug("WebView URL published (%s): %s", tostring(reason), (url:gsub("k=[%w]+", "k=[token]")))
 end
 

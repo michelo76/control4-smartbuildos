@@ -441,7 +441,6 @@ advance(1000)
 assert(CA:setLocal("Away", "true"))
 check("owner native updated immediately", ioCA.vars["California.Away"].value == "1")
 check("tick asks for a sync (pending)", CA:tick(true))
-local before = #ioNY.events
 sync(CA, "ep-ca")
 sync(NY, "ep-ny")
 check("NY sees the live value", ioNY.vars["California.Away"].value == "1")

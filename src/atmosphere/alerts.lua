@@ -195,7 +195,6 @@ function M.reconcile(previous, fetched, now)
     pollOk = fetched ~= nil,
   }
 
-  local seen = {}
   local superseded = {}
   if fetched ~= nil then
     -- First pass: collect every id superseded by an Update/Cancel in this batch.
@@ -206,14 +205,12 @@ function M.reconcile(previous, fetched, now)
     end
     for _, a in ipairs(fetched) do
       if not superseded[a.id] then
-        seen[a.id] = a
         local endT = M.endsAt(a)
         local over = endT ~= nil and endT <= now
         if a.messageType == "Cancel" then
           -- A Cancel names the event it kills via references (handled above);
           -- the Cancel product itself is not an active alert.
           superseded[a.id] = true
-          seen[a.id] = nil
         elseif not over then
           result.active[a.id] = a
           local prev = previous[a.id]

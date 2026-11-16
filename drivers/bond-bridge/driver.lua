@@ -339,7 +339,8 @@ local function boundConsumerForBinding(bindingId)
   if not ok or type(consumers) ~= "table" then
     return nil
   end
-  for deviceId in pairs(consumers) do
+  -- Only the first entry is wanted.
+  for deviceId in pairs(consumers) do -- luacheck: ignore 512
     return tonumber(deviceId)
   end
   return nil

@@ -1396,7 +1396,7 @@ local orderBefore = {}
 for i, n in ipairs(varOrder) do
   orderBefore[i] = n
 end
-varMeta, varOrder, variables = {}, {}, {}
+varMeta, varOrder, variables = {}, {}, {} -- luacheck: ignore 331
 OnDriverInit()
 check(
   "same variables, same order",

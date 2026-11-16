@@ -421,7 +421,7 @@ check("abort ends the run and stays on the record", prop("Run Status") == "abort
 print("[6] persistence: a reload keeps the signed record and the history")
 advance(3000)
 OnDriverDestroyed()
-vars, props, fired = {}, {}, {}
+vars, props, fired = {}, {}, {} -- luacheck: ignore 331
 loadProperties()
 Properties["Settle Seconds"] = "1"
 Properties["App Relay Address"] = "10.9.9.9"

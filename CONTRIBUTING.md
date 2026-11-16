@@ -179,8 +179,11 @@ and the helpers from `src/lib/utils.lua`. When you add a global helper to
 too, or every use of it is reported as unknown. A `driver.lua` may define its
 own globals (`gEngine`) without listing them.
 
-`make lint` is not a step of `make build` and CI does not run it. The tree has
-open findings, and luacheck exits non-zero while any remain.
+`make lint` reports nothing on a clean tree and exits non-zero on any finding.
+It is not a step of `make build` and CI does not run it, so run it before a
+push. Where a finding is deliberate, such as a loop that only takes the first
+entry, mark that line with `-- luacheck: ignore <code>` and a few words saying
+why.
 
 ### Distributions
 

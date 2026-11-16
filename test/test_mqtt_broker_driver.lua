@@ -88,15 +88,6 @@ local function idle(ms)
     end
   end
 end
---- Connects the driver to the fake broker and answers CONNACK.
-local function bringUp(code)
-  env.advance(2500) -- the 2 s property debounce, then the connect
-  local sock = currentSocket()
-  wireSocket(sock)
-  sock:accept()
-  sock:deliver(Packet.connack(false, code or 0))
-  return sock
-end
 
 print("[1] start: online, nothing configured, licence and Agent registration")
 OnDriverInit()

@@ -49,7 +49,6 @@ local EVENT_DEBOUNCED, EVENT_THROTTLED, EVENT_ONCE, EVENT_TIMER = 1, 2, 3, 4
 local EVENT_STATE, EVENT_COUNTER, EVENT_FLAG, EVENT_READONLY, EVENT_RESTORED = 5, 6, 7, 8, 9
 
 local gEngine = nil
-local gDirty = false
 local gHalted = false
 local gLastTrigger = "none yet"
 
@@ -109,12 +108,10 @@ local function save()
   if gEngine == nil then
     return
   end
-  gDirty = false
   persist:set(STATE_KEY, gEngine:serialize())
 end
 
 local function saveSoon()
-  gDirty = true
   SetTimer(PERSIST_TIMER, 2 * ONE_SECOND, save)
 end
 

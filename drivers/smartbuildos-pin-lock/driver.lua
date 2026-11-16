@@ -88,7 +88,7 @@ local gHost = nil
 local gLastAccess = "none yet"
 local gRecorderId = nil
 local gRecorderCheckedAt = nil
-local publishWebViewUrl = nil -- forward: needs gHost, which needs it back
+local publishWebViewUrl -- forward: needs gHost, which needs it back
 
 --- Seconds. A test pins the clock by defining PIN_LOCK_NOW first.
 local function now()
@@ -422,9 +422,9 @@ local function appHtml()
   end
   if html == nil then
     -- The page cannot be served: say so (at most once a minute) and say why.
-    local now = os.time()
-    if now - gAppHtmlReported >= 60 then
-      gAppHtmlReported = now
+    local seconds = os.time()
+    if seconds - gAppHtmlReported >= 60 then
+      gAppHtmlReported = seconds
       log:warn("Page file not found: %s", report)
     end
   elseif gAppHtmlReported >= 0 then

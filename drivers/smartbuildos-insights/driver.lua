@@ -155,8 +155,9 @@ function EC.PULL_URL()
   setStatus("Asked the Connector for a URL — check back in a moment")
 end
 
---- The Connector's answer, if it supports one.
-function ReceivedFromDevice(_, command, params)
+--- The Connector's answer, if it supports one. Nothing calls this yet: the
+--- Connector has no REQUEST_DISPLAY_URL handler to send one.
+function ReceivedFromDevice(_, command, params) -- luacheck: ignore 131
   if command ~= "DISPLAY_URL" then
     return
   end

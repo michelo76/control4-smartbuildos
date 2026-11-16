@@ -384,7 +384,7 @@ end
 --- Sets climate on a room, sampled rather than watched — temperature moves
 --- constantly and every change is not worth an event.
 ---
---- `deviceId` is the THERMOSTAT the reading came from, and sending it is not
+--- `thermostatId` is the THERMOSTAT the reading came from, and sending it is not
 --- optional detail. A room points at a thermostat through `TEMPERATURE_ID`, and
 --- on a real system several rooms point at the SAME one: on the measured house,
 --- six rooms all resolve to one thermostat. Copying its reading onto each of
@@ -394,13 +394,13 @@ end
 ---
 --- With the device id attached the platform can group by thermostat and say
 --- what is true: one thermostat, serving these rooms.
-function Rooms:setClimate(roomId, temperature, heat, cool, mode, deviceId)
+function Rooms:setClimate(roomId, temperature, heat, cool, mode, thermostatId)
   local r = self:room(roomId, nil)
   r.temperature = number(temperature)
   r.setpoint_heat = number(heat)
   r.setpoint_cool = number(cool)
   r.hvac_mode = mode
-  r.temperature_device_id = number(deviceId)
+  r.temperature_device_id = number(thermostatId)
 end
 
 --- Current state for every known room, shaped for the platform.
