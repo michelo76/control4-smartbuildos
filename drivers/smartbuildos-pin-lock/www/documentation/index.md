@@ -108,7 +108,7 @@ use `Event only` and do the work in a script.
 | May fire | The guarded actions this code may fire. Ignored for owners |
 | Keypad sequence fires | Which one action the sequence fires (a sequence cannot choose) |
 | Days and hours | The days of the week and the hours inside which the code works, on the controller's clock. An overnight window (22:00 to 06:00) belongs to the day it starts on |
-| Starts / Expires | Local dates. A code expires at the end of its expiry day |
+| Starts / Expires | Local dates. A code expires at the end of its expiry day. A temporary code made by programming expires at an exact time; the editor shows only its date, and saving without changing that date keeps the exact time. Change the date to move it (to the end of the new day) |
 | Max uses | The code stops after this many accepted uses |
 
 A code that is refused for any reason (wrong hours, expired, used up, disabled,

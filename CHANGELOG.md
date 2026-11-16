@@ -221,6 +221,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **Dealer tools: five defects from the review of their pull request**, each
+  reproduced by a test first (shim only; not built, not run on a
+  controller). Commissioning Matrix: a verdict or an abort while a device is
+  still in its test state sends it back at once (it stayed at full
+  brightness, at the test position, or on the test source), and an AV room
+  that was off is returned with ROOM_OFF (its "off" was read as unknown).
+  PIN Lock: editing a temporary code no longer moves its expiry to the end
+  of the day (a one-hour code lasted until midnight, and an expired one came
+  back). Daypart Scheduler: a block started by hand resumes its volume ramp
+  after a pause or a restart. MQTT Bridge: a child driver that reloads gets
+  its retained state again.
 - **VenueFlow: six defects from the review of its pull request**, each
   reproduced by a test first (simulation and shim; not built, not run on a
   controller). Mapping tests on a sample venue left in the draft are refused

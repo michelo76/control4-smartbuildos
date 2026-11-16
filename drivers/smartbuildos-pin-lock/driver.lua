@@ -511,7 +511,8 @@ local relayProvider = {
     if not gEngine:sessionValid(body.session) then
       return sessionRefused()
     end
-    local spec, why = Engine.specFromPage(body)
+    local editing = (body.id ~= nil and body.id ~= "") and gEngine:find(body.id) or nil
+    local spec, why = Engine.specFromPage(body, editing)
     if spec == nil then
       return 422, { ok = false, error = why }
     end
