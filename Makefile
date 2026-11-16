@@ -116,7 +116,48 @@ preprocess: ## Run preprocessor for all distributions
 
 .PHONY: embed-pages
 embed-pages: ## Compile each WebView page into its driver's page module
+	python3 tools/venueflow-ui.py build
 	luajit tools/embed-pages.lua
+
+# ─── VenueFlow ────────────────────────────────────────────────────────────────
+#
+# VenueFlow's two pages are assembled from ui/venueflow before they are
+# embedded. `make venueflow` builds ONLY that driver's .c4z into dist/oss and
+# never copies anything into Composer's driver folder (the full `make build`
+# does, for every driver): a development build must be imported by hand, on a
+# system that has been checked to be the bench.
+
+VENUEFLOW     := smartbuildos-venueflow
+VENUEFLOW_DIR := build/oss/drivers/$(VENUEFLOW)
+
+.PHONY: venueflow-ui venueflow venueflow-test venueflow-dev
+venueflow-ui: ## Assemble the VenueFlow pages from ui/venueflow and embed them
+	python3 tools/venueflow-ui.py build
+	luajit tools/embed-pages.lua
+
+venueflow: check-deps $(PACKAGER) venueflow-ui ## Build only smartbuildos-venueflow.c4z into dist/oss (not copied to Composer)
+	./tools/preprocess.py --oss
+	cd $(VENUEFLOW_DIR) && luajit ../../../../tools/gen-squishy.lua
+	$(VENV_PY) tools/package.py xml-set $(VENUEFLOW_DIR)/driver.xml version "$$(date -u +'%Y%m%d.%H%M%S')"
+	$(VENV_PY) tools/package.py xml-set $(VENUEFLOW_DIR)/driver.xml modified "$$(date +'%m/%d/%Y %I:%M %p')"
+	$(VENV_PY) tools/docs.py md2html $(VENUEFLOW_DIR)/www/documentation/index.md $(VENUEFLOW_DIR)/www/documentation
+	mkdir -p dist/oss
+	cd $(VENUEFLOW_DIR) && "$(CURDIR)/$(VENV_PY)" "$(CURDIR)/$(PACKAGER)" . "$(CURDIR)/dist/oss" driver.c4zproj
+	@ls -l dist/oss/$(VENUEFLOW).c4z
+	@echo "Built dist/oss/$(VENUEFLOW).c4z. It was NOT copied to Composer's driver folder."
+
+venueflow-test: ## Run only the VenueFlow suites (simulator and shim; no controller)
+	@for f in test/test_venueflow_*.lua; do \
+		echo "==> $$f"; \
+		LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
+			luajit -e "require('c4_shim')" "$$f" > build/venueflow-test.out 2>&1; \
+		code=$$?; \
+		grep -E "FAIL|passed, |skip " build/venueflow-test.out; \
+		[ $$code -eq 0 ] || exit 1; \
+	done
+
+venueflow-dev: ## Serve the VenueFlow pages on the simulator at http://localhost:47861
+	python3 tools/venueflow-dev.py --port 47861
 
 .PHONY: gen-squishy
 gen-squishy: ## Auto-generate squishy files from .c4zproj

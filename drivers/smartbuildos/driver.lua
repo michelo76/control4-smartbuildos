@@ -3756,6 +3756,11 @@ MODULE_COMMANDS = {
     refresh_status = true,
   },
   usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
+  -- VenueFlow's configuration only (read it, fill the draft, publish, roll
+  -- back). The VenueFlow driver registers publish and rollback only when its
+  -- "Remote Management" property allows them, so the instance check above
+  -- refuses them otherwise. None of these routes video or runs a scene.
+  venueflow = { snapshot = true, save_draft = true, publish = true, rollback = true, refresh_status = true },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100

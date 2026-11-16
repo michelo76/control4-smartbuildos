@@ -21,6 +21,43 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial
+  AV control surface on an existing Control4 project.** Four operator
+  screens on one UI Button tile (Visual Floor Plan, Command Center,
+  Simplified Room Control, Manager Overview) and Installer Studio, served on
+  the venue LAN from the driver's relay: setup wizard, device discovery and
+  mapping with test actions, a drag-and-drop layout designer, a visual
+  programming editor for scenes, rules and schedules with dry run, staff
+  profiles enforced by the driver, diagnostics, backup, publish and rollback.
+  A capability-aware routing engine reports one outcome per display and never
+  reports a dispatched command as done; audio zones are independent of video;
+  the driver starts in Simulation and sends nothing to Control4 until set to
+  Live. **Simulation verified only.** On a bench controller it installs,
+  serves its pages, publishes and survives a driver restart, all in
+  Simulation; it has not yet controlled real equipment
+  (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`). `make venueflow`
+  builds just this driver and does not copy it into Composer's folder.
+  - **Venue Studio for the client.** A staff profile that holds the new Venue
+    Studio permission (the Owner role by default) opens the Studio with its
+    PIN, from the tile's profile menu or on the page, and changes scenes,
+    schedules, staff and PINs, source names and channel labels and volume
+    presets, and publishes that. The driver refuses a client's change to
+    anything else. Simulation verified; not yet tried on a Navigator.
+  - **Basic source controls.** A source can have channel up, down and last,
+    a number keypad, arrows with guide, info and menu, and transport keys,
+    plus up to 24 favourite channels dialled with one press. Staff with the
+    new "Use source controls" permission get a remote beside the source; the
+    venue edits favourites in the Venue Studio. The page names a key from a
+    closed list; the driver sends the documented Control4 command to the
+    source's own device. Simulation verified only: not yet seen to move a
+    real box, and there is no feedback.
+  - **Remote Management, driver side.** A property (Off by default, Draft
+    only, Draft and publish) lets smartbuildos.io read the configuration,
+    fill the draft and, where allowed, publish and roll back, through the
+    Agent's module contract (module `venueflow`; one new Agent allowlist
+    entry and one envelope prefix). It never controls equipment. **The
+    platform side does not exist yet**, so nothing can be managed remotely
+    today.
 - **Agent: restarts counted per day.** New property **Director Reloads
   Today** and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the
   controller's local midnight, back to 0 every midnight. The reload report to
