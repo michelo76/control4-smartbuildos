@@ -705,6 +705,23 @@ function Engine:reconcile(epoch)
         -- running when the manual block was started.
         if (active and active.key or "") == run.base then
           hold = true
+          -- Held, but not forgotten: a manual block whose ramp was cut short
+          -- (the schedule was paused, the controller restarted) is carried
+          -- on to its volume like a scheduled one. Without this the room
+          -- stays at whatever level the ramp had reached.
+          if self.fresh[slot] and run.state == "ramping" then
+            local elapsed = run.started and math.max(0, math.floor(((epoch or self.now()) - run.started) / 60)) or 0
+            actions[#actions + 1] = {
+              kind = "start",
+              slot = slot,
+              block = self:_manualBlock(slot, run),
+              key = run.key,
+              resume = true,
+              manual = true,
+              minutes_in = elapsed,
+              scope = run.scope,
+            }
+          end
         else
           actions[#actions + 1] = { kind = "end", slot = slot, run = copy(run), gap = active == nil, manual = true }
           self.run[slot] = nil
@@ -770,6 +787,32 @@ function Engine:reconcile(epoch)
   return actions
 end
 
+--- The block a manual run was started from, for resuming its ramp. The
+--- block may have been edited or deleted since; what the run recorded (its
+--- name and target volume) is the fallback, which is all a resume uses:
+--- no source or display command is sent again.
+function Engine:_manualBlock(slot, run)
+  local zs = self.doc.zones[slot]
+  local lists = {}
+  if zs ~= nil then
+    if run.scope == "holiday" then
+      lists = { zs.holiday, zs.today.blocks, zs.week }
+    elseif run.scope == "today" then
+      lists = { zs.today.blocks, zs.week, zs.holiday }
+    else
+      lists = { zs.week, zs.today.blocks, zs.holiday }
+    end
+  end
+  for _, list in ipairs(lists) do
+    for _, b in ipairs(list or {}) do
+      if b.id == run.block_id and M.signature(b) == run.sig then
+        return copy(b)
+      end
+    end
+  end
+  return { id = run.block_id, name = run.name, volume = run.volume, displays = "keep" }
+end
+
 --- The driver reports a block's ramp is done.
 function Engine:markSteady(slot)
   if self.run[slot] ~= nil then
@@ -801,6 +844,8 @@ function Engine:startManual(slot, blockId, scope)
   self.run[slot] = {
     key = "manual|" .. tostring(self.manualSeq),
     manual = true,
+    scope = scope,
+    started = self.now(),
     base = active and active.key or "",
     block_id = block.id,
     name = block.name,

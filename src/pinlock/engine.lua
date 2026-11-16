@@ -1228,9 +1228,35 @@ function Engine:lockSummary()
   return out
 end
 
+--- Whether a date field of the editor is the one it was loaded with, so the
+--- stored time behind it must be kept as it is.
+---
+--- The editor shows a DATE; a code may hold an exact TIME (a temporary code
+--- from programming expires on the hour it was given). Turning the date back
+--- into a time on every save would move that expiry to 23:59:59 of its day:
+--- a one-hour code would last until midnight, and an expired one would work
+--- again, because someone renamed it.
+---
+--- `was` is the date the page showed when it opened the code (it sends it
+--- back). An older page sends none; then the submitted date is compared with
+--- the stored time's date on the controller's clock.
+local function unchangedDate(submitted, was, stored)
+  if stored == nil then
+    return false
+  end
+  if type(was) == "string" then
+    return submitted == trim(was)
+  end
+  return submitted == os.date("%Y-%m-%d", stored)
+end
+
 --- Turns the admin page's save document into an addCode/updateCode spec.
-function M.specFromPage(doc)
+--- `current` is the code being edited (nil for a new one): a start or expiry
+--- date the editor did not change is left out of the spec, so updateCode
+--- keeps the stored time exactly.
+function M.specFromPage(doc, current)
   doc = type(doc) == "table" and doc or {}
+  current = type(current) == "table" and current or nil
   local spec = {
     name = doc.name,
     role = doc.role,
@@ -1263,6 +1289,14 @@ function M.specFromPage(doc)
     spec.expires = M.dayEpoch(ed, true)
     if spec.expires == nil then
       return nil, "dates must be YYYY-MM-DD"
+    end
+  end
+  if current ~= nil then
+    if unchangedDate(sd, doc.start_date_was, current.starts) then
+      spec.starts = nil
+    end
+    if unchangedDate(ed, doc.expiry_date_was, current.expires) then
+      spec.expires = nil
     end
   end
   return spec

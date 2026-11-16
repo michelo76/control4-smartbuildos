@@ -431,6 +431,51 @@ status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = COURIER_PI
 check("temporary code works once", status == 200 and doc.ok == true)
 status = http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = COURIER_PIN })
 check("and not twice (max uses 1)", status == 401 and vars["LAST_DENIAL_REASON"] == "used_up")
+-- Through the admin page's save route: an edit that does not touch the dates
+-- keeps the temporary code's exact expiry (reviewer finding on PR #39).
+do
+  local _, signedIn = http("POST", "/admin/login?k=" .. TOKEN, { pin = OWNER_PIN })
+  SESSION = signedIn.session or SESSION
+  local st, state = http("POST", "/admin/state?k=" .. TOKEN, { session = SESSION })
+  local courier
+  for _, c in ipairs(st == 200 and state.codes or {}) do
+    if c.name == "Courier" then
+      courier = c
+    end
+  end
+  check("the admin page lists the temporary code with its exact expiry", courier ~= nil and courier.temp == true and type(courier.expires) == "number")
+  if courier ~= nil then
+    local shown = os.date("%Y-%m-%d", courier.expires)
+    local st2, saved = http("POST", "/admin/save?k=" .. TOKEN, {
+      session = SESSION,
+      id = courier.id,
+      name = "Courier",
+      role = courier.role,
+      actions = { 2 },
+      days = {},
+      from = "",
+      to = "",
+      start_date = os.date("%Y-%m-%d", courier.starts),
+      start_date_was = os.date("%Y-%m-%d", courier.starts),
+      expiry_date = shown,
+      expiry_date_was = shown,
+      max_uses = 1,
+    })
+    check("an edit of the temporary code through the page is saved", st2 == 200 and saved.ok == true, JSON:encode(saved))
+    local _, after = http("POST", "/admin/state?k=" .. TOKEN, { session = SESSION })
+    local kept
+    for _, c in ipairs(after.codes or {}) do
+      if c.id == courier.id then
+        kept = c
+      end
+    end
+    check(
+      "...and its expiry is the same instant, not the end of that day",
+      kept ~= nil and kept.expires == courier.expires and kept.starts == courier.starts,
+      kept and os.date("%H:%M:%S", kept.expires)
+    )
+  end
+end
 ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Nope", PIN = "1111", ACTIONS = "2" })
 check("a weak temporary PIN is refused and says so", prop("Last Refusal"):find("Add Temporary Code: PIN must be") ~= nil, prop("Last Refusal"))
 ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Nope2", PIN = VENDOR_PIN, ACTIONS = "zzz" })

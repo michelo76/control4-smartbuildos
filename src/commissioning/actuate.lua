@@ -61,6 +61,18 @@ local function truthy(v)
   return v == "1" or v == "true" or v == "on"
 end
 
+--- A room's power as true, false, or nil when it reports no power variable.
+--- Not `power ~= nil and truthy(power) or nil`: that turns an explicit "off"
+--- into nil, and a room that was off is then restored by selecting its last
+--- source instead of ROOM_OFF.
+local function powerOf(vars)
+  local power = firstVar(vars, M.AV_POWER_VARS)
+  if power == nil then
+    return nil
+  end
+  return truthy(power)
+end
+
 -- ─── adapters ───────────────────────────────────────────────────────────────
 
 local ADAPTERS = {}
@@ -141,11 +153,10 @@ ADAPTERS.av = {
     return true
   end,
   baseline = function(vars)
-    local power = firstVar(vars, M.AV_POWER_VARS)
     return {
       source = num((firstVar(vars, M.AV_SOURCE_VARS))),
       volume = num((firstVar(vars, M.AV_VOLUME_VARS))),
-      on = power ~= nil and truthy(power) or nil,
+      on = powerOf(vars),
     }
   end,
   steps = function(item, phase, baseline, options)
@@ -166,11 +177,10 @@ ADAPTERS.av = {
     return steps
   end,
   read = function(vars)
-    local power = firstVar(vars, M.AV_POWER_VARS)
     return {
       source = num((firstVar(vars, M.AV_SOURCE_VARS))),
       volume = num((firstVar(vars, M.AV_VOLUME_VARS))),
-      on = power ~= nil and truthy(power) or nil,
+      on = powerOf(vars),
     }
   end,
   check = function(phase, read, baseline, item)

@@ -214,8 +214,27 @@ do
   )
   r.take("subscribe")
   r.take("unsubscribe")
+  -- asking again for a filter already held (to get its retained messages again)
+  local n = r.client:resubscribe({ "keep/me", "not/held", "keep/me" })
+  subs = r.take("subscribe")
+  check(
+    "resubscribe sends SUBSCRIBE again for a held filter, once, and ignores others",
+    n == 1 and #subs == 1 and #subs[1].filters == 1 and subs[1].filters[1].filter == "keep/me",
+    n
+  )
+  check("...and leaves the set as it was", #r.client:subscriptions() == 2)
+  r.client:receive(P.suback(subs[1].id, { 1 }))
+  check("its SUBACK is taken like any other", r.lastState() ~= "failed")
+  check(
+    "resubscribe with nothing held sends nothing",
+    r.client:resubscribe({ "nope" }) == 0 and #r.take("subscribe") == 0
+  )
   -- reconnect
   r.client:closed("lost")
+  check(
+    "resubscribe while not connected sends nothing",
+    r.client:resubscribe({ "keep/me" }) == 0 and #r.take("subscribe") == 0
+  )
   check("closed reported once", r.lastState() == "closed")
   r.client:open()
   r.client:receive(P.connack(false, 0))

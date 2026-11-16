@@ -436,6 +436,83 @@ check("page document becomes a spec with local-day epochs", spec.pin == "4826" a
 check("bad page date refused", Engine.specFromPage({ name = "X", start_date = "tomorrow" }) == nil)
 check("constant compare", Engine.constEq("abc", "abc") and not Engine.constEq("abc", "abd") and not Engine.constEq("abc", "abcd"))
 
+print("[temporary codes keep their exact expiry through the editor] (reviewer finding on PR #39)")
+do
+  clock.t = BASE -- Wednesday 12:00
+  local t = newEngine()
+  local id = t:addTemporary({ name = "Courier", pin = GUEST_PIN, actions = { 2 }, hours = 1 })
+  local code = t:find(id)
+  local exact, started = code.expires, code.starts
+  check("a one-hour temporary code expires at 13:00", exact == BASE + 3600)
+  --- What the Codes editor sends back for this code: dates only.
+  local function pageDoc(over)
+    local c = t:find(id)
+    local d = {
+      name = c.name,
+      role = c.role,
+      actions = { 2 },
+      days = {},
+      from = "",
+      to = "",
+      start_date = os.date("%Y-%m-%d", c.starts),
+      expiry_date = c.expires and os.date("%Y-%m-%d", c.expires) or "",
+      max_uses = "",
+    }
+    d.start_date_was, d.expiry_date_was = d.start_date, d.expiry_date
+    for k, v in pairs(over or {}) do
+      d[k] = v
+    end
+    return d
+  end
+  local function save(doc)
+    local spec, why = Engine.specFromPage(doc, t:find(id))
+    if spec == nil then
+      return false, why
+    end
+    return t:updateCode(id, spec)
+  end
+
+  local ok, why = save(pageDoc({ name = "Courier (parcel)" }))
+  check("renaming the code is accepted", ok == true, why)
+  check("...and its expiry is still 13:00, not the end of the day", t:find(id).expires == exact, os.date("%H:%M:%S", t:find(id).expires))
+  check("...and its start is untouched", t:find(id).starts == started)
+  clock.t = BASE + 2 * 3600 -- 14:00
+  check("at 14:00 the one-hour code no longer works", t:tryPin("page", 2, GUEST_PIN).ok ~= true)
+  ok = save(pageDoc({ name = "Courier (late edit)" }))
+  check("editing the expired code is accepted", ok == true)
+  check("...and does not bring it back", t:tryPin("page", 2, GUEST_PIN).ok ~= true and t:find(id).expires == exact)
+
+  -- A page built before this fix sends no "was" dates.
+  local old = pageDoc({ name = "Courier (old page)" })
+  old.start_date_was, old.expiry_date_was = nil, nil
+  check("an older page's save keeps the expiry too", save(old) == true and t:find(id).expires == exact)
+
+  -- A browser in another time zone shows another date for the same instant.
+  check(
+    "a browser showing a different date keeps the expiry as long as the date was not changed",
+    save(pageDoc({ expiry_date = "2027-01-07", expiry_date_was = "2027-01-07" })) == true and t:find(id).expires == exact
+  )
+
+  -- The owner really changes the date.
+  ok = save(pageDoc({ expiry_date = "2027-01-08" }))
+  check(
+    "a changed expiry date becomes the end of that day",
+    ok == true and t:find(id).expires == os.time({ year = 2027, month = 1, day = 8, hour = 23, min = 59, sec = 59 })
+  )
+  check("...and the start, not changed, keeps its exact time", t:find(id).starts == started)
+  ok = save(pageDoc({ expiry_date = "" }))
+  check("clearing the expiry date removes the expiry", ok == true and t:find(id).expires == nil)
+
+  -- A new code from the page: nothing to keep, dates become whole days as before.
+  local fresh = Engine.specFromPage({ name = "N", start_date = "2027-02-01", expiry_date = "2027-02-03", start_date_was = "", expiry_date_was = "" })
+  check(
+    "a new code's dates are whole local days",
+    fresh.starts == os.time({ year = 2027, month = 2, day = 1, hour = 0, min = 0, sec = 0 })
+      and fresh.expires == os.time({ year = 2027, month = 2, day = 3, hour = 23, min = 59, sec = 59 })
+  )
+  clock.t = BASE
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

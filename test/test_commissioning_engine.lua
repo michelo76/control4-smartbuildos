@@ -289,6 +289,83 @@ check("restore brings back history and the signed record", #again.history == #en
 again:restore("garbage")
 check("restore tolerates garbage", again:status() == "running")
 
+print("[7b] a test interrupted before it restored (reviewer finding on PR #39)")
+do
+  -- Light 10 sits at 30%. A test ramps it to 100% and restores after the settle time.
+  devVars[10]["Brightness Percent"] = 30
+  local function fresh(scope)
+    if engine:active() then
+      engine:abort()
+    end
+    advance(20000) -- nothing left over from the previous case
+    engine:setItems(kitchen)
+    assert(engine:startRun({ scope = scope or "Kitchen", technician = "Ira" }))
+    sentCmds = {}
+  end
+  local function lastTo(deviceId)
+    local last
+    for _, c in ipairs(sentCmds) do
+      if c[1] == deviceId then
+        last = c
+      end
+    end
+    return last
+  end
+
+  fresh()
+  engine:test("light:10")
+  local restoredBefore = count("item_restored")
+  check("the light is at full while it is being tested", devVars[10]["Brightness Percent"] == 100)
+  ok = engine:mark("light:10", "fail", "lamp did not light")
+  check("Fail during the test is accepted", ok and engine:_result("light:10").status == "failed")
+  check("...and the light is sent back to 30% at once", lastTo(10)[2] == "RAMP_TO_LEVEL" and lastTo(10)[3].LEVEL == 30, lastTo(10)[3].LEVEL)
+  check("item_restored is emitted, once", count("item_restored") == restoredBefore + 1)
+  local sentSoFar = #sentCmds
+  ok, why = engine:test("light:10")
+  check("a retest is refused while the light is still returning", ok == false and why:find("put back", 1, true) ~= nil, why)
+  advance(3000)
+  check("the settle timers of the interrupted test send nothing more", #sentCmds == sentSoFar, #sentCmds)
+  check("the light ends where it started", devVars[10]["Brightness Percent"] == 30)
+  check("the failed verdict stands", engine:_result("light:10").status == "failed")
+  ok = engine:test("light:10")
+  check("a retest is allowed once the light has had time to return", ok == true)
+  check("...and its baseline is the real level, not the test level", engine:_result("light:10").baseline.level == 30)
+  advance(3000)
+  check("the retest restores to 30% too", devVars[10]["Brightness Percent"] == 30 and engine:_result("light:10").status == "awaiting")
+
+  fresh()
+  engine:test("light:10")
+  ok = engine:mark("light:10", "skip")
+  check("Skip during the test also sends the light back", ok and lastTo(10)[3].LEVEL == 30)
+
+  fresh()
+  engine:test("light:10")
+  engine:abort()
+  check("aborting the run during a test sends the light back", lastTo(10)[3].LEVEL == 30 and devVars[10]["Brightness Percent"] == 30)
+  check("...and leaves the item pending in the aborted run", engine:_result("light:10").status == "pending")
+  advance(3000)
+  check("nothing else is sent after the abort", lastTo(10)[3].LEVEL == 30)
+
+  -- The shade: at 100, a test sends it to 0 and waits four times as long.
+  fresh("Den")
+  devVars[12]["Level"] = 100
+  engine:test("shade:12")
+  check("the shade is at its test position", devVars[12]["Level"] == 0)
+  engine:mark("shade:12", "fail")
+  check("Fail sends the shade back to where it was", devVars[12]["Level"] == 100)
+
+  -- An interruption AFTER the restore was sent does not send it twice.
+  fresh()
+  engine:test("light:10")
+  advance(1000) -- the act was read; the restore has gone out
+  local n = #sentCmds
+  engine:mark("light:10", "fail")
+  check("a verdict after the restore went out sends nothing more", #sentCmds == n)
+  ok = engine:test("light:10")
+  check("...and a retest is not held back", ok == true)
+  advance(3000)
+end
+
 print("[8] adapters")
 local light = Actuate.adapterFor("light")
 check("light check: not full", select(1, light.check("act", { level = 60 }, { level = 0 })) == "mismatch")
@@ -308,6 +385,20 @@ check(
 )
 check("AV from off returns with ROOM_OFF", av.steps({ source = 5 }, "restore", { on = false })[1].command == "ROOM_OFF")
 check("AV restores the previous source and volume", #av.steps({ source = 5 }, "restore", { on = true, source = 3, volume = 20 }) == 2)
+-- A room that reports it is OFF and still names its last source (reviewer
+-- finding on PR #39: "off" was captured as nil, so the restore selected the
+-- source instead of switching the room off).
+local offRoom = av.baseline({ IS_ROOM_ON = "0", CURRENT_SELECTED_DEVICE = "3", CURRENT_VOLUME = "20" })
+check("an AV room reporting off has baseline.on == false, not nil", offRoom.on == false, tostring(offRoom.on))
+local offSteps = av.steps({ source = 5 }, "restore", offRoom)
+check("...and is returned with ROOM_OFF, not by selecting its last source", #offSteps == 1 and offSteps[1].command == "ROOM_OFF", offSteps[1].command)
+check("read() keeps an explicit off too", av.read({ IS_ROOM_ON = "0" }).on == false)
+check(
+  "...so a room left on after the test is reported",
+  select(1, av.check("restore", av.read({ IS_ROOM_ON = "1" }), offRoom, { source = 5 })) == "mismatch"
+)
+check("a room reporting on is on", av.baseline({ IS_ROOM_ON = "1" }).on == true)
+check("a room with no power variable is unknown, not off", av.baseline({ CURRENT_SELECTED_DEVICE = "3" }).on == nil)
 check("AV check: unreported without a variable", select(1, av.check("act", {}, {}, { source = 5 })) == "unreported")
 check("AV check: match", select(1, av.check("act", { source = 5 }, {}, { source = 5 })) == "match")
 check("AV check: mismatch", select(1, av.check("act", { source = 3 }, {}, { source = 5 })) == "mismatch")
