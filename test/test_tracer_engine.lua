@@ -39,7 +39,7 @@ local devices = {
   [20] = { deviceName = "Garage Door", driverFileName = "contact.c4z", roomId = 7, roomName = "Garage" },
   [30] = { deviceName = "Mystery Box", driverFileName = "mystery.c4z", roomId = 1, roomName = "Entry" },
   [50] = { deviceName = "SmartBuildOS Agent", driverFileName = "smartbuildos.c4z" },
-  [999] = { deviceName = "Event Tracer", driverFileName = "smartbuildos-event-tracer.c4z" },
+  [999] = { deviceName = "Flight Recorder", driverFileName = "smartbuildos-flight-recorder.c4z" },
 }
 local builtin = {
   ["light.c4z"] = { [1] = "Top Button Pushed", [2] = "Bottom Button Pushed", [3] = "Toggle" },
@@ -157,16 +157,15 @@ check(
 check("unexpected event → false and counted", tr:onDeviceEvent(30, 1) == false and tr.counters.unexpected == 1)
 check("counters", tr.counters.captured == 1 and tr.counters.emitted >= 1)
 
-print("== marks")
+print("== markers come from the driver as notes (the engine uploads nothing for them)")
 reset()
-check("mark recorded", tr:mark("  Good Night started ", "from keypad", 12) == true)
-check("empty mark refused", tr:mark("   ") == false)
-local marks = emittedOf("capture.mark")
 check(
-  "capture.mark emitted, instrumented, trimmed",
-  #marks == 1 and marks[1].evidence_source == "instrumented" and marks[1].label == "Good Night started"
+  "a marker note is held",
+  tr:note({ kind = "mark", event_name = "Good Night started", detail = "from keypad", device_id = 12, known = true })
+    ~= nil
 )
-check("ring has the mark", tr:latest().kind == "mark" and tr.counters.marks == 1)
+check("no capture.mark is emitted any more", #emittedOf("capture.mark") == 0)
+check("the history has the marker", tr:latest().kind == "mark" and tr.counters.notes == 1)
 check("formatEntry for a mark", T.formatEntry(tr:latest()):find("MARK") ~= nil)
 do
   local noon = os.time({ year = 2026, month = 11, day = 10, hour = 12, min = 0, sec = 0 })
@@ -385,7 +384,7 @@ print("== known events are subscribed before probe guesses")
 do
   local reg = {}
   local many = {
-    [999] = { deviceName = "Event Tracer", driverFileName = "smartbuildos-event-tracer.c4z" },
+    [999] = { deviceName = "Flight Recorder", driverFileName = "smartbuildos-flight-recorder.c4z" },
     [900] = { deviceName = "Front Door", driverFileName = "contact.c4z", roomId = 1, roomName = "Entry" },
     [901] = { deviceName = "Pendants", driverFileName = "light.c4z", roomId = 3, roomName = "Kitchen" },
   }
@@ -428,6 +427,145 @@ do
   check("what the probe could not have is reported, not hidden", s3.unsubscribed_events == 40 * 32 - (lowest - 5))
   check("probing starts with the lowest device id, as before", reg["1:1"] == true)
   tr3:stop()
+end
+
+print("[notes] the driver's own entries share the history with device events")
+do
+  local clock = 1000
+  local emitted = {}
+  local tr = T.new({
+    now = function()
+      return clock
+    end,
+    register = function()
+      return true
+    end,
+    unregister = function() end,
+    devices = function()
+      return { [20] = { deviceName = "Front Door", driverFileName = "contact.c4z", roomId = 1, roomName = "Entry" } }
+    end,
+    catalog = Catalog.new({ builtin = { ["contact.c4z"] = { [1] = "Opened", [2] = "Closed" } } }),
+    emit = function(fields)
+      emitted[#emitted + 1] = fields
+    end,
+    selfDeviceId = 999,
+  })
+  tr:apply(T.validatePolicy({}))
+  emitted = {}
+  tr:onDeviceEvent(20, 1)
+  clock = 1001
+  local seq = tr:note({
+    kind = "change",
+    device_id = 20,
+    device_label = "Front Door",
+    variable = "ContactState",
+    value = "Open",
+    previous = "Closed",
+    previous_known = true,
+  })
+  clock = 1002
+  tr:onDeviceEvent(20, 2)
+  check("a note takes the next sequence number, between the events around it", seq == 2 and tr.ring.seq == 3)
+  check("and the engine's clock when it has no time of its own", tr:recent(3)[2].t == 1001)
+  check("a note uploads nothing: whoever wrote it has emitted its own event", #emitted == 2, #emitted)
+  check("notes are counted apart from captured events", tr.counters.notes == 1 and tr.counters.captured == 2)
+  check(
+    "an entry that claims to be a device event is refused",
+    tr:note({ kind = "event", device_id = 20 }) == nil and tr.ring.seq == 3
+  )
+  check("so is something that is not an entry", tr:note("text") == nil and tr:note({}) == nil)
+  check("a device's history holds its events and its notes", #tr:forDevice(20) == 3)
+  tr.paused = true
+  check(
+    "a note is kept while capture is paused (the pause itself is one)",
+    tr:note({ kind = "note", text = "Recording paused" }) == 4
+  )
+
+  local function line(entry)
+    entry.seq = entry.seq or 7
+    entry.t = entry.t or 1000
+    return (T.formatEntry(entry, 1000):gsub("^%S+%s+#%d+%s+", ""))
+  end
+  check(
+    "a change reads device, variable, before and after",
+    line({
+      kind = "change",
+      room_label = "Hall",
+      device_label = "Hall Light",
+      variable = "LIGHT_LEVEL",
+      value = 0,
+      previous = 75,
+      previous_known = true,
+    }) == "Hall / Hall Light: LIGHT_LEVEL 75 → 0",
+    line({
+      kind = "change",
+      room_label = "Hall",
+      device_label = "Hall Light",
+      variable = "LIGHT_LEVEL",
+      value = 0,
+      previous = 75,
+      previous_known = true,
+    })
+  )
+  check("a coalesced change says how many it stands for", line({
+    kind = "change",
+    device_label = "Hall Light",
+    variable = "LIGHT_LEVEL",
+    value = 0,
+    previous = 75,
+    previous_known = true,
+    coalesced = 12,
+  }) == "Hall Light: LIGHT_LEVEL 75 → 0 (12 changes)")
+  check(
+    "a change whose previous value is unknown never invents one",
+    line({ kind = "change", device_label = "Hall Light", variable = "LIGHT_LEVEL", value = 0, previous_known = false })
+      == "Hall Light: LIGHT_LEVEL → 0 (previous value not known)"
+  )
+  check(
+    "a first read is not a change, and says so",
+    line({ kind = "change", device_label = "Hall Light", variable = "LIGHT_LEVEL", value = 75, initial = true })
+      == "Hall Light: LIGHT_LEVEL = 75 (first read, not a change)"
+  )
+  check("a false value is shown, not dropped", line({
+    kind = "change",
+    device_label = "Door",
+    variable = "OPEN",
+    value = false,
+    previous = true,
+    previous_known = true,
+  }) == "Door: OPEN true → false")
+  check("a long value is cut", #line({
+    kind = "change",
+    device_label = "Player",
+    variable = "TITLE",
+    value = string.rep("x", 300),
+    previous_known = false,
+  }) < 120)
+  check(
+    "a trace step names its channel, its step and its device",
+    line({ kind = "trace", channel = "night", step = "step 1", text = "Hall light off", device_label = "Hall Light" })
+      == "TRACE night  step 1  Hall light off  [Hall Light]"
+  )
+  check(
+    "a trace line without text or device is still a line",
+    line({ kind = "trace", step = "start" }) == "TRACE main  start"
+  )
+  check("a system notice", line({ kind = "system", text = "project_changed" }) == "SYSTEM  project_changed")
+  check("a recorder note", line({ kind = "note", text = "Recording paused" }) == "NOTE  Recording paused")
+  check(
+    "a marker with no detail",
+    line({ kind = "mark", event_name = "Good Night", detail = "" }) == "MARK  Good Night"
+  )
+  check(
+    "a marker whose detail is missing altogether does not throw",
+    line({ kind = "mark", event_name = "Good Night" }) == "MARK  Good Night"
+  )
+  check(
+    "a device event is unchanged",
+    line({ kind = "event", room_label = "Entry", device_label = "Front Door", event_name = "Opened", known = true })
+      == "Entry / Front Door: Opened"
+  )
+  tr:stop()
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

@@ -489,12 +489,11 @@ descriptions from the feeds stay on the controller; nothing is uploaded. A
 guest's name is shown in **Current Guest** and `GUEST_NAME`, and written to the
 log when logging is on at **Log Level** `3 - Info` or above.
 
-The PIN and Wi-Fi password are stored encrypted, and the driver's own log lines
-and print actions never show them. Two things to know:
+The PIN and Wi-Fi password are stored encrypted, and nothing the driver writes
+to the Lua tab or the controller log shows them, at any **Log Level**: the line
+that records a save says `<hidden>` in place of the value, and
+`SET_GUEST_WIFI_PASSWORD` is not logged with its parameter. One thing to know:
 
 - They are Composer variables. Any programming can read them, and the
   SmartBuildOS Notification Router will send `GUEST_PIN` in a message if you
   pick it (it sends `GUEST_WIFI_PASSWORD` as `[hidden]`).
-- At **Log Level** `5 - Trace` with **Log Mode** on, the storage layer logs
-  every value it saves, the code and the password included. Do not leave Trace
-  on at a rental.

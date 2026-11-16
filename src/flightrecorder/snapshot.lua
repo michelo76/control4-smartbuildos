@@ -4,15 +4,18 @@
 --- registration, the recording configuration and its limits, queue and
 --- upload health, the selected sources' current observations, the recent
 --- recorded events the driver still holds, and explicit warnings about what
---- is missing. Secrets are redacted before the document exists; sizes are
---- bounded by trimming the recent events, then the observations, and the
---- document says so.
+--- is missing, and (since the recorder also captures device events) what
+--- event capture covers and the local history as it stood: the device
+--- events, variable changes and trace steps in the order they happened, which
+--- is usually the part someone opens a snapshot for. Secrets are redacted
+--- before the document exists; sizes are bounded by trimming the history,
+--- then the recent events, then the observations, and the document says so.
 
 local Envelope = require("sbos.envelope")
 
 local M = {}
 
-M.LIMITS = { max_bytes = 64 * 1024, observations = 200, recent = 100, warnings = 40 }
+M.LIMITS = { max_bytes = 64 * 1024, observations = 200, recent = 100, warnings = 40, history = 200, storms = 20 }
 
 local function copyList(list, limit)
   local out = {}
@@ -27,7 +30,9 @@ end
 
 --- @param input table { job_id, request_id?, requested_by?, now_iso, agent = {...}, module = {...},
 ---   config = {...} (validated config), plan_summary = {...}, queue = {...}|nil, observations = {...},
----   recent = {...}, warnings = {...} }
+---   recent = {...}, warnings = {...},
+---   event_capture = {...}|nil (status, coverage summary, counters),
+---   storms = {...}|nil (active storms), history = {...}|nil (local history entries, oldest first) }
 --- @return table document
 function M.build(input)
   local warnings = copyList(input.warnings, M.LIMITS.warnings)
@@ -61,6 +66,8 @@ function M.build(input)
       "queue and upload health as last reported by the Agent",
       "current values of selected sources",
       "recent recorded events held by the driver",
+      "event capture coverage and active event storms",
+      "the local history: device events, variable changes and trace steps in order",
     },
     not_collected = {
       "arbitrary driver properties",
@@ -82,9 +89,19 @@ function M.build(input)
     queue = input.queue,
     observations = copyList(input.observations, M.LIMITS.observations),
     recent_events = copyList(input.recent, M.LIMITS.recent),
+    event_capture = input.event_capture,
+    storms = copyList(input.storms, M.LIMITS.storms),
+    history = {},
     warnings = warnings,
-    truncation = { observations = 0, recent_events = 0 },
+    truncation = { observations = 0, recent_events = 0, history = 0 },
   }
+  -- The NEWEST history entries are the ones a snapshot is for.
+  local history = input.history or {}
+  local first = math.max(1, #history - M.LIMITS.history + 1)
+  for i = first, #history do
+    doc.history[#doc.history + 1] = history[i]
+  end
+  doc.truncation.history = first - 1
   if input.queue == nil then
     doc.warnings[#doc.warnings + 1] =
       "queue health unavailable: the Agent has not reported it since this driver registered"
@@ -96,9 +113,13 @@ function M.build(input)
     doc.truncation.recent_events = #input.recent - M.LIMITS.recent
   end
   doc = Envelope.redact(doc)
-  -- Size bound: trim recent events first, then observations.
+  -- Size bound: trim the oldest history first, then recent events, then
+  -- observations.
   while Envelope.approxSize(doc, 0, M.LIMITS.max_bytes * 4) > M.LIMITS.max_bytes do
-    if #doc.recent_events > 0 then
+    if #doc.history > 0 then
+      table.remove(doc.history, 1)
+      doc.truncation.history = doc.truncation.history + 1
+    elseif #doc.recent_events > 0 then
       table.remove(doc.recent_events)
       doc.truncation.recent_events = doc.truncation.recent_events + 1
     elseif #doc.observations > 0 then
@@ -110,12 +131,14 @@ function M.build(input)
       break
     end
   end
-  if doc.truncation.recent_events > 0 or doc.truncation.observations > 0 then
+  if doc.truncation.recent_events > 0 or doc.truncation.observations > 0 or doc.truncation.history > 0 then
     doc.warnings[#doc.warnings + 1] = string.format(
-      "truncated to fit %d KB: %d recent event(s) and %d observation(s) omitted",
+      "truncated to fit %d KB: %d recent event(s), %d observation(s) and %d older history entr%s omitted",
       math.floor(M.LIMITS.max_bytes / 1024),
       doc.truncation.recent_events,
-      doc.truncation.observations
+      doc.truncation.observations,
+      doc.truncation.history,
+      doc.truncation.history == 1 and "y" or "ies"
     )
   end
   return doc

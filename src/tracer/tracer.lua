@@ -1,4 +1,5 @@
---- Event Tracer — the capture engine (pure, injected Director surface).
+--- Flight Recorder event capture — the capture engine (pure, injected
+--- Director surface). Formerly the Event Tracer driver's engine.
 ---
 --- Subscribes to EVERY Composer event of EVERY device in the project that
 --- the catalogue knows (tracer.catalog), and turns Director's
@@ -25,7 +26,7 @@
 ---     flood the ring or the uplink, and the storm itself IS the finding.
 ---   • BUDGET. Envelopes beyond `events_per_minute` are dropped and counted,
 ---     with one `tracer.budget_exceeded` per minute. The local ring is NOT
----     budgeted (it is bounded by size instead), so Print Recent Events can
+---     budgeted (it is bounded by size instead), so Print Recent History can
 ---     show what the uplink did not get.
 ---   • SUBSCRIPTION CAP. Devices are covered in ascending id order until
 ---     `max_subscriptions`; what did not fit is counted per device and
@@ -254,7 +255,7 @@ function M.new(deps)
     storms = 0,
     storm_suppressed = 0,
     learned = 0,
-    marks = 0,
+    notes = 0,
     unexpected = 0,
     subscriptions = 0,
     register_failures = 0,
@@ -461,33 +462,21 @@ function Tracer:onDeviceEvent(deviceId, eventId)
   return true
 end
 
---- A marker from Composer programming: a labelled point in the timeline.
-function Tracer:mark(name, detail, deviceId)
-  name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
-  if name == "" then
-    return false
+--- An entry the DRIVER places in the local history: something that is not a
+--- device event but belongs between them when a dealer reads the sequence
+--- back (a recorded variable change, a trace step, a system notice). The
+--- history is one list so that "motion fired, the routine started, the light
+--- went from 75 to 0" reads in the order it happened. Nothing is uploaded
+--- from here: whatever produced the entry has already emitted its own event.
+--- @param entry table { kind = "change"|"trace"|"mark"|"system"|"note", ... } (see flightrecorder.history)
+--- @return integer|nil seq
+function Tracer:note(entry)
+  if type(entry) ~= "table" or type(entry.kind) ~= "string" or entry.kind == "event" then
+    return nil
   end
-  local now = self.deps.now()
-  local entry = {
-    t = now,
-    kind = "mark",
-    device_id = tonumber(deviceId),
-    event_name = name,
-    detail = tostring(detail or ""):sub(1, 400),
-    known = true,
-  }
-  local seq = self.ring:push(entry)
-  self.counters.marks = self.counters.marks + 1
-  self:_emit({
-    event_type = "capture.mark",
-    evidence_source = "instrumented",
-    quality = "unreviewed_text",
-    severity = "notice",
-    device_id = tonumber(deviceId),
-    label = name,
-    payload = { seq = seq, name = name, detail = entry.detail, note = "placed by Composer programming" },
-  })
-  return true
+  entry.t = entry.t or self.deps.now()
+  self.counters.notes = self.counters.notes + 1
+  return self.ring:push(entry)
 end
 
 -- ── Subscriptions ────────────────────────────────────────────────────────────
@@ -825,27 +814,47 @@ function M.formatWhen(t, now)
   return os.date("%m-%d %H:%M:%S", t)
 end
 
+--- A value as one short piece of a log line.
+local function shown(value)
+  local text = tostring(value)
+  if #text > 60 then
+    text = text:sub(1, 57) .. "..."
+  end
+  return text
+end
+
+local function place(e)
+  return (e.room_label and (e.room_label .. " / ") or "") .. tostring(e.device_label or e.device_id or "?")
+end
+
 --- One line per entry for Director's log.
 function M.formatEntry(e, now)
   local when = M.formatWhen(e.t, now)
+  local head = string.format("%s  #%d  ", when, e.seq or 0)
   if e.kind == "mark" then
-    return string.format(
-      "%s  #%d  MARK  %s%s",
-      when,
-      e.seq or 0,
-      e.event_name,
-      e.detail ~= "" and ("  — " .. e.detail) or ""
-    )
+    return head .. "MARK  " .. tostring(e.event_name) .. ((e.detail or "") ~= "" and ("  — " .. e.detail) or "")
+  elseif e.kind == "change" then
+    local name = tostring(e.variable or "?")
+    if e.initial then
+      return head .. string.format("%s: %s = %s (first read, not a change)", place(e), name, shown(e.value))
+    elseif e.previous_known then
+      return head
+        .. string.format("%s: %s %s → %s", place(e), name, shown(e.previous), shown(e.value))
+        .. ((tonumber(e.coalesced) or 0) > 1 and string.format(" (%d changes)", e.coalesced) or "")
+    end
+    return head .. string.format("%s: %s → %s (previous value not known)", place(e), name, shown(e.value))
+  elseif e.kind == "trace" then
+    local text = tostring(e.text or "")
+    return head
+      .. string.format("TRACE %s  %s", tostring(e.channel or "main"), tostring(e.step or "?"))
+      .. (text ~= "" and ("  " .. text) or "")
+      .. (e.device_label and ("  [" .. tostring(e.device_label) .. "]") or "")
+  elseif e.kind == "system" then
+    return head .. "SYSTEM  " .. tostring(e.text or "")
+  elseif e.kind == "note" then
+    return head .. "NOTE  " .. tostring(e.text or "")
   end
-  return string.format(
-    "%s  #%d  %s%s: %s%s",
-    when,
-    e.seq or 0,
-    e.room_label and (e.room_label .. " / ") or "",
-    tostring(e.device_label or e.device_id),
-    tostring(e.event_name),
-    e.known and "" or " (unnamed)"
-  )
+  return head .. string.format("%s: %s%s", place(e), tostring(e.event_name), e.known and "" or " (unnamed)")
 end
 
 return M

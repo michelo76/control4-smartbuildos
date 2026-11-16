@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Event Tracer's built-in event catalogue from a driver library.
+"""Generate the Flight Recorder's built-in event catalogue from a driver library.
 
 Reads every ``.c4z`` (a zip whose ``driver.xml`` is plain text even when the
 Lua is encrypted) and every ``.c4i`` in the given directories, extracts the

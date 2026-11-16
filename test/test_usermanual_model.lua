@@ -49,8 +49,8 @@ local ok, why =
   Manual.isHomeownerDevice({ deviceName = "Agent", driverFileName = "smartbuildos.c4z", roomName = "Equipment Room" })
 check("SmartBuildOS drivers excluded", ok == false and why == "infrastructure driver", why)
 ok, why = Manual.isHomeownerDevice({
-  deviceName = "Event Tracer",
-  driverFileName = "smartbuildos-event-tracer.c4z",
+  deviceName = "Flight Recorder",
+  driverFileName = "smartbuildos-flight-recorder.c4z",
   roomName = "SmartBuildOS",
 })
 check("sibling drivers excluded", ok == false)

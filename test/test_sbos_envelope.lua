@@ -128,7 +128,22 @@ check(
 )
 check(
   "a listed module still gets not_owned, not reserved, for a foreign prefix",
-  select(2, E.validate(shaped("event_tracer", "trace.start"))) == "event_type_not_owned"
+  select(2, E.validate(shaped("usage_analytics", "trace.start"))) == "event_type_not_owned"
+)
+-- Event capture moved into the Flight Recorder (one driver, one module). The
+-- event types kept their names; their owner changed.
+local captureOk, captureWhy = E.validate(shaped("flight_recorder", "capture.event"))
+check(
+  "the Flight Recorder owns device-event capture and its storms",
+  captureOk == true
+    and E.validate(shaped("flight_recorder", "tracer.storm")) == true
+    and E.validate(shaped("flight_recorder", "observation.change")) == true,
+  tostring(captureWhy)
+)
+check(
+  "the retired event_tracer module id owns nothing: its old types are reserved against it",
+  E.PREFIXES.event_tracer == nil
+    and select(2, E.validate(shaped("event_tracer", "capture.event"))) == "event_type_reserved"
 )
 
 print(string.format("\n%d passed, %d failed", pass, fail))

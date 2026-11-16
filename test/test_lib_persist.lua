@@ -82,6 +82,48 @@ restart()
 check("a deleted key gives the default", persist:get("t_gone", "default") == "default")
 check("a key never set gives the default", persist:get("t_never", "default") == "default")
 
+print("== a value stored encrypted is never written to the log")
+local log = require("lib.logging")
+local realPrint, realDebugLog = print, C4.DebugLog
+local logged = {}
+local function logging(fn)
+  logged = {}
+  log:setLogLevel("5 - Trace")
+  log:setLogMode("Print and Log")
+  print = function(...)
+    for _, part in ipairs({ ... }) do
+      logged[#logged + 1] = tostring(part)
+    end
+  end
+  C4.DebugLog = function(_, message)
+    logged[#logged + 1] = tostring(message)
+  end
+  local ok, err = pcall(fn)
+  print, C4.DebugLog = realPrint, realDebugLog
+  log:setLogLevel("3 - Info")
+  log:setLogMode("")
+  assert(ok, err)
+  return table.concat(logged, "\n")
+end
+local secretLines = logging(function()
+  persist:set("t_secret", "482913", true)
+  persist:get("t_secret", false, true)
+  persist:set("t_secret_table", { token = "zq-token-771" }, true)
+end)
+check("Trace is on and the write was logged", secretLines:find("Persist:set(t_secret,", 1, true) ~= nil, secretLines)
+check("the encrypted value is not in the log", secretLines:find("482913", 1, true) == nil, secretLines)
+check("an encrypted table is not in the log either", secretLines:find("zq-token-771", 1, true) == nil, secretLines)
+check("the line says a value was hidden", secretLines:find("<hidden>", 1, true) ~= nil, secretLines)
+local plainLines = logging(function()
+  persist:set("t_plain", "front-door")
+end)
+check("a value stored in the clear is still shown", plainLines:find("front-door", 1, true) ~= nil, plainLines)
+local clearedLines = logging(function()
+  persist:set("t_secret", nil, true)
+end)
+check("clearing an encrypted key still reads as a clear", clearedLines:find("<hidden>", 1, true) == nil, clearedLines)
+check("what was stored is unchanged by the logging", roundTrip("t_secret2", "482913", true) == "482913")
+
 C4.Base64Decode = realDecode
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

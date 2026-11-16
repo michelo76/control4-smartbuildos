@@ -698,15 +698,18 @@ check("c6 accepted", acks2[1].ok == true)
 advance(70000)
 check("no result before expiry → Unverified", gModuleCommands["req-5"].state == "Unverified")
 
-print("[6b] the restricted vocabulary covers the Event Tracer and Usage Analytics")
+print("[6b] the restricted vocabulary covers the Flight Recorder (event capture included) and Usage Analytics")
 check(
-  "event_tracer verbs",
-  MODULE_COMMANDS.event_tracer.apply_policy
-    and MODULE_COMMANDS.event_tracer.pause
-    and MODULE_COMMANDS.event_tracer.resume
-    and MODULE_COMMANDS.event_tracer.reapply
-    and MODULE_COMMANDS.event_tracer.refresh_status
+  "flight_recorder verbs: recording, snapshots and event capture",
+  MODULE_COMMANDS.flight_recorder.apply_config
+    and MODULE_COMMANDS.flight_recorder.capture_snapshot
+    and MODULE_COMMANDS.flight_recorder.apply_policy
+    and MODULE_COMMANDS.flight_recorder.pause
+    and MODULE_COMMANDS.flight_recorder.resume
+    and MODULE_COMMANDS.flight_recorder.reapply
+    and MODULE_COMMANDS.flight_recorder.refresh_status
 )
+check("the retired event_tracer module has no verbs", MODULE_COMMANDS.event_tracer == nil)
 check(
   "usage_analytics verbs",
   MODULE_COMMANDS.usage_analytics.send_summary
@@ -866,6 +869,16 @@ do
     reported ~= nil and reported.director_reloads == 1,
     reported and reported.detail
   )
+  check("and counted for today", Properties["Director Reloads Today"] == "1", Properties["Director Reloads Today"])
+  check(
+    "the report states today's count and the local day it belongs to",
+    reported ~= nil
+      and reported.director_reloads_today == 1
+      and reported.local_date == os.date("%Y-%m-%d")
+      and tostring(reported.detail):find("1 today", 1, true) ~= nil,
+    reported and reported.detail
+  )
+  check("a midnight timer was armed at start", clock.timers["SmartBuildOSAgentMidnight"] ~= nil)
 end
 sent = {}
 EC.UNPAIR()
@@ -876,6 +889,43 @@ check(
     return s ~= nil and s.params.paired == "false"
   end)()
 )
+
+print("[11] today's counts start again at local midnight, with no restart to prompt it")
+do
+  local dayBefore = os.date("%Y-%m-%d")
+  ArmAgentMidnightTimer()
+  local armed = clock.timers["SmartBuildOSAgentMidnight"]
+  check(
+    "the timer is set for a few seconds after the next local midnight",
+    armed ~= nil and os.date("%H:%M", base + math.floor(armed.at / 1000)) == "00:00",
+    armed and os.date("%Y-%m-%d %H:%M:%S", base + math.floor(armed.at / 1000))
+  )
+  check("before midnight the count stands", Properties["Director Reloads Today"] == "1")
+  -- Only this timer: hours of the others (update checks, polls) are not what
+  -- is under test, and the update check has no stub in this harness.
+  clock.timers = { SmartBuildOSAgentMidnight = armed }
+  advance(armed.at - clock.now + 1000)
+  check("the date has moved on", os.date("%Y-%m-%d") ~= dayBefore)
+  check(
+    "after midnight today's count is 0",
+    Properties["Director Reloads Today"] == "0",
+    Properties["Director Reloads Today"]
+  )
+  check("the lifetime count is untouched", Properties["Director Reloads"] == "1")
+  check(
+    "System Startups Today is 0 too",
+    Properties["System Startups Today"] == "0",
+    Properties["System Startups Today"]
+  )
+  check(
+    "the new day is stored, so a restart later today is number 1",
+    type(store["director_reload_today"]) == "table"
+      and store["director_reload_today"].count == 0
+      and store["director_reload_today"].date == os.date("%Y-%m-%d")
+  )
+  check("the timer is armed again for the following midnight", clock.timers["SmartBuildOSAgentMidnight"] ~= nil)
+  check("a second call the same day changes nothing", AgentRollDay() == false)
+end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

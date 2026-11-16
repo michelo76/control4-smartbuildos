@@ -582,7 +582,10 @@ check(
 )
 agentRegisters(true, { token = "tok-2" })
 check("new token in use", lastSent("SBOS_MODULE_STATUS").params.token == "tok-2")
-advance(2500)
+-- A registration re-plans event capture five seconds later (the Agent may be
+-- a device the plan has not seen), which uploads its own summary: let that
+-- pass and be acknowledged before counting frames.
+advance(6500)
 ackAllFrames()
 sent = {}
 OnWatchedVariableChanged(12, 1002, "False")

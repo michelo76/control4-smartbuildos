@@ -1,4 +1,4 @@
---- Event Tracer — the event catalogue (pure).
+--- Flight Recorder event capture — the event catalogue (pure).
 ---
 --- Director fires `OnDeviceEvent(firingDeviceId, eventId)` for a device event
 --- a driver subscribed to with `C4:RegisterDeviceEvent(deviceId, eventId)`,

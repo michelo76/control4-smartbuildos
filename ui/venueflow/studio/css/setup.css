@@ -1,0 +1,107 @@
+/* Installer Studio: Overview, Setup Wizard, Diagnostics, Licensing, Configuration Backup,
+   Publish and Rollback (sec-setup.js). Every selector here starts with "su-". */
+
+/* shared pieces */
+.su-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.su-kv { display: grid; grid-template-columns: minmax(104px, 32%) minmax(0, 1fr); gap: 8px 14px; margin: 0; align-items: baseline; }
+.su-kv dt { color: var(--muted); font-size: 13px; }
+.su-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.su-ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.su-big { font-size: 21px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.su-issue { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); }
+.su-issue > svg { margin-top: 2px; }
+.su-issue > .grow { flex: 1 1 220px; }
+.su-issue.bad { border-color: rgba(248, 113, 113, .5); background: var(--bad-soft); color: #ffd0d0; }
+.su-issue.warn { border-color: var(--warn-line); background: var(--warn-soft); color: #ffe2ad; }
+.su-issue .path { font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.su-issue .check { color: inherit; font-size: 13.5px; min-height: 44px; }
+
+/* overview */
+.su-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 10px; }
+.su-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px 14px; min-height: 96px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; touch-action: manipulation; }
+.su-tile:hover { border-color: var(--line-2); }
+.su-tile:focus-visible, .su-step:focus-visible, .su-type:focus-visible, .su-swatch:focus-visible, .su-swatchbtn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.su-tile svg { color: var(--teal); }
+.su-tile .n { font-size: 28px; font-weight: 750; letter-spacing: -.02em; line-height: 1.1; }
+.su-tile .l { font-weight: 600; font-size: 13.5px; color: var(--ink-2); }
+.su-tile .s { font-size: 12px; color: var(--muted); }
+.su-tile.warn { border-color: var(--warn-line); }
+.su-tile.warn .s { color: var(--warn); }
+
+/* wizard */
+.su-wiz { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 16px; align-items: start; }
+.su-stepper { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; }
+.su-step { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); text-align: left; cursor: pointer; touch-action: manipulation; }
+.su-step:hover { border-color: var(--line-2); }
+.su-step:disabled { opacity: .45; cursor: default; }
+.su-step .num { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex: none; }
+.su-step .t { display: block; font-weight: 600; font-size: 14px; line-height: 1.25; }
+.su-step .s { display: block; font-size: 12px; color: var(--muted); }
+.su-step.done .num { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.su-step.done .s { color: var(--ok); }
+.su-step.cur { border-color: var(--teal-line); background: var(--teal-soft); color: var(--ink); }
+.su-step.cur .s { color: var(--teal); }
+.su-step.cur:not(.done) .num { border-color: var(--teal); color: var(--teal); }
+.su-stephead { display: flex; align-items: center; gap: 10px; color: var(--teal); }
+.su-stephead h2 { color: var(--ink); }
+.su-wizfoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; position: sticky; bottom: 0; z-index: 5; background: var(--panel); box-shadow: 0 -16px 18px -2px var(--bg), 0 10px 0 4px var(--bg); }
+.su-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 10px; }
+.su-type { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 12px; min-height: 132px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; touch-action: manipulation; }
+.su-type:hover { border-color: var(--line-2); }
+.su-type svg { color: var(--teal); }
+.su-type.sel { border-color: var(--teal); background: var(--teal-soft); box-shadow: 0 0 0 1px var(--teal) inset; }
+.su-start { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.su-start > .lbl { flex: 1 1 240px; }
+.su-toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 24px; }
+.su-table { display: grid; gap: 8px 10px; align-items: start; }
+.su-table > .btn { align-self: start; }
+.su-floors { grid-template-columns: minmax(0, 1fr) 96px 96px var(--touch); }
+.su-areas { grid-template-columns: var(--touch) minmax(0, 1.5fr) minmax(110px, 1fr) var(--touch); align-items: center; }
+.su-colhead { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650; }
+.su-swatchbtn { width: var(--touch); height: 42px; padding: 5px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg-2); cursor: pointer; }
+.su-swatchbtn span { display: block; width: 100%; height: 100%; border-radius: 6px; }
+.su-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.su-swatch { height: 48px; border-radius: 10px; border: 2px solid transparent; cursor: pointer; }
+.su-swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--bg); }
+.su-colorinput { width: 100%; height: 48px; padding: 4px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg-2); cursor: pointer; }
+.su-cat > summary { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; list-style: none; min-height: var(--touch); }
+.su-cat > summary::-webkit-details-marker { display: none; }
+.su-cat > summary svg { transition: transform .12s; color: var(--muted); }
+.su-cat[open] > summary svg { transform: rotate(90deg); }
+.su-devs { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 8px; padding: 0 16px 16px; }
+.su-dev { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); min-width: 0; }
+.su-dev .chip { padding: 1px 8px; font-size: 11.5px; }
+.su-sum { flex-wrap: wrap; }
+.su-sum > svg { color: var(--teal); }
+.su-sum > .grow { flex: 1 1 200px; }
+
+/* publish */
+.su-pub { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+.su-pub.embedded { grid-template-columns: minmax(0, 1fr); }
+
+/* backup */
+.su-choice { cursor: pointer; align-items: flex-start; }
+.su-choice input { width: 20px; height: 20px; accent-color: var(--teal); margin: 2px 0 0; flex: none; }
+
+/* diagnostics */
+.su-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.su-stats .card { display: flex; flex-direction: column; gap: 6px; }
+.su-filters { display: grid; grid-template-columns: minmax(150px, 240px) minmax(150px, 240px) minmax(0, 1fr); gap: 12px; align-items: end; }
+.su-filters > .row { justify-content: flex-end; flex-wrap: wrap; min-height: 42px; }
+.su-auto { cursor: pointer; }
+.su-logwrap { overflow-x: auto; }
+.su-log td { vertical-align: top; }
+.su-log .msg { min-width: 200px; overflow-wrap: anywhere; }
+.su-log tr.su-data td { padding-top: 0; }
+.su-pre { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2); font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+
+@media (max-width: 1140px) {
+  .su-pub { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 880px) {
+  .su-wiz { grid-template-columns: minmax(0, 1fr); }
+  .su-stepper { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 2px; }
+  .su-step { width: auto; flex: none; min-width: 164px; }
+  .su-filters { grid-template-columns: 1fr 1fr; }
+  .su-filters > .row { grid-column: 1 / -1; justify-content: flex-start; }
+}
