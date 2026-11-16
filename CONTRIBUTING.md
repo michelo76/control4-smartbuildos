@@ -107,6 +107,8 @@ local `.venv`) plus a few standalone binaries, with no Node/npm.
   `tools/gen-squishy.lua` and the tests
 - [stylua](https://github.com/JohnnyMorganz/StyLua) (`brew install stylua`), the
   Lua formatter
+- [luacheck](https://github.com/lunarmodules/luacheck)
+  (`brew install luacheck`), only for `make lint`
 - [Pango](https://gtk.org/) (`brew install pango`), WeasyPrint's PDF rendering
   engine
 - `swig` and OpenSSL headers (`brew install swig openssl`), which M2Crypto
@@ -129,6 +131,7 @@ make check-deps    # Install if needed, then verify .venv matches requirements.t
 make build         # Full build, from clean through zip (see Build Pipeline)
 make build-nodocs  # Build without generating docs
 make fmt           # Format all code (Lua, Python, Markdown)
+make lint          # Check Lua for unknown names and dead code (luacheck)
 make clean         # Remove build artifacts and dist/ (including driverpackager)
 make clean-all     # Remove everything (build artifacts, dist, deps, venv)
 ```
@@ -160,6 +163,24 @@ file at the repo root, under `documentation/`, and under
 author, and the generated `README.md` too. CI fails the build if it finishes
 with a dirty tree, so build on a clean checkout and commit whatever the
 formatter changes.
+
+### Linting
+
+`make lint` runs luacheck over `drivers/`, `src/`, `test/` and `tools/`. It
+reads the code without running it, so it catches what the test suite only
+catches on a line a test happens to reach: a misspelt function or variable name
+(a nil at run time on a controller), a value that is set and never read, a local
+that hides an outer one.
+
+`.luacheckrc` holds the rules. It lists the globals a driver may use: `C4` from
+Director, the functions and handler tables from `vendor/drivers-common-public`,
+and the helpers from `src/lib/utils.lua`. When you add a global helper to
+`src/lib`, or a new entry point that Director calls by name, add its name there
+too, or every use of it is reported as unknown. A `driver.lua` may define its
+own globals (`gEngine`) without listing them.
+
+`make lint` is not a step of `make build` and CI does not run it. The tree has
+open findings, and luacheck exits non-zero while any remain.
 
 ### Distributions
 
