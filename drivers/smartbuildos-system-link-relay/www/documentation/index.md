@@ -23,6 +23,7 @@ is the driver you bind.
 ## Setup
 
 <!-- walkthrough: Add a linked relay -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `relay`, pick the relay in **Export Device**, fill in **Export Name**, set
    **Export Control** to `Control allowed` if this project is to operate it, and
@@ -36,8 +37,8 @@ is the driver you bind.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds relay exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** reads `Open` or `Closed`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** reads `Open` or `Closed`.
 1. On the Actions tab press *Test: Remote Close*. **Last Result** goes from
    `sent` to `accepted` to `delivered`, and **Confirmed State** changes once the
    owner's relay reports closed. Press *Test: Remote Open* to put it back.
@@ -50,11 +51,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | Closed or open |
-| Here to the owner | Open, close, toggle, and trigger (a pulse) |
-| Not carried | The pulse length and any other setting of the owner's relay |
+| Direction         | What                                                        |
+| ----------------- | ----------------------------------------------------------- |
+| Owner to here     | Closed or open                                              |
+| Here to the owner | Open, close, toggle, and trigger (a pulse)                  |
+| Not carried       | The pulse length and any other setting of the owner's relay |
 
 The owner reads the relay's `STATE` variable, or `RELAY_STATE` or `Closed` if
 that is what the device has, and publishes each change.
@@ -68,16 +69,16 @@ repeated, which matters for toggle and trigger.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no relay export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device supplies nothing that reads as closed or open |
-| **Control** | `control permitted` when the owner exported the relay with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now. `none` when there is no schedule |
-| **Confirmed State** | `Closed`, `Open` or `unavailable` |
-| **Requested State** | The last request sent from here and when, for example `Pulse at 18:04:10` |
-| **Last Result** | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the relay) or `failed:` with the reason |
+| Property                | What it tells you                                                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no relay export it says so and names what the link does carry                                                                                                          |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                                 |
+| **Freshness**           | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device supplies nothing that reads as closed or open |
+| **Control**             | `control permitted` when the owner exported the relay with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended`                                                     |
+| **Control Window**      | The owner's schedule for this export and whether it is open now. `none` when there is no schedule                                                                                                                                                   |
+| **Confirmed State**     | `Closed`, `Open` or `unavailable`                                                                                                                                                                                                                   |
+| **Requested State**     | The last request sent from here and when, for example `Pulse at 18:04:10`                                                                                                                                                                           |
+| **Last Result**         | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the relay) or `failed:` with the reason                                                                                                                      |
 
 While **Control Window** is closed, a command is refused here without being
 sent: **Last Result** reads `refused: outside the control window` with the
@@ -121,8 +122,8 @@ fires.
 ## Limits
 
 - The state is confirmed state only. Until the first report arrives after a
-  restart, a state query from the bound driver gets no answer,
-  *Remote Relay Is Closed* is false, and the first report fires no event.
+  restart, a state query from the bound driver gets no answer, *Remote Relay Is
+  Closed* is false, and the first report fires no event.
 - `delivered` means the owner passed the command to its relay. Whether the
   contact moved is what *Remote Relay Closed* and *Remote Relay Opened* tell
   you.

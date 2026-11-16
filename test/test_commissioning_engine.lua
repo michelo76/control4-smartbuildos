@@ -71,13 +71,22 @@ check("a device with no room is Unassigned", items[6].room == "Unassigned")
 check("AV items carry the test source", items[2].source == 99)
 local noAv = Engine.buildList(devices, {})
 check("without an AV test source there are no AV items", #noAv == 5)
-local merged = Engine.buildList(devices, { manual = { { id = 15, name = "Fan", room = "Den", kind = "light" }, { id = 10, name = "Pendant Lamp", room = "Kitchen", kind = "light" } } })
+local merged = Engine.buildList(devices, {
+  manual = {
+    { id = 15, name = "Fan", room = "Den", kind = "light" },
+    { id = 10, name = "Pendant Lamp", room = "Kitchen", kind = "light" },
+  },
+})
 local byKey = {}
 for _, it in ipairs(merged) do
   byKey[it.key] = it
 end
 check("a manual item is added", byKey["light:15"] and byKey["light:15"].origin == "manual")
-check("a manual entry refines an automatic one, no duplicate", byKey["light:10"].name == "Pendant Lamp" and #merged == 6, #merged)
+check(
+  "a manual entry refines an automatic one, no duplicate",
+  byKey["light:10"].name == "Pendant Lamp" and #merged == 6,
+  #merged
+)
 check("a manual item of unknown kind is dropped", #Engine.buildList({}, { manual = { { id = 5, name = "x" } } }) == 0)
 
 print("[4] a run, with a fake actuator")
@@ -167,13 +176,19 @@ check("test refused without a run", engine:test("light:10") == false)
 local ok, why = engine:startRun({ scope = "Nowhere" })
 check("unknown room refused", ok == false and why:find("Nowhere"), why)
 ok = engine:startRun({ scope = "Kitchen", technician = "Sam" })
-check("scoped run starts on that room", ok and engine.run.scope == "Kitchen" and #engine.run.results == 2 and engine:currentRoom() == "Kitchen")
+check(
+  "scoped run starts on that room",
+  ok and engine.run.scope == "Kitchen" and #engine.run.results == 2 and engine:currentRoom() == "Kitchen"
+)
 check("a second run is refused", engine:startRun({}) == false)
 check("run_started emitted", count("run_started") == 1)
 
 ok = engine:test("light:10")
 check("light test begins", ok and engine.run.results[2].status == "testing")
-check("the ramp to full was sent", sentCmds[1][1] == 10 and sentCmds[1][2] == "RAMP_TO_LEVEL" and sentCmds[1][3].LEVEL == 100)
+check(
+  "the ramp to full was sent",
+  sentCmds[1][1] == 10 and sentCmds[1][2] == "RAMP_TO_LEVEL" and sentCmds[1][3].LEVEL == 100
+)
 check("a second test while testing is refused", engine:test("light:10") == false)
 advance(1000)
 check("the restore ramp goes to the level it had", sentCmds[2][3].LEVEL == 30)
@@ -192,7 +207,11 @@ check("judged timestamp set", r.judged_at == nowSeconds())
 ok = engine:test("light:11")
 advance(2000)
 local stuck = engine.run.results[1]
-check("a stuck light reads back a mismatch", stuck.reported == "mismatch" and stuck.detail:find("asked for 100"), stuck.detail)
+check(
+  "a stuck light reads back a mismatch",
+  stuck.reported == "mismatch" and stuck.detail:find("asked for 100"),
+  stuck.detail
+)
 ok = engine:mark("light:11", "pass")
 check("pass despite mismatch is allowed but flagged", ok and stuck.passed_despite_mismatch == true)
 check("room passed fired once when the last open item resolved", count("room_passed") == 1)
@@ -215,9 +234,15 @@ check("a failed item is judged, so the run signs off (the failure is on the reco
 check("run_completed emitted with the record", count("run_completed") == 1)
 check("signed off run is no longer active", not engine:active() and engine:status() == "signed_off")
 local rec = engine.last_signed
-check("record schema and who", rec.schema == "commissioning.run.v1" and rec.signed_off_by == "Sam" and rec.technician == "Sam")
+check(
+  "record schema and who",
+  rec.schema == "commissioning.run.v1" and rec.signed_off_by == "Sam" and rec.technician == "Sam"
+)
 check("record counts", rec.counts.passed == 1 and rec.counts.failed == 1 and rec.counts.total == 2)
-check("record groups by room with a room result", #rec.rooms == 1 and rec.rooms[1].name == "Kitchen" and rec.rooms[1].result == "failed")
+check(
+  "record groups by room with a room result",
+  #rec.rooms == 1 and rec.rooms[1].name == "Kitchen" and rec.rooms[1].result == "failed"
+)
 check("record timestamps are ISO UTC", rec.started_at:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$") ~= nil)
 check("record carries the honest-limits sentence", rec.honest_limits:find("not measured") ~= nil)
 local encoded = JSON:encode(rec)
@@ -235,20 +260,32 @@ sentCmds = {}
 engine:test("shade:12")
 check("shade moves to the end it is not at", sentCmds[1][2] == "SET_LEVEL_TARGET" and sentCmds[1][3].LEVEL_TARGET == 0)
 advance(1000)
-check("a shade settles slower than a light", engine.run.results[1] ~= nil and engine:_result("shade:12").status == "testing")
+check(
+  "a shade settles slower than a light",
+  engine.run.results[1] ~= nil and engine:_result("shade:12").status == "testing"
+)
 advance(3000)
 check("a shade is read after the longer wait", engine:_result("shade:12").readback ~= nil)
 advance(4000)
-check("the shade waits for a verdict", engine:_result("shade:12").status == "awaiting" and engine:_result("shade:12").reported == "match")
+check(
+  "the shade waits for a verdict",
+  engine:_result("shade:12").status == "awaiting" and engine:_result("shade:12").reported == "match"
+)
 engine:mark("shade:12", "pass")
 
 engine:test("sensor:13")
 local sr = engine:_result("sensor:13")
 check("a sensor is armed, not acted on", sr.status == "armed" and watched[13] == true)
 check("a sensor cannot be passed by a tap", engine:mark("sensor:13", "pass") == false)
-check("an unchanged value does not pass it", engine:sensorChanged(13, "ContactState", "0") == false and sr.status == "armed")
+check(
+  "an unchanged value does not pass it",
+  engine:sensorChanged(13, "ContactState", "0") == false and sr.status == "armed"
+)
 check("another variable does not pass it", engine:sensorChanged(13, "Other", "1") == false)
-check("a change passes it by itself", engine:sensorChanged(13, "ContactState", "1") == true and sr.status == "passed" and sr.auto == true)
+check(
+  "a change passes it by itself",
+  engine:sensorChanged(13, "ContactState", "1") == true and sr.status == "passed" and sr.auto == true
+)
 check("the change is the readback", sr.readback.before == "0" and sr.readback.after == "1")
 check("unwatched after passing", watched[13] == nil)
 check("room Den passed event fired", count("room_passed") >= 2)
@@ -258,12 +295,15 @@ check("sign-off refused with open items", select(2, engine:signOff("Ana")):find(
 engine:mark("light:10", "skip", "owner away")
 engine:mark("light:11", "skip")
 check("run complete after skips", engine:status() == "complete")
-check("sign-off needs a name", (function()
-  engine.run.technician = ""
-  local ok2, why2 = engine:signOff("")
-  engine.run.technician = "Ana"
-  return ok2 == false and why2:find("who") ~= nil
-end)())
+check(
+  "sign-off needs a name",
+  (function()
+    engine.run.technician = ""
+    local ok2, why2 = engine:signOff("")
+    engine.run.technician = "Ana"
+    return ok2 == false and why2:find("who") ~= nil
+  end)()
+)
 ok = engine:signOff("")
 check("blank name falls back to the run's technician", ok == true and engine.last_signed.signed_off_by == "Ana")
 check("history keeps both runs, newest first", #engine.history == 2 and engine.history[1].signed_off_by == "Ana")
@@ -274,7 +314,10 @@ engine:startRun({ scope = "Den", technician = "Zed" })
 engine:test("sensor:13")
 ok = engine:abort()
 check("abort closes the run", ok and engine:status() == "aborted" and not engine:active())
-check("an armed sensor is unwatched and pending again", watched[13] == nil and engine:_result("sensor:13").status == "pending")
+check(
+  "an armed sensor is unwatched and pending again",
+  watched[13] == nil and engine:_result("sensor:13").status == "pending"
+)
 check("run_aborted emitted", count("run_aborted") == 1)
 check("abort with nothing running is refused", engine:abort() == false)
 engine:startRun({ scope = "Den", technician = "Zed" })
@@ -285,7 +328,10 @@ again:setItems(kitchen)
 again:restore(snapshot)
 check("restore brings back the run", again:status() == "running" and again.run.technician == "Zed")
 check("anything mid-flight is pending after a restart", again:_result("shade:12").status == "pending")
-check("restore brings back history and the signed record", #again.history == #engine.history and again.last_signed.signed_off_by == "Ana")
+check(
+  "restore brings back history and the signed record",
+  #again.history == #engine.history and again.last_signed.signed_off_by == "Ana"
+)
 again:restore("garbage")
 check("restore tolerates garbage", again:status() == "running")
 
@@ -318,11 +364,19 @@ do
   check("the light is at full while it is being tested", devVars[10]["Brightness Percent"] == 100)
   ok = engine:mark("light:10", "fail", "lamp did not light")
   check("Fail during the test is accepted", ok and engine:_result("light:10").status == "failed")
-  check("...and the light is sent back to 30% at once", lastTo(10)[2] == "RAMP_TO_LEVEL" and lastTo(10)[3].LEVEL == 30, lastTo(10)[3].LEVEL)
+  check(
+    "...and the light is sent back to 30% at once",
+    lastTo(10)[2] == "RAMP_TO_LEVEL" and lastTo(10)[3].LEVEL == 30,
+    lastTo(10)[3].LEVEL
+  )
   check("item_restored is emitted, once", count("item_restored") == restoredBefore + 1)
   local sentSoFar = #sentCmds
   ok, why = engine:test("light:10")
-  check("a retest is refused while the light is still returning", ok == false and why:find("put back", 1, true) ~= nil, why)
+  check(
+    "a retest is refused while the light is still returning",
+    ok == false and why:find("put back", 1, true) ~= nil,
+    why
+  )
   advance(3000)
   check("the settle timers of the interrupted test send nothing more", #sentCmds == sentSoFar, #sentCmds)
   check("the light ends where it started", devVars[10]["Brightness Percent"] == 30)
@@ -331,7 +385,10 @@ do
   check("a retest is allowed once the light has had time to return", ok == true)
   check("...and its baseline is the real level, not the test level", engine:_result("light:10").baseline.level == 30)
   advance(3000)
-  check("the retest restores to 30% too", devVars[10]["Brightness Percent"] == 30 and engine:_result("light:10").status == "awaiting")
+  check(
+    "the retest restores to 30% too",
+    devVars[10]["Brightness Percent"] == 30 and engine:_result("light:10").status == "awaiting"
+  )
 
   fresh()
   engine:test("light:10")
@@ -341,7 +398,10 @@ do
   fresh()
   engine:test("light:10")
   engine:abort()
-  check("aborting the run during a test sends the light back", lastTo(10)[3].LEVEL == 30 and devVars[10]["Brightness Percent"] == 30)
+  check(
+    "aborting the run during a test sends the light back",
+    lastTo(10)[3].LEVEL == 30 and devVars[10]["Brightness Percent"] == 30
+  )
   check("...and leaves the item pending in the aborted run", engine:_result("light:10").status == "pending")
   advance(3000)
   check("nothing else is sent after the abort", lastTo(10)[3].LEVEL == 30)
@@ -384,14 +444,21 @@ check(
   avSteps[1].command == "SELECT_AUDIO_DEVICE" and avSteps[1].params.deviceid == 5 and avSteps[2].params.LEVEL == 12
 )
 check("AV from off returns with ROOM_OFF", av.steps({ source = 5 }, "restore", { on = false })[1].command == "ROOM_OFF")
-check("AV restores the previous source and volume", #av.steps({ source = 5 }, "restore", { on = true, source = 3, volume = 20 }) == 2)
+check(
+  "AV restores the previous source and volume",
+  #av.steps({ source = 5 }, "restore", { on = true, source = 3, volume = 20 }) == 2
+)
 -- A room that reports it is OFF and still names its last source (reviewer
 -- finding on PR #39: "off" was captured as nil, so the restore selected the
 -- source instead of switching the room off).
 local offRoom = av.baseline({ IS_ROOM_ON = "0", CURRENT_SELECTED_DEVICE = "3", CURRENT_VOLUME = "20" })
 check("an AV room reporting off has baseline.on == false, not nil", offRoom.on == false, tostring(offRoom.on))
 local offSteps = av.steps({ source = 5 }, "restore", offRoom)
-check("...and is returned with ROOM_OFF, not by selecting its last source", #offSteps == 1 and offSteps[1].command == "ROOM_OFF", offSteps[1].command)
+check(
+  "...and is returned with ROOM_OFF, not by selecting its last source",
+  #offSteps == 1 and offSteps[1].command == "ROOM_OFF",
+  offSteps[1].command
+)
 check("read() keeps an explicit off too", av.read({ IS_ROOM_ON = "0" }).on == false)
 check(
   "...so a room left on after the test is reported",
@@ -402,10 +469,23 @@ check("a room with no power variable is unknown, not off", av.baseline({ CURRENT
 check("AV check: unreported without a variable", select(1, av.check("act", {}, {}, { source = 5 })) == "unreported")
 check("AV check: match", select(1, av.check("act", { source = 5 }, {}, { source = 5 })) == "match")
 check("AV check: mismatch", select(1, av.check("act", { source = 3 }, {}, { source = 5 })) == "mismatch")
-check("sensor variable chosen from known names", Actuate.sensorVariable({ ContactState = "0", Other = "x" }) == "ContactState")
+check(
+  "sensor variable chosen from known names",
+  Actuate.sensorVariable({ ContactState = "0", Other = "x" }) == "ContactState"
+)
 check("no recognisable sensor variable", Actuate.sensorVariable({ Foo = "1" }) == nil)
-local brokenIo = Actuate.new({ send = function() error("boom") end, vars = function() error("boom") end })
-check("a failing send or read does not throw", pcall(brokenIo.send, { device_id = 1 }, { { command = "X" } }) and next(brokenIo.read({ device_id = 1 })) == nil)
+local brokenIo = Actuate.new({
+  send = function()
+    error("boom")
+  end,
+  vars = function()
+    error("boom")
+  end,
+})
+check(
+  "a failing send or read does not throw",
+  pcall(brokenIo.send, { device_id = 1 }, { { command = "X" } }) and next(brokenIo.read({ device_id = 1 })) == nil
+)
 
 print("[9] text rendering")
 local lines = Engine.textLines(engine.last_signed)

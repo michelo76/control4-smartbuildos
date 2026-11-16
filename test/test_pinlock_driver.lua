@@ -317,20 +317,35 @@ for _, p in ipairs(proxySends) do
     url = p.params.url
   end
 end
-check("web view URL with token published", url ~= nil and url:find("^http://192%.0%.2%.10:47831/app%?k=%w+$") ~= nil, url)
+check(
+  "web view URL with token published",
+  url ~= nil and url:find("^http://192%.0%.2%.10:47831/app%?k=%w+$") ~= nil,
+  url
+)
 TOKEN = url:match("k=(%w+)$")
 check("gate status says setup is needed", prop("Gate Status"):find("setup needed") ~= nil, prop("Gate Status"))
-check("target picker filled as Name (Room) · id", (props["list:Guarded 1 Target"] or ""):find("Wine Cellar Lock (Cellar) · 40", 1, true) ~= nil and (props["list:Guarded 1 Target"] or ""):find("Hall Light", 1, true) == nil, props["list:Guarded 1 Target"])
+check(
+  "target picker filled as Name (Room) · id",
+  (props["list:Guarded 1 Target"] or ""):find("Wine Cellar Lock (Cellar) · 40", 1, true) ~= nil
+    and (props["list:Guarded 1 Target"] or ""):find("Hall Light", 1, true) == nil,
+  props["list:Guarded 1 Target"]
+)
 check("Flight Recorder found quietly", true)
 local status, doc = http("GET", "/config?k=" .. TOKEN)
-check("config lists the named actions and wants setup", status == 200 and #doc.actions == 3 and doc.setup_needed == true)
+check(
+  "config lists the named actions and wants setup",
+  status == 200 and #doc.actions == 3 and doc.setup_needed == true
+)
 check("page without a token is refused", (http("GET", "/config")) == 403)
 
 io.write("[2] first owner, then codes through the admin page\n")
 status, doc = http("POST", "/admin/setup?k=" .. TOKEN, { name = "Owner", pin = OWNER_PIN })
 check("owner created and signed in", status == 200 and doc.ok == true and #doc.session == 32)
 local SESSION = doc.session
-check("setup cannot be repeated", (http("POST", "/admin/setup?k=" .. TOKEN, { name = "Again", pin = STAFF_PIN })) == 422)
+check(
+  "setup cannot be repeated",
+  (http("POST", "/admin/setup?k=" .. TOKEN, { name = "Again", pin = STAFF_PIN })) == 422
+)
 check("gate is active once an owner exists", prop("Gate Status") == "active", prop("Gate Status"))
 status, doc = http("POST", "/admin/save?k=" .. TOKEN, {
   session = SESSION,
@@ -361,10 +376,17 @@ status, doc = http("POST", "/admin/save?k=" .. TOKEN, {
   max_uses = "",
 })
 check("keypad-sequence code saved", status == 200 and doc.ok == true, JSON:encode(doc))
-status, doc = http("POST", "/admin/save?k=" .. TOKEN, { session = SESSION, name = "Weak", role = "guest", pin = "1234", actions = { 1 } })
+status, doc = http(
+  "POST",
+  "/admin/save?k=" .. TOKEN,
+  { session = SESSION, name = "Weak", role = "guest", pin = "1234", actions = { 1 } }
+)
 check("weak PIN refused with a reason", status == 422 and doc.error:find("PIN must be") ~= nil, JSON:encode(doc))
 status, doc = http("POST", "/admin/state?k=" .. TOKEN, { session = SESSION })
-check("admin state lists 3 codes without secrets", status == 200 and #doc.codes == 3 and JSON:encode(doc):find("hash", 1, true) == nil)
+check(
+  "admin state lists 3 codes without secrets",
+  status == 200 and #doc.codes == 3 and JSON:encode(doc):find("hash", 1, true) == nil
+)
 check("admin needs a session", (http("POST", "/admin/state?k=" .. TOKEN, { session = "nope" })) == 401)
 check("Codes property updated", prop("Codes") == "3 code(s), 3 active", prop("Codes"))
 
@@ -372,21 +394,43 @@ io.write("[3] granting through the page\n")
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })
 check("granted with a generic reply", status == 200 and doc.ok == true and doc.message == "Unlock wine cellar")
 check("Access Granted and Guarded 1 Granted fired", firedCount(1) == 1 and firedCount(11) == 1 and firedCount(12) == 0)
-check("variables name the code, the action and the entry point", vars["LAST_CODE_NAME"] == "Marta" and vars["LAST_ACTION"] == "Unlock wine cellar" and vars["LAST_ACTION_NUMBER"] == 1 and vars["LAST_ENTRY_POINT"] == "page")
+check(
+  "variables name the code, the action and the entry point",
+  vars["LAST_CODE_NAME"] == "Marta"
+    and vars["LAST_ACTION"] == "Unlock wine cellar"
+    and vars["LAST_ACTION_NUMBER"] == 1
+    and vars["LAST_ENTRY_POINT"] == "page"
+)
 check("target lock commanded", sentCount("UNLOCK", LOCK_ID) == 1)
 check("Last Access painted", prop("Last Access"):find("granted: Marta") ~= nil, prop("Last Access"))
 local marker = lastSent("RECORD_EVENT", RECORDER_ID)
-check("Flight Recorder got a marker with code NAME and action", marker ~= nil and marker.params.NAME:find("Unlock wine cellar", 1, true) ~= nil and marker.params.DETAIL:find("code=Marta", 1, true) ~= nil)
+check(
+  "Flight Recorder got a marker with code NAME and action",
+  marker ~= nil
+    and marker.params.NAME:find("Unlock wine cellar", 1, true) ~= nil
+    and marker.params.DETAIL:find("code=Marta", 1, true) ~= nil
+)
 advance(9000)
 check("no re-lock before the delay", sentCount("LOCK", LOCK_ID) == 0)
 advance(2000)
 check("target re-locked after the delay", sentCount("LOCK", LOCK_ID) == 1)
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 3, pin = STAFF_PIN })
-check("an action off the code's list is refused generically", status == 401 and doc.error == "not allowed" and doc.reason == nil and doc.code == nil, JSON:encode(doc))
-check("Access Denied fired with the reason in a variable", firedCount(2) == 1 and vars["LAST_DENIAL_REASON"] == "not_allowed")
+check(
+  "an action off the code's list is refused generically",
+  status == 401 and doc.error == "not allowed" and doc.reason == nil and doc.code == nil,
+  JSON:encode(doc)
+)
+check(
+  "Access Denied fired with the reason in a variable",
+  firedCount(2) == 1 and vars["LAST_DENIAL_REASON"] == "not_allowed"
+)
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = WRONG_B })
 check("a wrong PIN is the same generic reply", status == 401 and doc.error == "not allowed")
-check("conditional: Marta is active", TestCondition("CODE_ACTIVE", { VALUE = "marta", LOGIC = "EQUAL" }) == true and TestCondition("CODE_ACTIVE", { VALUE = "nobody", LOGIC = "NOT_EQUAL" }) == true)
+check(
+  "conditional: Marta is active",
+  TestCondition("CODE_ACTIVE", { VALUE = "marta", LOGIC = "EQUAL" }) == true
+    and TestCondition("CODE_ACTIVE", { VALUE = "nobody", LOGIC = "NOT_EQUAL" }) == true
+)
 
 io.write("[4] keypad sequences\n")
 for _, b in ipairs({ "1", "3", "3" }) do
@@ -394,15 +438,25 @@ for _, b in ipairs({ "1", "3", "3" }) do
 end
 check("nothing fires on a partial sequence", firedCount(13) == 0)
 ExecuteCommand("KEYPAD_PRESS", { BUTTON = "2", KEYPAD = "Hall" })
-check("the full sequence fires the code's action", firedCount(13) == 1 and vars["LAST_ENTRY_POINT"] == "keypad" and vars["LAST_CODE_NAME"] == "Alarm tech")
+check(
+  "the full sequence fires the code's action",
+  firedCount(13) == 1 and vars["LAST_ENTRY_POINT"] == "keypad" and vars["LAST_CODE_NAME"] == "Alarm tech"
+)
 for _ = 1, 5 do
   for _, b in ipairs({ "9", "9", "9", "8" }) do
     ExecuteCommand("KEYPAD_PRESS", { BUTTON = b, KEYPAD = "Hall" })
   end
 end
 check("five wrong sequences lock the keypad", firedCount(3) == 1 and vars["LAST_LOCKED_ENTRY"] == "keypad")
-check("conditional: keypad locked, page not", TestCondition("ENTRY_LOCKED", { VALUE = "keypad", LOGIC = "EQUAL" }) == true and TestCondition("ENTRY_LOCKED", { VALUE = "page", LOGIC = "EQUAL" }) == false)
-check("the page still works while the keypad is locked", (http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = STAFF_PIN })) == 200)
+check(
+  "conditional: keypad locked, page not",
+  TestCondition("ENTRY_LOCKED", { VALUE = "keypad", LOGIC = "EQUAL" }) == true
+    and TestCondition("ENTRY_LOCKED", { VALUE = "page", LOGIC = "EQUAL" }) == false
+)
+check(
+  "the page still works while the keypad is locked",
+  (http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = STAFF_PIN })) == 200
+)
 
 io.write("[5] lockout on the page, and across a reload\n")
 for _ = 1, 5 do
@@ -418,14 +472,21 @@ fired, sent = {}, {}
 loadDriver() -- a reboot: the persisted store survives, the process does not
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })
 check("lockout survives a reload", status == 429, status)
-check("codes survive a reload", TestCondition("CODE_ACTIVE", { VALUE = "Marta", LOGIC = "EQUAL" }) == true and prop("Codes"):find("^3 code") ~= nil, prop("Codes"))
+check(
+  "codes survive a reload",
+  TestCondition("CODE_ACTIVE", { VALUE = "Marta", LOGIC = "EQUAL" }) == true and prop("Codes"):find("^3 code") ~= nil,
+  prop("Codes")
+)
 advance(5 * 60 * 1000)
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })
 check("granted again after the lockout time", status == 200 and doc.ok == true, status)
 check("the lock command went out again after the reload", sentCount("UNLOCK", LOCK_ID) == 1)
 
 io.write("[6] programming commands through Director's dispatcher\n")
-ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Courier", PIN = COURIER_PIN, ACTIONS = "2", HOURS = "2", MAX_USES = "1" })
+ExecuteCommand(
+  "ADD_TEMPORARY_CODE",
+  { NAME = "Courier", PIN = COURIER_PIN, ACTIONS = "2", HOURS = "2", MAX_USES = "1" }
+)
 status, doc = http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = COURIER_PIN })
 check("temporary code works once", status == 200 and doc.ok == true)
 status = http("POST", "/unlock?k=" .. TOKEN, { action = 2, pin = COURIER_PIN })
@@ -442,7 +503,10 @@ do
       courier = c
     end
   end
-  check("the admin page lists the temporary code with its exact expiry", courier ~= nil and courier.temp == true and type(courier.expires) == "number")
+  check(
+    "the admin page lists the temporary code with its exact expiry",
+    courier ~= nil and courier.temp == true and type(courier.expires) == "number"
+  )
   if courier ~= nil then
     local shown = os.date("%Y-%m-%d", courier.expires)
     local st2, saved = http("POST", "/admin/save?k=" .. TOKEN, {
@@ -460,7 +524,11 @@ do
       expiry_date_was = shown,
       max_uses = 1,
     })
-    check("an edit of the temporary code through the page is saved", st2 == 200 and saved.ok == true, JSON:encode(saved))
+    check(
+      "an edit of the temporary code through the page is saved",
+      st2 == 200 and saved.ok == true,
+      JSON:encode(saved)
+    )
     local _, after = http("POST", "/admin/state?k=" .. TOKEN, { session = SESSION })
     local kept
     for _, c in ipairs(after.codes or {}) do
@@ -476,7 +544,11 @@ do
   end
 end
 ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Nope", PIN = "1111", ACTIONS = "2" })
-check("a weak temporary PIN is refused and says so", prop("Last Refusal"):find("Add Temporary Code: PIN must be") ~= nil, prop("Last Refusal"))
+check(
+  "a weak temporary PIN is refused and says so",
+  prop("Last Refusal"):find("Add Temporary Code: PIN must be") ~= nil,
+  prop("Last Refusal")
+)
 ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Nope2", PIN = VENDOR_PIN, ACTIONS = "zzz" })
 check("unknown actions refused", prop("Last Refusal"):find("no valid guarded actions") ~= nil)
 ExecuteCommand("DISABLE_CODE", { NAME = "Marta" })
@@ -494,13 +566,21 @@ for _ = 1, 5 do
 end
 check("locked again", TestCondition("ENTRY_LOCKED", { VALUE = "page", LOGIC = "EQUAL" }) == true)
 ExecuteCommand("CLEAR_LOCKOUTS", {})
-check("Clear Lockouts", TestCondition("ENTRY_LOCKED", { VALUE = "page", LOGIC = "EQUAL" }) == false and (http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })) == 200)
+check(
+  "Clear Lockouts",
+  TestCondition("ENTRY_LOCKED", { VALUE = "page", LOGIC = "EQUAL" }) == false
+    and (http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })) == 200
+)
 check("Print State runs", pcall(EC.PRINT_STATE))
 
 io.write("[7] licence: a definitive denial restricts, it does not lock the owner out\n")
 fired = {}
 EC.SBOS_ENTITLEMENT({ sku = "SBOS_PIN_LOCK", status = "NOT_ENTITLED", registered = "true", enforcement = "enforce" })
-check("restricted event fired and status says owner codes only", firedCount(4) == 1 and prop("Gate Status"):find("owner codes only") ~= nil, prop("Gate Status"))
+check(
+  "restricted event fired and status says owner codes only",
+  firedCount(4) == 1 and prop("Gate Status"):find("owner codes only") ~= nil,
+  prop("Gate Status")
+)
 status = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = STAFF_PIN })
 check("non-owner codes refused", status == 401 and vars["LAST_DENIAL_REASON"] == "licence")
 status = http("POST", "/unlock?k=" .. TOKEN, { action = 1, pin = OWNER_PIN })
@@ -508,13 +588,26 @@ check("the owner code still opens the gate", status == 200)
 status, doc = http("POST", "/admin/login?k=" .. TOKEN, { pin = OWNER_PIN })
 check("owner can still sign in to manage", status == 200 and doc.ok == true)
 SESSION = doc.session
-status, doc = http("POST", "/admin/save?k=" .. TOKEN, { session = SESSION, name = "New", role = "guest", pin = VENDOR_PIN, actions = { 1 } })
-check("no new access can be created while restricted", status == 422 and doc.error:find("licence") ~= nil, JSON:encode(doc))
+status, doc = http(
+  "POST",
+  "/admin/save?k=" .. TOKEN,
+  { session = SESSION, name = "New", role = "guest", pin = VENDOR_PIN, actions = { 1 } }
+)
+check(
+  "no new access can be created while restricted",
+  status == 422 and doc.error:find("licence") ~= nil,
+  JSON:encode(doc)
+)
 ExecuteCommand("ADD_TEMPORARY_CODE", { NAME = "Late", PIN = VENDOR_PIN, ACTIONS = "1" })
 check("temporary codes refused too", prop("Last Refusal"):find("licence") ~= nil)
 ExecuteCommand("DISABLE_CODE", { NAME = "Marta" })
 check("removing access still works", TestCondition("CODE_ACTIVE", { VALUE = "Marta", LOGIC = "EQUAL" }) == false)
-EC.SBOS_ENTITLEMENT({ sku = "SBOS_PIN_LOCK", status = "CLOUD_VALIDATION_REQUIRED", registered = "true", enforcement = "enforce" })
+EC.SBOS_ENTITLEMENT({
+  sku = "SBOS_PIN_LOCK",
+  status = "CLOUD_VALIDATION_REQUIRED",
+  registered = "true",
+  enforcement = "enforce",
+})
 check("an uncertain answer fails open: restored", firedCount(5) == 1 and prop("Gate Status") == "active")
 ExecuteCommand("ENABLE_CODE", { NAME = "Marta" })
 
@@ -552,9 +645,16 @@ local function scan(label, text, needles)
 end
 
 local logText = table.concat(captured, "\n")
-check("logging really was captured (Trace, handler debug on)", #captured > 40 and logText:find("granted: code Marta", 1, true) ~= nil)
+check(
+  "logging really was captured (Trace, handler debug on)",
+  #captured > 40 and logText:find("granted: code Marta", 1, true) ~= nil
+)
 check("handler debug printed ordinary commands", logText:find("ExecuteCommand: DISABLE_CODE", 1, true) ~= nil)
-check("but not the PIN-bearing ones", logText:find("ExecuteCommand: ADD_TEMPORARY_CODE", 1, true) == nil and logText:find("ExecuteCommand: KEYPAD_PRESS", 1, true) == nil)
+check(
+  "but not the PIN-bearing ones",
+  logText:find("ExecuteCommand: ADD_TEMPORARY_CODE", 1, true) == nil
+    and logText:find("ExecuteCommand: KEYPAD_PRESS", 1, true) == nil
+)
 scan("no PIN or sequence in any log or print line", logText, secrets)
 scan("no stored digest or salt in any log or print line", logText, digests)
 

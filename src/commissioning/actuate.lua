@@ -191,7 +191,8 @@ ADAPTERS.av = {
       if read.source == num(item.source) then
         return "match", "the room reports the test source selected"
       end
-      return "mismatch", string.format("asked for source %s, room reports %s", tostring(item.source), tostring(read.source))
+      return "mismatch",
+        string.format("asked for source %s, room reports %s", tostring(item.source), tostring(read.source))
     end
     if baseline.on == false and read.on == true then
       return "mismatch", "the room should be off again but reports on"

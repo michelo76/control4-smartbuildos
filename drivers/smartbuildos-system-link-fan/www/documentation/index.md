@@ -23,6 +23,7 @@ this release it reports; it does not give programming a way to drive the fan.
 ## Setup
 
 <!-- walkthrough: Add a linked fan -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `fan`, pick the fan in **Export Device**, fill in **Export Name**, leave
    **Export Control** on `View only`, and run *Export Selected Device*.
@@ -34,8 +35,8 @@ this release it reports; it does not give programming a way to drive the fan.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds fan exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** reads `Speed 5` or `Off`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** reads `Speed 5` or `Off`.
 1. Change the fan's speed on the owner's side and watch **Confirmed State**
    follow.
 
@@ -45,11 +46,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | The fan's speed, a whole number from 0 to 10. 0 is off |
-| Here to the owner | Only the three Test actions: on, off, speed 5 |
-| Not carried | Direction, a fan light, timers, any other setting |
+| Direction         | What                                                   |
+| ----------------- | ------------------------------------------------------ |
+| Owner to here     | The fan's speed, a whole number from 0 to 10. 0 is off |
+| Here to the owner | Only the three Test actions: on, off, speed 5          |
+| Not carried       | Direction, a fan light, timers, any other setting      |
 
 The owner reads the fan's `FAN_SPEED` variable, or `CURRENT_SPEED` if that is
 the one the device has, and publishes each change.
@@ -62,16 +63,16 @@ checked again at every request.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no fan export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: the speed is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device does not supply a speed |
-| **Control** | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now. `none` when there is no schedule |
-| **Confirmed State** | `Speed 5`, `Off` or `unavailable` |
-| **Requested State** | The last Test request and when |
-| **Last Result** | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason, for example `failed: export is view-only` or `failed: feature FAN is not licensed` |
+| Property                | What it tells you                                                                                                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no fan export it says so and names what the link does carry                                                                                      |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                           |
+| **Freshness**           | `current`: the speed is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device does not supply a speed |
+| **Control**             | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended`                                                                                      |
+| **Control Window**      | The owner's schedule for this export and whether it is open now. `none` when there is no schedule                                                                                                                             |
+| **Confirmed State**     | `Speed 5`, `Off` or `unavailable`                                                                                                                                                                                             |
+| **Requested State**     | The last Test request and when                                                                                                                                                                                                |
+| **Last Result**         | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason, for example `failed: export is view-only` or `failed: feature FAN is not licensed`                                                                 |
 
 ## Programming
 
@@ -83,9 +84,9 @@ checked again at every request.
   (a Test request was refused; **Last Result** has the reason).
 - Conditionals: *Remote Fan Is On*, *Remote Value Is Current*.
 - Actions: *Test: Remote On*, *Test: Remote Off*, *Test: Remote Speed 5*,
-  *Refresh From Bridge* (ask for the export list and state again),
-  *Rename From Export* (name the device after the export even if you renamed
-  it), *Print Diagnostics To Log*.
+  *Refresh From Bridge* (ask for the export list and state again), *Rename From
+  Export* (name the device after the export even if you renamed it), *Print
+  Diagnostics To Log*.
 - Commands: none.
 
 ## Examples

@@ -57,10 +57,20 @@ M.DEFAULTS = {
 
 -- Events after which the driver must write state at once, not debounced.
 M.URGENT = {
-  outage_started = true, tier_shed = true, load_shed = true, load_restored = true,
-  tier_restored = true, restored = true, restore_delayed = true, flap = true,
-  reshed = true, restore_retry = true, restore_confirmed = true, restore_failed = true,
-  restore_unverified = true, manual_auto_restore = true,
+  outage_started = true,
+  tier_shed = true,
+  load_shed = true,
+  load_restored = true,
+  tier_restored = true,
+  restored = true,
+  restore_delayed = true,
+  flap = true,
+  reshed = true,
+  restore_retry = true,
+  restore_confirmed = true,
+  restore_failed = true,
+  restore_unverified = true,
+  manual_auto_restore = true,
 }
 
 M.KINDS = { light = true, relay = true, thermostat = true }
@@ -342,7 +352,8 @@ function Engine:setConfig(c)
   for _, k in ipairs({ "tier2_nodata_min", "tier3_nodata_min", "stable_hold_s", "tier_delay_s", "manual_restore_min" }) do
     self.cfg[k] = math.max(0, tonumber(self.cfg[k]) or M.DEFAULTS[k])
   end
-  self.cfg.restore_retries = math.floor(math.max(0, math.min(10, tonumber(self.cfg.restore_retries) or M.DEFAULTS.restore_retries)))
+  self.cfg.restore_retries =
+    math.floor(math.max(0, math.min(10, tonumber(self.cfg.restore_retries) or M.DEFAULTS.restore_retries)))
   self.cfg.restore_retry_s = math.max(1, tonumber(self.cfg.restore_retry_s) or M.DEFAULTS.restore_retry_s)
   self.cfg.reshed = self.cfg.reshed == true
 end
@@ -601,7 +612,8 @@ function Engine:restoreLoad(slot, rec)
       self:emit("load_error", { slot = slot, action = "restore", command = c[1] })
     end
   end
-  self.st.verify[slot] = { load = shallow(rec.load), prior = deepcopy(rec.prior), tries = 0, due = self:now() + self.cfg.restore_retry_s }
+  self.st.verify[slot] =
+    { load = shallow(rec.load), prior = deepcopy(rec.prior), tries = 0, due = self:now() + self.cfg.restore_retry_s }
   self:armVerify()
   self:emit("load_restored", { slot = slot })
 end
@@ -856,14 +868,26 @@ end
 function Engine:dryRun()
   local lines = {}
   for t = 1, 3 do
-    local when = t == 1 and "at once" or string.format("battery <= %d%% or %d min without battery data", self.cfg["tier" .. t .. "_pct"], self.cfg["tier" .. t .. "_nodata_min"])
+    local when = t == 1 and "at once"
+      or string.format(
+        "battery <= %d%% or %d min without battery data",
+        self.cfg["tier" .. t .. "_pct"],
+        self.cfg["tier" .. t .. "_nodata_min"]
+      )
     for _, l in ipairs(self.loads) do
       if l.tier == t then
         lines[#lines + 1] = {
           phase = "shed",
           tier = t,
           slot = l.slot,
-          text = string.format("tier %d (%s): would shed load %d (%s, device %d)", t, when, l.slot, l.kind, l.device_id),
+          text = string.format(
+            "tier %d (%s): would shed load %d (%s, device %d)",
+            t,
+            when,
+            l.slot,
+            l.kind,
+            l.device_id
+          ),
         }
       end
     end
@@ -875,7 +899,13 @@ function Engine:dryRun()
           phase = "restore",
           tier = t,
           slot = l.slot,
-          text = string.format("tier %d: would restore load %d after power holds %ds, tiers %ds apart", t, l.slot, self.cfg.stable_hold_s, self.cfg.tier_delay_s),
+          text = string.format(
+            "tier %d: would restore load %d after power holds %ds, tiers %ds apart",
+            t,
+            l.slot,
+            self.cfg.stable_hold_s,
+            self.cfg.tier_delay_s
+          ),
         }
       end
     end

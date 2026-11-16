@@ -47,6 +47,25 @@ local function installDrivers(filenames)
   return d
 end
 
+--- Current project inventory by package, including suite children that do not
+--- register their own license SKU. Use it for Composer and update selection.
+function M.installedVersions(filenames)
+  local installed, seen = {}, {}
+  for _, filename in ipairs(filenames or {}) do
+    if type(filename) == "string" and filename:match("^[%w_%-]+%.c4z$") and not seen[filename] then
+      seen[filename] = true
+      if not IsEmpty(C4:GetDevicesByC4iName(filename) or {}) then
+        local ok, current = pcall(GetDriverVersion, filename)
+        installed[#installed + 1] = { filename = filename, version = ok and tostring(current or "") or "" }
+      end
+    end
+  end
+  table.sort(installed, function(a, b)
+    return a.filename < b.filename
+  end)
+  return installed
+end
+
 --- Returns the packages that are newer than what is installed. A package for a
 --- driver that is NOT installed in this project is ignored — the updater only
 --- ever refreshes what a project already runs, never adds new drivers.
@@ -67,7 +86,11 @@ function M.outdated(packages, driverFilenames, forceUpdate)
     then
       local newVersion, newErr = version(tostring(pkg.version or ""))
       local curVersion, curErr = version(GetDriverVersion(fn))
-      if IsEmpty(newErr) and IsEmpty(curErr) and (forceUpdate or newVersion > curVersion) then
+      if
+        IsEmpty(newErr)
+        and IsEmpty(curErr)
+        and (newVersion > curVersion or (forceUpdate and newVersion == curVersion))
+      then
         table.insert(out, pkg)
       end
     end
@@ -82,7 +105,7 @@ end
 --- @param appetite string "Production" | "Prerelease" (the Update Channel).
 --- @param forceUpdate? boolean Re-download even when already current.
 --- @return Deferred<string[], string> Deferred resolving to the updated filenames.
-function M.updateAll(url, headers, driverFilenames, appetite, forceUpdate)
+function M.updateAll(url, headers, driverFilenames, appetite, forceUpdate, onInventory)
   local reqHeaders = {}
   for k, v in pairs(headers or {}) do
     reqHeaders[k] = v
@@ -103,14 +126,37 @@ function M.updateAll(url, headers, driverFilenames, appetite, forceUpdate)
         return reject("SmartBuildOS returned an unexpected updates response")
       end
 
-      local toDownload = M.outdated(body.packages, driverFilenames, forceUpdate)
+      -- Only the authenticated SmartBuildOS manifest can extend this list.
+      -- Filter path syntax before it is passed to Director or the filesystem.
+      local filenames = {}
+      for _, filename in ipairs(driverFilenames) do
+        filenames[#filenames + 1] = filename
+      end
+      for _, pkg in ipairs(body.packages) do
+        if type(pkg) == "table" and type(pkg.filename) == "string" and pkg.filename:match("^[%w_%-]+%.c4z$") then
+          filenames[#filenames + 1] = pkg.filename
+        end
+      end
+      if onInventory then
+        onInventory(M.installedVersions(filenames))
+      end
+      local toDownload = M.outdated(body.packages, filenames, forceUpdate)
       local downloads = {}
       for _, pkg in pairs(toDownload) do
         -- The download URL is short-lived and signed; it carries its own auth, so
         -- no bearer header goes with it.
         local download = http:get(pkg.download_url, {}):next(function(resp)
-          if string.len(resp.body or "") < 1 then
-            return reject(string.format("SmartBuildOS build %s downloaded empty", pkg.filename))
+          local payload = resp.body
+          local size = tonumber(pkg.size_bytes)
+          local sha = tostring(pkg.sha256 or ""):lower()
+          if type(payload) ~= "string" or size ~= #payload or #sha ~= 64 or not sha:match("^%x+$") then
+            return reject(string.format("SmartBuildOS build %s failed size or digest metadata checks", pkg.filename))
+          end
+          local ok, digest = pcall(function()
+            return C4:Hash("SHA256", payload, { return_encoding = "HEX", data_encoding = "NONE" })
+          end)
+          if not ok or type(digest) ~= "string" or digest:lower() ~= sha then
+            return reject(string.format("SmartBuildOS build %s failed SHA-256 verification", pkg.filename))
           end
           C4:FileSetDir("C4Z_ROOT")
           local previous = C4:FileExists(pkg.filename) and FileRead(pkg.filename) or nil

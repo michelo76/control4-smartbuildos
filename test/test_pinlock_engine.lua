@@ -69,29 +69,46 @@ check("short PIN refused", e:addCode({ name = "A", role = "guest", pin = "482", 
 check("non-digit PIN refused", e:addCode({ name = "A", role = "guest", pin = "48x6", actions = { 1 } }) == false)
 local dupOk, dupWhy = e:addCode({ name = "Twin", role = "guest", pin = OWNER_PIN, actions = { 1 } })
 check("a PIN already in use is refused", dupOk == false and dupWhy:find("already in use") ~= nil, dupWhy)
-check("duplicate name refused (case/space-blind)", e:addCode({ name = "  owner ", role = "guest", pin = STAFF_PIN }) == false)
+check(
+  "duplicate name refused (case/space-blind)",
+  e:addCode({ name = "  owner ", role = "guest", pin = STAFF_PIN }) == false
+)
 check("bad role refused", e:addCode({ name = "X", role = "admin", pin = STAFF_PIN }) == false)
 check("PIN or sequence needed", e:addCode({ name = "X", role = "guest" }) == false)
 check("hours need both ends", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, from = "08:00" }) == false)
-check("hours must be HH:MM", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, from = "8am", to = "5pm" }) == false)
-check("From equal To refused", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, from = "08:00", to = "08:00" }) == false)
-check("expiry must follow start", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, starts = 100, expires = 50 }) == false)
-check("max uses bounded", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, max_uses = 0.5 }) == false)
 check(
-  "owner is the only code so far",
-  #e.codes == 1 and e:hasOwner()
+  "hours must be HH:MM",
+  e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, from = "8am", to = "5pm" }) == false
 )
+check(
+  "From equal To refused",
+  e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, from = "08:00", to = "08:00" }) == false
+)
+check(
+  "expiry must follow start",
+  e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, starts = 100, expires = 50 }) == false
+)
+check("max uses bounded", e:addCode({ name = "X", role = "guest", pin = STAFF_PIN, max_uses = 0.5 }) == false)
+check("owner is the only code so far", #e.codes == 1 and e:hasOwner())
 
 print("[2] storage: hashed and salted, plaintext nowhere")
 local snapshot = e:serialize()
 local flat = require("JSON"):encode(snapshot)
 check("serialised state holds no plaintext PIN", flat:find(OWNER_PIN, 1, true) == nil)
-check("serialised state holds a digest and a salt", snapshot.codes[1].pin.hash ~= nil and snapshot.codes[1].pin.salt ~= nil)
+check(
+  "serialised state holds a digest and a salt",
+  snapshot.codes[1].pin.hash ~= nil and snapshot.codes[1].pin.salt ~= nil
+)
 e:addCode({ name = "Marta", role = "staff", pin = STAFF_PIN, actions = { 1, 2 } })
 local s2 = e:serialize()
 check("each code has its own salt", s2.codes[1].pin.salt ~= s2.codes[2].pin.salt)
 local pub = require("JSON"):encode(e:publicCodes())
-check("admin list carries no digest, salt or PIN", pub:find(s2.codes[1].pin.hash, 1, true) == nil and pub:find(s2.codes[1].pin.salt, 1, true) == nil and pub:find(OWNER_PIN, 1, true) == nil)
+check(
+  "admin list carries no digest, salt or PIN",
+  pub:find(s2.codes[1].pin.hash, 1, true) == nil
+    and pub:find(s2.codes[1].pin.salt, 1, true) == nil
+    and pub:find(OWNER_PIN, 1, true) == nil
+)
 
 print("[3] granting: actions, roles, uses")
 e = newEngine()
@@ -105,7 +122,10 @@ for _, ev in ipairs(emitted) do
     grantedEv = ev.f
   end
 end
-check("granted event emitted once with names", count("granted") == 1 and grantedEv.slot == 1 and grantedEv.code == "Marta")
+check(
+  "granted event emitted once with names",
+  count("granted") == 1 and grantedEv.slot == 1 and grantedEv.code == "Marta"
+)
 r = e:tryPin("page", 3, STAFF_PIN)
 check("staff refused an action not on its list", r.ok == false and r.reason == "not_allowed")
 r = e:tryPin("page", 3, OWNER_PIN)
@@ -139,7 +159,15 @@ check("weekend refused", e:tryPin("page", 2, VENDOR_PIN).reason == "outside_wind
 -- overnight window Fri 22:00 - 06:00, "Friday" only
 e = newEngine()
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
-e:addCode({ name = "Night", role = "staff", pin = STAFF_PIN, actions = { 1 }, days = { 6 }, from = "22:00", to = "06:00" })
+e:addCode({
+  name = "Night",
+  role = "staff",
+  pin = STAFF_PIN,
+  actions = { 1 },
+  days = { 6 },
+  from = "22:00",
+  to = "06:00",
+})
 clock.t = at(23, 0, 2) -- Friday 23:00
 check("overnight: Friday late evening in", e:tryPin("page", 1, STAFF_PIN).ok == true)
 clock.t = at(3, 0, 3) -- Saturday 03:00, the Friday window still open
@@ -151,7 +179,15 @@ clock.t = BASE
 print("[5] dates and use limits")
 e = newEngine()
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
-e:addCode({ name = "Trial", role = "guest", pin = GUEST_PIN, actions = { 1 }, starts = clock.t + 3600, expires = clock.t + 7200, max_uses = 2 })
+e:addCode({
+  name = "Trial",
+  role = "guest",
+  pin = GUEST_PIN,
+  actions = { 1 },
+  starts = clock.t + 3600,
+  expires = clock.t + 7200,
+  max_uses = 2,
+})
 check("not yet started", e:tryPin("page", 1, GUEST_PIN).reason == "not_yet")
 clock.t = clock.t + 4000
 check("inside dates", e:tryPin("page", 1, GUEST_PIN).ok == true)
@@ -173,7 +209,10 @@ check("enable", e:setEnabled("Marta", true) == true and e:tryPin("page", 1, STAF
 check("last owner cannot be disabled", e:setEnabled("Owner", false) == false)
 check("last owner cannot be revoked", e:revoke("Owner") == false)
 check("last owner cannot be demoted", e:updateCode("Owner", { role = "staff" }) == false)
-check("revoke removes the code", e:revoke("Marta") == true and e:find("Marta") == nil and e:tryPin("page", 1, STAFF_PIN).reason == "wrong_pin")
+check(
+  "revoke removes the code",
+  e:revoke("Marta") == true and e:find("Marta") == nil and e:tryPin("page", 1, STAFF_PIN).reason == "wrong_pin"
+)
 check("unknown code reported", e:revoke("nobody") == false and e:setEnabled("nobody", true) == false)
 e:addCode({ name = "Second", role = "owner", pin = VENDOR_PIN })
 check("a second owner frees the first", e:revoke("Owner") == true)
@@ -182,9 +221,20 @@ print("[7] editing")
 e = newEngine()
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
 e:addCode({ name = "Marta", role = "staff", pin = STAFF_PIN, actions = { 1 } })
-check("edit keeps the PIN when none is given", e:updateCode("Marta", { name = "Marta B", role = "staff", actions = { 2 } }) == true)
-check("old PIN still works for the new action", e:tryPin("page", 2, STAFF_PIN).ok == true and e:tryPin("page", 1, STAFF_PIN).reason == "not_allowed")
-check("edit with a new PIN", e:updateCode("Marta B", { pin = GUEST_PIN }) == true and e:tryPin("page", 2, GUEST_PIN).ok == true and e:tryPin("page", 2, STAFF_PIN).reason == "wrong_pin")
+check(
+  "edit keeps the PIN when none is given",
+  e:updateCode("Marta", { name = "Marta B", role = "staff", actions = { 2 } }) == true
+)
+check(
+  "old PIN still works for the new action",
+  e:tryPin("page", 2, STAFF_PIN).ok == true and e:tryPin("page", 1, STAFF_PIN).reason == "not_allowed"
+)
+check(
+  "edit with a new PIN",
+  e:updateCode("Marta B", { pin = GUEST_PIN }) == true
+    and e:tryPin("page", 2, GUEST_PIN).ok == true
+    and e:tryPin("page", 2, STAFF_PIN).reason == "wrong_pin"
+)
 check("editing into another code's PIN refused", e:updateCode("Marta B", { pin = OWNER_PIN }) == false)
 check("editing into another code's name refused", e:updateCode("Marta B", { name = "owner" }) == false)
 
@@ -197,11 +247,17 @@ e:tryPin("page", 1, "0001")
 check("two wrong attempts: not locked", select(1, e:lockState("page")) == false)
 check("a good attempt still works", e:tryPin("page", 1, STAFF_PIN).ok == true)
 r = e:tryPin("page", 1, "0002")
-check("a good attempt does NOT reset the count: the third wrong one locks the page", r.locked == true and (e:lockState("page")) == true)
+check(
+  "a good attempt does NOT reset the count: the third wrong one locks the page",
+  r.locked == true and (e:lockState("page")) == true
+)
 check("one lockout event", count("locked_out") == 1)
 r = e:tryPin("page", 1, STAFF_PIN)
 check("the RIGHT PIN is refused while locked", r.ok == false and r.locked == true and r.reason == "locked_out")
-check("keypad and admin are separate entry points", select(1, e:lockState("keypad")) == false and select(1, e:lockState("admin")) == false)
+check(
+  "keypad and admin are separate entry points",
+  select(1, e:lockState("keypad")) == false and select(1, e:lockState("admin")) == false
+)
 check("the lock does not re-fire the lockout event", count("locked_out") == 1)
 clock.t = clock.t + 299
 check("still locked after 299 s", select(1, e:lockState("page")) == true)
@@ -210,7 +266,10 @@ local doc = e:serialize()
 local e2 = newEngine({ maxFails = 3, lockSeconds = 300 })
 e2:setSlots({ [1] = "Unlock wine cellar" })
 e2:restore(doc)
-check("lockout survives a restart", select(1, e2:lockState("page")) == true and e2:tryPin("page", 1, STAFF_PIN).locked == true)
+check(
+  "lockout survives a restart",
+  select(1, e2:lockState("page")) == true and e2:tryPin("page", 1, STAFF_PIN).locked == true
+)
 clock.t = clock.t + 2
 check("lock ends after the time", select(1, e:lockState("page")) == false and e:tryPin("page", 1, STAFF_PIN).ok == true)
 e:tryPin("page", 1, "0000")
@@ -252,7 +311,11 @@ for round = 1, 20 do
   end
   e:tryPin("page", 1, STAFF_PIN)
 end
-check("4 wrong, 1 valid, repeat: locked out by the 5th wrong guess", lockedAt ~= nil and lockedAt <= 8, tostring(lockedAt))
+check(
+  "4 wrong, 1 valid, repeat: locked out by the 5th wrong guess",
+  lockedAt ~= nil and lockedAt <= 8,
+  tostring(lockedAt)
+)
 -- the count still ages out by itself
 e = newEngine({ maxFails = 3, lockSeconds = 60, failWindow = 100 })
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
@@ -267,12 +330,18 @@ print("[9] keypad sequences")
 e = newEngine({ maxFails = 3, lockSeconds = 120, seqLength = 4, seqWindow = 6 })
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
 check("sequence length enforced", e:addCode({ name = "S", role = "staff", seq = "1-3-3", actions = { 3 } }) == false)
-check("sequence tokens validated", e:addCode({ name = "S", role = "staff", seq = "1-3-3-toolong", actions = { 3 } }) == false)
+check(
+  "sequence tokens validated",
+  e:addCode({ name = "S", role = "staff", seq = "1-3-3-toolong", actions = { 3 } }) == false
+)
 check("sequence needs an allowed action", e:addCode({ name = "S", role = "staff", seq = "1-3-3-2" }) == false)
 local sid = e:addCode({ name = "Alarm tech", role = "staff", seq = "1-3-3-2", actions = { 3 }, keypad_action = 3 })
 check("sequence code added", sid ~= false)
 check("sequence stored as a digest only", require("JSON"):encode(e:serialize()):find("1-3-3-2", 1, true) == nil)
-check("a partial entry returns nothing", e:keypadPress("hall", "1") == nil and e:keypadPress("hall", "3") == nil and e:keypadPress("hall", "3") == nil)
+check(
+  "a partial entry returns nothing",
+  e:keypadPress("hall", "1") == nil and e:keypadPress("hall", "3") == nil and e:keypadPress("hall", "3") == nil
+)
 r = e:keypadPress("hall", "2")
 check("the fourth press completes and grants", r and r.ok == true and r.slot == 3 and r.entry == "keypad")
 clock.t = clock.t + 1
@@ -310,7 +379,10 @@ bare:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
 for _ = 1, 40 do
   bare:keypadPress("hall", "5")
 end
-check("with no sequence code, presses never count as attempts", select(1, bare:lockState("keypad")) == false and #bare.recent == 0)
+check(
+  "with no sequence code, presses never count as attempts",
+  select(1, bare:lockState("keypad")) == false and #bare.recent == 0
+)
 check("a bad button id is ignored", bare:keypadPress("x", "way-too-long!") == nil)
 
 print("[10] temporary codes")
@@ -322,15 +394,34 @@ check("works now", e:tryPin("page", 2, GUEST_PIN).ok == true)
 clock.t = clock.t + 3 * 3600
 check("expired after its hours", e:tryPin("page", 2, GUEST_PIN).reason == "expired")
 clock.t = at(12, 0)
-check("same name replaces an earlier temporary code", e:addTemporary({ name = "Courier", pin = VENDOR_PIN, actions = { 2 }, hours = 1 }) ~= false and #e.codes == 2)
-check("a replaced code's old PIN stops", e:tryPin("page", 2, GUEST_PIN).reason == "wrong_pin" and e:tryPin("page", 2, VENDOR_PIN).ok == true)
-check("a failed replacement keeps the old code", e:addTemporary({ name = "Courier", pin = "1111", actions = { 2 } }) == false and e:tryPin("page", 2, VENDOR_PIN).ok == true)
-check("a permanent code's name is not replaced", e:addTemporary({ name = "Owner", pin = STAFF_PIN, actions = { 1 } }) == false)
+check(
+  "same name replaces an earlier temporary code",
+  e:addTemporary({ name = "Courier", pin = VENDOR_PIN, actions = { 2 }, hours = 1 }) ~= false and #e.codes == 2
+)
+check(
+  "a replaced code's old PIN stops",
+  e:tryPin("page", 2, GUEST_PIN).reason == "wrong_pin" and e:tryPin("page", 2, VENDOR_PIN).ok == true
+)
+check(
+  "a failed replacement keeps the old code",
+  e:addTemporary({ name = "Courier", pin = "1111", actions = { 2 } }) == false
+    and e:tryPin("page", 2, VENDOR_PIN).ok == true
+)
+check(
+  "a permanent code's name is not replaced",
+  e:addTemporary({ name = "Owner", pin = STAFF_PIN, actions = { 1 } }) == false
+)
 check("hours bounded", e:addTemporary({ name = "Long", pin = STAFF_PIN, actions = { 1 }, hours = 99999 }) == false)
 clock.t = clock.t + 5 * 86400
 check("old temporary codes are pruned", e:prune() >= 1 and e:find("Courier") == nil)
 clock.t = at(12, 0)
-check("parseActions: all / numbers / names", #e:parseActions("all") == 3 and e:parseActions("1, 3")[2] == 3 and e:parseActions("open garage service door")[1] == 2 and #e:parseActions("zzz") == 0)
+check(
+  "parseActions: all / numbers / names",
+  #e:parseActions("all") == 3
+    and e:parseActions("1, 3")[2] == 3
+    and e:parseActions("open garage service door")[1] == 2
+    and #e:parseActions("zzz") == 0
+)
 
 print("[11] admin: setup, login, sessions")
 e = newEngine({ maxFails = 3, lockSeconds = 60 })
@@ -364,24 +455,65 @@ check("non-owner refused with reason licence", r.ok == false and r.reason == "li
 check("owner can still sign in to admin", e:login(OWNER_PIN).ok == true)
 check("new codes refused", e:addCode({ name = "New", role = "guest", pin = GUEST_PIN, actions = { 1 } }) == false)
 check("temporary codes refused", e:addTemporary({ name = "T", pin = GUEST_PIN, actions = { 1 } }) == false)
-check("non-owner cannot be enabled or edited", e:setEnabled("Marta", true) == false and e:updateCode("Marta", { name = "M2", role = "staff", actions = { 1, 2 } }) == false)
+check(
+  "non-owner cannot be enabled or edited",
+  e:setEnabled("Marta", true) == false
+    and e:updateCode("Marta", { name = "M2", role = "staff", actions = { 1, 2 } }) == false
+)
 check("disabling and revoking still work", e:setEnabled("Marta", false) == true and e:revoke("Marta") == true)
 e:setRestricted(false)
-check("restored: new codes allowed again", e:addCode({ name = "New", role = "guest", pin = GUEST_PIN, actions = { 1 } }) ~= false)
+check(
+  "restored: new codes allowed again",
+  e:addCode({ name = "New", role = "guest", pin = GUEST_PIN, actions = { 1 } }) ~= false
+)
 
 print("[13] persistence")
 e = newEngine()
 e:addCode({ name = "Owner", role = "owner", pin = OWNER_PIN })
-e:addCode({ name = "Marta", role = "staff", pin = STAFF_PIN, actions = { 1, 2 }, days = { 3, 4 }, from = "08:00", to = "17:00", max_uses = 5, expires = clock.t + 99999, seq = "2-4-4-6", keypad_action = 2 })
+e:addCode({
+  name = "Marta",
+  role = "staff",
+  pin = STAFF_PIN,
+  actions = { 1, 2 },
+  days = { 3, 4 },
+  from = "08:00",
+  to = "17:00",
+  max_uses = 5,
+  expires = clock.t + 99999,
+  seq = "2-4-4-6",
+  keypad_action = 2,
+})
 e:tryPin("page", 1, STAFF_PIN)
 local round = newEngine()
 round:setSlots({ [1] = "Unlock wine cellar", [2] = "Open garage service door" })
 check("restore returns the code count", round:restore(e:serialize()) == 2)
 local m = round:find("Marta")
-check("fields survive", m.uses == 1 and m.max_uses == 5 and m.from == 480 and m.to == 1020 and m.days[3] and m.days[4] and not m.days[1] and m.actions[2] and m.keypad_action == 2)
+check(
+  "fields survive",
+  m.uses == 1
+    and m.max_uses == 5
+    and m.from == 480
+    and m.to == 1020
+    and m.days[3]
+    and m.days[4]
+    and not m.days[1]
+    and m.actions[2]
+    and m.keypad_action == 2
+)
 check("PIN still verifies after a restart", round:tryPin("page", 2, STAFF_PIN).ok == true)
-check("sequence still verifies after a restart", round:keypadPress("k", "2") == nil and round:keypadPress("k", "4") == nil and round:keypadPress("k", "4") == nil and round:keypadPress("k", "6").ok == true)
-check("junk state is ignored", newEngine():restore({ v = 99 }) == 0 and newEngine():restore("x") == 0 and newEngine():restore({ v = 1, codes = { { id = 1 }, "x", { id = "c", name = "n", role = "owner" } } }) == 0)
+check(
+  "sequence still verifies after a restart",
+  round:keypadPress("k", "2") == nil
+    and round:keypadPress("k", "4") == nil
+    and round:keypadPress("k", "4") == nil
+    and round:keypadPress("k", "6").ok == true
+)
+check(
+  "junk state is ignored",
+  newEngine():restore({ v = 99 }) == 0
+    and newEngine():restore("x") == 0
+    and newEngine():restore({ v = 1, codes = { { id = 1 }, "x", { id = "c", name = "n", role = "owner" } } }) == 0
+)
 
 print("[14] nothing secret leaves the engine")
 e = newEngine({ maxFails = 3, lockSeconds = 60 })
@@ -403,7 +535,9 @@ for _, c in ipairs(e.codes) do
     secrets[#secrets + 1] = c.seq.hash
   end
 end
-local blob = require("JSON"):encode(emitted) .. require("JSON"):encode(e.recent) .. require("JSON"):encode(e:publicCodes())
+local blob = require("JSON"):encode(emitted)
+  .. require("JSON"):encode(e.recent)
+  .. require("JSON"):encode(e:publicCodes())
 local leaked = {}
 for _, s in ipairs(secrets) do
   if blob:find(s, 1, true) then
@@ -426,15 +560,50 @@ local list = Engine.targetList({
   [12] = { deviceName = "Garage, Side Door", roomName = "Garage", driverFileName = "relay.c4z" },
   [13] = { deviceName = "Self", driverFileName = "pin.c4z" },
 }, 13, "lock,relay,door")
-check("target list is filtered, sorted and labelled Name (Room) · id", #list == 2 and list[1].label == "Wine Cellar Lock (Cellar) · 10" and list[2].label:find("Garage  Side Door") ~= nil, list[1] and list[1].label)
-check("a star keeps every device but this one", #Engine.targetList({ [1] = { deviceName = "A" }, [2] = { deviceName = "B" } }, 2, "*") == 1)
-check("target id comes from the label", Engine.targetId("Wine Cellar Lock (Cellar) · 10") == 10 and Engine.targetId("-") == nil)
-check("hours parse", Engine.parseHM("08:30") == 510 and Engine.parseHM("24:00") == nil and Engine.formatHM(510) == "08:30")
-check("sequence parse", #Engine.parseSequence("1-3, 3 2") == 4 and Engine.parseSequence("a-!") == nil and Engine.normToken(" ab ") == "AB")
-local spec = Engine.specFromPage({ name = "X", role = "guest", pin = " 4826 ", actions = { 1 }, days = {}, from = "", to = "", start_date = "2027-02-01", expiry_date = "2027-02-03", max_uses = "" })
-check("page document becomes a spec with local-day epochs", spec.pin == "4826" and spec.starts == os.time({ year = 2027, month = 2, day = 1, hour = 0, min = 0, sec = 0 }) and spec.expires == os.time({ year = 2027, month = 2, day = 3, hour = 23, min = 59, sec = 59 }))
+check(
+  "target list is filtered, sorted and labelled Name (Room) · id",
+  #list == 2 and list[1].label == "Wine Cellar Lock (Cellar) · 10" and list[2].label:find("Garage  Side Door") ~= nil,
+  list[1] and list[1].label
+)
+check(
+  "a star keeps every device but this one",
+  #Engine.targetList({ [1] = { deviceName = "A" }, [2] = { deviceName = "B" } }, 2, "*") == 1
+)
+check(
+  "target id comes from the label",
+  Engine.targetId("Wine Cellar Lock (Cellar) · 10") == 10 and Engine.targetId("-") == nil
+)
+check(
+  "hours parse",
+  Engine.parseHM("08:30") == 510 and Engine.parseHM("24:00") == nil and Engine.formatHM(510) == "08:30"
+)
+check(
+  "sequence parse",
+  #Engine.parseSequence("1-3, 3 2") == 4 and Engine.parseSequence("a-!") == nil and Engine.normToken(" ab ") == "AB"
+)
+local spec = Engine.specFromPage({
+  name = "X",
+  role = "guest",
+  pin = " 4826 ",
+  actions = { 1 },
+  days = {},
+  from = "",
+  to = "",
+  start_date = "2027-02-01",
+  expiry_date = "2027-02-03",
+  max_uses = "",
+})
+check(
+  "page document becomes a spec with local-day epochs",
+  spec.pin == "4826"
+    and spec.starts == os.time({ year = 2027, month = 2, day = 1, hour = 0, min = 0, sec = 0 })
+    and spec.expires == os.time({ year = 2027, month = 2, day = 3, hour = 23, min = 59, sec = 59 })
+)
 check("bad page date refused", Engine.specFromPage({ name = "X", start_date = "tomorrow" }) == nil)
-check("constant compare", Engine.constEq("abc", "abc") and not Engine.constEq("abc", "abd") and not Engine.constEq("abc", "abcd"))
+check(
+  "constant compare",
+  Engine.constEq("abc", "abc") and not Engine.constEq("abc", "abd") and not Engine.constEq("abc", "abcd")
+)
 
 print("[temporary codes keep their exact expiry through the editor] (reviewer finding on PR #39)")
 do
@@ -474,7 +643,11 @@ do
 
   local ok, why = save(pageDoc({ name = "Courier (parcel)" }))
   check("renaming the code is accepted", ok == true, why)
-  check("...and its expiry is still 13:00, not the end of the day", t:find(id).expires == exact, os.date("%H:%M:%S", t:find(id).expires))
+  check(
+    "...and its expiry is still 13:00, not the end of the day",
+    t:find(id).expires == exact,
+    os.date("%H:%M:%S", t:find(id).expires)
+  )
   check("...and its start is untouched", t:find(id).starts == started)
   clock.t = BASE + 2 * 3600 -- 14:00
   check("at 14:00 the one-hour code no longer works", t:tryPin("page", 2, GUEST_PIN).ok ~= true)
@@ -490,7 +663,8 @@ do
   -- A browser in another time zone shows another date for the same instant.
   check(
     "a browser showing a different date keeps the expiry as long as the date was not changed",
-    save(pageDoc({ expiry_date = "2027-01-07", expiry_date_was = "2027-01-07" })) == true and t:find(id).expires == exact
+    save(pageDoc({ expiry_date = "2027-01-07", expiry_date_was = "2027-01-07" })) == true
+      and t:find(id).expires == exact
   )
 
   -- The owner really changes the date.
@@ -504,7 +678,13 @@ do
   check("clearing the expiry date removes the expiry", ok == true and t:find(id).expires == nil)
 
   -- A new code from the page: nothing to keep, dates become whole days as before.
-  local fresh = Engine.specFromPage({ name = "N", start_date = "2027-02-01", expiry_date = "2027-02-03", start_date_was = "", expiry_date_was = "" })
+  local fresh = Engine.specFromPage({
+    name = "N",
+    start_date = "2027-02-01",
+    expiry_date = "2027-02-03",
+    start_date_was = "",
+    expiry_date_was = "",
+  })
   check(
     "a new code's dates are whole local days",
     fresh.starts == os.time({ year = 2027, month = 2, day = 1, hour = 0, min = 0, sec = 0 })

@@ -23,6 +23,7 @@ this release it reports; it does not give programming a way to move the gate.
 ## Setup
 
 <!-- walkthrough: Add a linked gate -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `gate`, pick the device in **Export Device** (see the next section for
    which one), fill in **Export Name**, leave **Export Control** on `View only`,
@@ -35,8 +36,8 @@ this release it reports; it does not give programming a way to move the gate.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds gate exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** reads `Open` or `Closed`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** reads `Open` or `Closed`.
 1. Open and close the gate on the owner's side and watch **Confirmed State**
    follow. Check that it reads the right way round.
 
@@ -46,11 +47,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | Open or closed |
-| Here to the owner | Only the three Test actions: trigger, open, close |
-| Not carried | Opening, closing, stopped or obstructed states, and how far the gate has travelled |
+| Direction         | What                                                                               |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| Owner to here     | Open or closed                                                                     |
+| Here to the owner | Only the three Test actions: trigger, open, close                                  |
+| Not carried       | Opening, closing, stopped or obstructed states, and how far the gate has travelled |
 
 An export is one device on the owner's side, and both the state and the Test
 commands use that device. The owner reads its `GARAGE_DOOR_STATE` variable if it
@@ -65,21 +66,21 @@ The Test actions each send one request. The owner turns it into a trigger
 (pulse), open or close command to the exported device, and refuses it unless the
 export was made with `Control allowed`, which the owner can only choose when the
 pair licence carries `GATE`. The licence is checked again at every request. The
-owner accepting a command says nothing about the door: wait for
-*Remote Gate Opened* or *Remote Gate Closed*.
+owner accepting a command says nothing about the door: wait for *Remote Gate
+Opened* or *Remote Gate Closed*.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no gate export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device supplies nothing that reads as open or closed |
-| **Control** | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now. `none` when there is no schedule |
-| **Confirmed State** | `Open`, `Closed` or `unavailable` |
-| **Requested State** | The last Test request and when |
-| **Last Result** | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason, for example `failed: export is view-only` or `failed: feature GATE is not licensed` |
+| Property                | What it tells you                                                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no gate export it says so and names what the link does carry                                                                                                           |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                                 |
+| **Freshness**           | `current`: the state is confirmed. `stale`: the link is not synchronised, or the owner has not confirmed the value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's device supplies nothing that reads as open or closed |
+| **Control**             | `control permitted` when the export allows control and SmartBuildOS System Link here permits commands; otherwise `view only / suspended`                                                                                                            |
+| **Control Window**      | The owner's schedule for this export and whether it is open now. `none` when there is no schedule                                                                                                                                                   |
+| **Confirmed State**     | `Open`, `Closed` or `unavailable`                                                                                                                                                                                                                   |
+| **Requested State**     | The last Test request and when                                                                                                                                                                                                                      |
+| **Last Result**         | `sent`, `accepted`, then `delivered` or `failed:` with the owner's reason, for example `failed: export is view-only` or `failed: feature GATE is not licensed`                                                                                      |
 
 ## Programming
 
@@ -90,9 +91,9 @@ owner accepting a command says nothing about the door: wait for
   the reason).
 - Conditionals: *Remote Gate Is Open*, *Remote Value Is Current*.
 - Actions: *Test: Remote Trigger*, *Test: Remote Open*, *Test: Remote Close*,
-  *Refresh From Bridge* (ask for the export list and state again),
-  *Rename From Export* (name the device after the export even if you renamed
-  it), *Print Diagnostics To Log*.
+  *Refresh From Bridge* (ask for the export list and state again), *Rename From
+  Export* (name the device after the export even if you renamed it), *Print
+  Diagnostics To Log*.
 - Commands: none.
 
 ## Examples
@@ -100,8 +101,8 @@ owner accepting a command says nothing about the door: wait for
 ### The far gate has been open for ten minutes
 
 On *Remote Gate Opened*, start a ten-minute timer; on *Remote Gate Closed*, stop
-it. When the timer expires, check *Remote Value Is Current* and
-*Remote Gate Is Open*, then send a notification.
+it. When the timer expires, check *Remote Value Is Current* and *Remote Gate Is
+Open*, then send a notification.
 
 ### Goodnight check across two houses
 

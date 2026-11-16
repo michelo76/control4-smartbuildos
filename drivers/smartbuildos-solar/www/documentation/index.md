@@ -18,14 +18,14 @@ A schedule answers "when". Shades and glare need "where". The moment the sun
 comes round onto a wall of glass has little to do with sunset, and it moves
 through the year by hours.
 
-These figures are this driver's own, for a west and a south facade at 26°N
-(each 90 degrees wide, sun counted from 5 degrees up):
+These figures are this driver's own, for a west and a south facade at 26°N (each
+90 degrees wide, sun counted from 5 degrees up):
 
-| Date | Sunset | Sun reaches the west glass | That is, before sunset | South glass in the sun |
-| --- | --- | --- | --- | --- |
-| 21 June | 20:15 | 13:33 | 6 h 42 min | 13:11 to 13:34, 23 minutes |
-| 22 September | 19:17 | 14:48 | 4 h 29 min | 11:39 to 14:51, over 3 hours |
-| 21 December | 17:34 | 15:17 | 2 h 17 min | 09:20 to 15:23, 6 hours |
+| Date         | Sunset | Sun reaches the west glass | That is, before sunset | South glass in the sun       |
+| ------------ | ------ | -------------------------- | ---------------------- | ---------------------------- |
+| 21 June      | 20:15  | 13:33                      | 6 h 42 min             | 13:11 to 13:34, 23 minutes   |
+| 22 September | 19:17  | 14:48                      | 4 h 29 min             | 11:39 to 14:51, over 3 hours |
+| 21 December  | 17:34  | 15:17                      | 2 h 17 min             | 09:20 to 15:23, 6 hours      |
 
 - "Lower the west shades X minutes before sunset" is right on one day. Across
   the year it is out by up to four and a half hours.
@@ -39,25 +39,26 @@ the Scheduler cannot know.
 
 ## What it is for
 
-| You want | Use |
-| --- | --- |
-| Shades that come down only while the sun is on that glass, all year, with no seasonal edits | *Sun Hits Facade* and *Sun Leaves Facade* |
-| The same for glass under an overhang or a balcony, where a high sun never gets in | **Facade N Max Elevation** |
-| A light that comes on with motion only when it is dark | The conditional *It is night*, or *The sun is up* |
-| Exterior lights on at sunset and off once it is properly light | *Sunset* and *Morning Golden Hour Ended* |
-| A scene when it is actually dark, not just after sunset | *Night Began* |
-| Something done a set time before sunset or sunrise | `MINUTES_TO_SUNSET`, `MINUTES_TO_SUNRISE` |
-| The low evening sun kept off the television | *Evening Golden Hour Started*, with *The sun is on facade* |
-| The sun's height or direction in your own logic | `SUN_ELEVATION`, `SUN_AZIMUTH` |
+| You want                                                                                    | Use                                                        |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Shades that come down only while the sun is on that glass, all year, with no seasonal edits | *Sun Hits Facade* and *Sun Leaves Facade*                  |
+| The same for glass under an overhang or a balcony, where a high sun never gets in           | **Facade N Max Elevation**                                 |
+| A light that comes on with motion only when it is dark                                      | The conditional *It is night*, or *The sun is up*          |
+| Exterior lights on at sunset and off once it is properly light                              | *Sunset* and *Morning Golden Hour Ended*                   |
+| A scene when it is actually dark, not just after sunset                                     | *Night Began*                                              |
+| Something done a set time before sunset or sunrise                                          | `MINUTES_TO_SUNSET`, `MINUTES_TO_SUNRISE`                  |
+| The low evening sun kept off the television                                                 | *Evening Golden Hour Started*, with *The sun is on facade* |
+| The sun's height or direction in your own logic                                             | `SUN_ELEVATION`, `SUN_AZIMUTH`                             |
 
 ## Setup
 
 <!-- walkthrough: Set up Solar Position -->
+
 1. Install and pair the SmartBuildOS Agent.
-1. Add this driver, one per project. **Location** shows the coordinates it
-   found in the project. If the project has none, set **Location Source** to
-   Manual Coordinates and fill in **Latitude** and **Longitude** (south and
-   west are negative).
+1. Add this driver, one per project. **Location** shows the coordinates it found
+   in the project. If the project has none, set **Location Source** to Manual
+   Coordinates and fill in **Latitude** and **Longitude** (south and west are
+   negative).
 1. Check **Sun Now** and **Today** against the sky and a weather app. They
    should agree to the minute.
 1. Name the facades you care about and give each its heading. The next section
@@ -70,12 +71,13 @@ the Scheduler cannot know.
 
 ## Facades: tell it which way the glass faces
 
-A facade is one direction the building looks in. Rooms that share a wall share
-a facade; a corner room has two. There are four.
+A facade is one direction the building looks in. Rooms that share a wall share a
+facade; a corner room has two. There are four.
 
 ![One facade's settings: its name, heading, width and the lowest and highest sun that count](images/facade-settings.jpg)
 
 <!-- walkthrough: Describe a facade -->
+
 1. **Name.** Type a name in `Facade 1 Name`, for example West. A facade with no
    name is not used.
 1. **Azimuth.** Stand inside, square to the glass, looking out. The direction
@@ -94,8 +96,8 @@ a facade; a corner room has two. There are four.
 
 A facade is in the sun when the sun's elevation is between its minimum and its
 maximum and its direction is within half the width of the heading. Every edge
-has one degree of give: once in the sun, a facade stays in the sun until the
-sun is a full degree outside, so a sun grazing an edge never flaps the shades.
+has one degree of give: once in the sun, a facade stays in the sun until the sun
+is a full degree outside, so a sun grazing an edge never flaps the shades.
 Changing a setting is not an event: nothing fires until the sun next moves
 across an edge.
 
@@ -105,30 +107,30 @@ Near midsummer the sun stands almost overhead at noon. It is in front of the
 south glass and puts next to nothing through it, and an overhang or a balcony
 above cuts it off completely. With no ceiling the driver would still say "sun".
 
-Set **Facade N Max Elevation** (N is the facade's number) to the angle above which the glass is in shadow.
-For an overhang: measure how far it sticks out, and the height from the bottom
-of the glass up to its underside.
+Set **Facade N Max Elevation** (N is the facade's number) to the angle above
+which the glass is in shadow. For an overhang: measure how far it sticks out,
+and the height from the bottom of the glass up to its underside.
 
-| The overhang sticks out | Max Elevation |
-| --- | --- |
-| as far as the glass is tall | 45 |
-| half the height of the glass | 63 |
-| a third of the height | 72 |
-| a quarter of the height | 76 |
+| The overhang sticks out      | Max Elevation |
+| ---------------------------- | ------------- |
+| as far as the glass is tall  | 45            |
+| half the height of the glass | 63            |
+| a third of the height        | 72            |
+| a quarter of the height      | 76            |
 
 That is the angle for a sun square to the glass. From the side the overhang
-shades the glass a little sooner, so the driver errs towards reporting sun for
-a few minutes longer, never towards missing it.
+shades the glass a little sooner, so the driver errs towards reporting sun for a
+few minutes longer, never towards missing it.
 
 When the sun is in front of a facade but above its ceiling, **Facade Status**
 says so: `South: shade (sun too high)`.
 
 ![Facade Status near noon at a test location: the sun is due south and 67 degrees up, above the south facade's ceiling of 63. Times are the controller's own](images/facade-status.jpg)
 
-A facade with a ceiling can be in the sun twice in one day, before and after
-the high sun. It then fires *Sun Hits* and *Sun Leaves* twice, which is what
-the shades need. At 26°N on 22 September, south glass with a ceiling of 60 is
-in the sun from 11:39 to 12:19 and again from 14:16 to 14:51.
+A facade with a ceiling can be in the sun twice in one day, before and after the
+high sun. It then fires *Sun Hits* and *Sun Leaves* twice, which is what the
+shades need. At 26°N on 22 September, south glass with a ceiling of 60 is in the
+sun from 11:39 to 12:19 and again from 14:16 to 14:51.
 
 ### Try it: when is the sun on your glass
 
@@ -261,24 +263,24 @@ In the sun 13:33 to 19:53 (6 h 20 min)</output>
 
 ## The day, boundary by boundary
 
-Every minute the driver updates **Sun Now** (elevation, direction and the
-phase) and **Today** (sunrise, solar noon, sunset, and the next of each). The
-day has six boundaries, each a height of the sun, and one event at each. The
-times in the last column are 21 June at 26°N, to show the spacing.
+Every minute the driver updates **Sun Now** (elevation, direction and the phase)
+and **Today** (sunrise, solar noon, sunset, and the next of each). The day has
+six boundaries, each a height of the sun, and one event at each. The times in
+the last column are 21 June at 26°N, to show the spacing.
 
-| Boundary | The sun | Event | Example |
-| --- | --- | --- | --- |
-| First light | passes 6 degrees below the horizon, rising | *Civil Dawn* | 06:03 |
-| Sunrise | passes the horizon, rising | *Sunrise* | 06:29 |
-| Full daylight | passes 6 degrees up, rising | *Morning Golden Hour Ended* | 07:03 |
-| Low evening sun | passes 6 degrees up, setting | *Evening Golden Hour Started* | 19:42 |
-| Sunset | passes the horizon, setting | *Sunset* | 20:15 |
-| Dark | passes 6 degrees below the horizon, setting | *Night Began* | 20:42 |
+| Boundary        | The sun                                     | Event                         | Example |
+| --------------- | ------------------------------------------- | ----------------------------- | ------- |
+| First light     | passes 6 degrees below the horizon, rising  | *Civil Dawn*                  | 06:03   |
+| Sunrise         | passes the horizon, rising                  | *Sunrise*                     | 06:29   |
+| Full daylight   | passes 6 degrees up, rising                 | *Morning Golden Hour Ended*   | 07:03   |
+| Low evening sun | passes 6 degrees up, setting                | *Evening Golden Hour Started* | 19:42   |
+| Sunset          | passes the horizon, setting                 | *Sunset*                      | 20:15   |
+| Dark            | passes 6 degrees below the horizon, setting | *Night Began*                 | 20:42   |
 
 Between them the phase (`DAY_PHASE`) reads `night`, `dawn`, `golden_morning`,
 `day`, `golden_evening`, `dusk`. Because the boundaries are heights and not
-minutes, they stay right through the year and at any latitude: the 27 minutes
-of dusk in this example are 48 in London in June.
+minutes, they stay right through the year and at any latitude: the 27 minutes of
+dusk in this example are 48 in London in June.
 
 Two older events remain for programming that already uses them. *Golden Hour
 Started* fires at sunrise and again when the evening golden hour starts. *Civil
@@ -289,6 +291,7 @@ Dusk* fires at sunset. For new programming use the six above.
 ### West shades that follow the sun
 
 <!-- walkthrough: Shades that follow the sun -->
+
 1. Describe the facade: name West, azimuth 270.
 1. In Programming, pick this driver and the event *Sun Hits Facade 1*. Add the
    command that lowers the west shades.
@@ -303,11 +306,11 @@ and 17:11. Nobody edits a schedule in between.
 
 ### South glass under a balcony
 
-The balcony above sticks out half the height of the glass, so set `Facade 2 Max
-Elevation` to 63. At 26°N the facade then stays in shade all day around
-midsummer, when the sun crosses the south far above 63 degrees, and the shades
-stay up. In winter the noon sun is 41 degrees up and gets under the balcony:
-*Sun Hits Facade 2* fires at 09:20 and the shades come down.
+The balcony above sticks out half the height of the glass, so set
+`Facade 2 Max Elevation` to 63. At 26°N the facade then stays in shade all day
+around midsummer, when the sun crosses the south far above 63 degrees, and the
+shades stay up. In winter the noon sun is 41 degrees up and gets under the
+balcony: *Sun Hits Facade 2* fires at 09:20 and the shades come down.
 
 ### A hallway light only when it is dark
 
@@ -333,31 +336,30 @@ right the moment the controller restarts.
   *Sunrise*, *Morning Golden Hour Ended*, *Evening Golden Hour Started*,
   *Sunset*, *Night Began*, *Golden Hour Started*, *Civil Dusk*, *Location
   Changed*.
-- Conditionals: *The sun is up*, *It is night*, *It is golden hour*, *The sun
-  is on facade 1..4*.
+- Conditionals: *The sun is up*, *It is night*, *It is golden hour*, *The sun is
+  on facade 1..4*.
 - Variables: `SUN_ELEVATION`, `SUN_AZIMUTH` (whole degrees), `IS_DAYLIGHT`,
-  `DAY_PHASE`, `NEXT_SUNRISE`, `NEXT_SUNSET` (local HH:MM),
-  `MINUTES_TO_SUNSET`, `MINUTES_TO_SUNRISE`, `SUN_ON_FACADE_1..4`,
-  `LOCATION_SOURCE`.
-- Command: `RECOMPUTE_SUN` recomputes the sun and the facades now (it also
-  runs every minute).
+  `DAY_PHASE`, `NEXT_SUNRISE`, `NEXT_SUNSET` (local HH:MM), `MINUTES_TO_SUNSET`,
+  `MINUTES_TO_SUNRISE`, `SUN_ON_FACADE_1..4`, `LOCATION_SOURCE`.
+- Command: `RECOMPUTE_SUN` recomputes the sun and the facades now (it also runs
+  every minute).
 
 ## Actions
 
-| Action | What it does |
-| --- | --- |
-| Print Solar Status | Location, sun, today's times, each facade's settings and state, in the Lua tab |
-| Recompute Now | Runs the minute tick now |
-| Rediscover Location | Re-reads the project (or manual) coordinates |
-| Register With Agent Now / Refresh Status | Licensing and property refresh |
+| Action                                   | What it does                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| Print Solar Status                       | Location, sun, today's times, each facade's settings and state, in the Lua tab |
+| Recompute Now                            | Runs the minute tick now                                                       |
+| Rediscover Location                      | Re-reads the project (or manual) coordinates                                   |
+| Register With Agent Now / Refresh Status | Licensing and property refresh                                                 |
 
 ## What is not claimed
 
 Accuracy is the NOAA algorithm's: about a minute on sunrise and sunset, tenths
 of a degree on position. Weather is not modelled: on an overcast day the sun
 still "hits" a facade, so pair the event with a light sensor if that matters.
-Terrain and buildings are not modelled either: the minimum and maximum
-elevation per facade are how you account for a tree line or an overhang. Polar
-day and night are reported as a phase without sunrise and sunset times. A
-controller whose OS lacks system events still follows a changed project
-location within the hour.
+Terrain and buildings are not modelled either: the minimum and maximum elevation
+per facade are how you account for a tree line or an overhang. Polar day and
+night are reported as a phase without sunrise and sunset times. A controller
+whose OS lacks system events still follows a changed project location within the
+hour.

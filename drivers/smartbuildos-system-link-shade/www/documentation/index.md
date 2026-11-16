@@ -22,6 +22,7 @@ request.
 ## Setup
 
 <!-- walkthrough: Add a linked shade -->
+
 1. On the owner's project, select SmartBuildOS System Link. Set **Export Kind**
    to `shade`, pick the shade in **Export Device**, fill in **Export Name**, set
    **Export Control** to `Control allowed` if this project is to move it, and
@@ -35,8 +36,8 @@ request.
 1. Or do it by hand: add this driver and pick the export in **Linked Export**.
    The list holds shade exports only. One driver per export.
 1. Check the Properties tab. **Bridge Link** reads `Connected to bridge`
-   followed by a device number, **Freshness** reads `current`, and
-   **Confirmed State** shows the position, for example `50% open`.
+   followed by a device number, **Freshness** reads `current`, and **Confirmed
+   State** shows the position, for example `50% open`.
 1. Move the shade to the room where it should appear.
 1. On the Actions tab press *Test: Remote 50%*. **Last Result** goes from `sent`
    to `accepted` to `delivered`. **Confirmed State** reads `(moving)` while the
@@ -48,11 +49,11 @@ action again.
 
 ## What crosses the link
 
-| Direction | What |
-| --- | --- |
-| Owner to here | The level from 0 to 100, and whether the shade is moving |
-| Here to the owner | Open, close, stop, and a level from 0 to 100 |
-| Not carried | Tilt, the target the shade is travelling to, travel speed, presets, battery |
+| Direction         | What                                                                        |
+| ----------------- | --------------------------------------------------------------------------- |
+| Owner to here     | The level from 0 to 100, and whether the shade is moving                    |
+| Here to the owner | Open, close, stop, and a level from 0 to 100                                |
+| Not carried       | Tilt, the target the shade is travelling to, travel speed, presets, battery |
 
 The owner reads the shade's level variable (`LEVEL`, `Level` or `POSITION`) and
 its moving variable (`MOVING` or `IS_MOVING`), and publishes each change. The
@@ -68,16 +69,16 @@ which matters for stop.
 
 ## Reading the status
 
-| Property | What it tells you |
-| --- | --- |
-| **Bridge Link** | Whether SmartBuildOS System Link was found and answered. If the link carries no shade export it says so and names what the link does carry |
-| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state |
-| **Freshness** | `current`: both values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's shade does not supply the level or the moving state |
-| **Control** | `control permitted` when the owner exported the shade with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended` |
-| **Control Window** | The owner's schedule for this export and whether it is open now. `none` when there is no schedule |
-| **Confirmed State** | The owner's last report: `50% open`, `40% open (moving)`, or `unavailable` |
-| **Requested State** | The last request sent from here and when, for example `50% at 18:04:10` |
-| **Last Result** | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the shade) or `failed:` with the reason, for example `failed: feature SHADE is not licensed` |
+| Property                | What it tells you                                                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bridge Link**         | Whether SmartBuildOS System Link was found and answered. If the link carries no shade export it says so and names what the link does carry                                                                                                          |
+| **Remote System State** | The link as a whole, as SmartBuildOS System Link sees it. `Ready` is the good state                                                                                                                                                                 |
+| **Freshness**           | `current`: both values are confirmed. `stale`: the link is not synchronised, or the owner has not confirmed a value for 15 minutes. `unknown`: nothing received yet. `unavailable`: the owner's shade does not supply the level or the moving state |
+| **Control**             | `control permitted` when the owner exported the shade with control allowed and SmartBuildOS System Link here permits commands (not paused, licence in order); otherwise `view only / suspended`                                                     |
+| **Control Window**      | The owner's schedule for this export and whether it is open now. `none` when there is no schedule                                                                                                                                                   |
+| **Confirmed State**     | The owner's last report: `50% open`, `40% open (moving)`, or `unavailable`                                                                                                                                                                          |
+| **Requested State**     | The last request sent from here and when, for example `50% at 18:04:10`                                                                                                                                                                             |
+| **Last Result**         | `sent`, then `accepted` (queued for the owner), then `delivered` (the owner sent it to the shade) or `failed:` with the reason, for example `failed: feature SHADE is not licensed`                                                                 |
 
 While **Control Window** is closed, a command is refused here without being
 sent: **Last Result** reads `refused: outside the control window` with the
@@ -109,9 +110,9 @@ export: `<Alias>.Bed_Shade_Level` and `<Alias>.Bed_Shade_Moving`.
 
 ### Close the far shades when this house goes to Away
 
-Add this shade's ordinary Close command to the Away routine. On
-*Control Refused*, send a notification: the request was turned down, and
-**Last Result** says why, for example `failed: commands are suspended`.
+Add this shade's ordinary Close command to the Away routine. On *Control
+Refused*, send a notification: the request was turned down, and **Last Result**
+says why, for example `failed: commands are suspended`.
 
 ### Do nothing when the link is down
 
