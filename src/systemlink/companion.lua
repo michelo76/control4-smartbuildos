@@ -50,17 +50,24 @@ end
 --- opts = { kind, onState = fn(fields, fresh, meta), onExports = fn(list), onResult = fn(op, status, reason) }
 function M.setup(opts)
   state.opts = opts or {}
-  state.export = persist:get(EXPORT_KEY, nil)
-  if state.export == "" then
+  -- `false`, not nil: lib.persist answers a missing key with a table when the
+  -- default is nil, and a table export never matches an incoming state.
+  state.export = persist:get(EXPORT_KEY, false)
+  if type(state.export) ~= "string" or state.export == "" then
     state.export = nil
   end
   EC.SBOS_LINK_COMPANION_EXPORTS = function(tParams)
+    tParams = tParams or {}
     local ok, list = pcall(function()
-      return JSON:decode(tostring((tParams or {}).exports or "[]"))
+      return JSON:decode(tostring(tParams.exports or "[]"))
     end)
     state.exports = ok and type(list) == "table" and list or {}
+    local okAll, all = pcall(function()
+      return JSON:decode(tostring(tParams.all or "[]"))
+    end)
+    state.allExports = okAll and type(all) == "table" and all or {}
     if state.opts.onExports then
-      pcall(state.opts.onExports, state.exports)
+      pcall(state.opts.onExports, state.exports, state.allExports)
     end
   end
   EC.SBOS_LINK_COMPANION_STATE = function(tParams)
@@ -78,7 +85,7 @@ function M.setup(opts)
         state.opts.onState,
         state.fields,
         state.fresh,
-        { remote_state = tParams.state, control = tParams.control == "true" }
+        { remote_state = tParams.state, control = tParams.control == "true", window = tostring(tParams.window or "") }
       )
     end
   end
@@ -103,7 +110,12 @@ function M.export()
 end
 
 function M.exports()
-  return state.exports
+  return state.exports or {}
+end
+
+--- Every export the link carries, any kind: { { name, kind }, ... }.
+function M.allExports()
+  return state.allExports or {}
 end
 
 function M.fields()

@@ -62,22 +62,14 @@ local state = {
   onView = nil,
 }
 
---- Exact-filename Agent discovery. Substring matching is WRONG here — it
---- also matches smartbuildos-insights.c4z and smartbuildos-atmosphere.c4z
---- (the license SDK carries the same warning and a test that pins it).
+--- Agent discovery is the licensing SDK's (devices, then by driver file,
+--- then the Agents-panel list): one rule for every SmartBuildOS driver.
 local function findAgent()
-  local ok, devices = pcall(function()
-    return C4:GetDevices({})
+  local ok, id = pcall(function()
+    return require("sbos.license").agentDeviceId()
   end)
-  if not ok or type(devices) ~= "table" then
-    return nil
-  end
-  for rawId, device in pairs(devices) do
-    local id = tonumber(rawId)
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id ~= nil and (file == "smartbuildos.c4z" or file == "smartbuildos.c4i") then
-      return id
-    end
+  if ok then
+    return id
   end
   return nil
 end

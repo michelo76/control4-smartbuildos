@@ -148,3 +148,19 @@ function RFP.SET_MODE_FAN(idBinding, _, tParams)
   end
   base.control("set_fan", { mode = tostring((tParams or {}).MODE or "") }, "fan " .. tostring((tParams or {}).MODE))
 end
+
+-- ─── Bench actions: one click each, the same control path the proxy uses ───
+-- (Composer's Actions tab, so a dealer can prove the link controls the
+-- remote device without wiring programming first; bench 2026-10-20).
+function EC.TEST_HEAT_68()
+  base.control("set_heat", { setpoint = 68 }, "heat 68")
+end
+function EC.TEST_COOL_76()
+  base.control("set_cool", { setpoint = 76 }, "cool 76")
+end
+function EC.TEST_MODE_HEAT()
+  base.control("set_mode", { mode = "Heat" }, "mode Heat")
+end
+function EC.TEST_MODE_OFF()
+  base.control("set_mode", { mode = "Off" }, "mode Off")
+end

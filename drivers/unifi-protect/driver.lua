@@ -632,6 +632,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
+  pcall(license.stop) -- the licence retry timer
   CancelTimer(POLL_TIMER)
   CancelTimer("ProtectProvisionRename")
   stopEventsSocket()

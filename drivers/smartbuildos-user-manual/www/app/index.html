@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src *; img-src data:;">
+<title>Home Guide</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --ink:#f2f4f7; --muted:#9aa3b2; --accent:#f97316; --line:#262b35; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink); font: 16px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { padding: 16px 16px calc(env(safe-area-inset-bottom) + 90px) 16px; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 8px 0 2px; }
+  h2 { font-size: 20px; margin: 22px 0 8px; }
+  h3 { font-size: 15px; margin: 12px 0 4px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+  p { margin: 6px 0; color: var(--ink); }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 10px 0; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  input[type=search] { flex:1; min-width: 180px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 16px; }
+  button { padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 15px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+  ul.devices { list-style: none; padding: 0; margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  ul.devices li { background: #22262f; border-radius: 999px; padding: 5px 11px; font-size: 14px; }
+  .note { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--ink); }
+  nav { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 10px); display:flex; justify-content:center; gap:8px; pointer-events:none; }
+  nav button { pointer-events:auto; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  .hidden { display:none; }
+  .status { font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; font-weight: 600; margin: 6px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <header>
+    <h1 id="home">Home Guide</h1>
+    <p class="muted" id="subtitle">Loading your home…</p>
+  </header>
+
+  <div class="row" style="margin-top:10px">
+    <input type="search" id="q" placeholder="Find a room or device" autocomplete="off">
+    <button id="refresh" title="Rebuild from the system">Refresh</button>
+  </div>
+  <p class="status" id="status"></p>
+
+  <section id="dealer" class="card hidden"></section>
+  <section id="rooms"></section>
+  <section id="help"></section>
+
+  <nav>
+    <button id="toTop">Top</button>
+    <button id="toHelp" class="primary">What to do if…</button>
+  </nav>
+
+<script>
+(function () {
+  'use strict';
+  var params = new URLSearchParams(location.search);
+  var token = params.get('k') || '';
+  var relay = params.get('relay') || '';
+  if (!relay && /^https?:$/.test(location.protocol)) { relay = location.origin; }
+  var doc = null;
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (text !== undefined && text !== null) { e.textContent = String(text); }
+    return e;
+  }
+  function clear(node) { while (node.firstChild) { node.removeChild(node.firstChild); } }
+  function setStatus(text) { document.getElementById('status').textContent = text || ''; }
+
+  function renderDealer(d) {
+    var box = document.getElementById('dealer');
+    clear(box);
+    if (!d || !(d.name || d.phone || d.email || d.hours || d.emergency)) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.appendChild(el('h3', null, 'Your dealer'));
+    if (d.name) { box.appendChild(el('p', null, d.name)); }
+    if (d.phone) { var p = el('p'); var a = el('a', null, d.phone); a.href = 'tel:' + d.phone.replace(/[^\d+]/g, ''); p.appendChild(a); box.appendChild(p); }
+    if (d.email) { var pe = el('p'); var ae = el('a', null, d.email); ae.href = 'mailto:' + d.email; pe.appendChild(ae); box.appendChild(pe); }
+    if (d.hours) { box.appendChild(el('p', 'muted', 'Support hours: ' + d.hours)); }
+    if (d.emergency) { box.appendChild(el('p', 'note', d.emergency)); }
+  }
+
+  function renderRooms(rooms, filter) {
+    var host = document.getElementById('rooms');
+    clear(host);
+    var q = (filter || '').trim().toLowerCase();
+    var shown = 0;
+    rooms.forEach(function (room) {
+      var roomMatch = !q || room.name.toLowerCase().indexOf(q) >= 0;
+      var groups = room.groups.map(function (g) {
+        var devices = roomMatch ? g.devices : g.devices.filter(function (d) { return d.name.toLowerCase().indexOf(q) >= 0; });
+        return { g: g, devices: devices };
+      }).filter(function (x) { return x.devices.length > 0; });
+      if (groups.length === 0) { return; }
+      shown++;
+      var card = el('section', 'card');
+      card.appendChild(el('h2', null, room.name));
+      if (room.note) { card.appendChild(el('p', 'note', room.note)); }
+      groups.forEach(function (x) {
+        card.appendChild(el('h3', null, x.g.title));
+        var det = el('details');
+        det.appendChild(el('summary', null, 'How to use'));
+        det.appendChild(el('p', 'muted', x.g.howto));
+        card.appendChild(det);
+        var ul = el('ul', 'devices');
+        x.devices.forEach(function (d) { ul.appendChild(el('li', null, d.name)); });
+        card.appendChild(ul);
+      });
+      host.appendChild(card);
+    });
+    if (shown === 0) { host.appendChild(el('p', 'muted', q ? 'Nothing matches "' + filter + '".' : 'No rooms yet. Ask your dealer to refresh the guide.')); }
+  }
+
+  function renderHelp(items) {
+    var host = document.getElementById('help');
+    clear(host);
+    host.appendChild(el('h2', null, 'What to do if…'));
+    (items || []).forEach(function (t) {
+      var card = el('div', 'card');
+      card.appendChild(el('p', null, t.title));
+      card.appendChild(el('p', 'muted', t.text));
+      host.appendChild(card);
+    });
+  }
+
+  function render() {
+    if (!doc) { return; }
+    document.getElementById('home').textContent = doc.home_name || 'Home Guide';
+    document.getElementById('subtitle').textContent = (doc.counts ? doc.counts.devices + ' devices in ' + doc.counts.rooms + ' rooms' : '') + (doc.generated_at ? ' · updated ' + doc.generated_at.replace('T', ' ').replace('Z', ' UTC') : '');
+    renderDealer(doc.dealer);
+    renderRooms(doc.rooms || [], document.getElementById('q').value);
+    renderHelp(doc.troubleshooting);
+  }
+
+  function load() {
+    if (!relay) { setStatus('This guide needs the controller connection; open it from a touch screen or the app on the home network.'); return; }
+    setStatus('Loading…');
+    fetch(relay + '/manual?k=' + encodeURIComponent(token), { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.json(); })
+      .then(function (json) { doc = json; setStatus(''); render(); })
+      .catch(function (e) { setStatus('Could not load the guide (' + e.message + '). Pull to refresh or try again in a minute.'); });
+  }
+
+  document.getElementById('q').addEventListener('input', function () { if (doc) { renderRooms(doc.rooms || [], this.value); } });
+  document.getElementById('refresh').addEventListener('click', function () {
+    if (!relay) { return; }
+    setStatus('Refreshing…');
+    fetch(relay + '/refresh?k=' + encodeURIComponent(token), { method: 'POST' }).then(load, load);
+  });
+  document.getElementById('toTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  document.getElementById('toHelp').addEventListener('click', function () { document.getElementById('help').scrollIntoView({ behavior: 'smooth' }); });
+  load();
+})();
+</script>
+</body>
+</html>

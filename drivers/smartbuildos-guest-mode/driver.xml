@@ -1,0 +1,157 @@
+<devicedata>
+  <name>SmartBuildOS Guest Mode</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Guest Mode</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/09/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>GUEST_PRESENT</name>
+      <type>BOOL</type>
+      <condition_statement>A guest is checked in</condition_statement>
+      <description>NAME STRING</description>
+      <true_text>has a guest checked in</true_text>
+      <false_text>has no guest checked in</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>ARRIVAL_TODAY</name>
+      <type>BOOL</type>
+      <condition_statement>A guest arrives today</condition_statement>
+      <description>NAME STRING</description>
+      <true_text>expects a guest today</true_text>
+      <false_text>expects no guest today</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>TURNOVER_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>Turnover is due</condition_statement>
+      <description>NAME STRING</description>
+      <true_text>is in turnover</true_text>
+      <false_text>is not in turnover</false_text>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>AGENT_READY</name>
+      <type>BOOL</type>
+      <condition_statement>SmartBuildOS Agent is licensed and found</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>licensed</true_text>
+      <false_text>not licensed</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>GUEST_STATUS</name><type>STRING</type><default>vacant</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>GUEST_NAME</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>NEXT_CHECKIN</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>NEXT_CHECKOUT</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>GUEST_PIN</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>GUEST_WIFI_PASSWORD</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3006</id><name>STAYS_NEXT_30_DAYS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3007</id><name>GUEST_PRESENT</name><type>BOOL</type><default>false</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3008</id><name>CALENDARS_OK</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3009</id><name>LAST_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Guest Arriving Today</name><description>A stay checks in later today</description></event>
+    <event><id>2</id><name>Guest Checked In</name><description>A stay began (calendar check-in time reached, or Check In Now)</description></event>
+    <event><id>3</id><name>Guest Checked Out</name><description>A stay ended (calendar check-out time reached, or Check Out Now)</description></event>
+    <event><id>4</id><name>Turnover Due</name><description>A guest left within the Turnover Window and nobody is in yet</description></event>
+    <event><id>5</id><name>Property Vacant</name><description>No guest, no arrival today, turnover window over</description></event>
+    <event><id>6</id><name>Calendar Unreachable</name><description>Every configured calendar failed to load (last good data stays in force)</description></event>
+    <event><id>7</id><name>Calendar Recovered</name><description>A calendar loaded again after Calendar Unreachable</description></event>
+    <event><id>8</id><name>Guest PIN Changed</name><description>GUEST_PIN holds a new code (wire this to the lock's user-code programming)</description></event>
+    <event><id>9</id><name>Guest PIN Cleared</name><description>GUEST_PIN was cleared at check-out (remove the lock user code)</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Poll Calendars Now</name><command>POLL_NOW</command></action>
+      <action><name>Print Stays</name><command>PRINT_STAYS</command></action>
+      <action><name>Print Guest Status</name><command>PRINT_STATUS</command></action>
+      <action><name>Regenerate Guest PIN</name><command>REGENERATE_PIN_ACTION</command></action>
+      <action><name>Clear Manual Override</name><command>CLEAR_OVERRIDE</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>CHECK_IN_NOW</name>
+        <description>Check a guest in now (a walk-in or an early arrival); ends at Check Out Now or when the next calendar stay starts</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>CHECK_OUT_NOW</name>
+        <description>Check the current guest out now (an early departure stays departed)</description>
+        <params></params>
+      </command>
+      <command>
+        <name>SET_GUEST_WIFI_PASSWORD</name>
+        <description>Set the Wi-Fi password shown to guests (GUEST_WIFI_PASSWORD variable)</description>
+        <params>
+          <param><name>PASSWORD</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>REGENERATE_PIN</name>
+        <description>Generate a new guest PIN now (fires Guest PIN Changed)</description>
+        <params></params>
+      </command>
+      <command>
+        <name>POLL_CALENDARS</name>
+        <description>Load the calendars now</description>
+        <params></params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>Guest Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Current Guest</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Next Check-in</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Next Check-out</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Stays In 30 Days</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Calendars</name><type>STRING</type><default>none configured</default><readonly>true</readonly></property>
+      <property><name>Last Poll</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Calendar URL 1</name><type>STRING</type><default></default></property>
+      <property><name>Calendar URL 2</name><type>STRING</type><default></default></property>
+      <property><name>Calendar URL 3</name><type>STRING</type><default></default></property>
+      <property><name>Poll Interval</name><type>RANGED_INTEGER</type><minimum>5</minimum><maximum>240</maximum><default>30</default></property>
+      <property><name>Check-in Time</name><type>STRING</type><default>15:00</default></property>
+      <property><name>Check-out Time</name><type>STRING</type><default>11:00</default></property>
+      <property><name>Turnover Window</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>12</maximum><default>4</default></property>
+      <property><name>Blocked Dates</name><type>LIST</type><items><item>Ignore</item><item>Count As Occupied</item></items><default>Ignore</default><description>Platform blocks ("Not available", "Blocked", owner stays) are not guests. Count As Occupied treats them as a stay named Blocked.</description></property>
+      <property><name>Guest PIN</name><type>LIST</type><items><item>Per Stay</item><item>Off</item></items><default>Per Stay</default><description>Per Stay generates a fresh code at each check-in and clears it at check-out (GUEST_PIN variable, Guest PIN Changed / Cleared events). The driver never programs a lock itself: wire those events to the lock's own user-code programming.</description></property>
+      <property><name>PIN Length</name><type>RANGED_INTEGER</type><minimum>4</minimum><maximum>8</maximum><default>6</default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

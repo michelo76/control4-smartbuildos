@@ -129,7 +129,10 @@ package.preload["lib.http"] = function()
         -- `nextResponse.body` lets a test drive an onOk callback that reads the
         -- response. Defaults to empty, which is what every existing test that
         -- ignores the body already expects.
-        return settled(true, { url = url, code = nextResponse.code, headers = {}, body = nextResponse.body or "" })
+        return settled(
+          true,
+          { url = url, code = nextResponse.code, headers = nextResponse.headers or {}, body = nextResponse.body or "" }
+        )
       end
       return settled(false, {
         url = url,
@@ -418,14 +421,16 @@ Properties = {
   ["Paired Property"] = "Not paired",
   ["Connection Status"] = "Not paired",
   ["Last Successful Sync"] = "Never",
-  ["Touchpanel Name"] = "Touchpanel",
-  ["Touchpanel URL"] = "Not generated",
   ["Non Control4 Devices"] = "",
   ["Discover Network Devices"] = "Off",
   ["Network Scan"] = "Off",
   ["Last Network Scan"] = "Never",
   ["Devices Offline"] = "0",
   ["Last Device Change"] = "",
+  ["Last Project Change"] = "",
+  ["Programming"] = "not read",
+  ["Clock Offset"] = "not measured",
+  ["Zigbee Events"] = "no events",
   ["Device Poll Interval"] = "5m",
   ["Heartbeat Interval"] = "15m",
   ["Full Sync Interval"] = "24h",
@@ -619,6 +624,81 @@ check(
   Properties["Connection Status"]
 )
 check("no token was stored", store["device_token"] == nil)
+
+print("\n[4b] Property-code enrollment: identity, one key per attempt, readable refusals")
+-- The permanent 20-character property code is refused (HTTP 400) unless the
+-- pair request carries a stable controller identity and an idempotency key.
+-- The platform stores each attempt's outcome under its key, so the key must be
+-- NEW after any answer and REUSED only after no answer at all.
+local PROPERTY_CODE = "ABCD-EFGH-JKMN-PQRS-TVWX"
+reset()
+gInitialized = true
+store["device_token"], store["property_id"] = nil, nil
+nextResponse = { ok = false, code = nil, error = "timeout" }
+OPC.Pairing_Code(PROPERTY_CODE)
+local first = lastRequestTo("/pair")
+local firstKey = ((first or {}).data or {}).enrollment_idempotency_key
+check(
+  "the Director MAC was sent",
+  (((first or {}).data or {}).system or {}).director_mac == "00:0F:FF:9C:B2:CB",
+  tostring((((first or {}).data or {}).system or {}).director_mac)
+)
+check(
+  "an idempotency key of 16-200 chars was sent",
+  type(firstKey) == "string" and #firstKey >= 16 and #firstKey <= 200,
+  tostring(firstKey)
+)
+check(
+  "no answer reads as unreachable",
+  (Properties["Connection Status"] or ""):find("unreachable", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+reset()
+gInitialized = true
+nextResponse = {
+  ok = false,
+  code = 409,
+  body = '{"error":"An authorized user must approve this controller from the property first.","code":"approval_required"}',
+}
+OPC.Pairing_Code(PROPERTY_CODE)
+local second = lastRequestTo("/pair")
+check("a retry after NO answer reuses the key", ((second or {}).data or {}).enrollment_idempotency_key == firstKey)
+check(
+  "a refusal shows the platform's reason",
+  (Properties["Connection Status"] or ""):find("must approve this controller", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+
+reset()
+gInitialized = true
+nextResponse = {
+  ok = true,
+  code = 202,
+  body = { error = "This enrollment request is already being processed.", code = "enrollment_replayed" },
+}
+OPC.Pairing_Code(PROPERTY_CODE)
+local third = lastRequestTo("/pair")
+local thirdKey = ((third or {}).data or {}).enrollment_idempotency_key
+check(
+  "an attempt after an ANSWER gets a new key",
+  type(thirdKey) == "string" and thirdKey ~= firstKey,
+  tostring(thirdKey)
+)
+check(
+  "a 202 reads as pending, not as a broken response",
+  (Properties["Connection Status"] or ""):find("Pairing pending", 1, true) ~= nil,
+  Properties["Connection Status"]
+)
+check("a 202 stores no token", store["device_token"] == nil)
+
+reset()
+gInitialized = true
+pairBody = { token = TOKEN, property_id = PROPERTY, property_name = "Kraus Residence" }
+OPC.Pairing_Code(PROPERTY_CODE)
+local fourth = lastRequestTo("/pair")
+check("the next attempt after a 202 is new again", ((fourth or {}).data or {}).enrollment_idempotency_key ~= thirdKey)
+check("a property-code pairing stores the token", store["device_token"] == TOKEN)
 
 print("\n[5] An empty pairing code is a no-op, not a pairing attempt")
 pair()
@@ -978,7 +1058,14 @@ EC.SEND_HEARTBEAT()
 EC.SEND_HEARTBEAT()
 check(
   "one Connected for three successes",
-  #firedEvents == 1 and firedEvents[1] == "Connected",
+  (function()
+    local connected, cloudChanged = 0, 0
+    for _, event in ipairs(firedEvents) do
+      connected = connected + (event == "Connected" and 1 or 0)
+      cloudChanged = cloudChanged + (event == "Cloud Connection Changed" and 1 or 0)
+    end
+    return connected == 1 and cloudChanged == 1
+  end)(),
   table.concat(firedEvents, ",")
 )
 
@@ -1120,75 +1207,6 @@ C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = nil, nil, ni
 local degradedOk = pcall(EC.REPORT_TELEMETRY_SURVEY)
 check("it survives every survey API being absent", degradedOk)
 C4.GetProjectHierarchy, C4.GetDeviceVariables, C4.GetAllCodeItems = savedHierarchy, savedVars, savedCode
-
-print("\n[24] Generating a touchpanel URL")
-pair()
-reset()
-Properties["Touchpanel Name"] = "  Kitchen T4  "
-nextResponse = {
-  ok = true,
-  code = 200,
-  body = '{"ok":true,"url":"https://app.smartbuildos.io/display/c4/sbc4d_aaaabbbb_secret","label":"Kitchen T4"}',
-}
-EC.GENERATE_DISPLAY_URL()
-check(
-  "it posts to the display endpoint",
-  #requests == 1 and requests[1].url:find("/display", 1, true) ~= nil,
-  #requests > 0 and requests[1].url or "no request"
-)
-check(
-  "the panel name is trimmed before sending",
-  #requests > 0 and requests[1].data.label == "Kitchen T4",
-  #requests > 0 and tostring(requests[1].data.label) or "no request"
-)
-check(
-  "the returned URL lands in the property",
-  Properties["Touchpanel URL"] == "https://app.smartbuildos.io/display/c4/sbc4d_aaaabbbb_secret",
-  Properties["Touchpanel URL"]
-)
-
--- An empty name must not send an empty label: the dealer's list would show a
--- row with nothing to identify which panel it is.
-reset()
-Properties["Touchpanel Name"] = "   "
-nextResponse =
-  { ok = true, code = 200, body = '{"ok":true,"url":"https://app.smartbuildos.io/display/c4/sbc4d_ccccdddd_secret"}' }
-EC.GENERATE_DISPLAY_URL()
-check(
-  "a blank name falls back rather than sending empty",
-  #requests > 0 and requests[1].data.label == "Touchpanel",
-  #requests > 0 and tostring(requests[1].data.label) or "no request"
-)
-
--- The failure cases all have to be VISIBLE in the property, because that is the
--- only place an installer looks after running an action.
-reset()
-nextResponse = { ok = false, code = 503 }
-EC.GENERATE_DISPLAY_URL()
-check(
-  "a rejected request does not leave a stale URL claiming success",
-  Properties["Touchpanel URL"] ~= "https://app.smartbuildos.io/display/c4/sbc4d_ccccdddd_secret",
-  Properties["Touchpanel URL"]
-)
-
-reset()
-nextResponse = { ok = true, code = 200, body = '{"ok":true}' }
-EC.GENERATE_DISPLAY_URL()
-check(
-  "a response with no url is reported as a failure",
-  Properties["Touchpanel URL"]:find("Failed", 1, true) ~= nil,
-  Properties["Touchpanel URL"]
-)
-
-EC.UNPAIR()
-reset()
-EC.GENERATE_DISPLAY_URL()
-check("an unpaired driver sends nothing", #requests == 0, #requests)
-check(
-  "and says so in the property",
-  Properties["Touchpanel URL"] == "Pair the driver first",
-  Properties["Touchpanel URL"]
-)
 
 print("\n[25] The capability probe (T-0.6)")
 pair()
@@ -2246,6 +2264,17 @@ check(
   classifyStart("20260818.1", "20260818.2", 4) == "update"
 )
 check("the SAME version means Director came back", classifyStart("20260818.1", "20260818.1", 4) == "reload")
+-- Bench, 10 Nov 2026: an Agent that had only ever been updated read
+-- "Last Reload ... (first)" after every update, because updates do not add
+-- to the count and the count alone decided "first".
+check(
+  "an update before any reload was counted is an update, not a first start",
+  classifyStart("20261109.203405", "20261110.070950", 0) == "update"
+)
+check(
+  "Director coming back before any reload was counted is a reload",
+  classifyStart("20261110.070950", "20261110.070950", 0) == "reload"
+)
 check(
   "an unreadable version falls back to reload rather than inventing an update",
   classifyStart("20260818.1", nil, 4) == "reload"
@@ -3437,6 +3466,138 @@ check(
   "still as SBOS_UNIFI_PROTECT",
   legacyRoster ~= nil and (legacyRoster.data or {}).driver_sku == "SBOS_UNIFI_PROTECT"
 )
+
+print("\n[52] Director system events are read by name and routed (docs/AGENT_TELEMETRY.md)")
+pair()
+reset()
+gSystemEventCounts = {}
+gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
+EC.SEND_HEARTBEAT()
+local depthBefore = requests[#requests].data.queued_telemetry
+OnSystemEvent('<event name="OnItemAdded" deviceid="312"/>')
+OnSystemEvent('<event name="OnItemNameChanged" deviceid="312"/>')
+check(
+  "events are counted by name for the heartbeat",
+  gSystemEventCounts.OnItemAdded == 1 and gSystemEventCounts.OnItemNameChanged == 1
+)
+check("project edits wait for the debounce", gProjectChanges.count == 0 and gProjectChanges.pending.OnItemAdded == true)
+ProjectChangeFlush()
+check(
+  "the flush counts one change for the burst, names it, and fires Project Changed",
+  gProjectChanges.count == 1
+    and gProjectChanges.last_name == "OnItemAdded,OnItemNameChanged"
+    and Properties["Last Project Change"]:find("OnItemAdded,OnItemNameChanged", 1, true) ~= nil
+    and firedEvents[#firedEvents] == "Project Changed",
+  tostring(Properties["Last Project Change"]) .. " / " .. tostring(firedEvents[#firedEvents])
+)
+EC.SEND_HEARTBEAT()
+check(
+  "the change is journaled (the heartbeat confesses one more queued event)",
+  requests[#requests].data.queued_telemetry == depthBefore + 1,
+  tostring(requests[#requests].data.queued_telemetry) .. " vs " .. tostring(depthBefore)
+)
+check(
+  "a second flush with nothing pending is a no-op",
+  (function()
+    ProjectChangeFlush()
+    return gProjectChanges.count == 1
+  end)()
+)
+
+reset()
+OnSystemEvent('<event name="OnSystemShutDown"/>')
+check(
+  "shutdown leaves a marker for the next start and sends a last event",
+  type(store["director_shutdown_seen_at"]) == "number"
+    and lastRequestTo("/event") ~= nil
+    and lastRequestTo("/event").data.name == "controller_shutting_down",
+  tostring(store["director_shutdown_seen_at"])
+)
+reset()
+OnSystemEvent('<event name="OnSystemUpdateStarted"/>')
+check(
+  "an OS update leaves its marker, fires the Composer event and tells the platform",
+  type(store["director_os_update_seen_at"]) == "number"
+    and firedEvents[#firedEvents] == "OS Update Started"
+    and lastRequestTo("/event").data.name == "os_update_started"
+)
+store["director_shutdown_seen_at"] = nil
+store["director_os_update_seen_at"] = nil
+
+OnSystemEvent('<event name="OnZigbeeNodeOffline"/>')
+OnSystemEvent('<event name="OnZigbeeNodeOffline"/>')
+OnSystemEvent('<event name="OnZigbeeMeshChanged"/>')
+check(
+  "zigbee events are counted and shown",
+  gZigbee.node_offline == 2
+    and gZigbee.mesh_changes == 1
+    and Properties["Zigbee Events"]:find("2 node offline", 1, true) ~= nil,
+  Properties["Zigbee Events"]
+)
+local okUnknown = pcall(OnSystemEvent, "<garbage/>")
+check("an unreadable payload is handled as before, never an error", okUnknown and gSystemEventCounts.unknown == 1)
+local okNil = pcall(OnSystemEvent, nil)
+check("a nil payload too", okNil)
+
+print("\n[53] The heartbeat carries the additive telemetry, and the clock is read off the answer")
+reset()
+RefreshProgrammingCensus("test")
+check(
+  "the programming census reads the shim's one disabled attachment",
+  Properties["Programming"] == "1 attachment(s) · 1 line(s) · 1 disabled",
+  Properties["Programming"]
+)
+EC.SEND_HEARTBEAT()
+local hb = requests[#requests].data
+check(
+  "agent_health: Lua heap and driver uptime are numbers",
+  type(hb.agent_health) == "table"
+    and type(hb.agent_health.lua_memory_kb) == "number"
+    and type(hb.agent_health.driver_uptime_seconds) == "number"
+)
+check("programming census rides the heartbeat", hb.programming ~= nil and hb.programming.lines == 1)
+check("system event counts ride the heartbeat", hb.system_events ~= nil and hb.system_events.OnZigbeeNodeOffline == 2)
+check("zigbee counters ride the heartbeat", hb.zigbee ~= nil and hb.zigbee.node_offline == 2)
+check("project change count rides the heartbeat", hb.project_changes_today == 1)
+check("no Date header yet: no clock offset claimed", hb.clock_offset_seconds == nil)
+check(
+  "controller vitals are absent (nil), never an empty block, when /proc is unreadable here",
+  hb.controller_vitals == nil or (type(hb.controller_vitals) == "table" and #hb.controller_vitals.readable > 0)
+)
+
+-- The platform answers with a Date five minutes ahead of this controller.
+local ahead = os.date("!%a, %d %b %Y %H:%M:%S GMT", os.time() + 300)
+nextResponse = { ok = true, code = 200, headers = { Date = ahead } }
+firedEvents = {}
+EC.SEND_HEARTBEAT()
+check(
+  "the offset is measured off the Date header (platform minus controller)",
+  gClock.offset ~= nil and gClock.offset >= 298 and gClock.offset <= 302,
+  tostring(gClock.offset)
+)
+check(
+  "drift is announced once, as a Composer event and in the property",
+  firedEvents[#firedEvents] == "Clock Drift Detected" and Properties["Clock Offset"]:find("DRIFT", 1, true) ~= nil,
+  Properties["Clock Offset"]
+)
+firedEvents = {}
+EC.SEND_HEARTBEAT()
+check("the same drift does not fire again", #firedEvents == 0)
+check("the next heartbeat carries the measured offset", requests[#requests].data.clock_offset_seconds == gClock.offset)
+nextResponse = { ok = true, code = 200, headers = { Date = os.date("!%a, %d %b %Y %H:%M:%S GMT", os.time() + 2) } }
+EC.SEND_HEARTBEAT()
+check(
+  "back within two seconds: no drift wording, flag cleared",
+  Properties["Clock Offset"]:find("DRIFT", 1, true) == nil and gClock.drifting == false,
+  Properties["Clock Offset"]
+)
+nextResponse = { ok = true, code = 200 }
+
+print("\n[54] The restart cause rides the start record")
+EC.SEND_HEARTBEAT()
+-- OnDriverLateInit (where the start is recorded) never runs under the shim,
+-- so the record is empty here: the field must then be ABSENT, never a claim.
+check("no restart cause is claimed when none was classified", requests[#requests].data.last_reload_restart == nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

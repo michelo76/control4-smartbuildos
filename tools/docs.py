@@ -6,6 +6,21 @@ Subcommands:
   docs.py html2pdf <input.html> <output.pdf>   # HTML -> PDF
   docs.py readme   <input.md>   <output.md>    # driver docs -> repo README.md
 
+Every driver's documentation is an INTERACTIVE MANUAL: one self-contained
+index.html (styles, script and screenshots inside it, so it works in Composer's
+documentation viewer and from a file) with a contents list that follows the
+page, search, walkthroughs that keep their place, and screenshots that
+enlarge. Without script (the PDF, a locked viewer) it is the plain document.
+
+Authoring, in a driver's www/documentation/index.md:
+  - a screenshot: `![What it shows](images/properties.jpg)` on its own line.
+    Files live in www/documentation/images/, are embedded in the page, and are
+    left out of the shipped folder. The alt text is the caption.
+  - a walkthrough: `<!-- walkthrough: Title -->` on the line before a numbered
+    list. Each top-level item becomes a step the reader ticks.
+  - a drawn chat (an illustration, never passed off as a screenshot):
+    `<div class="chat"><p class="me">…</p><p class="them">…</p></div>`.
+
 Pipeline:
   - Markdown -> HTML via markdown-it-py (GitHub-flavored, HTML passthrough),
     with syntax highlighting by Pygments. Wrapped in a vendored github-markdown
@@ -19,7 +34,11 @@ Pipeline:
     normalized with mdformat.
 """
 
+import base64
+import html as html_lib
+import mimetypes
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -32,6 +51,8 @@ from pygments.util import ClassNotFound
 
 TOOLS_DIR = Path(__file__).resolve().parent
 GITHUB_CSS = (TOOLS_DIR / "github-markdown.css").read_text(encoding="utf-8")
+MANUAL_CSS = (TOOLS_DIR / "manual.css").read_text(encoding="utf-8")
+MANUAL_JS = (TOOLS_DIR / "manual.js").read_text(encoding="utf-8")
 # Pygments highlight CSS, scoped under .highlight (its default wrapper class).
 PYGMENTS_CSS = HtmlFormatter(style="default").get_style_defs(".highlight")
 
@@ -192,30 +213,113 @@ def _drop_manual_page_breaks(html: str) -> str:
     return _PAGE_BREAK_RE.sub("", html)
 
 
+_WALKTHROUGH_RE = re.compile(
+    r"<!--\s*walkthrough(?:\s*:\s*(.*?))?\s*-->\s*<ol>", re.I | re.S
+)
+_SHOT_RE = re.compile(r"<p>\s*(<img\b[^>]*>)\s*</p>", re.I)
+_SRC_RE = re.compile(r'\bsrc\s*=\s*"([^"]+)"', re.I)
+_ALT_RE = re.compile(r'\balt\s*=\s*"([^"]*)"', re.I)
+_H1_RE = re.compile(r"<h1\b[^>]*>(.*?)</h1>", re.I | re.S)
+
+
+def _walkthroughs(html: str) -> str:
+    """`<!-- walkthrough: Title -->` before a numbered list marks its steps."""
+
+    def repl(m: "re.Match[str]") -> str:
+        title = html_lib.escape((m.group(1) or "Walkthrough").strip(), quote=True)
+        return f'<ol class="walkthrough" data-title="{title}">'
+
+    return _WALKTHROUGH_RE.sub(repl, html)
+
+
+def _embed_images(html: str, base_dir: Path) -> tuple[str, set[Path]]:
+    """Inline local images as data URIs, so the manual is one file.
+
+    Returns the HTML and the files that were inlined. A remote image, or a
+    path that is not a file under the documentation folder, is left alone.
+    """
+    used: set[Path] = set()
+    root = base_dir.resolve()
+
+    def repl(m: "re.Match[str]") -> str:
+        tag = m.group(0)
+        src = _SRC_RE.search(tag)
+        if not src or re.match(r"^(?:[a-z]+:|//|#)", src.group(1), re.I):
+            return tag
+        path = (base_dir / src.group(1)).resolve()
+        if root not in path.parents or not path.is_file():
+            return tag
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        used.add(path)
+        return tag[: src.start(1)] + f"data:{mime};base64,{data}" + tag[src.end(1) :]
+
+    return _IMG_TAG_RE.sub(repl, html), used
+
+
+def _figures(html: str) -> str:
+    """An image alone in a paragraph is a screenshot: a figure with a caption."""
+
+    def repl(m: "re.Match[str]") -> str:
+        tag = m.group(1)
+        alt = _ALT_RE.search(tag)
+        caption = alt.group(1).strip() if alt else ""
+        figcaption = f"<figcaption>{caption}</figcaption>" if caption else ""
+        return f'<figure class="shot">{tag}{figcaption}</figure>'
+
+    return _SHOT_RE.sub(repl, html)
+
+
 def md2html(input_path: Path, output_dir: Path) -> None:
     source = input_path.read_text(encoding="utf-8")
     body = _drop_manual_page_breaks(
         _status_symbols(_align_to_style(_img_dims_to_style(_make_md().render(source))))
     )
-    title = input_path.stem
+    body = _walkthroughs(body)
+    body, embedded = _embed_images(body, input_path.parent)
+    body = _figures(body)
+    h1 = _H1_RE.search(body)
+    title = re.sub(r"<[^>]+>", "", h1.group(1)).strip() if h1 else input_path.stem
+    # The script sits at the end of the body, so the document is complete
+    # before it runs, and is the last thing a viewer without script ignores.
+    script = MANUAL_JS.replace("</script", "<\\/script")
     html = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html_lib.escape(title)}</title>
 <style>
 {GITHUB_CSS}
 {PYGMENTS_CSS}
 {LAYOUT_CSS}
+{MANUAL_CSS}
 </style>
 </head>
-<body class="markdown-body">
+<body>
+<main class="markdown-body">
 {body}
+</main>
+<script>
+{script}
+</script>
 </body>
 </html>
 """
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "index.html").write_text(html, encoding="utf-8")
+    # The screenshots are inside the page now: do not ship them twice. Only a
+    # build copy is ever touched (the Makefile runs this under build/), never
+    # the sources in drivers/.
+    if (
+        output_dir.resolve() == input_path.parent.resolve()
+        and "build" in output_dir.resolve().parts
+    ):
+        images = output_dir / "images"
+        if images.is_dir() and all(
+            p in embedded for p in images.rglob("*") if p.is_file()
+        ):
+            shutil.rmtree(images)
 
 
 def html2pdf(input_path: Path, output_path: Path) -> None:

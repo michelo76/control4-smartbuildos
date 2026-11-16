@@ -37,6 +37,12 @@ local function newIo(name)
   io.isoNow = function()
     return "t" .. tostring(clock.now)
   end
+  io.isoFrom = function(ms)
+    return "t" .. tostring(ms)
+  end
+  io.companions = function()
+    return io.companionList or {}
+  end
   io.parseIso = function(s)
     return tonumber(tostring(s):match("^t(%d+)$")) or clock.now
   end
@@ -157,6 +163,21 @@ function Relay:sync(epId, body)
   local now = clock.now
   if body.heartbeat then
     ep.hb = now
+  end
+  -- Dealer requests the real relay answers the same way.
+  local renameAnswer, controlAnswer
+  if type(body.rename_namespace) == "table" then
+    local to = tostring(body.rename_namespace.to or "")
+    if to == peer.ns or to:find("^Taken") or not to:match("^[A-Za-z][A-Za-z0-9_]*$") then
+      renameAnswer = { ok = false, reason = "namespace not available" }
+    else
+      ep.ns = to
+      renameAnswer = { ok = true }
+    end
+  end
+  if type(body.link_control) == "table" then
+    self.paused = body.link_control.op == "pause"
+    controlAnswer = { ok = true }
   end
   local accepted, rejected = {}, {}
   for _, env in ipairs(body.outbound or {}) do
@@ -294,7 +315,9 @@ function Relay:sync(epId, body)
       paused = self.paused,
       commands_paused = self.commandsPaused,
     },
-    self = { id = epId, generation = ep.gen },
+    self = { id = epId, generation = ep.gen, namespace = ep.ns },
+    rename_namespace = renameAnswer,
+    link_control = controlAnswer,
     peer = {
       id = ep.peer,
       generation = peer.gen,
@@ -478,6 +501,114 @@ assert(NY:emitEvent("Doorbell", "front"))
 sync(NY, "ep-ny")
 sync(CA, "ep-ca")
 check("two occurrences delivered as two events", countEvent(ioCA, "NAMED_EVENT_RECEIVED") == 2 and #ioCA.named == 2)
+
+print("\n[link test] ping/pong through the relay, invisible to Composer")
+local eventsBefore, namedBefore = countEvent(ioCA, "NAMED_EVENT_RECEIVED"), #ioCA.named
+local lastNameBefore = ioCA.vars["California.Last_Event_Name"] and ioCA.vars["California.Last_Event_Name"].value
+check("a dealer cannot emit a reserved name", select(1, NY:emitEvent("__sl_ping", {}, 30)) == false)
+assert(NY:startLinkTest())
+check("the test starts running", NY:linkTestState() == "running")
+sync(NY, "ep-ny") -- ping goes up
+sync(CA, "ep-ca") -- CA receives the ping and queues the pong
+sync(CA, "ep-ca") -- pong goes up
+advance(700)
+sync(NY, "ep-ny") -- NY receives the pong
+local st, rtt = NY:linkTestState()
+check(
+  "the round trip completes with a measured time",
+  st == "done" and type(rtt) == "number" and rtt > 0,
+  tostring(st) .. " " .. tostring(rtt)
+)
+check(
+  "the peer saw no Composer event and no Last_Event change from the ping",
+  countEvent(ioCA, "NAMED_EVENT_RECEIVED") == eventsBefore
+    and #ioCA.named == namedBefore
+    and (ioCA.vars["California.Last_Event_Name"] and ioCA.vars["California.Last_Event_Name"].value) == lastNameBefore
+)
+NY.linkTest = nil
+
+print("\n[namespace] rename through the relay: tombstones here, mirrors move on the peer")
+check(
+  "a bad or taken namespace is refused before asking",
+  select(2, NY:validateNamespace("9x")) ~= nil
+    and select(2, NY:validateNamespace("California")) ~= nil
+    and select(2, NY:validateNamespace("NewYork")) ~= nil
+)
+local preview = NY:namespacePreview("Big_Apple", nil)
+check("the preview names every variable the rename touches, items and fixed ones", #preview > 0 and (function()
+  local sawItem, sawFixed = false, false
+  for _, l in ipairs(preview) do
+    if l:find("^NewYork%.Occupied → Big_Apple%.Occupied$") then
+      sawItem = true
+    end
+    if l:find("^NewYork%.Last_Event_Name → Big_Apple%.Last_Event_Name$") then
+      sawFixed = true
+    end
+  end
+  return sawItem and sawFixed
+end)(), table.concat(preview, "; "))
+local occBefore = ioCA.vars["NewYork.Occupied"] and ioCA.vars["NewYork.Occupied"].value
+assert(NY:requestNamespaceRename("Big_Apple"))
+check("the request rides the next sync", NY:buildSync().rename_namespace.to == "Big_Apple")
+sync(NY, "ep-ny")
+check(
+  "the owner applies the relay's answer: old name hidden, new name live with the value, fixed variables moved",
+  NY.link.namespace == "Big_Apple"
+    and ioNY.vars["NewYork.Occupied"].hidden == true
+    and ioNY.vars["Big_Apple.Occupied"] ~= nil
+    and ioNY.vars["Big_Apple.Occupied"].hidden ~= true
+    and ioNY.vars["Big_Apple.Last_Event_Name"] ~= nil
+    and NY.pendingNamespaceRename == nil,
+  tostring(NY.link.namespace) .. " " .. tostring(NY.lastError)
+)
+sync(CA, "ep-ca")
+check(
+  "the peer moves its mirrors and their .STATE twins, keeping the value",
+  CA.link.peer_namespace == "Big_Apple"
+    and ioCA.vars["NewYork.Occupied"].hidden == true
+    and ioCA.vars["Big_Apple.Occupied"] ~= nil
+    and ioCA.vars["Big_Apple.Occupied"].value == occBefore
+    and ioCA.vars["Big_Apple.Occupied.STATE"] ~= nil
+    and ioCA.vars["NewYork.Occupied.STATE"].hidden == true,
+  tostring(CA.link.peer_namespace)
+)
+check("Schema Attention fired on both sides", hasEvent(ioNY, "SCHEMA_ATTENTION") and hasEvent(ioCA, "SCHEMA_ATTENTION"))
+assert(NY:requestNamespaceRename("NewYork"))
+sync(NY, "ep-ny")
+sync(CA, "ep-ca")
+check(
+  "renaming back restores the names (ids never reused: the hidden ones come back to life)",
+  NY.link.namespace == "NewYork"
+    and ioNY.vars["NewYork.Occupied"].hidden ~= true
+    and ioCA.vars["NewYork.Occupied"].hidden ~= true
+)
+assert(NY:requestNamespaceRename("Taken_One"))
+sync(NY, "ep-ny")
+check(
+  "the relay's refusal is reported and nothing moves",
+  tostring(NY.lastError):find("namespace rename refused: namespace not available") ~= nil
+    and NY.link.namespace == "NewYork"
+    and NY:buildSync().rename_namespace == nil,
+  tostring(NY.lastError)
+)
+NY.pendingNamespaceRename = nil
+
+print("\n[pause link] the whole link, from either bridge")
+assert(NY:requestLinkControl("pause", nil, "service"))
+check("the request rides the next sync", NY:buildSync().link_control.op == "pause")
+sync(NY, "ep-ny")
+check(
+  "the owner sees the link paused and the request is settled",
+  NY.linkPaused == true and hasEvent(ioNY, "LINK_PAUSED") and NY.pendingLinkControl == nil,
+  tostring(NY.lastError)
+)
+sync(CA, "ep-ca")
+check("the peer sees it too", CA.linkPaused == true and hasEvent(ioCA, "LINK_PAUSED"))
+check("events are refused while paused", select(2, NY:emitEvent("Doorbell", "x")) == "link paused")
+assert(NY:requestLinkControl("resume"))
+sync(NY, "ep-ny")
+sync(CA, "ep-ca")
+check("resume reaches both", NY.linkPaused == false and CA.linkPaused == false and NY.pendingLinkControl == nil)
 check(
   "last event variables set with origin and timezone",
   varValue(ioCA, "California.Last_Event_Name") == "Doorbell"
@@ -656,11 +787,220 @@ local st = CA2:statusProperties()
 check(
   "status properties populated",
   st["Local Variables Created"] == "1"
-    and st["Relay Connection"] == "connected"
+    and st["Relay Connection"]:match("^connected") ~= nil
     and st["Remote System State"]:match("^Ready"),
   st["Remote System State"]
 )
 local diag = CA2:diagnostics()
+
+print("\n[doorbell] a joined but silent doorbell does not switch the poll off")
+sync(NY, "ep-ny")
+advance(25 * 1000)
+check("doorbell joined, never rang: poll is due after 20 s", NY:tick(true) == true)
+check(
+  "status says polling",
+  NY:statusProperties()["Relay Connection"]:find("^connected · poll %d+ s %(") ~= nil,
+  NY:statusProperties()["Relay Connection"]
+)
+sync(NY, "ep-ny")
+NY:onDoorbell()
+advance(25 * 1000)
+check(
+  "doorbell rang recently: trusted, the ring drives the sync",
+  NY:doorbellLive() == true and (NY:tick(true) == false or NY:heartbeatDue())
+)
+check(
+  "status says doorbell",
+  NY:statusProperties()["Relay Connection"]:find("^connected · doorbell") ~= nil,
+  NY:statusProperties()["Relay Connection"]
+)
+NY.lastHeartbeatSentAt = 0
+ioNY.companionList = { { export = "Guest_Lamp", device_id = 4242 } }
+NY.lastRefusal = { reason = "stale revision", what = "Away", at = clock.now }
+local hb = NY:buildSync().heartbeat
+check(
+  "the heartbeat carries the health contract: doorbell, p95, pending, last refusal, companions",
+  type(hb) == "table"
+    and hb.doorbell.up == true
+    and hb.doorbell.last_ring_at == ("t" .. tostring(NY.lastDoorbellAt))
+    and hb.pending == #NY.pending
+    and hb.poll_ms == Engine.POLL_FALLBACK_MS
+    and hb.poll_mode == "doorbell"
+    and hb.latency_p95_ms == NY.latency.p95_ms
+    and hb.latency_ms == NY.latency.p95_ms
+    and hb.last_refusal.reason == "stale revision"
+    and hb.last_refusal.at == ("t" .. tostring(clock.now))
+    and hb.companions[1].export == "Guest_Lamp"
+    and hb.companions[1].device_id == 4242,
+  hb and (tostring(hb.doorbell and hb.doorbell.up) .. " " .. tostring(hb.last_refusal and hb.last_refusal.reason))
+)
+NY.lastRefusal = nil
+advance(Engine.DOORBELL_TRUST_MS)
+check("a doorbell silent for ten minutes is distrusted again", NY:doorbellLive() == false and NY:tick(true) == true)
+
+print("\n[poll] the poll adapts to traffic: 3 s active, 1 s awaiting a result, 20 s idle or backed off")
+-- Both sides quiet, doorbells distrusted, heartbeats not due: only the poll decides.
+local function quiet(e)
+  e.lastHeartbeatSentAt = clock.now
+  e.lastDoorbellAt = nil
+  e.pollBackoffUntil = nil
+end
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+advance(Engine.ACTIVE_WINDOW_MS + 1000)
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+quiet(CA2)
+quiet(NY)
+local pollMs, pollMode = CA2:pollInterval()
+check("idle after the window: 20 s", pollMs == Engine.POLL_FALLBACK_MS and pollMode == "idle", pollMode)
+check("idle status wording", CA2:pollLabel() == "poll 20 s (idle)", CA2:pollLabel())
+advance(Engine.POLL_FALLBACK_MS - 1000)
+check("idle: no poll before 20 s", CA2:tick(false) == false)
+advance(1000)
+check("idle: poll due at 20 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+quiet(CA2)
+-- A local publish makes this side active.
+local pollAway = CA2:findByName("Away")
+local pollWas = CA2.values[pollAway.id] and CA2.values[pollAway.id].tv.v
+assert(CA2:setLocal(pollAway.id, pollWas == true and "false" or "true"))
+CA2:flushFilters()
+check(
+  "a local publish is activity: 3 s",
+  select(2, CA2:pollInterval()) == "active" and CA2:pollInterval() == Engine.POLL_ACTIVE_MS,
+  select(2, CA2:pollInterval()) .. " pending=" .. #CA2.pending
+)
+check("active status wording", CA2:pollLabel() == "poll 3 s (active)", CA2:pollLabel())
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(Engine.POLL_ACTIVE_MS - 1000)
+check("active: no poll before 3 s", CA2:tick(false) == false)
+advance(1000)
+check("active: poll due at 3 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+-- The peer's tap keeps the other side fast too.
+check("the peer side was idle", select(2, NY:pollInterval()) == "idle", select(2, NY:pollInterval()))
+sync(NY, "ep-ny")
+quiet(NY)
+check(
+  "delivery from the peer makes this side active",
+  select(2, NY:pollInterval()) == "active",
+  select(2, NY:pollInterval())
+)
+-- A command of ours: 1 s until the result lands, at most 10 s.
+local cmdId = assert(CA2:sendCommand("light.on", "Guest_Lamp", {}, 30))
+check(
+  "a sent command polls at 1 s",
+  CA2:pollInterval() == Engine.POLL_RESULT_MS and select(2, CA2:pollInterval()) == "result"
+)
+check("awaiting-result wording", CA2:pollLabel() == "poll 1 s (awaiting result)", CA2:pollLabel())
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(1000)
+check("awaiting result: poll due every second", CA2:tick(false) == true)
+sync(NY, "ep-ny")
+NY.io.events = {}
+-- The owner side reports the command's outcome (as the driver does through reportRequest/command_update).
+NY:onSyncResponse({ inbound = {}, next_seq = NY.cursor.since_seq })
+local cmdInbound
+for _, m in ipairs(relay.messages) do
+  if m.t == "command" and m.id == cmdId then
+    cmdInbound = m
+  end
+end
+check("the command reached the relay", cmdInbound ~= nil)
+local upd = NY:envelope("command_update", { request_id = cmdId, status = "completed", result = { ok = true } })
+table.insert(NY.pending, upd)
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+quiet(CA2)
+check(
+  "the result arrived",
+  CA2.commands[cmdId].status == "completed",
+  CA2.commands[cmdId] and CA2.commands[cmdId].status
+)
+check(
+  "with the result in, the poll relaxes to 3 s (active)",
+  select(2, CA2:pollInterval()) == "active",
+  select(2, CA2:pollInterval())
+)
+local cmd2 = assert(CA2:sendCommand("light.off", "Guest_Lamp", {}, 30))
+sync(CA2, "ep-ca")
+quiet(CA2)
+advance(Engine.RESULT_WAIT_MS + 1)
+check(
+  "a result that never comes stops the 1 s poll after 10 s",
+  select(2, CA2:pollInterval()) == "active",
+  select(2, CA2:pollInterval())
+)
+-- Relay failure: back off to 20 s, nothing out before, cleared by the next good sync.
+relay.down = true
+sync(CA2, "ep-ca")
+relay.down = false
+check(
+  "after a relay failure the poll is backed off",
+  select(2, CA2:pollInterval()) == "backoff" and CA2:pollInterval() == Engine.POLL_FALLBACK_MS
+)
+check("backoff wording", CA2:pollLabel() == "poll 20 s (backoff)", CA2:pollLabel())
+advance(Engine.POLL_FALLBACK_MS - 1000)
+check("backoff: no retry before 20 s, even with the hello/snapshot pending", CA2:tick(false) == false)
+advance(1000)
+check("backoff: retry at 20 s", CA2:tick(false) == true)
+sync(CA2, "ep-ca")
+check("a good sync clears the backoff", CA2.pollBackoffUntil == nil and select(2, CA2:pollInterval()) ~= "backoff")
+-- Floor and heartbeat.
+local savedResult = Engine.POLL_RESULT_MS
+Engine.POLL_RESULT_MS = 200
+CA2:sendCommand("light.on", "Guest_Lamp", {}, 30)
+check("never below 1 s", CA2:pollInterval() == Engine.POLL_MIN_MS, tostring(CA2:pollInterval()))
+Engine.POLL_RESULT_MS = savedResult
+CA2.lastHeartbeatSentAt = 0
+local hb2 = CA2:buildSync().heartbeat
+check(
+  "the heartbeat carries the current poll interval",
+  hb2.poll_ms == Engine.POLL_RESULT_MS and hb2.poll_mode == "result",
+  tostring(hb2.poll_ms)
+)
+check("diagnostics carry the poll interval", CA2:diagnostics().poll_ms == Engine.POLL_RESULT_MS)
+sync(CA2, "ep-ca")
+sync(NY, "ep-ny")
+sync(CA2, "ep-ca")
+-- The doorbell, when trusted, wins over all of it.
+CA2.doorbellUp = true
+CA2:onDoorbell()
+check("a trusted doorbell wins: backstop only", select(2, CA2:pollInterval()) == "doorbell" and CA2:tick(true) == false)
+CA2.doorbellUp = false
+CA2.lastDoorbellAt = nil
+
+print("\n[stale] a value refused as stale is resent above the adopted revision")
+local awayDef = CA2:findByName("Away")
+assert(CA2:setLocal(awayDef.id, "true"))
+sync(CA2, "ep-ca")
+local relayRev = relay.state[awayDef.id].rev
+CA2.values[awayDef.id].rev = 0 -- a restored backup: local counter behind the relay
+assert(CA2:setLocal(awayDef.id, "false"))
+sync(CA2, "ep-ca")
+check(
+  "first attempt refused and the revision adopted",
+  CA2.values[awayDef.id].rev >= relayRev,
+  tostring(CA2.values[awayDef.id].rev)
+)
+check(
+  "the refusal is remembered for Link Health with the item, reason and time",
+  CA2.lastRefusal ~= nil
+    and CA2.lastRefusal.reason == "stale revision"
+    and CA2.lastRefusal.what == "Away"
+    and CA2.lastRefusal.at ~= nil,
+  CA2.lastRefusal and CA2.lastRefusal.reason
+)
+sync(CA2, "ep-ca")
+check(
+  "the dealer's value still reached the relay",
+  relay.state[awayDef.id].value.v == false and relay.state[awayDef.id].rev == relayRev + 1,
+  tostring(relay.state[awayDef.id].rev) .. " " .. tostring(relay.state[awayDef.id].value.v)
+)
 check("diagnostics carry no payloads", diag.items[1].value == nil and diag.items[1].state ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))

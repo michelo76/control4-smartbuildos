@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' http: https: controller:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src *; img-src 'self' data:">
+<title>Variable Inspector</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#262a33; --text:#e8eaf0; --muted:#8b91a1; --accent:#4f8cff; --warn:#f0a030; --bad:#ff5c5c; --ok:#3ccb7f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { position:sticky; top:0; background:var(--bg); padding:calc(10px + env(safe-area-inset-top)) 14px 8px; border-bottom:1px solid var(--line); z-index:2; }
+  header h1 { margin:0 0 6px; font-size:17px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  header h1 span.mode { font-size:11px; font-weight:500; color:var(--muted); }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted); border-radius:10px; padding:8px 0; font-size:13px; }
+  .tabs button.on { color:var(--text); border-color:var(--accent); }
+  main { padding:10px 14px calc(24px + env(safe-area-inset-bottom)); }
+  input[type=search], input[type=text], input[type=password] { width:100%; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:10px; padding:10px 12px; font-size:15px; outline:none; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin:8px 0; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .row .name { font-weight:600; word-break:break-word; }
+  .row .sub { color:var(--muted); font-size:12px; }
+  .val { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--text); text-align:right; max-width:50%; word-break:break-all; }
+  .val.masked { color:var(--muted); letter-spacing:2px; }
+  .btn { border:1px solid var(--line); background:transparent; color:var(--text); border-radius:8px; padding:6px 10px; font-size:12px; }
+  .btn.on { border-color:var(--ok); color:var(--ok); }
+  .btn.warn { border-color:var(--warn); color:var(--warn); }
+  .muted { color:var(--muted); font-size:13px; }
+  .hist { margin:6px 0 0; padding:0; list-style:none; font-size:12px; color:var(--muted); }
+  .hist li { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .toast { position:fixed; left:14px; right:14px; bottom:calc(16px + env(safe-area-inset-bottom)); background:#222633; border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:13px; display:none; z-index:5; }
+  .toast.bad { border-color:var(--bad); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:flex-end; z-index:4; }
+  .modal .sheet { background:var(--card); width:100%; border-radius:14px 14px 0 0; padding:14px 14px calc(20px + env(safe-area-inset-bottom)); }
+  .modal label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  .actions { display:flex; gap:8px; margin-top:12px; }
+  .actions button { flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:14px; }
+  .actions button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .back { color:var(--accent); font-size:13px; margin-bottom:6px; display:inline-block; }
+  .pill { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 7px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Variable Inspector <span class="mode" id="mode">connecting…</span></h1>
+  <div class="tabs">
+    <button id="tabDevices" class="on">Devices</button>
+    <button id="tabWatch">Watch list <span class="pill" id="watchCount">0</span></button>
+  </div>
+</header>
+<main>
+  <section id="viewDevices">
+    <input type="search" id="filter" placeholder="Filter by room, name, driver or id" autocomplete="off">
+    <div id="devices"><p class="muted">Loading devices…</p></div>
+  </section>
+  <section id="viewDevice" style="display:none">
+    <a class="back" id="back">‹ All devices</a>
+    <div class="card"><div class="row"><div><div class="name" id="devName"></div><div class="sub" id="devSub"></div></div><button class="btn" id="refreshDev">Refresh</button></div></div>
+    <div id="variables"></div>
+  </section>
+  <section id="viewWatch" style="display:none">
+    <div class="row"><p class="muted" id="watchHint">Watched variables keep a short history and raise the Composer event "Watched Variable Changed".</p><button class="btn warn" id="clearHist">Clear history</button></div>
+    <div id="watches"></div>
+  </section>
+</main>
+<div class="modal" id="setModal"><div class="sheet">
+  <div class="name" id="setTitle">Set value</div>
+  <label>New value</label><input type="text" id="setValue" autocomplete="off">
+  <label>Dealer PIN</label><input type="password" id="setPin" autocomplete="off" inputmode="numeric">
+  <p class="muted">The value is sent to Director; the page reads it back on the next refresh. Credential-named and read-only variables cannot be set.</p>
+  <div class="actions"><button id="setCancel">Cancel</button><button class="primary" id="setSend">Send</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  // Data plane: the LAN relay. Same-origin when served from /app, else the
+  // ?relay= pointer; the token rides ?k=. No external assets, no secrets.
+  var params = {};
+  String(window.location.search).replace(/^\?/, '').split('&').forEach(function (p) {
+    if (!p) return; var kv = p.split('='); params[decodeURIComponent(kv[0])] = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+  });
+  var base = params.relay || (window.location.protocol.indexOf('http') === 0 ? window.location.origin : '');
+  var token = params.k || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { view: 'devices', devices: [], open: null, openName: '', openSub: '', watches: [], mode: '', pinRequired: false, readOnly: false };
+  var pollTimer = null;
+
+  function toast(text, bad) {
+    var t = $('toast'); t.textContent = text; t.className = 'toast' + (bad ? ' bad' : ''); t.style.display = 'block';
+    clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 2600);
+  }
+  function api(method, path, body) {
+    if (!base) return Promise.reject(new Error('no relay address in the page URL; run Re-publish App URL in Composer'));
+    var url = base + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(token);
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function fmt(v) { if (v === null || v === undefined) return '—'; if (typeof v === 'boolean') return v ? 'True' : 'False'; return String(v); }
+  function when(t) { if (!t) return ''; var d = new Date(t * 1000); return d.toLocaleTimeString(); }
+  function watchKey(d, v) { return d + ':' + v; }
+  function isWatched(d, v) { return state.watches.some(function (w) { return w.device_id === d && w.variable_id === v; }); }
+
+  function show(view) {
+    state.view = view;
+    $('viewDevices').style.display = view === 'devices' ? '' : 'none';
+    $('viewDevice').style.display = view === 'device' ? '' : 'none';
+    $('viewWatch').style.display = view === 'watch' ? '' : 'none';
+    $('tabDevices').className = view !== 'watch' ? 'on' : '';
+    $('tabWatch').className = view === 'watch' ? 'on' : '';
+    if (view !== 'device' && state.open !== null) { api('POST', '/close').catch(function () {}); state.open = null; }
+    schedule();
+  }
+
+  function renderDevices() {
+    var box = $('devices'); box.innerHTML = '';
+    if (!state.devices.length) { box.appendChild(el('p', 'muted', 'No devices match.')); return; }
+    var room = null;
+    state.devices.forEach(function (d) {
+      if (d.room !== room) { room = d.room; box.appendChild(el('p', 'muted', room || 'No room')); }
+      var c = el('div', 'card'); var r = el('div', 'row');
+      var left = el('div'); left.appendChild(el('div', 'name', d.name)); left.appendChild(el('div', 'sub', d.driver + ' · id ' + d.id));
+      r.appendChild(left); r.appendChild(el('span', 'muted', '›')); c.appendChild(r);
+      c.addEventListener('click', function () { openDevice(d); });
+      box.appendChild(c);
+    });
+  }
+  function loadDevices() {
+    var q = $('filter').value;
+    api('GET', '/devices?q=' + encodeURIComponent(q)).then(function (j) { state.devices = j.devices || []; renderDevices(); })
+      .catch(function (e) { $('devices').innerHTML = ''; $('devices').appendChild(el('p', 'muted', 'Cannot reach the driver: ' + e.message)); });
+  }
+
+  function renderVariables(list) {
+    var box = $('variables'); box.innerHTML = '';
+    if (!list || !list.length) { box.appendChild(el('p', 'muted', 'No readable variables.')); return; }
+    list.forEach(function (v) {
+      var c = el('div', 'card'); var r = el('div', 'row');
+      var left = el('div'); left.appendChild(el('div', 'name', v.name)); left.appendChild(el('div', 'sub', 'id ' + v.id + ' · ' + v.type + (v.readonly ? ' · read-only' : '')));
+      var right = el('div'); right.style.textAlign = 'right';
+      var val = el('div', 'val' + (v.masked ? ' masked' : ''), fmt(v.value)); right.appendChild(val);
+      if (!v.masked) {
+        var w = isWatched(state.open, v.id);
+        var wb = el('button', 'btn' + (w ? ' on' : ''), w ? 'Watching' : 'Watch');
+        wb.style.marginTop = '6px';
+        wb.addEventListener('click', function (ev) { ev.stopPropagation(); toggleWatch(state.open, v.id, v.name, w, wb); });
+        right.appendChild(wb);
+        if (!v.readonly && !state.readOnly) {
+          var sb = el('button', 'btn', 'Set'); sb.style.marginTop = '6px'; sb.style.marginLeft = '6px';
+          sb.addEventListener('click', function (ev) { ev.stopPropagation(); openSet(state.open, v); });
+          right.appendChild(sb);
+        }
+      }
+      r.appendChild(left); r.appendChild(right); c.appendChild(r); box.appendChild(c);
+    });
+  }
+  function openDevice(d) {
+    state.open = d.id; state.openName = d.name; state.openSub = (d.room ? d.room + ' · ' : '') + d.driver + ' · id ' + d.id;
+    $('devName').textContent = state.openName; $('devSub').textContent = state.openSub;
+    $('variables').innerHTML = ''; $('variables').appendChild(el('p', 'muted', 'Reading variables…'));
+    show('device'); refreshDevice();
+  }
+  function refreshDevice() {
+    if (state.open === null) return;
+    api('GET', '/device?id=' + state.open).then(function (j) {
+      if (!j.ok) { $('variables').innerHTML = ''; $('variables').appendChild(el('p', 'muted', j.error || 'not readable')); return; }
+      renderVariables(j.variables);
+    }).catch(function (e) { toast('Read failed: ' + e.message, true); });
+  }
+  function toggleWatch(device, variable, name, watched, button) {
+    api('POST', watched ? '/unwatch' : '/watch', { device_id: device, variable_id: variable }).then(function (j) {
+      if (j.ok) { toast((watched ? 'Released ' : 'Watching ') + name); loadState(); if (state.view === 'device') refreshDevice(); }
+      else toast(j.reason || 'Refused', true);
+    }).catch(function (e) { toast(e.message, true); });
+  }
+
+  var setTarget = null;
+  function openSet(device, v) {
+    setTarget = { device: device, variable: v.id, name: v.name };
+    $('setTitle').textContent = 'Set ' + v.name; $('setValue').value = fmt(v.value) === '—' ? '' : fmt(v.value); $('setPin').value = '';
+    $('setModal').style.display = 'flex'; setTimeout(function () { $('setValue').focus(); }, 50);
+  }
+  function closeSet() { $('setModal').style.display = 'none'; setTarget = null; }
+  $('setCancel').addEventListener('click', closeSet);
+  $('setSend').addEventListener('click', function () {
+    if (!setTarget) return;
+    api('POST', '/set', { device_id: setTarget.device, variable_id: setTarget.variable, value: $('setValue').value, pin: $('setPin').value })
+      .then(function (j) { toast(j.detail || (j.ok ? 'Sent' : 'Refused'), !j.ok); if (j.ok) { closeSet(); setTimeout(refreshDevice, 800); } })
+      .catch(function (e) { toast(e.message, true); });
+  });
+
+  function renderWatches() {
+    var box = $('watches'); box.innerHTML = '';
+    if (!state.watches.length) { box.appendChild(el('p', 'muted', 'Nothing watched yet. Open a device and tap Watch.')); return; }
+    state.watches.forEach(function (w) {
+      var c = el('div', 'card'); var r = el('div', 'row');
+      var left = el('div'); left.appendChild(el('div', 'name', w.name)); left.appendChild(el('div', 'sub', (w.room ? w.room + ' · ' : '') + w.device_label + ' · ' + w.changes + ' change(s)'));
+      var right = el('div'); right.style.textAlign = 'right'; right.appendChild(el('div', 'val', fmt(w.value)));
+      var ub = el('button', 'btn on', 'Watching'); ub.style.marginTop = '6px';
+      ub.addEventListener('click', function () { toggleWatch(w.device_id, w.variable_id, w.name, true, ub); });
+      right.appendChild(ub); r.appendChild(left); r.appendChild(right); c.appendChild(r);
+      if (w.history && w.history.length) {
+        var ul = el('ul', 'hist');
+        w.history.slice().reverse().forEach(function (h) { ul.appendChild(el('li', '', when(h.t) + '  ' + fmt(h.value) + (h.previous !== undefined && h.previous !== null ? '  (was ' + fmt(h.previous) + ')' : ''))); });
+        c.appendChild(ul);
+      }
+      box.appendChild(c);
+    });
+  }
+  function loadState() {
+    api('GET', '/state').then(function (j) {
+      state.watches = j.watches || []; state.mode = j.mode || ''; state.pinRequired = !!j.pin_required; state.readOnly = !!j.read_only;
+      $('mode').textContent = state.mode; $('watchCount').textContent = String(state.watches.length);
+      if (state.view === 'watch') renderWatches();
+      if (state.view === 'device' && j.open_variables && j.open_device === state.open) renderVariables(j.open_variables);
+    }).catch(function (e) { $('mode').textContent = 'offline'; });
+  }
+  function schedule() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(function () { if (document.hidden) return; loadState(); }, state.view === 'device' ? 2000 : 5000);
+  }
+
+  $('tabDevices').addEventListener('click', function () { show('devices'); loadDevices(); });
+  $('tabWatch').addEventListener('click', function () { show('watch'); loadState(); });
+  $('back').addEventListener('click', function () { show('devices'); });
+  $('refreshDev').addEventListener('click', refreshDevice);
+  $('clearHist').addEventListener('click', function () { api('POST', '/clear').then(function () { toast('History cleared'); loadState(); }); });
+  var filterTimer = null;
+  $('filter').addEventListener('input', function () { clearTimeout(filterTimer); filterTimer = setTimeout(loadDevices, 250); });
+
+  show('devices'); loadDevices(); loadState();
+})();
+</script>
+</body>
+</html>

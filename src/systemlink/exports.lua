@@ -25,6 +25,26 @@ M.KINDS = {
   temperature = { gate = "SENSOR", control = false },
   thermostat = { gate = "THERMOSTAT", control = true },
   shade = { gate = "SHADE", control = true },
+  -- A room's media state, read-only: what's playing, volume, on/off. The
+  -- variable names are the ones Mode Composer reads from rooms in the field
+  -- (POWER_STATE, CURRENT_SELECTED_DEVICE, CURRENT_VOLUME) and the ones the
+  -- Agent observes for media info; a room that lacks them reports the field
+  -- unavailable. No control verb exists for a remote room in this release.
+  media = { gate = "BASE", control = false },
+  -- A scene: no device, no state of its own. The owner names it; the other
+  -- side runs it through a request (routine "scene:<name>") and the owner's
+  -- programming reports the result, which lands in the two fields below.
+  scene = { gate = "BASE", control = true, virtual = true },
+  -- Batch 4 (SL-07): each of these actuates something unverified on a real
+  -- controller, so its CONTROL is behind its own licence feature, off by
+  -- default. Status (lock, gate, fan) travels on BASE; the gate name is what
+  -- validateCommand checks before any op runs, and what define() checks
+  -- before a controllable export can even be created.
+  lock = { gate = "LOCK", control = true, status_gate = "BASE" },
+  gate = { gate = "GATE", control = true, status_gate = "BASE" },
+  fan = { gate = "FAN", control = true, status_gate = "BASE" },
+  -- A button is pure control (it fires the owner's programming): gated whole.
+  button = { gate = "BUTTON", control = true, virtual = true },
 }
 
 --- Shared-item fields per kind: name suffix, type, schema, and the device
@@ -46,6 +66,47 @@ M.FIELDS = {
   },
   contact = {
     { suffix = "Open", type = "BOOLEAN", vars = { "STATE", "CONTACT_STATE", "Opened" }, map = "contact" },
+  },
+  scene = {
+    { suffix = "Last_Run", type = "STRING", vars = {}, map = "str" },
+    { suffix = "Last_Result", type = "STRING", vars = {}, map = "str" },
+  },
+  -- Variable candidates: the names Mode Composer's adapters read in the
+  -- field for locks, garage doors and fans (src/modes/adapters.lua).
+  lock = {
+    {
+      suffix = "Locked",
+      type = "BOOLEAN",
+      vars = { "LOCK_STATUS", "LOCK STATUS", "LOCKED", "LOCK_STATE", "LOCKSTATE" },
+      map = "lock",
+    },
+  },
+  gate = {
+    { suffix = "Open", type = "BOOLEAN", vars = { "GARAGE_DOOR_STATE", "STATE", "RELAY_STATE" }, map = "garage" },
+  },
+  fan = {
+    { suffix = "Speed", type = "INTEGER", min = 0, max = 10, vars = { "FAN_SPEED", "CURRENT_SPEED" }, map = "int" },
+  },
+  button = {
+    { suffix = "Last_Pressed", type = "STRING", vars = {}, map = "str" },
+  },
+  media = {
+    { suffix = "Powered", type = "BOOLEAN", vars = { "POWER_STATE" }, map = "bool" },
+    { suffix = "Source", type = "STRING", vars = { "CURRENT_SELECTED_DEVICE" }, map = "device_name" },
+    {
+      suffix = "Volume",
+      type = "INTEGER",
+      min = 0,
+      max = 100,
+      vars = { "CURRENT_VOLUME", "VOLUME_LEVEL" },
+      map = "int",
+    },
+    {
+      suffix = "Media",
+      type = "STRING",
+      vars = { "CURRENT MEDIA INFO", "CURRENT_MEDIA", "MEDIA WALL INFO" },
+      map = "str",
+    },
   },
   temperature = {
     {
@@ -163,6 +224,45 @@ M.OPS = {
       return { { "SET_MODE_FAN", { MODE = m } } }
     end,
   },
+  lock = {
+    lock = function()
+      return { { "LOCK", {} } }
+    end,
+    -- unlock is validated in validateCommand: it also needs the export's
+    -- explicit allow_unlock, set on purpose by the owner's dealer.
+    unlock = function()
+      return { { "UNLOCK", {} } }
+    end,
+  },
+  gate = {
+    -- The owner picks the relay that drives the door (Control4's own
+    -- garagedoor_relay_control pattern): a pulse, or open/close where the
+    -- relay driver distinguishes them. Acceptance is not position.
+    trigger = function()
+      return { { "TRIGGER", {} } }
+    end,
+    open = function()
+      return { { "OPEN", {} } }
+    end,
+    close = function()
+      return { { "CLOSE", {} } }
+    end,
+  },
+  fan = {
+    on = function()
+      return { { "ON", {} } }
+    end,
+    off = function()
+      return { { "OFF", {} } }
+    end,
+    set_speed = function(p)
+      local speed = tonumber(p.speed)
+      if speed == nil or speed < 0 or speed > 10 then
+        return nil, "speed must be 0..10"
+      end
+      return { { "SET_SPEED", { SPEED = math.floor(speed + 0.5) } } }
+    end,
+  },
   shade = {
     open = function()
       return { { "OPEN", {} } }
@@ -183,8 +283,27 @@ M.OPS = {
   },
 }
 
+--- The routine a request carries to run a scene export on its owner, and
+--- the export name it names (nil when the routine is not a scene).
+M.SCENE_ROUTINE_PREFIX = "scene:"
+function M.sceneRoutine(name)
+  return M.SCENE_ROUTINE_PREFIX .. tostring(name)
+end
+function M.sceneFromRoutine(routine)
+  return tostring(routine or ""):match("^scene:([A-Za-z][A-Za-z0-9_]*)$")
+end
+
 --- Non-idempotent operations: never retried, never replayed (spec §29).
-M.NON_IDEMPOTENT = { toggle = true, trigger = true, stop = true }
+M.NON_IDEMPOTENT = { toggle = true, trigger = true, stop = true, unlock = true }
+
+--- The routine a button press carries ("button:<Name>"), as a named event.
+M.BUTTON_EVENT_PREFIX = "button:"
+function M.buttonEvent(name)
+  return M.BUTTON_EVENT_PREFIX .. tostring(name)
+end
+function M.buttonFromEvent(def)
+  return tostring(def or ""):match("^button:([A-Za-z][A-Za-z0-9_]*)$")
+end
 
 --- Creates an export definition. Returns def or nil, reason.
 --- opts = { id, name, kind, device_id, control, ops (list|nil), schedule, device_name }
@@ -193,14 +312,25 @@ function M.define(opts, features)
   if not kind then
     return nil, "unknown companion kind " .. tostring(opts.kind)
   end
+  local wantsControl = opts.control == true and kind.control
   if features and not features[kind.gate] then
-    return nil, "companion kind " .. opts.kind .. " requires the " .. kind.gate .. " feature on the pair license"
+    if not (kind.status_gate and features[kind.status_gate] and not wantsControl) then
+      return nil,
+        "companion kind "
+          .. opts.kind
+          .. " requires the "
+          .. kind.gate
+          .. " feature on the pair license"
+          .. (kind.status_gate and " (status only works without it: export with Control = View only)" or "")
+    end
   end
   if type(opts.name) ~= "string" or not opts.name:match("^[A-Za-z][A-Za-z0-9_]*$") or #opts.name > 40 then
     return nil, "export name must be letters, digits and underscores (max 40)"
   end
   local deviceId = tonumber(opts.device_id)
-  if not deviceId or deviceId <= 0 then
+  if kind.virtual then
+    deviceId = 0
+  elseif not deviceId or deviceId <= 0 then
     return nil, "a source device is required"
   end
   local control = opts.control == true and kind.control
@@ -236,6 +366,7 @@ function M.define(opts, features)
     control = control,
     ops = ops,
     schedule = opts.schedule,
+    allow_unlock = opts.allow_unlock == true,
     fields = {}, -- [suffix] = { item_id, var_id, var_name }
   }
 end
@@ -249,7 +380,36 @@ function M.describe(exp)
     control = exp.control,
     ops = exp.ops,
     schedule_tz = exp.schedule and exp.schedule.tz or nil,
+    -- The windows travel too (no secrets in them) so the companion can show
+    -- the control window instead of a bare refusal.
+    schedule = exp.schedule,
   }
+end
+
+local DAY_NAMES = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
+
+--- "Mon–Fri 07:00–22:00; Sat,Sun 09:00–20:00 (America/New_York)" or nil.
+function M.scheduleText(schedule)
+  if type(schedule) ~= "table" or type(schedule.windows) ~= "table" then
+    return nil
+  end
+  local parts = {}
+  for _, w in ipairs(schedule.windows) do
+    local days = {}
+    for _, d in ipairs(w.days or {}) do
+      days[#days + 1] = DAY_NAMES[d] or tostring(d)
+    end
+    local dayText
+    if #days == 7 then
+      dayText = "every day"
+    elseif #days == 5 and table.concat(days, ",") == "Mon,Tue,Wed,Thu,Fri" then
+      dayText = "Mon–Fri"
+    else
+      dayText = table.concat(days, ",")
+    end
+    parts[#parts + 1] = string.format("%s %s–%s", dayText, tostring(w.from), tostring(w.to))
+  end
+  return table.concat(parts, "; ") .. (schedule.tz and (" (" .. tostring(schedule.tz) .. ")") or "")
 end
 
 --- The shared-item definitions an export contributes.
@@ -300,6 +460,16 @@ end
 
 --- Converts a raw variable value into the field's typed value (or nil for
 --- unavailable).
+--- The map kind of a field ("bool", "int", "device_name", …) or nil.
+function M.fieldMap(exp, suffix)
+  for _, f in ipairs(M.FIELDS[exp.kind] or {}) do
+    if f.suffix == suffix then
+      return f.map
+    end
+  end
+  return nil
+end
+
 function M.mapValue(exp, suffix, raw)
   local field
   for _, f in ipairs(M.FIELDS[exp.kind] or {}) do
@@ -325,6 +495,32 @@ function M.mapValue(exp, suffix, raw)
     return n and math.floor(n + 0.5) or nil
   elseif field.map == "num" then
     return tonumber(s)
+  elseif field.map == "lock" then
+    -- Mode Composer's lock adapter: "locked" / 1 / true mean locked.
+    local l = s:lower()
+    if l == "locked" or l == "1" or l == "true" then
+      return true
+    elseif l == "unlocked" or l == "0" or l == "false" then
+      return false
+    end
+    return nil
+  elseif field.map == "garage" then
+    -- Mode Composer's garage adapter: "open" / "opened" / 1 mean open.
+    local l = s:lower()
+    if l == "open" or l == "opened" or l == "1" or l == "true" then
+      return true
+    elseif l == "closed" or l == "close" or l == "0" or l == "false" then
+      return false
+    end
+    return nil
+  elseif field.map == "str" or field.map == "device_name" then
+    -- device_name: the driver resolves the id to a name before mapping;
+    -- an unresolved id still travels as text rather than as "unavailable".
+    s = s:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
+    if s == "" then
+      return nil
+    end
+    return #s > 256 and s:sub(1, 256) or s
   elseif field.map == "relay" then
     -- Relay STATE: Control4's relay hook reports CLOSED when energised.
     local l = s:lower()
@@ -446,6 +642,9 @@ function M.validateCommand(exp, body, ctx)
   end
   if ctx and ctx.features and not ctx.features[M.KINDS[kind].gate] then
     return nil, "feature " .. M.KINDS[kind].gate .. " is not licensed"
+  end
+  if kind == "lock" and op == "unlock" and exp.allow_unlock ~= true then
+    return nil, "unlock requires Allow Unlock on this export, set on purpose by the owner"
   end
   if ctx and ctx.commandsPermitted == false then
     return nil, "commands are suspended"

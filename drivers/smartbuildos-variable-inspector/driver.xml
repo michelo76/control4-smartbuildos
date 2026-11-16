@@ -1,0 +1,125 @@
+<devicedata>
+  <name>SmartBuildOS Variable Inspector</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Variable Inspector</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/09/2026 12:00 PM</created>
+  <modified></modified>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <small image_source="c4z">www/icons/device_sm.png</small>
+  <large image_source="c4z">www/icons/device_lg.png</large>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>INSPECTOR_READ_ONLY</name>
+      <type>BOOL</type>
+      <condition_statement>Inspector is read-only</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>read-only</true_text>
+      <false_text>writable</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>3000</id><name>WATCHED_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3001</id><name>LAST_CHANGE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3002</id><name>LAST_CHANGE_DEVICE</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3003</id><name>LAST_CHANGE_VARIABLE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3004</id><name>LAST_CHANGE_VALUE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>3005</id><name>RELAY_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>Watched Variable Changed</name><description>A variable on the watch list changed (see LAST_CHANGE_*)</description></event>
+    <event><id>2</id><name>Value Set From Page</name><description>A value was written through the inspector page</description></event>
+    <event><id>3</id><name>Set Refused</name><description>A write was refused (PIN, read-only, credential-named or unknown variable)</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Print Variables For Inspect Device</name><command>PRINT_DEVICE</command></action>
+      <action><name>Print Watch List</name><command>PRINT_WATCHES</command></action>
+      <action><name>Clear History</name><command>CLEAR_HISTORY</command></action>
+      <action><name>Re-publish App URL</name><command>REPUBLISH_URL</command></action>
+      <action><name>Register With Agent Now</name><command>REGISTER_NOW</command></action>
+      <action><name>Refresh Status</name><command>REFRESH_STATUS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>WATCH_VARIABLE</name>
+        <description>Add a device variable (by name) to the watch list</description>
+        <params>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>VARIABLE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>UNWATCH_VARIABLE</name>
+        <description>Remove a device variable (by name) from the watch list</description>
+        <params>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>VARIABLE</name><type>STRING</type></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Inspector Mode</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
+      <property><name>Watched</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
+      <property><name>Last Change</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Dealer PIN</name><type>STRING</type><password>true</password><default></default></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default></property>
+      <property><name>History Size</name><type>RANGED_INTEGER</type><minimum>50</minimum><maximum>200</maximum><default>50</default></property>
+      <property><name>Inspect Device ID</name><type>STRING</type><default></default></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+    <proxy proxybindingid="5001" name="Variable Inspector" primary="True" image_source="c4z" large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
+  </proxies>
+  <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-variable-inspector/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-variable-inspector/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-variable-inspector/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-variable-inspector/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-variable-inspector/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-variable-inspector/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
+  </capabilities>
+  <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
+  </connections>
+</devicedata>

@@ -12,6 +12,13 @@
 --   * A driver.lua actually exists next to the XML.
 --   * The <version> element is empty in SOURCE (the build stamps it; a
 --     hardcoded version would make Composer skip updates silently).
+--   * No property uses a type Composer Pro 2026.10.14 refuses to create
+--     ("Property Invalid … Object reference not set to an instance of an
+--     object", one dialog per property, the property then missing):
+--     PASSWORD (2026-11-09: use STRING with <password>true</password>) and
+--     DEVICE_SELECTOR with no <items> filter (2026-11-10: list the devices
+--     in a DYNAMIC_LIST instead). Command parameters are not properties and
+--     may use DEVICE_SELECTOR.
 --
 -- Run from the driver root:
 --   make test
@@ -68,6 +75,18 @@ for _, driver in ipairs(drivers) do
       driver.name .. ": source version left for the build to stamp",
       xml:find("<version/>") ~= nil or xml:find("<version></version>") ~= nil
     )
+
+    local refused = {}
+    for block in xml:gmatch("<property>(.-)</property>") do
+      local name = block:match("<name>(.-)</name>") or "?"
+      local ptype = block:match("<type>(.-)</type>") or ""
+      if ptype == "PASSWORD" then
+        refused[#refused + 1] = name .. " (PASSWORD)"
+      elseif ptype == "DEVICE_SELECTOR" and not block:find("<items>%s*<item>") then
+        refused[#refused + 1] = name .. " (DEVICE_SELECTOR without <items>)"
+      end
+    end
+    check(driver.name .. ": no property type Composer refuses to create", #refused == 0, table.concat(refused, "; "))
   end
 end
 

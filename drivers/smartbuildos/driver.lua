@@ -15,6 +15,18 @@ DRIVER_FILENAMES = {
   "smartbuildos-atmosphere.c4z",
   "smartbuildos-mode-composer.c4z",
   "smartbuildos-mode-button.c4z",
+  "smartbuildos-system-link.c4z",
+  "smartbuildos-system-link-light.c4z",
+  "smartbuildos-system-link-relay.c4z",
+  "smartbuildos-system-link-contact.c4z",
+  "smartbuildos-system-link-temperature.c4z",
+  "smartbuildos-system-link-thermostat.c4z",
+  "smartbuildos-system-link-shade.c4z",
+  "smartbuildos-system-link-media.c4z",
+  "smartbuildos-system-link-lock.c4z",
+  "smartbuildos-system-link-gate.c4z",
+  "smartbuildos-system-link-fan.c4z",
+  "smartbuildos-system-link-export-light.c4z",
   "unifi-protect.c4z",
   "unifi-protect-camera.c4z",
   "unifi-protect-light.c4z",
@@ -67,10 +79,19 @@ local ssdpModule = require("drivers-common-public.module.ssdp")
 local log = require("lib.logging")
 local http = require("lib.http")
 local persist = require("lib.persist")
+local AgentContract = require("sbos.agent_contract")
 local Rooms = require("telemetry.rooms")
+-- Shared module services (contract v1). Globals on purpose: the main chunk
+-- is at Lua's 200-local ceiling.
+Modules = require("sbos.modules")
+EventQueue = require("sbos.eventqueue")
+Envelope = require("sbos.envelope")
+SlProtocol = require("systemlink.protocol")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 local sbosUpdater = require("lib.sbos-updater")
+-- Global on purpose: the main chunk is at Lua's 200-local ceiling.
+AgentTelemetry = require("sbos.agenttelemetry")
 --#endif
 
 --- Interval labels mapped to seconds.
@@ -176,6 +197,23 @@ local RELOAD_COUNT_KEY = "director_reload_count"
 local RELOAD_AT_KEY = "director_reload_at"
 local RELOAD_VERSION_KEY = "director_reload_version"
 local RELOAD_KIND_KEY = "director_reload_kind"
+--- How the last reload came about (clean | os-update | unexpected), and the
+--- markers Director's shutdown / update-started events leave behind for the
+--- next start to read (docs/AGENT_TELEMETRY.md, "restart cause").
+-- One global table, not three locals: the main chunk is at the 200-local limit.
+RESTART_KEYS = {
+  restart = "director_reload_restart",
+  shutdown = "director_shutdown_seen_at",
+  os_update = "director_os_update_seen_at",
+}
+--- Versioned System Studio Agent state. Configuration and runtime state are
+--- separate documents: replacing a settings revision must never reset startup
+--- history, and a runtime write must never masquerade as a configuration save.
+local AGENT_CONFIG_KEY = "sbos_agent_config_v1"
+local AGENT_CONFIG_VERSION_KEY = "sbos_agent_config_version"
+local AGENT_STATE_KEY = "sbos_agent_state_v1"
+local AGENT_EVENT_SEQUENCE_KEY = "sbos_agent_event_sequence"
+local AGENT_PENDING_OBSERVATION_KEY = "sbos_agent_pending_observation_v1"
 
 --- Requests are given a generous ceiling: a controller on a saturated uplink
 --- should retry on the next tick rather than pile up in-flight posts.
@@ -307,7 +345,40 @@ local gThermostatSnapshot = {}
 local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- What this driver start was: count, timestamp, and cause.
 --- @type table
-local gStart = { count = 0, at = nil, kind = nil }
+local gStart = { count = 0, at = nil, kind = nil, restart = nil }
+--- Every Director system event seen since this start, by name. Shipped on
+--- the heartbeat so the fleet tells us which events each OS actually fires.
+gSystemEventCounts = {}
+--- Project edits (Composer adds/removes/renames/rebinds): a per-day count,
+--- the last one, and the names pending the next debounced flush.
+gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
+--- The programming census (AgentTelemetry.programmingCensus) and when it was
+--- read; refreshed on OnCodeItem* events and at most daily otherwise.
+gProgramming = { census = nil, at = nil }
+--- Zigbee mesh events since this start.
+gZigbee = { node_offline = 0, node_online = 0, mesh_changes = 0 }
+--- Controller clock against the platform's Date header (seconds; nil until
+--- the first answer), and whether drift has been announced.
+gClock = { offset = nil, at = nil, drifting = false }
+--- Heartbeat timer punctuality: how late the last tick fired (ms).
+gHeartbeatTick = { last_ms = nil, lag_ms = nil }
+gDriverStartedAt = os.time()
+--- Module registry, the shared durable event queue, dedup rings and the
+--- restricted command ledger (built in ModulesInit; see the module section).
+gModules = nil
+gEvents = nil
+gEventDedup = SlProtocol.newDedup(2048)
+gCommandDedup = SlProtocol.newDedup(256)
+gModuleCommands = {}
+gModuleCommandsOrder = {}
+gAgentEventSeq = 0
+--- System Studio Agent Contract v1 runtime state. Restored during late init so
+--- a malformed persisted document cannot prevent the normal connector startup.
+local gAgentConfig = select(1, AgentContract.validateConfig({}))
+local gAgentConfigVersion = nil
+local gAgentState = AgentContract.newState()
+local gAgentPendingObservation = {}
+local gAgentInitReason = nil
 --- Devices that reported a sensor or battery signature at the last catalogue
 --- walk: id -> { name, room }. Re-read on each state upload.
 --- @type table<number, table>
@@ -380,6 +451,11 @@ local reportDiagnostics
 -- resolve the runner targets as nil globals and every remote command would ack
 -- as "attempt to call a nil value".
 local collectCommands
+-- Contract v1 functions are defined after the shared HTTP sender and consumed
+-- by the heartbeat configuration callback and lifecycle entry points. They use
+-- an Agent-prefixed global namespace deliberately: this driver is close to
+-- Lua 5.1's 200-local ceiling, and adding top-level locals makes the packaged
+-- chunk fail to compile on Director.
 
 --- Classify a driver start from what changed since the last one.
 ---
@@ -391,7 +467,10 @@ local collectCommands
 --- distinguishable from in here and are not claimed to be.
 --- @return string kind  "first" | "update" | "reload"
 function classifyStart(previousVersion, currentVersion, previousCount)
-  if previousCount == nil or previousCount == 0 then
+  -- "First" means nothing was recorded before. The count alone cannot say
+  -- that: an update does not add to it, so a driver that had only ever been
+  -- updated still had a count of 0 and was called "first" every time.
+  if previousVersion == nil and (previousCount == nil or previousCount == 0) then
     return "first"
   end
   if previousVersion ~= nil and currentVersion ~= nil and previousVersion ~= currentVersion then
@@ -416,9 +495,26 @@ local function recordStart()
   local count = kind == "reload" and previousCount + 1 or previousCount
   local at = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
+  -- WHY it reloaded, from the markers Director's own shutdown and
+  -- update-started events left before it went down. No marker at all on a
+  -- reload is the case a dealer wants to hear about: power loss, crash or a
+  -- hard reset. Markers are consumed here so a stale one cannot explain a
+  -- later, unrelated restart.
+  local function markerAt(key)
+    local v = persist:get(key, false)
+    return type(v) == "number" and v or nil
+  end
+  local markers = { shutdown_at = markerAt(RESTART_KEYS.shutdown), os_update_at = markerAt(RESTART_KEYS.os_update) }
+  local restart = AgentTelemetry.classifyRestart(kind, markers, os.time())
+  persist:delete(RESTART_KEYS.shutdown)
+  persist:delete(RESTART_KEYS.os_update)
+
   persist:set(RELOAD_COUNT_KEY, count)
   persist:set(RELOAD_AT_KEY, at)
   persist:set(RELOAD_KIND_KEY, kind)
+  if restart ~= nil then
+    persist:set(RESTART_KEYS.restart, restart)
+  end
   if currentVersion ~= nil then
     persist:set(RELOAD_VERSION_KEY, currentVersion)
   end
@@ -427,6 +523,7 @@ local function recordStart()
     count = count,
     at = at,
     kind = kind,
+    restart = restart,
     previous_version = previousVersion,
     version = currentVersion,
   }
@@ -472,7 +569,12 @@ local function announceStart()
     UpdateProperty("Director Reloads", tostring(gStart.count))
     UpdateProperty(
       "Last Reload",
-      string.format("%s (%s)", (gStart.at or ""):gsub("T", " "):gsub("Z", " UTC"), gStart.kind or "unknown")
+      string.format(
+        "%s (%s%s)",
+        (gStart.at or ""):gsub("T", " "):gsub("Z", " UTC"),
+        gStart.kind or "unknown",
+        gStart.restart and (", " .. gStart.restart) or ""
+      )
     )
     C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
     C4:SetVariable("LAST_RELOAD", gStart.at)
@@ -490,22 +592,32 @@ local function announceStart()
 
   local firedOk, fireErr = pcall(function()
     C4:FireEvent("Director Reloaded")
+    -- A reload with no shutdown or update marker before it: the controller
+    -- did not go down on purpose. Wired to the Notification Agent, this is
+    -- the "your controller restarted unexpectedly" a dealer asks for.
+    if gStart.restart == "unexpected" then
+      C4:FireEvent("Unexpected Restart")
+    end
   end)
+  pcall(
+    ModulesNotifyEvent,
+    "director_reloaded",
+    { count = gStart.count, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
+  )
+  if gStart.restart == "unexpected" then
+    pcall(ModulesNotifyEvent, "unexpected_restart", { count = gStart.count, at = gStart.at })
+  end
   if not firedOk then
     log:warn("Could not fire the Director Reloaded event: %s", tostring(fireErr))
   end
 
-  if isPaired() then
-    local sentOk, sendErr = pcall(function()
-      send("event", {
-        kind = "event",
-        name = "director_reloaded",
-        detail = string.format("Director reload #%d", gStart.count),
-        director_reloads = gStart.count,
-        last_reload_at = gStart.at,
-        alerts = alertPreferences(),
-      }, "director reload")
-    end)
+  -- The report to SmartBuildOS lives in AgentReportReload, below the HTTP
+  -- sender. It was written here, naming `isPaired` and `send` — both locals
+  -- declared further down the file, so here they were two nil globals: the
+  -- first reload to reach this line threw out of OnDriverLateInit. Nothing
+  -- reached it only because no start was ever classified as a reload.
+  if AgentReportReload ~= nil then
+    local sentOk, sendErr = pcall(AgentReportReload)
     if not sentOk then
       log:warn("Could not report the reload to SmartBuildOS: %s", tostring(sendErr))
     end
@@ -763,6 +875,20 @@ local function setConnected(connected, status)
   UpdateProperty("Connection Status", status)
   if changed then
     C4:FireEvent(connected and "Connected" or "Disconnected")
+    pcall(function()
+      C4:FireEvent("Cloud Connection Changed")
+    end)
+    if PublishAgentStatus ~= nil then
+      pcall(PublishAgentStatus)
+    end
+    -- Modules see the transition; the event queue recovers staggered.
+    if ModulesBroadcastState ~= nil then
+      pcall(ModulesBroadcastState)
+      pcall(ModulesNotifyEvent, connected and "cloud_connected" or "cloud_disconnected", { status = status })
+    end
+    if connected and gEvents ~= nil then
+      gEvents:resume(30)
+    end
   end
 end
 
@@ -796,6 +922,22 @@ end
 --- contract.
 --- @param body any Decoded response body, a string, or nil.
 --- @return string
+--- The HTTP status of a rejected request, or nil when no response arrived.
+--- Control4's url layer (drivers-common-public/global/url.lua) reports a
+--- transfer that never got an answer (no route, DNS, timeout) as response code
+--- 0, and lib/http passes it through as `code = 0`. That is "no answer", not a
+--- status: treating it as a number made every outage read "HTTP 0" and left
+--- the "Unreachable" wording unreachable.
+--- @param err table|nil The rejection from lib/http.
+--- @return number|nil status
+local function httpStatus(err)
+  local code = type(err) == "table" and tonumber(err.code) or nil
+  if code ~= nil and code > 0 then
+    return code
+  end
+  return nil
+end
+
 local function bodyText(body)
   if type(body) == "table" then
     local parts = {}
@@ -820,16 +962,105 @@ local function bodyText(body)
   return tostring(body)
 end
 
-local function send(path, payload, description, onOk, onDelivered)
+--- Reads the platform's Date header off an answer and keeps the controller's
+--- clock offset (docs/AGENT_TELEMETRY.md, "clock"). Drift is announced on
+--- the TRANSITION only, through a Composer event and the journal; the
+--- heartbeat carries the figure every beat.
+function NoteClock(headers)
+  local offset = AgentTelemetry.clockOffsetSeconds(headers, os.time())
+  if offset == nil then
+    return
+  end
+  gClock.offset = offset
+  gClock.at = os.time()
+  UpdateProperty("Clock Offset", AgentTelemetry.clockOffsetText(offset))
+  pcall(function()
+    C4:SetVariable("CLOCK_OFFSET_SECONDS", offset)
+  end)
+  local drifting = math.abs(offset) >= AgentTelemetry.CLOCK_DRIFT_SECONDS
+  if drifting and not gClock.drifting then
+    log:warn("Controller clock is %+d s from the platform", offset)
+    pcall(function()
+      C4:FireEvent("Clock Drift Detected")
+    end)
+    pcall(ModulesNotifyEvent, "clock_drift", { offset_seconds = offset })
+    if gTelemetry then
+      gTelemetry:add("SYSTEM", {
+        subcategory = "clock_drift",
+        source_type = "controller",
+        event_type = "transition",
+        value_numeric = offset,
+        unit = "s",
+        privacy_class = "INTEGRATOR_ONLY",
+      })
+    end
+  elseif not drifting and gClock.drifting then
+    log:info("Controller clock is back within %d s of the platform (%+d s)", AgentTelemetry.CLOCK_DRIFT_SECONDS, offset)
+  end
+  -- Hysteresis: announced at 120 s, cleared under 60 s, so a clock that
+  -- hovers at the line does not fire on every beat.
+  if drifting then
+    gClock.drifting = true
+  elseif math.abs(offset) < AgentTelemetry.CLOCK_DRIFT_SECONDS / 2 then
+    gClock.drifting = false
+  end
+end
+
+--- Reads a kernel file, or nil. The Lua io library is present on the
+--- controller (shipped drivers read their own files with it); whether /proc is
+--- readable from a driver is a PROBE, so every failure is a quiet nil.
+function ReadProcFile(path)
+  local ok, text = pcall(function()
+    local f = io.open(path, "r")
+    if not f then
+      return nil
+    end
+    local t = f:read("*a")
+    f:close()
+    return t
+  end)
+  if ok and type(text) == "string" and text ~= "" then
+    return text
+  end
+  return nil
+end
+
+--- The programming census, read now. Global so a Composer action and a test
+--- can ask for it; the heartbeat refreshes it at most daily on its own.
+function RefreshProgrammingCensus(reason)
+  local okC, items = pcall(function()
+    return C4:GetAllCodeItems()
+  end)
+  if not okC or type(items) ~= "table" then
+    UpdateProperty("Programming", "GetAllCodeItems unavailable on this OS")
+    return nil
+  end
+  local census = AgentTelemetry.programmingCensus(items)
+  gProgramming = { census = census, at = os.time() }
+  UpdateProperty("Programming", AgentTelemetry.programmingText(census))
+  pcall(function()
+    C4:SetVariable("PROGRAMMING_DISABLED_LINES", census.disabled or 0)
+  end)
+  log:info("Programming census (%s): %s", tostring(reason or "scheduled"), AgentTelemetry.programmingText(census))
+  return census
+end
+
+local function send(path, payload, description, onOk, onDelivered, onFailed)
   if not isPaired() then
     log:warn("Not sending %s: driver is not paired to a property", description)
     setConnected(false, "Not paired")
+    if onFailed then
+      pcall(onFailed, "not paired")
+    end
     return
   end
 
   local url = ingestUrl(path)
   if not url then
     setConnected(false, "API URL is not set")
+    if onFailed then
+      pcall(onFailed, "API URL is not set")
+    end
     return
   end
 
@@ -862,10 +1093,17 @@ local function send(path, payload, description, onOk, onDelivered)
 
   log:debug("Sending %s to %s", description, url)
   http:post(url, payload, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
-    gFailures = 0
-    UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
-    setConnected(true, "Connected")
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
+    pcall(NoteClock, response.headers)
+    -- A request can still be in flight when the driver unpairs: the unpair
+    -- notice itself always is, because EC.UNPAIR wipes the pairing right after
+    -- sending it. Its answer must not repaint an unpaired driver as
+    -- "Connected" (or stamp a sync time on it).
+    if isPaired() then
+      gFailures = 0
+      UpdateProperty("Last Successful Sync", os.date("%Y-%m-%d %H:%M:%S"))
+      setConnected(true, "Connected")
+    end
 
     if onDelivered then
       pcall(onDelivered)
@@ -888,10 +1126,19 @@ local function send(path, payload, description, onOk, onDelivered)
     -- this one handler covers both. The distinction matters to whoever reads
     -- Connection Status: a 401 means the token was revoked and a 404 means the
     -- property is gone, and those need different fixes than "no internet".
+    if not isPaired() then
+      -- Unpaired while this was in flight (see the success path): the
+      -- connection it was reporting on no longer exists.
+      log:info("%s failed after unpairing; ignored: %s", description, tostring(err and (err.error or err.code) or err))
+      if onFailed then
+        pcall(onFailed, "unpaired")
+      end
+      return
+    end
     gFailures = gFailures + 1
-    local code = err and err.code
+    local code = httpStatus(err)
     local reason
-    if type(code) == "number" then
+    if code ~= nil then
       reason = string.format("HTTP %d: %s", code, bodyText(err.body))
       setConnected(false, string.format("HTTP %d", code))
       log:error("%s rejected with HTTP %d: %s", description, code, bodyText(err.body))
@@ -926,7 +1173,381 @@ local function send(path, payload, description, onOk, onDelivered)
         detail = string.format("%s: %s", description, reason):sub(1, 400),
       }, "sync failure report")
     end
+    if onFailed then
+      pcall(onFailed, reason)
+    end
   end)
+end
+
+--- Tells SmartBuildOS that Director came back under this driver. Global, and
+--- defined here, because it needs `isPaired` and `send`, which do not exist
+--- yet where announceStart is written (and this file has no top-level locals
+--- to spare for forward declarations).
+function AgentReportReload()
+  if not isPaired() then
+    return false
+  end
+  send("event", {
+    kind = "event",
+    name = "director_reloaded",
+    detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
+    director_reloads = gStart.count,
+    restart = gStart.restart,
+    last_reload_at = gStart.at,
+    alerts = alertPreferences(),
+  }, "director reload")
+  return true
+end
+
+-- ─── System Studio Agent Contract v1 ────────────────────────────────────────
+
+function AgentVersion()
+  local ok, version = pcall(function()
+    return C4:GetDriverConfigInfo("version")
+  end)
+  return ok and tostring(version or "") or ""
+end
+
+function AgentIsoAt(epoch)
+  local numeric = tonumber(epoch)
+  if numeric == nil or numeric < 0 then
+    return nil
+  end
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", numeric)
+end
+
+function PersistAgentState()
+  persist:set(AGENT_STATE_KEY, gAgentState)
+end
+
+function RestoreAgentState()
+  gAgentState = AgentContract.restoreState(persist:get(AGENT_STATE_KEY, nil))
+  local storedConfig, refusals = AgentContract.validateConfig(persist:get(AGENT_CONFIG_KEY, {}))
+  if storedConfig ~= nil then
+    gAgentConfig = storedConfig
+  else
+    gAgentConfig = select(1, AgentContract.validateConfig({}))
+    log:warn("Stored Agent configuration was unusable (%d refusal(s)); using contract defaults", #refusals)
+  end
+  gAgentConfigVersion = tointeger(persist:get(AGENT_CONFIG_VERSION_KEY, nil))
+  local pending = persist:get(AGENT_PENDING_OBSERVATION_KEY, nil)
+  gAgentPendingObservation = {}
+  if type(pending) == "table" then
+    if pending.source_event_id ~= nil then
+      -- Upgrade the first vNext development build's single-document shape.
+      gAgentPendingObservation[1] = pending
+    else
+      for _, observation in ipairs(pending) do
+        if type(observation) == "table" and observation.source_event_id ~= nil then
+          gAgentPendingObservation[#gAgentPendingObservation + 1] = observation
+          if #gAgentPendingObservation >= 128 then
+            break
+          end
+        end
+      end
+    end
+  end
+end
+
+function UpdateAgentProperty(name, value)
+  pcall(function()
+    UpdateProperty(name, value == nil and "Not reported" or tostring(value))
+  end)
+end
+
+function PublishAgentStatus()
+  local now = os.time()
+  local serviceMode = AgentContract.serviceModeActive(gAgentState, now)
+  if not serviceMode and gAgentState.serviceModeExpiresEpoch ~= nil then
+    gAgentState = AgentContract.exitServiceMode(gAgentState)
+    PersistAgentState()
+  end
+
+  local monitoringState = gAgentConfig.startupMonitoring and "Active" or "Disabled"
+  UpdateAgentProperty("Agent Contract", string.format("v%d", AgentContract.CONTRACT_VERSION))
+  UpdateAgentProperty("Agent Configuration Version", gAgentConfigVersion or "Not configured")
+  UpdateAgentProperty("Monitoring State", monitoringState)
+  UpdateAgentProperty("System Startups Today", gAgentState.systemStartupsToday)
+  UpdateAgentProperty("System Startups Lifetime", gAgentState.systemStartupsLifetime)
+  UpdateAgentProperty("Controller Reboots Observed Today", gAgentState.controllerRebootsObservedToday)
+  UpdateAgentProperty("Controller Reboots Observed Lifetime", gAgentState.controllerRebootsObservedLifetime)
+  UpdateAgentProperty("Last Startup Classification", gAgentState.lastClassification)
+  UpdateAgentProperty("Last Startup Confidence", gAgentState.lastConfidence)
+  UpdateAgentProperty("Last Report Status", gAgentState.lastReportStatus)
+  UpdateAgentProperty("Last Report At", gAgentState.lastReportAt)
+  UpdateAgentProperty("Execution Controller Identity", gAgentState.lastExecutionControllerIdentity)
+  UpdateAgentProperty("Primary Controller Identity", gAgentState.lastPrimaryControllerIdentity)
+  UpdateAgentProperty("Pairing State", isPaired() and "Paired" or "Not paired")
+  UpdateAgentProperty("Cloud Connection State", gConnected and "Connected" or "Disconnected")
+  UpdateAgentProperty("Agent Version", AgentVersion())
+  UpdateAgentProperty("Agent License State", Properties["License Cloud"] or "Not reported")
+  UpdateAgentProperty("Effective Service Profile ID", "Not assigned")
+  UpdateAgentProperty("Effective Service Profile Version", "Not reported")
+  UpdateAgentProperty("Service Mode Expires At", serviceMode and gAgentState.serviceModeExpiresAt or "Inactive")
+
+  UpdateAgentProperty("Startup Monitoring", gAgentConfig.startupMonitoring and "On" or "Off")
+  UpdateAgentProperty("Notification Policy", gAgentConfig.notificationPolicy)
+  UpdateAgentProperty("Startup Count Basis", gAgentConfig.countBasis)
+  UpdateAgentProperty("Startup Threshold", gAgentConfig.startupThreshold)
+  UpdateAgentProperty("Stabilization Delay", string.format("%d seconds", gAgentConfig.stabilizationSeconds))
+  UpdateAgentProperty("Service Mode Duration", string.format("%d minutes", gAgentConfig.serviceModeMinutes))
+  UpdateAgentProperty("Report Schedule", gAgentConfig.reportSchedule or "Not scheduled")
+  UpdateAgentProperty("Recipient Profile", gAgentConfig.recipientProfileId or "Not configured")
+  UpdateAgentProperty("Auto-update Preference", gAgentConfig.autoUpdatePreference)
+
+  pcall(function()
+    C4:SetVariable("SYSTEM_STARTUPS_TODAY", gAgentState.systemStartupsToday)
+    C4:SetVariable("CONTROLLER_REBOOTS_OBSERVED_TODAY", gAgentState.controllerRebootsObservedToday)
+    C4:SetVariable("SERVICE_MODE_ACTIVE", serviceMode)
+    C4:SetVariable("CLOUD_CONNECTED", gConnected)
+    C4:SetVariable("REPORT_STATUS", gAgentState.lastReportStatus or "not-requested")
+    C4:SetVariable("LICENSE_STATE", Properties["License Cloud"] or "Not reported")
+  end)
+end
+
+function ReportAgentConfigOutcome(applied, settingsVersion, refusals)
+  local detail
+  if applied then
+    detail = string.format(
+      "Agent Contract v%d applied settings version %s",
+      AgentContract.CONTRACT_VERSION,
+      tostring(settingsVersion)
+    )
+  else
+    local names = {}
+    for _, item in ipairs(refusals or {}) do
+      names[#names + 1] = tostring(item.path or "settings")
+    end
+    detail = string.format(
+      "Agent Contract v%d refused settings version %s (%s)",
+      AgentContract.CONTRACT_VERSION,
+      tostring(settingsVersion),
+      table.concat(names, ", ")
+    )
+  end
+  if isPaired() then
+    send("event", {
+      kind = "event",
+      name = applied and "agent_config_applied" or "agent_config_refused",
+      detail = detail:sub(1, 400),
+    }, applied and "Agent configuration acknowledgement" or "Agent configuration refusal")
+  end
+end
+
+function ApplyAgentConfigBlock(block)
+  if type(block) ~= "table" or tostring(block.driver_sku or "") ~= AgentContract.DRIVER_SKU then
+    return false
+  end
+  if block.contract_version ~= nil and tonumber(block.contract_version) ~= AgentContract.CONTRACT_VERSION then
+    ReportAgentConfigOutcome(false, block.settings_version, { { path = "contract_version" } })
+    UpdateAgentProperty("Agent Configuration Version", "Refused: contract mismatch")
+    return false
+  end
+  local settingsVersion = tointeger(block.settings_version)
+  if settingsVersion == nil or settingsVersion < 1 then
+    ReportAgentConfigOutcome(false, block.settings_version, { { path = "settings_version" } })
+    return false
+  end
+  if gAgentConfigVersion ~= nil and settingsVersion < gAgentConfigVersion then
+    log:warn("Ignoring stale Agent settings v%d; v%d is already applied", settingsVersion, gAgentConfigVersion)
+    return false
+  end
+  local config, refusals = AgentContract.validateConfig(block.settings)
+  if config == nil then
+    log:error("Agent settings v%d refused (%d invalid field(s))", settingsVersion, #refusals)
+    ReportAgentConfigOutcome(false, settingsVersion, refusals)
+    UpdateAgentProperty("Agent Configuration Version", string.format("v%d refused", settingsVersion))
+    return false
+  end
+  if gAgentConfigVersion == settingsVersion then
+    if AgentContract.sameConfig(config, gAgentConfig) then
+      PublishAgentStatus()
+      return true
+    end
+    log:error("Agent settings v%d refused because that version is already bound to different values", settingsVersion)
+    ReportAgentConfigOutcome(false, settingsVersion, { { path = "settings_version" } })
+    UpdateAgentProperty("Agent Configuration Version", string.format("v%d conflict refused", settingsVersion))
+    return false
+  end
+
+  gAgentConfig = config
+  gAgentConfigVersion = settingsVersion
+  persist:set(AGENT_CONFIG_KEY, config)
+  persist:set(AGENT_CONFIG_VERSION_KEY, settingsVersion)
+  PublishAgentStatus()
+  ReportAgentConfigOutcome(true, settingsVersion)
+  log:info("Agent Contract v%d settings v%d applied", AgentContract.CONTRACT_VERSION, settingsVersion)
+  return true
+end
+
+function SafeAgentBootId()
+  if C4.GetBootID == nil then
+    return nil, false
+  end
+  local ok, value = pcall(function()
+    return C4:GetBootID()
+  end)
+  if not ok or value == nil or tostring(value) == "" then
+    return nil, false
+  end
+  return tostring(value):sub(1, 180), true
+end
+
+function NextAgentEventId()
+  local sequence = (tointeger(persist:get(AGENT_EVENT_SEQUENCE_KEY, 0)) or 0) + 1
+  persist:set(AGENT_EVENT_SEQUENCE_KEY, sequence)
+  return string.format("agent-start:%s:%d:%d", tostring(C4:GetDeviceID()), os.time(), sequence)
+end
+
+function SendPendingAgentObservation()
+  if type(gAgentPendingObservation) ~= "table" or #gAgentPendingObservation == 0 or not isPaired() then
+    return
+  end
+  local observation = gAgentPendingObservation[1]
+  local deliverAfter = tonumber(observation._deliver_after_epoch)
+  if deliverAfter ~= nil and deliverAfter > os.time() then
+    SetTimer(
+      "SmartBuildOSAgentStabilization",
+      math.max(ONE_SECOND, (deliverAfter - os.time()) * ONE_SECOND),
+      SendPendingAgentObservation
+    )
+    return
+  end
+  local eventId = tostring(observation.source_event_id or "")
+  send("startup-observation", observation, "Agent startup observation", function(body)
+    if type(body.notification) == "table" and body.notification.state == "failed" then
+      pcall(function()
+        C4:FireEvent("Notification Failed")
+      end)
+    end
+  end, function()
+    if
+      type(gAgentPendingObservation) == "table"
+      and type(gAgentPendingObservation[1]) == "table"
+      and tostring(gAgentPendingObservation[1].source_event_id or "") == eventId
+    then
+      table.remove(gAgentPendingObservation, 1)
+      if #gAgentPendingObservation == 0 then
+        persist:delete(AGENT_PENDING_OBSERVATION_KEY)
+      else
+        persist:set(AGENT_PENDING_OBSERVATION_KEY, gAgentPendingObservation)
+        SetTimer("SmartBuildOSAgentPendingObservation", ONE_SECOND, SendPendingAgentObservation)
+      end
+    end
+  end)
+end
+
+function ProcessAgentStartup(initReason)
+  local bootId, bootSupported = SafeAgentBootId()
+  local executionIdentity = directorMac()
+  local result = AgentContract.recordStartup(gAgentState, {
+    eventId = NextAgentEventId(),
+    observedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    localDate = os.date("%Y-%m-%d"),
+    initReason = initReason,
+    observedBootId = bootId,
+    bootIdSupported = bootSupported,
+    executionControllerIdentity = executionIdentity,
+    -- The current heartbeat does not return a verified primary identity. Do
+    -- not manufacture equality: the backend retains the boot evidence while
+    -- primary_controller_reboot_observed remains false until both agree.
+    primaryControllerIdentity = nil,
+    nowEpoch = os.time(),
+  }, gAgentConfig)
+  if not result.ok then
+    log:error("Agent startup state refused: %s", tostring(result.error))
+    return
+  end
+  gAgentState = result.state
+  PersistAgentState()
+  PublishAgentStatus()
+  if not result.observed or result.event == nil then
+    return
+  end
+
+  if #gAgentPendingObservation >= 128 then
+    log:error("Agent startup observation queue is full; retaining the oldest 128 undelivered records")
+    return
+  end
+  local delay = math.max(0, math.min(tointeger(gAgentConfig.stabilizationSeconds) or 0, 3600))
+  result.event._deliver_after_epoch = os.time() + delay
+  gAgentPendingObservation[#gAgentPendingObservation + 1] = result.event
+  persist:set(AGENT_PENDING_OBSERVATION_KEY, gAgentPendingObservation)
+  pcall(function()
+    C4:FireEvent(
+      result.event.event_type == "controller-reboot-observed" and "Controller Reboot Observed"
+        or (
+          result.event.event_type == "startup-threshold-reached" and "Startup Threshold Reached"
+          or "System Startup Observed"
+        )
+    )
+  end)
+  SendPendingAgentObservation()
+end
+
+function EnterAgentServiceMode(minutes)
+  local duration = tointeger(minutes) or gAgentConfig.serviceModeMinutes
+  local now = os.time()
+  local bounded = math.max(5, math.min(1440, duration))
+  gAgentState = AgentContract.enterServiceMode(gAgentState, now, bounded, AgentIsoAt(now + bounded * 60))
+  PersistAgentState()
+  PublishAgentStatus()
+  ArmAgentServiceModeTimer()
+  EC.SEND_HEARTBEAT()
+  return string.format("service mode active for %d minutes", bounded)
+end
+
+function ArmAgentServiceModeTimer()
+  CancelTimer("SmartBuildOSAgentServiceMode")
+  if not AgentContract.serviceModeActive(gAgentState, os.time()) then
+    return
+  end
+  local remaining = math.max(1, (tonumber(gAgentState.serviceModeExpiresEpoch) or os.time()) - os.time())
+  SetTimer("SmartBuildOSAgentServiceMode", remaining * ONE_SECOND, function()
+    if not AgentContract.serviceModeActive(gAgentState, os.time()) then
+      gAgentState = AgentContract.exitServiceMode(gAgentState)
+      PersistAgentState()
+      PublishAgentStatus()
+      EC.SEND_HEARTBEAT()
+    end
+  end)
+end
+
+function ExitAgentServiceMode()
+  CancelTimer("SmartBuildOSAgentServiceMode")
+  gAgentState = AgentContract.exitServiceMode(gAgentState)
+  PersistAgentState()
+  PublishAgentStatus()
+  EC.SEND_HEARTBEAT()
+  return "service mode inactive"
+end
+
+function RequestAgentReport(sendRequested)
+  -- Report generation is a platform operation over stored measurements. The
+  -- controller records the request and refreshes its evidence; it never claims
+  -- a report exists until a platform acknowledgement returns.
+  gAgentState.lastReportStatus = sendRequested and "send-requested" or "generation-requested"
+  gAgentState.lastReportAt = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  PersistAgentState()
+  PublishAgentStatus()
+  send(
+    "event",
+    {
+      kind = "event",
+      name = sendRequested and "send_system_report_requested" or "generate_system_report_requested",
+      detail = sendRequested and "Composer requested authorized delivery of the latest System Studio report."
+        or "Composer requested an immutable System Studio report snapshot.",
+    },
+    sendRequested and "system report delivery request" or "system report generation request",
+    function()
+      -- The current generic event endpoint acknowledges only that the request was
+      -- stored. Keep the state explicit; stored is not generated or sent.
+      gAgentState.lastReportStatus = "request-recorded"
+      PersistAgentState()
+      PublishAgentStatus()
+    end
+  )
+  return "report request recorded; awaiting platform generation"
 end
 
 -- ─── Device state, from Director ──────────────────────────────────────────────
@@ -1664,6 +2285,11 @@ local function pollDeviceState()
         )
         C4:FireEvent(device.online and "Device Came Online" or "Device Went Offline")
         log:info("Device %s %s", tostring(device.name), device.online and "came online" or "went offline")
+        pcall(
+          ModulesNotifyEvent,
+          device.online and "device_online" or "device_offline",
+          { key = key, name = device.name, room = device.room }
+        )
         -- Mirrored into the telemetry queue (T-2.1). The delta above is
         -- CURRENT STATE and a failed delta is only healed by the next full
         -- sync; the queued event survives an outage and replays with its
@@ -1759,6 +2385,11 @@ function driverCapabilities()
     "catalogue_v1",
     "notify_v1",
     "realtime_v1",
+    "agent_contract_v1",
+    -- Shared module services: registration, the event pipeline, restricted
+    -- module commands (MODULE_COMMAND) and on-request variable discovery.
+    "modules_v1",
+    "flight_recorder_v1",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -2061,7 +2692,22 @@ end
 --- that predates a driver must never guess at filenames.
 local SKU_FILENAMES = {
   SBOS_ATMOSPHERE = { "smartbuildos-atmosphere.c4z" },
+  SBOS_FLIGHT_RECORDER = { "smartbuildos-flight-recorder.c4z" },
   SBOS_MODE_COMPOSER = { "smartbuildos-mode-composer.c4z", "smartbuildos-mode-button.c4z" },
+  SBOS_SYSTEM_LINK = {
+    "smartbuildos-system-link.c4z",
+    "smartbuildos-system-link-light.c4z",
+    "smartbuildos-system-link-relay.c4z",
+    "smartbuildos-system-link-contact.c4z",
+    "smartbuildos-system-link-temperature.c4z",
+    "smartbuildos-system-link-thermostat.c4z",
+    "smartbuildos-system-link-shade.c4z",
+    "smartbuildos-system-link-media.c4z",
+    "smartbuildos-system-link-lock.c4z",
+    "smartbuildos-system-link-gate.c4z",
+    "smartbuildos-system-link-fan.c4z",
+    "smartbuildos-system-link-export-light.c4z",
+  },
   SBOS_UNIFI_PROTECT = {
     "unifi-protect.c4z",
     "unifi-protect-camera.c4z",
@@ -2140,7 +2786,11 @@ local function forwardDriverConfigs(list)
     return
   end
   for _, cfg in ipairs(list) do
-    forwardDriverConfig(cfg)
+    if type(cfg) == "table" and tostring(cfg.driver_sku or "") == AgentContract.DRIVER_SKU then
+      ApplyAgentConfigBlock(cfg)
+    else
+      forwardDriverConfig(cfg)
+    end
   end
 end
 
@@ -2405,6 +3055,69 @@ local function sendHeartbeat()
       director_reloads = gStart.count,
       last_reload_at = gStart.at,
       last_reload_kind = gStart.kind,
+      last_reload_restart = gStart.restart,
+      -- ── Additive telemetry (docs/AGENT_TELEMETRY.md). The platform may
+      -- ignore any of these; absence is an older Agent. ──────────────────
+      -- Controller clock against the platform, from the previous answer's
+      -- Date header. Programming and schedules run off this clock.
+      clock_offset_seconds = gClock.offset,
+      -- Which Director system events this OS actually fires, counted since
+      -- start: the fleet measures the API instead of us assuming it.
+      system_events = next(gSystemEventCounts) ~= nil and gSystemEventCounts or nil,
+      project_changes_today = gProjectChanges.count,
+      last_project_change_at = gProjectChanges.last_at,
+      -- The programming census, at most daily unless Composer edited it.
+      programming = (function()
+        if gProgramming.census == nil or (os.time() - (gProgramming.at or 0)) > 86400 then
+          pcall(RefreshProgrammingCensus, "heartbeat")
+        end
+        return gProgramming.census
+      end)(),
+      -- Zigbee mesh churn since start (node online/offline, mesh changes).
+      zigbee = (gZigbee.node_offline + gZigbee.node_online + gZigbee.mesh_changes) > 0 and gZigbee or nil,
+      -- PROBE: /proc and thermal, when the sandbox lets a driver read them.
+      controller_vitals = AgentTelemetry.readVitals(ReadProcFile),
+      -- This driver's own health: Lua heap, timer punctuality, time up.
+      agent_health = {
+        lua_memory_kb = math.floor(collectgarbage("count")),
+        heartbeat_lag_ms = gHeartbeatTick.lag_ms,
+        driver_uptime_seconds = os.time() - gDriverStartedAt,
+      },
+      -- Shared module services: registrations (no tokens) and the durable
+      -- event queue's own account of itself (depth, bytes, oldest age,
+      -- drops with sequence ranges, upload failures, last ack, limits).
+      modules = ModulesHeartbeatBlock(),
+      event_pipeline = gEvents and gEvents:health() or nil,
+      module_protocol = { min = Modules.PROTOCOL_MIN, max = Modules.PROTOCOL_MAX },
+      -- The server may ignore this additive object until its status reader is
+      -- deployed. That is intentional forward compatibility: absence is an
+      -- old Agent; presence is the Agent's own claim, never inferred from a
+      -- successful website save.
+      agent_contract = {
+        contract_version = AgentContract.CONTRACT_VERSION,
+        settings_version = gAgentConfigVersion,
+        monitoring_state = gAgentConfig.startupMonitoring and "active" or "disabled",
+        system_startups_today = gAgentState.systemStartupsToday,
+        system_startups_lifetime = gAgentState.systemStartupsLifetime,
+        controller_reboots_observed_today = gAgentState.controllerRebootsObservedToday,
+        controller_reboots_observed_lifetime = gAgentState.controllerRebootsObservedLifetime,
+        last_startup_classification = gAgentState.lastClassification,
+        last_startup_confidence = gAgentState.lastConfidence,
+        last_report_status = gAgentState.lastReportStatus,
+        last_report_at = gAgentState.lastReportAt,
+        execution_controller_identity = gAgentState.lastExecutionControllerIdentity,
+        primary_controller_identity = gAgentState.lastPrimaryControllerIdentity,
+        pairing_state = isPaired() and "paired" or "not-paired",
+        cloud_connection_state = gConnected and "connected" or "disconnected",
+        agent_version = AgentVersion(),
+        license_state = Properties["License Cloud"] or nil,
+        effective_service_profile_id = nil,
+        effective_service_profile_version = nil,
+        service_mode_expires_at = AgentContract.serviceModeActive(gAgentState, os.time())
+            and gAgentState.serviceModeExpiresAt
+          or nil,
+        pending_startup_observations = #gAgentPendingObservation,
+      },
     },
     "heartbeat",
     function(body)
@@ -2443,6 +3156,7 @@ local function sendHeartbeat()
       -- deploy keeps configuring Atmosphere during a rollout.
       pcall(forwardDriverConfigs, body.driver_config)
       pcall(forwardDriverConfig, body.atmosphere, "SBOS_ATMOSPHERE")
+      pcall(SendPendingAgentObservation)
 
       local monitor = body.monitor
       if type(monitor) ~= "table" then
@@ -2832,6 +3546,20 @@ local COMMAND_RUNNERS = {
     postCameraSnapshot(key, url, tostring(payload.request_id or ""))
     return string.format("camera %s: snapshot requested", key)
   end,
+
+  -- ── MODULE SERVICES (contract v1) ───────────────────────────────────────
+  -- One gateway, not two: a restricted module operation rides the same
+  -- command path with the same ack. The vocabulary is closed
+  -- (MODULE_COMMANDS below): Flight Recorder, Event Tracer, Usage Analytics. No
+  -- arbitrary Lua, no equipment control.
+  MODULE_COMMAND = function(payload)
+    return ModuleCommandDispatch(payload)
+  end,
+  -- Variable discovery for the Studio source browser: 1..25 named devices,
+  -- on request, never the whole project.
+  DISCOVER_VARIABLES = function(payload)
+    return ModuleDiscoverVariables(payload)
+  end,
 }
 
 --- Executes whatever a response carried and acknowledges every outcome.
@@ -2937,6 +3665,680 @@ flushTelemetry = function()
   )
 end
 
+-- ─── Shared module services (contract v1) ─────────────────────────────────────
+--
+-- Optional SmartBuildOS drivers ("modules" — Flight Recorder first; Guardian,
+-- Commissioning Inspector, Home State and Property Bridge reserved) register
+-- here and use this Agent's pairing, transport, durable event queue,
+-- versioned configuration delivery and restricted command gateway. Wire
+-- vocabulary and limits: docs/flight-recorder/PROTOCOL.md. Pure rules:
+-- sbos.modules, sbos.envelope, sbos.eventqueue (all tested without a
+-- controller). Everything here is a GLOBAL: the main chunk is at Lua's
+-- 200-local ceiling.
+--
+-- Trust: ExecuteCommand carries no sender identity, so a registration is
+-- answered with a token sent TO THE CLAIMED DEVICE ID, and every later
+-- frame must carry it. Local registration is not authorization: the
+-- platform still decides tenant/property ownership from this Agent's own
+-- credential, never from anything a module says.
+
+EVENTS_TIMER = "SmartBuildOSEvents"
+EVENTS_FAST_TIMER = "SmartBuildOSEventsFast"
+MODULES_KEY = "sbos_modules_v1"
+EVENT_JOURNAL_KEY = "sbos_event_journal_v1"
+AGENT_EVENT_SEQ_KEY = "sbos_agent_event_seq"
+--- The closed vocabulary of restricted module operations, per module.
+MODULE_COMMANDS = {
+  flight_recorder = { apply_config = true, pause = true, resume = true, capture_snapshot = true, refresh_status = true },
+  -- Mirrors of the web repo's MODULE_OPERATIONS (src/lib/control4/flight-recorder/modules.ts)
+  -- and of each driver's own registered command list. Nothing here acts on the house.
+  event_tracer = { apply_policy = true, pause = true, resume = true, reapply = true, refresh_status = true },
+  usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
+}
+MODULE_COMMAND_TTL = 10 * 60
+MODULE_COMMAND_LEDGER = 100
+MODULE_SNAPSHOT_MAX_BYTES = 256 * 1024
+
+function ModuleToken()
+  local parts = {}
+  for i = 1, 4 do
+    parts[i] = string.format("%08x", math.random(0, 0x7fffffff))
+  end
+  return table.concat(parts)
+end
+
+function ModulesInit()
+  if gModules ~= nil then
+    return
+  end
+  pcall(function()
+    math.randomseed((os.time() + (tonumber(C4:GetTickCount()) or 0)) % 2147483647)
+  end)
+  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), { now = os.time, newToken = ModuleToken })
+  gEvents = EventQueue.restore(persist:get(EVENT_JOURNAL_KEY, false), {
+    now = os.time,
+    saveJournal = function(journal)
+      persist:set(EVENT_JOURNAL_KEY, journal)
+    end,
+  })
+  if gEvents.stats.journal_recovered then
+    log:warn("Event journal was unreadable or partly unreadable; the queue started with what could be recovered")
+  end
+  gAgentEventSeq = tointeger(persist:get(AGENT_EVENT_SEQ_KEY, 0)) or 0
+  log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
+end
+
+--- Monotonic sequence for the Agent's own pipeline events (stride-persisted).
+function AgentEventSequence()
+  gAgentEventSeq = gAgentEventSeq + 1
+  if gAgentEventSeq % 25 == 1 then
+    persist:set(AGENT_EVENT_SEQ_KEY, gAgentEventSeq + 25)
+  end
+  return gAgentEventSeq
+end
+
+function ModulesPersist()
+  if gModules ~= nil then
+    persist:set(MODULES_KEY, gModules:serialize())
+  end
+end
+
+function ModuleSend(instanceId, command, params)
+  local id = tonumber(instanceId)
+  if id == nil then
+    return false
+  end
+  local ok = pcall(function()
+    C4:SendToDevice(id, command, params)
+  end)
+  return ok
+end
+
+--- What a module learns about this Agent (strings: SendToDevice params).
+function ModuleAgentState()
+  local installation = systemId()
+  if installation == "" then
+    installation = propertyId()
+  end
+  return {
+    paired = isPaired() and "true" or "false",
+    connected = gConnected and "true" or "false",
+    installation_id = installation,
+    boot_id = tostring(SafeAgentBootId() or ""),
+    agent_version = tostring(AgentVersion() or ""),
+    protocol = tostring(Modules.PROTOCOL_MAX),
+  }
+end
+
+function ModulesAgentForDisplay()
+  return {
+    paired = isPaired(),
+    connected = gConnected,
+    licence = function(sku)
+      local status = ModuleLicenceStatus(sku)
+      return status
+    end,
+    enforce = function(sku)
+      local _, enforcement = ModuleLicenceStatus(sku)
+      return enforcement == "enforce"
+    end,
+  }
+end
+
+function ModulesHeartbeatBlock()
+  if gModules == nil then
+    return nil
+  end
+  local block = gModules:heartbeatBlock(ModulesAgentForDisplay())
+  if #block == 0 then
+    return nil
+  end
+  return block
+end
+
+function ModulesBroadcastState()
+  if gModules == nil then
+    return
+  end
+  local state = ModuleAgentState()
+  for _, e in ipairs(gModules:list()) do
+    ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_STATE", state)
+  end
+end
+
+--- On every Agent start: modules that registered before this Agent came up
+--- re-register (their registration may predate a token this Agent forgot).
+function ModulesHello()
+  if gModules == nil then
+    return
+  end
+  for _, e in ipairs(gModules:list()) do
+    ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_HELLO", { agent_version = tostring(AgentVersion() or "") })
+  end
+end
+
+--- Agent-classified events, offered to every live module (a module records
+--- only what its configuration selected).
+function ModulesNotifyEvent(name, detail)
+  if gModules == nil then
+    return
+  end
+  local okE, encoded = pcall(function()
+    return JSON:encode(detail or {})
+  end)
+  for _, e in ipairs(gModules:list()) do
+    if not gModules:isStale(e) then
+      ModuleSend(e.instance_id, "SBOS_MODULE_AGENT_EVENT", { name = tostring(name), detail = okE and encoded or "{}" })
+    end
+  end
+end
+
+--- Re-sends the last configuration the platform forwarded for a SKU to one
+--- instance (a module that registered after the heartbeat carried it).
+function ResendDriverConfig(sku, instanceId)
+  local stored = persist:get("sbos_driver_config_fwd_" .. tostring(sku):lower(), "")
+  if type(stored) ~= "string" or stored == "" then
+    return false
+  end
+  local version, encoded = stored:match("^([^|]*)|(.*)$")
+  if encoded == nil then
+    return false
+  end
+  return ModuleSend(instanceId, "SBOS_DRIVER_CONFIG", {
+    sku = sku,
+    settings = encoded,
+    settings_version = version,
+    requester = tostring(C4:GetDeviceID()),
+  })
+end
+
+function EC.SBOS_MODULE_REGISTER(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local ok, reply, entry = gModules:register(tParams)
+  for k, v in pairs(ModuleAgentState()) do
+    reply[k] = v
+  end
+  reply.agent_protocol_min = tostring(Modules.PROTOCOL_MIN)
+  reply.agent_protocol_max = tostring(Modules.PROTOCOL_MAX)
+  ModuleSend(reply.instance_id, "SBOS_MODULE_REGISTERED", reply)
+  if ok then
+    ModulesPersist()
+    log:info(
+      "module registered: %s@%s v%s (protocol %s, %d registration(s))",
+      entry.module_id,
+      tostring(entry.instance_id),
+      entry.driver_version,
+      tostring(entry.protocol),
+      entry.registrations
+    )
+    for _, sku in ipairs(entry.entitlements or {}) do
+      pcall(ResendDriverConfig, sku, entry.instance_id)
+    end
+  else
+    log:warn(
+      "module registration refused: %s@%s (%s)",
+      tostring(reply.module_id),
+      tostring(reply.instance_id),
+      tostring(reply.reason)
+    )
+  end
+end
+
+function EC.SBOS_MODULE_STATUS(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  if entry == nil then
+    log:debug("module status ignored: %s", tostring(why))
+    return
+  end
+  local counters = nil
+  if type(tParams.counters) == "string" then
+    local okD, decoded = pcall(function()
+      return JSON:decode(tParams.counters)
+    end)
+    if okD and type(decoded) == "table" then
+      counters = decoded
+    end
+  end
+  gModules:touch(entry, {
+    status = tParams.status,
+    detail = tParams.detail,
+    config_version = tParams.config_version,
+    applied_config_version = tParams.applied_config_version,
+    config_error = tParams.config_error,
+    counters = counters,
+  })
+  ModulesPersist()
+end
+
+function EC.SBOS_MODULE_UNREGISTER(tParams)
+  ModulesInit()
+  local entry = gModules:authenticate(tParams or {})
+  if entry == nil then
+    return
+  end
+  gModules:remove(entry.module_id, entry.instance_id)
+  ModulesPersist()
+  log:info("module unregistered: %s@%s", entry.module_id, tostring(entry.instance_id))
+end
+
+function EventsQueueBrief()
+  if gEvents == nil then
+    return {}
+  end
+  local h = gEvents:health()
+  return {
+    depth = h.depth,
+    dropped = h.dropped,
+    last_ack_at = h.last_ack_at,
+    backoff_seconds = h.backoff_seconds,
+    limit_status = h.limit_status,
+    last_error = h.last_error,
+  }
+end
+
+--- A module's event frame: authenticated, validated per event (schema,
+--- prefix ownership, instance), deduplicated by event id, stamped with the
+--- installation and boot identity, queued durably, acknowledged with counts.
+function EC.SBOS_MODULE_EVENTS(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  local batchId = tostring(tParams.batch_id or "")
+  if entry == nil then
+    -- No ack: an unauthenticated sender learns nothing from this Agent.
+    log:warn("module event frame ignored: %s", tostring(why))
+    return
+  end
+  local raw = tostring(tParams.events or "")
+  local function ack(accepted, rejected, duplicates, reason)
+    ModuleSend(entry.instance_id, "SBOS_MODULE_EVENTS_ACK", {
+      batch_id = batchId,
+      accepted = tostring(accepted),
+      rejected = tostring(rejected),
+      duplicates = tostring(duplicates),
+      reason = reason or "",
+      queue = JSON:encode(EventsQueueBrief()),
+    })
+  end
+  if #raw > Envelope.LIMITS.frame_bytes then
+    ack(0, -1, 0, "oversized frame")
+    return
+  end
+  local okD, list = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not okD or type(list) ~= "table" then
+    ack(0, -1, 0, "malformed frame")
+    return
+  end
+  local accepted, rejected, duplicates, reason = 0, 0, 0, nil
+  local state = ModuleAgentState()
+  for i, env in ipairs(list) do
+    if i > Envelope.LIMITS.batch then
+      rejected = rejected + 1
+      reason = "batch_limit"
+    else
+      local okV, whyV = Envelope.validate(env, entry.module_id)
+      if not okV then
+        rejected = rejected + 1
+        reason = whyV
+      elseif tostring(env.source_driver_instance_id) ~= tostring(entry.instance_id) then
+        rejected = rejected + 1
+        reason = "instance_mismatch"
+      elseif not gEventDedup:accept(env.event_id) then
+        -- A resend after a lost ack: already queued or uploaded. Accepted
+        -- from the module's point of view (it may drop its copy).
+        duplicates = duplicates + 1
+        accepted = accepted + 1
+      else
+        env.installation_id = state.installation_id
+        if env.boot_id == nil and state.boot_id ~= "" then
+          env.boot_id = state.boot_id
+        end
+        local okP, whyP = gEvents:push(env)
+        if okP then
+          accepted = accepted + 1
+        else
+          rejected = rejected + 1
+          reason = whyP
+        end
+      end
+    end
+  end
+  gModules:touch(entry, {})
+  gEvents:checkpoint(false)
+  ack(accepted, rejected, duplicates, reason)
+  if accepted > 0 then
+    SetTimer(EVENTS_FAST_TIMER, 5 * ONE_SECOND, FlushEvents)
+  end
+end
+
+--- Uploads one batch of the shared queue. Ack = the server's verdict per
+--- event; a 2xx whose body carries no verdict is a failure (and the batch is
+--- resent later — the server dedups on event_id). Transport failure and the
+--- 90 s silence both nack with backoff + jitter (eventqueue.lua).
+function FlushEvents()
+  if gEvents == nil then
+    return
+  end
+  gEvents:expireInflight()
+  gEvents:checkpoint(false)
+  if not isPaired() then
+    return
+  end
+  local batch = gEvents:takeBatch()
+  if batch == nil then
+    return
+  end
+  send(
+    "events",
+    { kind = "events", events = batch, pipeline = gEvents:health() },
+    string.format("event batch of %d", #batch),
+    function(body)
+      if type(body.accepted) == "table" or type(body.rejected) == "table" then
+        gEvents:ack(body)
+      else
+        gEvents:nack("acknowledgment carried no verdict")
+      end
+      gEvents:checkpoint(true)
+      if gEvents:canSend() then
+        -- Drain a backlog in bounded steps rather than waiting out the tick.
+        SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+      end
+    end,
+    nil,
+    function(reason)
+      gEvents:nack(reason)
+      gEvents:checkpoint(false)
+    end
+  )
+end
+
+--- Restricted command ledger + the `agent.command_state` events Studio reads.
+function ModuleCommandRecord(requestId, entry, command, stateName, detail, expiresAt)
+  local rec = gModuleCommands[requestId]
+  if rec == nil then
+    rec = {
+      request_id = requestId,
+      module_id = entry and entry.module_id or nil,
+      instance_id = entry and tostring(entry.instance_id) or nil,
+      command = command,
+      issued_at = os.time(),
+      expires_at = expiresAt,
+    }
+    gModuleCommands[requestId] = rec
+    gModuleCommandsOrder[#gModuleCommandsOrder + 1] = requestId
+    while #gModuleCommandsOrder > MODULE_COMMAND_LEDGER do
+      local old = table.remove(gModuleCommandsOrder, 1)
+      gModuleCommands[old] = nil
+    end
+  end
+  rec.state = stateName
+  rec.detail = tostring(detail or ""):sub(1, 400)
+  rec.updated_at = os.time()
+  if gEvents == nil then
+    return rec
+  end
+  local env = Envelope.build({
+    event_type = "agent.command_state",
+    evidence_source = "derived",
+    severity = (stateName == "Failed" or stateName == "Expired" or stateName == "Unverified") and "warning" or "info",
+    correlation_id = requestId,
+    label = tostring(command) .. " " .. stateName,
+    payload = {
+      request_id = requestId,
+      module_id = rec.module_id,
+      instance_id = rec.instance_id,
+      command = command,
+      state = stateName,
+      detail = rec.detail,
+      expires_at = expiresAt,
+    },
+  }, {
+    module_id = "agent",
+    instance_id = tostring(C4:GetDeviceID()),
+    observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    boot_id = SafeAgentBootId(),
+    sequence = AgentEventSequence(),
+    installation_id = ModuleAgentState().installation_id,
+  })
+  if env ~= nil then
+    gEvents:push(env)
+  end
+  return rec
+end
+
+--- The MODULE_COMMAND runner: validates vocabulary, request id (duplicates
+--- refused), expiry, target instance and the instance's registered command
+--- list, then forwards with the instance's token. "Accepted" is what the
+--- platform's command ack carries; the terminal state arrives as an event.
+function ModuleCommandDispatch(payload)
+  ModulesInit()
+  payload = type(payload) == "table" and payload or {}
+  local moduleId = tostring(payload.module_id or "")
+  local command = tostring(payload.command or "")
+  local requestId = tostring(payload.request_id or "")
+  if requestId == "" then
+    error("module command needs a request_id")
+  end
+  local allowed = MODULE_COMMANDS[moduleId]
+  if allowed == nil or not allowed[command] then
+    error(
+      string.format("%s is not a restricted operation of %s", command, moduleId ~= "" and moduleId or "(no module)")
+    )
+  end
+  if not gCommandDedup:accept(requestId) then
+    error("duplicate request id " .. requestId)
+  end
+  local expiresAt = tonumber(payload.expires_at) or (os.time() + MODULE_COMMAND_TTL)
+  if expiresAt <= os.time() then
+    ModuleCommandRecord(requestId, nil, command, "Expired", "expired before dispatch", expiresAt)
+    error("request " .. requestId .. " expired before dispatch")
+  end
+  local target = nil
+  for _, e in ipairs(gModules:instances(moduleId)) do
+    if payload.instance_id == nil or tostring(e.instance_id) == tostring(payload.instance_id) then
+      target = e
+    end
+  end
+  if target == nil then
+    ModuleCommandRecord(requestId, nil, command, "Failed", "no live " .. moduleId .. " instance registered", expiresAt)
+    error("no live " .. moduleId .. " instance is registered with this Agent")
+  end
+  local registered = false
+  for _, c in ipairs(target.commands or {}) do
+    if c == command then
+      registered = true
+    end
+  end
+  if not registered then
+    ModuleCommandRecord(requestId, target, command, "Failed", "instance does not register " .. command, expiresAt)
+    error(string.format("%s@%s does not register the command %s", moduleId, tostring(target.instance_id), command))
+  end
+  local args = type(payload.args) == "table" and payload.args or {}
+  ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
+    module_id = moduleId,
+    instance_id = tostring(target.instance_id),
+    token = target.token,
+    request_id = requestId,
+    command = command,
+    args = JSON:encode(args),
+    expires_at = tostring(expiresAt),
+    issued_at = tostring(os.time()),
+  })
+  ModuleCommandRecord(
+    requestId,
+    target,
+    command,
+    "Accepted",
+    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
+    expiresAt
+  )
+  SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
+    local rec = gModuleCommands[requestId]
+    if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
+      ModuleCommandRecord(
+        requestId,
+        target,
+        command,
+        "Unverified",
+        "no terminal result from the module before expiry",
+        expiresAt
+      )
+      SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+    end
+  end)
+  SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+  return string.format(
+    "accepted: %s forwarded to %s@%s (request %s)",
+    command,
+    moduleId,
+    tostring(target.instance_id),
+    requestId
+  )
+end
+
+MODULE_COMMAND_STATES =
+  { Accepted = true, Executing = true, Completed = true, Failed = true, Expired = true, Unverified = true }
+
+function EC.SBOS_MODULE_COMMAND_RESULT(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry = gModules:authenticate(tParams)
+  if entry == nil then
+    return
+  end
+  local requestId = tostring(tParams.request_id or "")
+  local rec = gModuleCommands[requestId]
+  -- A module reports only on commands addressed to IT.
+  if rec == nil or rec.instance_id ~= tostring(entry.instance_id) then
+    return
+  end
+  local stateName = tostring(tParams.state or "")
+  if not MODULE_COMMAND_STATES[stateName] then
+    return
+  end
+  if rec.state == "Completed" or rec.state == "Failed" or rec.state == "Expired" then
+    return -- terminal is terminal
+  end
+  ModuleCommandRecord(requestId, entry, rec.command, stateName, tParams.detail, rec.expires_at)
+  if stateName ~= "Accepted" and stateName ~= "Executing" then
+    CancelTimer("ModuleCommandExpiry:" .. requestId)
+  end
+  SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+end
+
+--- A module's finished diagnostic snapshot: bounded, re-redacted, uploaded
+--- on its own path, acknowledged either way.
+function EC.SBOS_MODULE_SNAPSHOT(tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry = gModules:authenticate(tParams)
+  if entry == nil then
+    return
+  end
+  local jobId = tostring(tParams.job_id or "")
+  if jobId == "" then
+    return
+  end
+  local function ack(ok, reason, snapshotId)
+    ModuleSend(entry.instance_id, "SBOS_MODULE_SNAPSHOT_ACK", {
+      job_id = jobId,
+      ok = ok and "true" or "false",
+      reason = tostring(reason or ""),
+      snapshot_id = tostring(snapshotId or ""),
+    })
+  end
+  local raw = tostring(tParams.document or "")
+  if #raw > MODULE_SNAPSHOT_MAX_BYTES then
+    ack(false, "document exceeds 256 KB")
+    return
+  end
+  local okD, doc = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not okD or type(doc) ~= "table" then
+    ack(false, "malformed document")
+    return
+  end
+  if not isPaired() then
+    ack(false, "Agent is not paired")
+    return
+  end
+  send(
+    "snapshots",
+    {
+      kind = "snapshot",
+      module_id = entry.module_id,
+      instance_id = tostring(entry.instance_id),
+      job_id = jobId,
+      request_id = tostring(tParams.request_id or ""),
+      status = tostring(tParams.status or "completed"),
+      document = Envelope.redact(doc),
+    },
+    "snapshot " .. jobId,
+    function(body)
+      ack(body.ok ~= false, body.error, body.snapshot_id)
+    end,
+    nil,
+    function(reason)
+      ack(false, reason)
+    end
+  )
+end
+
+--- On-request variable discovery for the Studio source browser (1..25
+--- devices per request). Ships as a PARTIAL catalogue so the platform
+--- merges rather than prunes.
+function ModuleDiscoverVariables(payload)
+  payload = type(payload) == "table" and payload or {}
+  local ids = type(payload.device_ids) == "table" and payload.device_ids or {}
+  if #ids == 0 or #ids > 25 then
+    error("device_ids must list 1..25 device ids")
+  end
+  local okDev, devices = pcall(function()
+    return C4:GetDevices({})
+  end)
+  devices = okDev and type(devices) == "table" and devices or {}
+  local observables = {}
+  for _, rawId in ipairs(ids) do
+    local id = tointeger(rawId)
+    local d = id and (devices[id] or devices[tostring(id)]) or nil
+    if id ~= nil and type(d) == "table" then
+      local okV, vars = pcall(function()
+        return C4:GetDeviceVariables(id)
+      end)
+      if okV and type(vars) == "table" then
+        for varId, v in pairs(vars) do
+          local vid = tointeger(varId)
+          if vid ~= nil and type(v) == "table" and type(v.name) == "string" then
+            observables[#observables + 1] = {
+              kind = "device",
+              source_id = id,
+              source_name = d.deviceName,
+              room_id = tointeger(d.roomId),
+              room_name = d.roomName,
+              variable_id = vid,
+              variable_name = v.name,
+              sample_value = tostring(v.value or ""):sub(1, 120),
+              readonly = tostring(v.readonly) == "True",
+            }
+          end
+        end
+      end
+    end
+  end
+  send(
+    "telemetry",
+    { kind = "catalogue", observables = observables, partial = true },
+    string.format("variable discovery for %d device(s)", #ids)
+  )
+  return string.format("discovered %d variable(s) across %d device(s)", #observables, #ids)
+end
+
 --- The check-in interval actually in force: the platform's monitor config
 --- wins, the Composer property is the fallback. Global so the heartbeat can
 --- REPORT it — cadence should be a stated fact on the platform, not a
@@ -2956,7 +4358,19 @@ function scheduleTimers()
   local poll = INTERVALS[Properties["Device Poll Interval"] or ""] or INTERVALS["5m"]
   local fullSync = INTERVALS[Properties["Full Sync Interval"] or ""] or INTERVALS["24h"]
 
-  SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, sendHeartbeat, true)
+  SetTimer(HEARTBEAT_TIMER, heartbeat * ONE_SECOND, function()
+    -- How late the tick fired: Director under load delays timers, and a
+    -- heartbeat that arrives 20 s after its slot is the first sign of it.
+    local okT, nowMs = pcall(function()
+      return C4:GetTickCount()
+    end)
+    nowMs = okT and tonumber(nowMs) or os.time() * 1000
+    if gHeartbeatTick.last_ms ~= nil then
+      gHeartbeatTick.lag_ms = math.max(0, (nowMs - gHeartbeatTick.last_ms) - heartbeat * 1000)
+    end
+    gHeartbeatTick.last_ms = nowMs
+    sendHeartbeat()
+  end, true)
   -- Hourly CHECK, server-tuned ACTION: the tick refreshes entitlements only
   -- once the cache is past the platform's revalidate window.
   CancelTimer(ENTITLEMENT_TIMER)
@@ -2964,6 +4378,7 @@ function scheduleTimers()
   SetTimer(DEVICE_POLL_TIMER, poll * ONE_SECOND, pollDeviceState, true)
   SetTimer(FULL_SYNC_TIMER, fullSync * ONE_SECOND, sendFullSync, true)
   SetTimer(TELEMETRY_QUEUE_TIMER, 45 * ONE_SECOND, flushTelemetry, true)
+  SetTimer(EVENTS_TIMER, 30 * ONE_SECOND, FlushEvents, true)
 
   -- Off by DEFAULT, and stays off until somebody chooses it. A subnet sweep is
   -- the one thing this driver does that touches addresses nobody put in the
@@ -4307,6 +5722,9 @@ end
 
 --- Reflects the current pairing state into the read-only properties.
 showPairingState = function()
+  if ModulesBroadcastState ~= nil then
+    pcall(ModulesBroadcastState)
+  end
   if isPaired() then
     -- Name and ADDRESS. The uuid is the last resort, not the default: it is
     -- the one thing here that answers nothing for somebody at a rack trying to
@@ -4397,12 +5815,74 @@ local function applyPairResponse(response)
   return true
 end
 
+--- Property-code enrollment needs ONE idempotency key per pairing attempt.
+---
+--- The platform stores each attempt's outcome under its key and answers a
+--- repeat of that key with the STORED outcome. So a key reused after a refusal
+--- ("open an enrollment window first") would return that refusal forever, even
+--- once the window is open. The key is therefore minted fresh for every
+--- attempt and kept only while an attempt has had NO answer (timeout, no
+--- route): that is the one case where the platform must recognise the retry,
+--- because a pairing that succeeded but whose response was lost can only be
+--- recovered under the same key.
+---
+--- One table, not four locals: this chunk sits at Lua's 200-local ceiling
+--- (test_driver_globals loads it the way Director does and fails above it).
+local PairAttempt = { KEY = "pair_attempt_key" }
+
+--- The current attempt's key, minted on first use (16-200 chars, opaque).
+function PairAttempt.key()
+  local key = persist:get(PairAttempt.KEY, nil)
+  if type(key) == "string" and #key >= 16 then
+    return key
+  end
+  local mac = (directorMac() or ""):gsub(":", "")
+  key =
+    string.format("c4-agent-%s-%d-%d-%06d", mac ~= "" and mac or "nomac", os.time(), tonumber(select(
+      2,
+      pcall(function()
+        return C4:GetTickCount()
+      end)
+    )) or 0, math.random(0, 999999))
+  persist:set(PairAttempt.KEY, key)
+  return key
+end
+
+--- The attempt got an answer, whatever it was: the next attempt is a new one.
+function PairAttempt.finish()
+  persist:delete(PairAttempt.KEY)
+end
+
+--- The platform's own reason, when it sent one, cut to fit a property row.
+--- @param err table|nil The rejection from lib/http.
+--- @return string|nil
+function PairAttempt.reason(err)
+  local body = type(err) == "table" and err.body or nil
+  if type(body) == "string" then
+    local ok, decoded = pcall(function()
+      return JSON:decode(body)
+    end)
+    body = ok and decoded or nil
+  end
+  if type(body) ~= "table" or type(body.error) ~= "string" or body.error == "" then
+    return nil
+  end
+  return body.error:sub(1, 120)
+end
+
 --- The shared failure painter for both pairing doors.
 local function pairError(err)
-  local code_ = err and err.code
+  local code_ = httpStatus(err)
+  if code_ ~= nil then
+    PairAttempt.finish()
+  end
   if code_ == 404 or code_ == 410 then
     UpdateProperty("Connection Status", "Pairing failed - code is invalid or expired")
-  elseif type(code_) == "number" then
+  elseif (code_ == 400 or code_ == 409) and PairAttempt.reason(err) then
+    -- Property-code enrollment refusals carry an actionable reason (open an
+    -- enrollment window, use Change Primary Controller, staff review).
+    UpdateProperty("Connection Status", "Pairing failed - " .. PairAttempt.reason(err))
+  elseif code_ ~= nil then
     UpdateProperty("Connection Status", string.format("Pairing failed - HTTP %d", code_))
   else
     UpdateProperty("Connection Status", "Pairing failed - SmartBuildOS unreachable")
@@ -4432,6 +5912,10 @@ local function redeemPairingCode(code)
   http
     :post(url, {
       code = code,
+      -- Property-code enrollment (the permanent 20-character code) requires a
+      -- stable controller identity and a per-attempt idempotency key; the
+      -- one-time 8-character code ignores both.
+      enrollment_idempotency_key = PairAttempt.key(),
       system = {
         controller_type = C4:GetSystemType(),
         os_version = C4:GetVersionInfo().version,
@@ -4441,9 +5925,17 @@ local function redeemPairingCode(code)
         driver_device_id = C4:GetDeviceID(),
         director_device_id = select(1, directorIdentity()),
         director_name = select(2, directorIdentity()),
+        director_mac = directorMac(),
       },
     }, { ["Content-Type"] = "application/json" }, { timeout = REQUEST_TIMEOUT })
     :next(function(response)
+      PairAttempt.finish()
+      if tonumber(response.code) == 202 then
+        -- The platform already holds an enrollment for this attempt and is
+        -- still processing it: no credential in this answer, and not an error.
+        UpdateProperty("Connection Status", "Pairing pending - enter the code again in a minute")
+        return
+      end
       if applyPairResponse(response) then
         -- The code is spent. Clearing it keeps it out of the project file and
         -- makes the field obviously reusable for a future re-pair.
@@ -4466,6 +5958,7 @@ local function pairingSystemInfo()
     driver_device_id = C4:GetDeviceID(),
     director_device_id = select(1, directorIdentity()),
     director_name = select(2, directorIdentity()),
+    director_mac = directorMac(),
   }
 end
 
@@ -4491,8 +5984,8 @@ local function requestAccountCode(accountNumber)
     :next(function()
       UpdateProperty("Connection Status", "If that account matches, a code was emailed. Enter it in Verification Code.")
     end, function(err)
-      local code_ = err and err.code
-      if type(code_) == "number" then
+      local code_ = httpStatus(err)
+      if code_ ~= nil then
         UpdateProperty("Connection Status", string.format("Could not request a code - HTTP %d", code_))
       else
         UpdateProperty("Connection Status", "Could not request a code - SmartBuildOS unreachable")
@@ -4600,9 +6093,18 @@ function registerBridgeVariables()
     { "ISSUE_SEVERITY", "None" },
     { "ISSUE_TEXT", "" },
     { "NOTICE_TEXT", "" },
+    { "SYSTEM_STARTUPS_TODAY", 0, "NUMBER" },
+    { "CONTROLLER_REBOOTS_OBSERVED_TODAY", 0, "NUMBER" },
+    { "SERVICE_MODE_ACTIVE", false, "BOOL" },
+    { "CLOUD_CONNECTED", false, "BOOL" },
+    { "REPORT_STATUS", "not-requested", "STRING" },
+    { "LICENSE_STATE", "Not reported", "STRING" },
+    { "LAST_PROJECT_CHANGE", "", "STRING" },
+    { "CLOCK_OFFSET_SECONDS", 0, "NUMBER" },
+    { "PROGRAMMING_DISABLED_LINES", 0, "NUMBER" },
   }) do
     pcall(function()
-      C4:AddVariable(v[1], v[2], "STRING", true)
+      C4:AddVariable(v[1], v[2], v[3] or "STRING", true)
     end)
   end
   -- Events share the variables' add-time trap, proven on the same instance:
@@ -4614,6 +6116,20 @@ function registerBridgeVariables()
     { 9, "Issue Detected", "SmartBuildOS detected a problem at this home" },
     { 11, "Issue Updated", "SmartBuildOS updated a previously reported problem" },
     { 10, "Issue Resolved", "SmartBuildOS resolved a reported problem" },
+    { 12, "System Startup Observed", "The Agent classified a Control4 system startup" },
+    { 13, "Controller Reboot Observed", "The Agent observed a changed controller boot identity" },
+    { 14, "Startup Threshold Reached", "The configured startup count threshold was reached" },
+    { 15, "Report Ready", "SmartBuildOS confirmed a requested System Studio report is ready" },
+    { 16, "Report Failed", "SmartBuildOS reported that a requested system report failed" },
+    { 17, "Notification Failed", "SmartBuildOS could not accept an approved-recipient notification" },
+    { 18, "Cloud Connection Changed", "The Agent cloud connection state changed" },
+    { 19, "License Status Changed", "The Agent license state changed" },
+    { 20, "Controller Mismatch", "The execution controller did not match the verified primary controller" },
+    { 21, "Project Changed", "Composer added, removed, renamed or rebound something in the project" },
+    { 22, "Clock Drift Detected", "The controller clock is more than two minutes from SmartBuildOS" },
+    { 23, "OS Update Started", "Director reported that an OS update began" },
+    { 24, "Programming Changed", "Composer programming was added, removed or moved" },
+    { 25, "Unexpected Restart", "Director came back with no shutdown or update before it" },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -4621,12 +6137,16 @@ function registerBridgeVariables()
   end
 end
 
-function OnDriverLateInit()
-  log:trace("OnDriverLateInit()")
+function OnDriverLateInit(reason)
+  log:trace("OnDriverLateInit(%s)", tostring(reason))
   if not CheckMinimumVersion("Driver Status") then
     return
   end
 
+  RestoreAgentState()
+  ArmAgentServiceModeTimer()
+  pcall(ModulesInit)
+  gAgentInitReason = reason
   restorePairingFromBackup()
 
   registerBridgeVariables()
@@ -4645,6 +6165,13 @@ function OnDriverLateInit()
   -- Recording the start is safe: persist plus a pcall'd version read.
   -- ANNOUNCING it is not, and is deferred until the timers are armed.
   gStart = recordStart()
+  if gAgentInitReason == nil then
+    gAgentInitReason = gStart.kind == "update" and "DIT_UPDATING"
+      or (gStart.kind == "first" and "DIT_ADDING" or "DIT_STARTUP")
+  end
+  PublishAgentStatus()
+  -- Modules that started before this Agent re-register on this hello.
+  pcall(ModulesHello)
 
   --#ifndef DRIVERCENTRAL
   SetTimer("UpdateCheck", 30 * 60 * ONE_SECOND, function()
@@ -4653,7 +6180,13 @@ function OnDriverLateInit()
     -- the only way to tell was to remember what had been published. A
     -- channel nobody can observe is a channel nobody can fix.
     gUpdate.checked_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
-    gUpdate.automatic = toboolean(Properties["Automatic Updates"]) and true or false
+    if gAgentConfigVersion ~= nil then
+      gUpdate.automatic = gAgentConfig.autoUpdatePreference == "automatic"
+    else
+      -- Preserve the existing Composer setting until System Studio has
+      -- actually delivered a versioned Agent document.
+      gUpdate.automatic = toboolean(Properties["Automatic Updates"]) and true or false
+    end
     -- What the updater will compare against — the value that silently
     -- rejected every check when it came back nil.
     local okV, seen = pcall(function()
@@ -4664,12 +6197,16 @@ function OnDriverLateInit()
       log:info("Checking for driver update (installed version reads as %s)", gUpdate.reads_version_as)
       UpdateDrivers()
     else
-      log:info("Automatic Updates is off; not checking")
+      log:info(
+        "Automatic update not run (policy %s)",
+        gAgentConfigVersion ~= nil and gAgentConfig.autoUpdatePreference or tostring(Properties["Automatic Updates"])
+      )
     end
   end, true)
   --#endif
 
   if not isPaired() then
+    ProcessAgentStartup(gAgentInitReason)
     setConnected(false, "Not paired")
     log:warn("SmartBuildOS Connector is not paired. Paste a pairing code from SmartBuildOS.")
     return
@@ -4714,6 +6251,7 @@ function OnDriverLateInit()
     end
   end
   scheduleTimers()
+  ProcessAgentStartup(gAgentInitReason)
 
   -- ⚠ ANNOUNCED ONLY AFTER THE TIMERS ARE ARMED, AND NEVER FATALLY.
   --
@@ -4745,13 +6283,9 @@ end
 --- 17/18 cover a binding being added or removed — a device joining or leaving
 --- the project — and 78 is SDDP, which is how Control4 learns about announcing
 --- devices in the first place.
-local SYSTEM_EVENTS = {
-  [17] = "OnNetworkBindingAdded",
-  [18] = "OnNetworkBindingRemoved",
-  [48] = "OnDeviceOnline",
-  [49] = "OnDeviceOffline",
-  [78] = "OnSDDPDeviceStatus",
-}
+--- Every Director system event the Agent listens for; ids and names in
+--- AgentTelemetry.SYSTEM_EVENT_NAMES (vendored C4SystemEvents table).
+local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
 local function registerSystemEvents()
   if C4.RegisterSystemEvent == nil then
@@ -4779,11 +6313,147 @@ end
 --- try to parse it: it debounces into a single poll, which reads the authorative
 --- state for the whole project anyway. A burst of twenty devices coming back
 --- after a switch reboots therefore costs one sync, not twenty.
+--- Flushes the pending project edits: one count, one event, one journal
+--- line for a burst of Composer work, then a re-discovery so a device added
+--- today is monitored today, not after the next driver reload.
+function ProjectChangeFlush()
+  local today = os.date("!%Y-%m-%d")
+  if gProjectChanges.day ~= today then
+    gProjectChanges.day = today
+    gProjectChanges.count = 0
+  end
+  local names = {}
+  for name in pairs(gProjectChanges.pending) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  gProjectChanges.pending = {}
+  if #names == 0 then
+    return
+  end
+  gProjectChanges.count = gProjectChanges.count + 1
+  gProjectChanges.last_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  gProjectChanges.last_name = table.concat(names, ",")
+  local text = string.format("%s %s", os.date("%Y-%m-%d %H:%M:%S"), gProjectChanges.last_name)
+  UpdateProperty("Last Project Change", text)
+  pcall(function()
+    C4:SetVariable("LAST_PROJECT_CHANGE", text)
+  end)
+  pcall(function()
+    C4:FireEvent("Project Changed")
+  end)
+  pcall(ModulesNotifyEvent, "project_changed", { names = gProjectChanges.last_name })
+  if gTelemetry then
+    gTelemetry:add("SYSTEM", {
+      subcategory = "project_changed",
+      source_type = "composer",
+      event_type = "transition",
+      value_text = gProjectChanges.last_name:sub(1, 200),
+      privacy_class = "INTEGRATOR_ONLY",
+    })
+  end
+  log:info("Project changed (%s); re-discovering in 60 s", gProjectChanges.last_name)
+  SetTimer("ProjectRediscover", 60 * ONE_SECOND, function()
+    if not isPaired() then
+      return
+    end
+    local okD, errD = pcall(applyDiscovery)
+    if not okD then
+      log:warn("Re-discovery after a project change failed: %s", tostring(errD))
+    end
+    if gMonitor.enabled then
+      pcall(sendCatalogue)
+    end
+  end)
+end
+
+--- Director calls this for every event registered above.
+---
+--- The payload is documented as event-specific and "in most cases can be
+--- ignored"; shipped drivers read its `name="..."` attribute, and so does
+--- AgentTelemetry.eventNameFrom. An event whose name cannot be read is
+--- handled as every event was before (one debounced poll), so nothing an
+--- older OS sends is lost. The routes, in docs/AGENT_TELEMETRY.md:
+---
+---   device      online/offline/binding → the existing debounced poll
+---   project     Composer edits → ProjectChangeFlush (30 s) + the poll
+---   programming OnCodeItem* → programming census (30 s)
+---   zigbee      counters on the heartbeat and the Zigbee Events property
+---   shutdown    marker for the next start's restart cause + a last event
+---   os_update   marker + Composer event + a last event
+---   identity    IP / timezone / locale changed → a heartbeat in 5 s
 function OnSystemEvent(data)
   log:debug("OnSystemEvent(%s)", tostring(data))
+  local name = AgentTelemetry.eventNameFrom(data)
+  local class = AgentTelemetry.classifySystemEvent(name)
+  gSystemEventCounts[name] = (gSystemEventCounts[name] or 0) + 1
+
+  if class == "shutdown" then
+    persist:set(RESTART_KEYS.shutdown, os.time())
+    log:info("Director is shutting down")
+    if isPaired() then
+      pcall(send, "event", { kind = "event", name = "controller_shutting_down", detail = name }, "shutdown notice")
+    end
+    return
+  elseif class == "os_update" then
+    persist:set(RESTART_KEYS.os_update, os.time())
+    log:info("OS update started")
+    pcall(function()
+      C4:FireEvent("OS Update Started")
+    end)
+    pcall(ModulesNotifyEvent, "os_update_started", { event = name })
+    if isPaired() then
+      pcall(send, "event", { kind = "event", name = "os_update_started", detail = name }, "OS update notice")
+    end
+    return
+  elseif class == "zigbee" then
+    if name == "OnZigbeeNodeOffline" then
+      gZigbee.node_offline = gZigbee.node_offline + 1
+    elseif name == "OnZigbeeNodeOnline" then
+      gZigbee.node_online = gZigbee.node_online + 1
+    else
+      gZigbee.mesh_changes = gZigbee.mesh_changes + 1
+    end
+    UpdateProperty("Zigbee Events", AgentTelemetry.zigbeeText(gZigbee))
+    return
+  elseif class == "controller_disabled" then
+    log:warn("Director reported OnControllerDisabled")
+    if gTelemetry then
+      gTelemetry:add("SYSTEM", {
+        subcategory = "controller_disabled",
+        source_type = "controller",
+        event_type = "transition",
+        privacy_class = "INTEGRATOR_ONLY",
+      })
+    end
+    return
+  elseif class == "composer" then
+    -- Project lock taken or released: counted (heartbeat), nothing else.
+    return
+  end
+
   if not isPaired() then
     return
   end
+
+  if class == "programming" then
+    SetTimer("ProgrammingCensusDebounce", 30 * ONE_SECOND, function()
+      RefreshProgrammingCensus(name)
+      pcall(function()
+        C4:FireEvent("Programming Changed")
+      end)
+      pcall(ModulesNotifyEvent, "programming_changed", { event = name })
+    end)
+    return
+  elseif class == "identity" then
+    SetTimer("IdentityRefresh", 5 * ONE_SECOND, sendHeartbeat)
+    return
+  elseif class == "project" then
+    gProjectChanges.pending[name] = true
+    SetTimer("ProjectChangeDebounce", 30 * ONE_SECOND, ProjectChangeFlush)
+    -- fall through: an added or rebound device is also a device to poll.
+  end
+
   CancelTimer("SystemEventDebounce")
   SetTimer("SystemEventDebounce", 5 * ONE_SECOND, function()
     log:info("Director reported a device state change; polling")
@@ -4793,6 +6463,15 @@ end
 
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
+  -- The event journal is checkpointed on the way out: a reload must not
+  -- cost the last 30 s of a module's evidence.
+  if gEvents ~= nil then
+    pcall(function()
+      gEvents:checkpoint(true)
+    end)
+  end
+  CancelTimer(EVENTS_TIMER)
+  CancelTimer(EVENTS_FAST_TIMER)
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -5462,6 +7141,20 @@ local function diagnose(lines)
   end)
   probe("GetUname", function()
     return C4:GetUname()
+  end)
+  -- PROBE: can a driver read the kernel's own files? Composer shows CPU and
+  -- memory on the Director page and no documented call exposes them.
+  for label, path in pairs(AgentTelemetry.VITALS_FILES) do
+    probe("read " .. path, function()
+      local text = ReadProcFile(path)
+      return text ~= nil and (label .. " readable: " .. text:gsub("%s+", " "):sub(1, 120)) or "not readable"
+    end)
+  end
+  probe("controller vitals", function()
+    return AgentTelemetry.vitalsText(AgentTelemetry.readVitals(ReadProcFile))
+  end)
+  probe("clock offset", function()
+    return AgentTelemetry.clockOffsetText(gClock.offset)
   end)
 
   -- Is the reported name the SCRAPE or the fallback? `directorIdentity` uses
@@ -6289,54 +7982,6 @@ function EC.SCAN_NETWORK()
   end
 end
 
---- Mints a touchpanel URL and writes it into the driver's own properties.
----
---- Exists because the person configuring a panel is standing at the rack in
---- Composer and very often has no SmartBuildOS session -- the owner of the
---- client record and the installer wiring the house are frequently not the same
---- person, and the second cannot be blocked on the first.
----
---- The URL is stored HERE, in the driver, because SmartBuildOS keeps only a hash
---- and cannot show it again. That is not a weakening: this driver already holds
---- a device token, which is a strictly stronger credential, and it lives inside
---- the client's own rack.
----
---- Every run mints a NEW panel and deliberately does not revoke the last one, so
---- an installer who runs this twice -- or a year later, adding a second panel --
---- cannot silently kill the panel already hanging on the wall.
-function EC.GENERATE_DISPLAY_URL()
-  log:trace("EC.GENERATE_DISPLAY_URL()")
-
-  if not isPaired() then
-    -- Said in the property itself rather than only the log. An installer runs
-    -- an action and looks at the property; nobody opens Lua output for this.
-    UpdateProperty("Touchpanel URL", "Pair the driver first")
-    log:warn("Cannot generate a touchpanel URL: driver is not paired")
-    return
-  end
-
-  local label = Properties["Touchpanel Name"] or ""
-  label = label:match("^%s*(.-)%s*$")
-  if label == "" then
-    label = "Touchpanel"
-  end
-
-  UpdateProperty("Touchpanel URL", "Generating...")
-
-  send("display", { kind = "display", label = label }, "touchpanel URL request", function(body)
-    -- Only ever set from a URL the server actually returned. Writing anything
-    -- optimistic here would hand the installer a link that 404s on the panel
-    -- they just configured.
-    if type(body.url) == "string" and body.url ~= "" then
-      UpdateProperty("Touchpanel URL", body.url)
-      log:info("Touchpanel URL generated for '%s'", label)
-    else
-      UpdateProperty("Touchpanel URL", "Failed - see Lua output")
-      log:error("Touchpanel URL response carried no url")
-    end
-  end)
-end
-
 --- Forgets the token locally. SmartBuildOS is told first so the property stops
 --- expecting heartbeats, but a failure there must not strand the driver in a
 --- paired state it cannot leave -- the local wipe happens either way.
@@ -6365,10 +8010,6 @@ function EC.UNPAIR()
   persist:delete(ENTITLEMENT_CACHE_KEY)
   CancelTimer(ENTITLEMENT_TIMER)
   updateLicenseProperties()
-  -- The panels themselves keep working: a display URL is its own credential and
-  -- is revoked from SmartBuildOS, not from here. What is cleared is this
-  -- driver's COPY, which after unpairing is no longer a URL it can vouch for.
-  UpdateProperty("Touchpanel URL", "Not generated")
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -6389,6 +8030,58 @@ function EC.UPDATE_DRIVERS()
   UpdateDrivers(true)
 end
 --#endif
+
+function EC.GENERATE_SYSTEM_REPORT()
+  log:info("System Studio report generation requested from Composer")
+  RequestAgentReport(false)
+end
+
+function EC.SEND_SYSTEM_REPORT()
+  log:info("System Studio report delivery requested from Composer")
+  RequestAgentReport(true)
+end
+
+function EC.SEND_TEST_NOTIFICATION()
+  log:info("Running the local Control4 notification bridge test")
+  local ok, result = pcall(COMMAND_RUNNERS.SEND_NOTIFICATION, {
+    kind = "update",
+    severity = "info",
+    title = "SmartBuildOS test notification",
+    detail = "The SmartBuildOS Agent notification bridge was tested from Composer.",
+  })
+  if not ok then
+    log:error("Test notification failed: %s", tostring(result))
+    C4:FireEvent("Notification Failed")
+  end
+end
+
+function EC.REFRESH_INVENTORY()
+  EC.SEND_FULL_SYNC()
+end
+
+function EC.CHECK_FOR_UPDATES()
+  if type(EC.UPDATE_DRIVERS) == "function" then
+    EC.UPDATE_DRIVERS()
+  else
+    log:warn("Manual update checks are unavailable in this distribution")
+  end
+end
+
+function EC.ENTER_SERVICE_MODE()
+  log:info("%s", EnterAgentServiceMode())
+end
+
+function EC.EXIT_SERVICE_MODE()
+  log:info("%s", ExitAgentServiceMode())
+end
+
+function EC.REFRESH_STATUS()
+  EC.SEND_HEARTBEAT()
+end
+
+function EC.CAMERA_READ_ONLY_PROBE()
+  EC.PROBE_CAPABILITIES()
+end
 
 --- Lets Composer programming push a named event into SmartBuildOS, so a dealer
 --- can surface things the driver has no way to observe on its own (a rack door
@@ -6474,6 +8167,20 @@ function EC.REPORT_SERVICE_EVENT(tParams)
   reportCustom("service", tostring(tParams.NAME or ""), {
     value_text = tostring(tParams.DETAIL or ""),
   })
+end
+
+function EC.RECORD_SERVICE_NOTE(tParams)
+  tParams = tParams or {}
+  local note = tostring(tParams.NOTE or ""):sub(1, 1000)
+  if note == "" then
+    log:warn("RECORD_SERVICE_NOTE called with an empty NOTE; ignoring")
+    return
+  end
+  send("event", {
+    kind = "event",
+    name = "service note",
+    detail = note,
+  }, "service note")
 end
 
 function EC.SEND_EVENT(tParams)
@@ -6710,10 +8417,7 @@ local function noteClockSkew(serverIso)
     local hours = math.floor(math.abs(skew) / 3600)
     local direction = skew > 0 and "ahead of" or "behind"
     log:warn("Controller clock is %dh %s SmartBuildOS - licensing stays up, but fix the clock", hours, direction)
-    UpdateProperty(
-      "License Cloud",
-      string.format("OK - but the controller clock is %dh %s the cloud", hours, direction)
-    )
+    SetAgentLicenseState(string.format("OK - but the controller clock is %dh %s the cloud", hours, direction))
     licenseEvent(
       "WARNING",
       "CONFIGURATION",
@@ -6722,6 +8426,20 @@ local function noteClockSkew(serverIso)
     )
   end
   gEntitlements.clockSkewed = skewed
+end
+
+function SetAgentLicenseState(value)
+  value = tostring(value or "Not reported")
+  local changed = tostring(Properties["License Cloud"] or "") ~= value
+  UpdateProperty("License Cloud", value)
+  if changed and gInitialized then
+    pcall(function()
+      C4:FireEvent("License Status Changed")
+    end)
+  end
+  if PublishAgentStatus ~= nil then
+    pcall(PublishAgentStatus)
+  end
 end
 
 --- Paints the License Cloud + Support ID properties from current state.
@@ -6752,9 +8470,9 @@ function updateLicenseProperties()
   end
   if cache == nil then
     if isPaired() then
-      UpdateProperty("License Cloud", "Not yet validated - drivers run in legacy mode")
+      SetAgentLicenseState("Not yet validated - drivers run in legacy mode")
     else
-      UpdateProperty("License Cloud", "Not paired - drivers run in legacy mode")
+      SetAgentLicenseState("Not paired - drivers run in legacy mode")
     end
     return
   end
@@ -6782,7 +8500,7 @@ function updateLicenseProperties()
   if not cache.verified then
     label = label .. " (unsigned cache - re-pair to enable signing)"
   end
-  UpdateProperty("License Cloud", label)
+  SetAgentLicenseState(label)
 end
 
 --- The answer for one SKU, from the cache through the staleness ladder.
@@ -6930,12 +8648,30 @@ licensedDriverCounts = function()
   return installed, licensed
 end
 
+--- The status each SKU was last told, so the hourly tick can tell a driver
+--- when its answer changes without a cloud refresh (see pushChangedEntitlements).
+--- In memory only, so it is empty after the Agent alone reloads (a driver
+--- update), while the inventory and the dependent drivers' last answers
+--- survive. An entry missing here therefore means "not told since this load",
+--- and the tick answers it.
+local gAnswered = {}
+
 --- Answers one entitlement question — the Phase-2 seam, now with real
 --- statuses behind it. Every caller and the protocol shape are unchanged.
 --- @param requester number The asking driver's device id.
 --- @param sku string The driver SKU.
+--- The module registry's view of a SKU's licence (status, enforcement).
+function ModuleLicenceStatus(sku)
+  local okS, answer = pcall(statusForSku, sku)
+  if not okS or type(answer) ~= "table" then
+    return nil, "observe"
+  end
+  return answer.status, answer.enforcement
+end
+
 local function answerEntitlement(requester, sku)
   local answer = statusForSku(sku)
+  gAnswered[sku] = answer.status
   SendToDevice(requester, "SBOS_ENTITLEMENT", {
     sku = sku,
     status = answer.status,
@@ -7115,7 +8851,32 @@ end
 
 --- The hourly tick: refresh only once the cache is older than the server's
 --- revalidate window (default 24h), so the cadence is server-tunable.
+--- Tells every registered driver whose answer has changed since it was last
+--- told. statusForSku() moves on its own as the cache ages (AUTHORIZED_GRACE
+--- once the cache window passes, CLOUD_VALIDATION_REQUIRED once grace runs
+--- out), and that happens precisely while the cloud is unreachable, when no
+--- successful refresh will ever call pushEntitlements(). Without this a
+--- dependent driver kept "Licensed" for as long as the cloud stayed down.
+local function pushChangedEntitlements()
+  local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
+  for sku, entry in pairs(inventory) do
+    local device = tonumber(entry.device_id)
+    local status = statusForSku(sku).status
+    if device ~= nil and status ~= gAnswered[sku] then
+      log:info(
+        "Licence status for %s is %s, last told %s; telling device %s",
+        sku,
+        status,
+        tostring(gAnswered[sku]),
+        device
+      )
+      answerEntitlement(device, sku)
+    end
+  end
+end
+
 function entitlementTick()
+  pushChangedEntitlements()
   local cache = entitlementCache()
   if cache == nil then
     refreshEntitlements("initial validation")
@@ -7151,6 +8912,11 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   persist:set(SBOS_DRIVERS_PERSIST, inventory)
   log:info("SmartBuildOS driver registered: %s %s (device %s)", sku, entry.version, requester)
   answerEntitlement(requester, sku)
+  -- "Licensed Drivers" counts the inventory, which just changed. Without this
+  -- it was only repainted after a licence refresh, and a sku already in the
+  -- cache does not trigger one, so a newly added driver stayed out of the
+  -- count for up to a day.
+  updateLicenseProperties()
   -- A sku the cache has never seen deserves a prompt cloud ask (debounced:
   -- a Director restart registers everybody at once, and one refresh serves
   -- them all).

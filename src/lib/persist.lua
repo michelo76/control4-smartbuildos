@@ -106,7 +106,17 @@ function Persist:_get(key, default, encrypted)
   local value = self._persist[key]
 
   if value == nil then
-    value = Deserialize(PersistGetValue(key, encrypted))
+    local raw = PersistGetValue(key, encrypted)
+    value = Deserialize(raw)
+    -- Only a TABLE is ever stored encoded (Serialize leaves everything else
+    -- as it is), so a stored string that does not decode to a table IS the
+    -- value. Without this, a plain string was run through Base64 + JSON on
+    -- the way back, and one the controller's decoder turns into nothing
+    -- (a name with spaces, a token with dots or dashes) came back as nil:
+    -- kept in memory until the driver restarted, then gone.
+    if type(raw) == "string" and type(value) ~= "table" then
+      value = raw
+    end
     if value == nil then
       value = default
     end
