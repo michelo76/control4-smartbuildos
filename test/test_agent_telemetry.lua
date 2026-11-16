@@ -152,5 +152,51 @@ check(
   T.classifyRestart("reload", { shutdown_at = now + 60 }, now) == "unexpected"
 )
 
+print("\n[7] reloads today: a count that starts again at local midnight")
+local day = T.reloadsToday(nil, "2026-11-15", true)
+check("the first reload of a day is number 1", day.count == 1 and day.date == "2026-11-15")
+day = T.reloadsToday(day, "2026-11-15", true)
+day = T.reloadsToday(day, "2026-11-15", true)
+check("later reloads the same day add to it", day.count == 3 and day.date == "2026-11-15")
+check(
+  "a start that is not a reload (a driver update) leaves the count alone",
+  T.reloadsToday(day, "2026-11-15", false).count == 3
+)
+local nextDay = T.reloadsToday(day, "2026-11-16", false)
+check("midnight starts the count again at 0", nextDay.count == 0 and nextDay.date == "2026-11-16")
+check("a reload on the new day is number 1 again", T.reloadsToday(day, "2026-11-16", true).count == 1)
+local back = T.reloadsToday(day, "2026-11-01", true)
+check(
+  "a clock that went backwards does not open a new day, and the reload still counts",
+  back.count == 4 and back.date == "2026-11-15"
+)
+local unreadable = T.reloadsToday(day, nil, true)
+check(
+  "an unreadable date keeps the day and counts the reload",
+  unreadable.count == 4 and unreadable.date == "2026-11-15"
+)
+check(
+  "a damaged stored record starts from nothing",
+  T.reloadsToday({ date = 7, count = "x" }, "2026-11-15", true).count == 1
+)
+check(
+  "a year boundary is a later date",
+  T.reloadsToday({ date = "2026-12-31", count = 5 }, "2027-01-01", false).count == 0
+)
+
+print("\n[8] seconds to the next local midnight")
+local noon = os.time({ year = 2026, month = 11, day = 15, hour = 12, min = 0, sec = 0 })
+check("noon is twelve hours from midnight", T.secondsUntilLocalMidnight(noon) == 12 * 3600)
+local late = os.time({ year = 2026, month = 11, day = 15, hour = 23, min = 59, sec = 58 })
+check("two seconds before midnight", T.secondsUntilLocalMidnight(late) == 2)
+local midnight = os.time({ year = 2026, month = 11, day = 16, hour = 0, min = 0, sec = 0 })
+local whole = T.secondsUntilLocalMidnight(midnight)
+check("at midnight the next one is a whole day away", whole >= 23 * 3600 and whole <= 25 * 3600, whole)
+check(
+  "the last day of a year rolls into the next",
+  T.secondsUntilLocalMidnight(os.time({ year = 2026, month = 12, day = 31, hour = 23, min = 0, sec = 0 })) == 3600
+)
+check("a clock that cannot be read asks again in an hour", T.secondsUntilLocalMidnight("never") == 3600)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

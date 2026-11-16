@@ -70,6 +70,8 @@ M.PREFIXES = {
   flight_recorder = { "observation.", "trace.", "recorder.", "snapshot.", "capture.", "tracer." },
   usage_analytics = { "usage." },
   agent = { "agent." },
+  -- VenueFlow: a new live version, and remote configuration (docs/smartbuildos-venueflow).
+  venueflow = { "venueflow." },
   -- Reserved, not implemented (extension contracts, PROTOCOL.md §8):
   guardian = { "health." },
   commissioning_inspector = { "test." },

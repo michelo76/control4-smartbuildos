@@ -141,6 +141,14 @@
       <readonly>true</readonly>
       <hidden>false</hidden>
     </variable>
+    <variable>
+      <id>2012</id>
+      <name>DIRECTOR_RELOADS_TODAY</name>
+      <type>NUMBER</type>
+      <default>0</default>
+      <readonly>true</readonly>
+      <hidden>false</hidden>
+    </variable>
   </variables>
   <events>
     <event>
@@ -268,6 +276,7 @@
       <action><name>Generate System Report</name><command>GENERATE_SYSTEM_REPORT</command></action>
       <action><name>Send System Report</name><command>SEND_SYSTEM_REPORT</command></action>
       <action><name>Send Test Notification</name><command>SEND_TEST_NOTIFICATION</command></action>
+      <action><name>Send Test Push</name><command>SEND_TEST_PUSH</command></action>
       <action><name>Refresh Inventory</name><command>REFRESH_INVENTORY</command></action>
       <action><name>Check for Updates</name><command>CHECK_FOR_UPDATES</command></action>
       <action><name>Enter Service Mode</name><command>ENTER_SERVICE_MODE</command></action>
@@ -375,6 +384,19 @@
         <description>Record an integrator-authored service note in SmartBuildOS</description>
         <params>
           <param><name>NOTE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>SEND_PUSH_NOTIFICATION</name>
+        <description>Send PARAM3 push notification: PARAM1 PARAM2 PARAM4 PARAM5 PARAM6 PARAM7</description>
+        <params>
+          <param><name>TITLE</name><type>STRING</type></param>
+          <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>SEVERITY</name><type>LIST</type><items><item>Info</item><item>Warning</item><item>Critical</item></items></param>
+          <param><name>VARIABLE 1</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 2</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 3</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
+          <param><name>VARIABLE 4</name><type>VARIABLE_SELECTOR</type><variabletype>all</variabletype></param>
         </params>
       </command>
     </commands>
@@ -514,6 +536,13 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>Last Push Notification</name>
+        <type>STRING</type>
+        <default>None yet</default>
+        <readonly>true</readonly>
+        <description>What happened to the last Send Push Notification: accepted by SmartBuildOS and for how many recipients, or why it was not sent.</description>
+      </property>
+      <property>
         <name>Touchpanel Display</name>
         <type>LABEL</type>
         <default>Touchpanel Display</default>
@@ -603,6 +632,13 @@
         <description>How many times Director has come back up under this driver. A driver update is not counted — it restarts the driver without the controller having gone anywhere.</description>
       </property>
       <property>
+        <name>Director Reloads Today</name>
+        <type>STRING</type>
+        <default>0</default>
+        <readonly>true</readonly>
+        <description>Director reloads since local midnight</description>
+      </property>
+      <property>
         <name>Last Reload</name>
         <type>STRING</type>
         <default/>
@@ -659,7 +695,7 @@
           <item>On</item>
           <item>Off</item>
         </items>
-        <description>Email when the controller reboots or Director reloads, including how many times it has happened</description>
+        <description>Email on a controller reboot or Director reload</description>
       </property>
       <property>
         <name>Email on Device Offline</name>

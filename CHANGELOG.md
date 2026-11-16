@@ -21,6 +21,64 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ## Unreleased
 
 ### Added
+- **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial
+  AV control surface on an existing Control4 project.** Four operator
+  screens on one UI Button tile (Visual Floor Plan, Command Center,
+  Simplified Room Control, Manager Overview) and Installer Studio, served on
+  the venue LAN from the driver's relay: setup wizard, device discovery and
+  mapping with test actions, a drag-and-drop layout designer, a visual
+  programming editor for scenes, rules and schedules with dry run, staff
+  profiles enforced by the driver, diagnostics, backup, publish and rollback.
+  A capability-aware routing engine reports one outcome per display and never
+  reports a dispatched command as done; audio zones are independent of video;
+  the driver starts in Simulation and sends nothing to Control4 until set to
+  Live. **Simulation verified only.** On a bench controller it installs,
+  serves its pages, publishes and survives a driver restart, all in
+  Simulation; it has not yet controlled real equipment
+  (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`). `make venueflow`
+  builds just this driver and does not copy it into Composer's folder.
+  - **Venue Studio for the client.** A staff profile that holds the new Venue
+    Studio permission (the Owner role by default) opens the Studio with its
+    PIN, from the tile's profile menu or on the page, and changes scenes,
+    schedules, staff and PINs, source names and channel labels and volume
+    presets, and publishes that. The driver refuses a client's change to
+    anything else. Simulation verified; not yet tried on a Navigator.
+  - **Basic source controls.** A source can have channel up, down and last,
+    a number keypad, arrows with guide, info and menu, and transport keys,
+    plus up to 24 favourite channels dialled with one press. Staff with the
+    new "Use source controls" permission get a remote beside the source; the
+    venue edits favourites in the Venue Studio. The page names a key from a
+    closed list; the driver sends the documented Control4 command to the
+    source's own device. Simulation verified only: not yet seen to move a
+    real box, and there is no feedback.
+  - **Remote Management, driver side.** A property (Off by default, Draft
+    only, Draft and publish) lets smartbuildos.io read the configuration,
+    fill the draft and, where allowed, publish and roll back, through the
+    Agent's module contract (module `venueflow`; one new Agent allowlist
+    entry and one envelope prefix). It never controls equipment. **The
+    platform side does not exist yet**, so nothing can be managed remotely
+    today.
+- **Agent: restarts counted per day.** New property **Director Reloads
+  Today** and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the
+  controller's local midnight, back to 0 every midnight. The reload report to
+  SmartBuildOS carries the day's count, so the email can say "restart number
+  3 today" instead of only the count since monitoring began. **System
+  Startups Today** and **Controller Reboots Observed Today** now also return
+  to 0 at midnight; they used to wait for the next restart.
+- **Agent: Send Push Notification, with no 4Sight subscription.** A new
+  programming command on the SmartBuildOS Agent, `SEND_PUSH_NOTIFICATION`,
+  with `TITLE`, `MESSAGE`, `SEVERITY` (Info, Warning, Critical) and four
+  variable pickers that work as they do in the Notification Router (`${1}`
+  to `${4}`, `${Room->Device::VARIABLE}`, `${1|Open|Closed}`). The Agent
+  posts the message to SmartBuildOS on its own connection, and SmartBuildOS
+  sends it as a push to the SmartBuildOS Field app and as a web push to the
+  people in the system's recipient profile, through each person's own
+  notification settings and quiet hours. Control4's Push Notification agent
+  is not involved. The same message is sent once in five minutes and at
+  most 30 leave in an hour; *Notification Failed* fires when a push was
+  attempted and SmartBuildOS refused it or could not be reached. New action
+  *Send Test Push* and read-only property **Last Push Notification**. Needs
+  the matching push service on SmartBuildOS; not yet run on a controller.
 - **A full manual for every driver.** The other 40 drivers now have the
   same kind of manual as the Notification Router and Solar Position: what
   the driver is for and a table of use cases, where the stock way is still
@@ -163,6 +221,34 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   frame, so they are not queued and uploaded first.
 
 ### Fixed
+- **VenueFlow: six defects from the review of its pull request**, each
+  reproduced by a test first (simulation and shim; not built, not run on a
+  controller). Mapping tests on a sample venue left in the draft are refused
+  in Live mode (they addressed the sample's invented Control4 ids in the
+  real project). Several rules, or a rule and a room's feedback, can watch
+  the same Control4 variable. Stopping a scene also stops the commands it
+  had queued and not sent. `OPERATION_GET` is filtered by the profile's
+  access. A schedule due just after a driver start or a publish is no longer
+  skipped. A display or zone remapped to other hardware no longer keeps the
+  old hardware's readings. See
+  `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
+- **The Agent registers for Director's system events** (`smartbuildos`).
+  `OnDriverLateInit` named a `local function` declared further down the file,
+  so the name was an unset global and the guarded init step was nil: one error
+  line at start, and no registration. *Project Changed*, *Programming Changed*
+  and *OS Update Started* could not fire, **Last Project Change** and
+  **Zigbee Events** never moved, a device change waited for the timed poll,
+  and with no shutdown notice every reload was classed `unexpected`. The step
+  now calls the global `RegisterSystemEvents`. `test/test_locals_before_use.lua`
+  reads every driver for the same mistake (a file-level local read above its
+  declaration); the Agent was the only one. Not yet seen on a controller.
+- **Secrets stay out of the log at Log Level Trace** (`src/lib/persist.lua`,
+  Guest Mode). The storage library logged every value it wrote, so the guest
+  PIN and Wi-Fi password, and for other drivers a Bond token or a relay token,
+  appeared in the Lua tab and the controller log; a value stored encrypted is
+  now logged as `<hidden>`. Guest Mode's `SET_GUEST_WIFI_PASSWORD` was also
+  printed with its `PASSWORD` parameter by the command dispatcher at Trace; it
+  no longer is.
 - **Sunrise and sunset use the site's day, not the UTC day** (Atmosphere and
   Solar Position, `src/atmosphere/solar.lua`). In a western evening the UTC
   date has already turned, and the driver answered with tomorrow's sun: at

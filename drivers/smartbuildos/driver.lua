@@ -69,6 +69,11 @@ Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
 Envelope = require("sbos.envelope")
 SlProtocol = require("systemlink.protocol")
+-- Send Push Notification: the message variables are the Notification
+-- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
+-- both drivers; the gate bounds, de-duplicates and rate-limits.
+NotifyTemplate = require("notify.template")
+AgentPush = require("sbos.agentpush")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 local sbosUpdater = require("lib.sbos-updater")
@@ -187,6 +192,8 @@ RESTART_KEYS = {
   restart = "director_reload_restart",
   shutdown = "director_shutdown_seen_at",
   os_update = "director_os_update_seen_at",
+  -- { date = "YYYY-MM-DD", count = n }: reloads on the current local day.
+  today = "director_reload_today",
 }
 --- Versioned System Studio Agent state. Configuration and runtime state are
 --- separate documents: replacing a settings revision must never reset startup
@@ -327,7 +334,7 @@ local gThermostatSnapshot = {}
 local gUpdate = { checked_at = nil, automatic = nil, reads_version_as = nil }
 --- What this driver start was: count, timestamp, and cause.
 --- @type table
-local gStart = { count = 0, at = nil, kind = nil, restart = nil }
+local gStart = { count = 0, at = nil, kind = nil, restart = nil, today = 0, day = nil }
 --- Every Director system event seen since this start, by name. Shipped on
 --- the heartbeat so the fleet tells us which events each OS actually fires.
 gSystemEventCounts = {}
@@ -491,7 +498,12 @@ local function recordStart()
   persist:delete(RESTART_KEYS.shutdown)
   persist:delete(RESTART_KEYS.os_update)
 
+  -- The same reload, counted for the local day it happened on. This is the
+  -- number a notice leads with: the lifetime count says little a year in.
+  local today = AgentTelemetry.reloadsToday(persist:get(RESTART_KEYS.today, nil), os.date("%Y-%m-%d"), kind == "reload")
+
   persist:set(RELOAD_COUNT_KEY, count)
+  persist:set(RESTART_KEYS.today, today)
   persist:set(RELOAD_AT_KEY, at)
   persist:set(RELOAD_KIND_KEY, kind)
   if restart ~= nil then
@@ -503,6 +515,8 @@ local function recordStart()
 
   return {
     count = count,
+    today = today.count,
+    day = today.date,
     at = at,
     kind = kind,
     restart = restart,
@@ -549,6 +563,7 @@ end
 local function announceStart()
   local ok, err = pcall(function()
     UpdateProperty("Director Reloads", tostring(gStart.count))
+    UpdateProperty("Director Reloads Today", tostring(gStart.today or 0))
     UpdateProperty(
       "Last Reload",
       string.format(
@@ -559,6 +574,7 @@ local function announceStart()
       )
     )
     C4:SetVariable("DIRECTOR_RELOADS", gStart.count)
+    C4:SetVariable("DIRECTOR_RELOADS_TODAY", gStart.today or 0)
     C4:SetVariable("LAST_RELOAD", gStart.at)
   end)
   if not ok then
@@ -584,7 +600,7 @@ local function announceStart()
   pcall(
     ModulesNotifyEvent,
     "director_reloaded",
-    { count = gStart.count, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
+    { count = gStart.count, today = gStart.today, at = gStart.at, kind = gStart.kind, restart = gStart.restart }
   )
   if gStart.restart == "unexpected" then
     pcall(ModulesNotifyEvent, "unexpected_restart", { count = gStart.count, at = gStart.at })
@@ -1172,13 +1188,65 @@ function AgentReportReload()
   send("event", {
     kind = "event",
     name = "director_reloaded",
-    detail = string.format("Director reload #%d (%s)", gStart.count, gStart.restart or "cause unknown"),
+    detail = string.format(
+      "Director reload #%d, %d today (%s)",
+      gStart.count,
+      gStart.today or 0,
+      gStart.restart or "cause unknown"
+    ),
     director_reloads = gStart.count,
+    -- Counted on the controller, because "today" is the house's local day
+    -- and the platform does not know where its midnight falls.
+    director_reloads_today = gStart.today,
+    local_date = gStart.day,
     restart = gStart.restart,
     last_reload_at = gStart.at,
     alerts = alertPreferences(),
   }, "director reload")
   return true
+end
+
+--- Start a new local day when the date has moved on.
+---
+--- Both "today" counters used to start again only when the NEXT restart
+--- arrived, so a controller that restarted three times on Monday still said
+--- three on Tuesday afternoon. Cheap enough (two string comparisons) to run
+--- from the midnight timer AND from every heartbeat: the timer makes the
+--- reset prompt, the heartbeat makes it certain when the controller's clock
+--- was wrong at the moment the timer was armed.
+--- @return boolean changed
+function AgentRollDay()
+  local today = os.date("%Y-%m-%d")
+  local rolled = AgentTelemetry.reloadsToday({ date = gStart.day, count = gStart.today }, today, false)
+  local changed = rolled.date ~= gStart.day
+  if changed then
+    gStart.day, gStart.today = rolled.date, rolled.count
+    persist:set(RESTART_KEYS.today, rolled)
+    pcall(function()
+      UpdateProperty("Director Reloads Today", tostring(gStart.today))
+      C4:SetVariable("DIRECTOR_RELOADS_TODAY", gStart.today)
+    end)
+  end
+  local state, stateChanged = AgentContract.rollDay(gAgentState, today)
+  if stateChanged then
+    gAgentState = state
+    PersistAgentState()
+    PublishAgentStatus()
+  end
+  if changed or stateChanged then
+    log:info("A new day (%s): today's restart counts start again at 0", today)
+  end
+  return changed or stateChanged
+end
+
+--- Arms the one-shot timer for the next local midnight, and re-arms itself.
+--- Five seconds late on purpose, so the date has certainly changed.
+function ArmAgentMidnightTimer()
+  local seconds = AgentTelemetry.secondsUntilLocalMidnight(os.time()) + 5
+  SetTimer("SmartBuildOSAgentMidnight", seconds * ONE_SECOND, function()
+    pcall(AgentRollDay)
+    ArmAgentMidnightTimer()
+  end)
 end
 
 -- ─── System Studio Agent Contract v1 ────────────────────────────────────────
@@ -3012,6 +3080,8 @@ end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
+  -- The backstop for the midnight timer: see AgentRollDay.
+  pcall(AgentRollDay)
   send(
     "heartbeat",
     {
@@ -3035,6 +3105,7 @@ local function sendHeartbeat()
       -- On the heartbeat rather than only on the event, so a platform that
       -- missed the event still converges on the truth.
       director_reloads = gStart.count,
+      director_reloads_today = gStart.today,
       last_reload_at = gStart.at,
       last_reload_kind = gStart.kind,
       last_reload_restart = gStart.restart,
@@ -3685,6 +3756,11 @@ MODULE_COMMANDS = {
     refresh_status = true,
   },
   usage_analytics = { send_summary = true, reapply = true, refresh_status = true },
+  -- VenueFlow's configuration only (read it, fill the draft, publish, roll
+  -- back). The VenueFlow driver registers publish and rollback only when its
+  -- "Remote Management" property allows them, so the instance check above
+  -- refuses them otherwise. None of these routes video or runs a scene.
+  venueflow = { snapshot = true, save_draft = true, publish = true, rollback = true, refresh_status = true },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100
@@ -6086,6 +6162,7 @@ function registerBridgeVariables()
     { "NOTICE_TEXT", "" },
     { "SYSTEM_STARTUPS_TODAY", 0, "NUMBER" },
     { "CONTROLLER_REBOOTS_OBSERVED_TODAY", 0, "NUMBER" },
+    { "DIRECTOR_RELOADS_TODAY", 0, "NUMBER" },
     { "SERVICE_MODE_ACTIVE", false, "BOOL" },
     { "CLOUD_CONNECTED", false, "BOOL" },
     { "REPORT_STATUS", "not-requested", "STRING" },
@@ -6161,6 +6238,8 @@ function OnDriverLateInit(reason)
       or (gStart.kind == "first" and "DIT_ADDING" or "DIT_STARTUP")
   end
   PublishAgentStatus()
+  -- Today's counts start again at local midnight, restart or no restart.
+  pcall(ArmAgentMidnightTimer)
   -- Modules that started before this Agent re-register on this hello.
   pcall(ModulesHello)
 
@@ -6228,7 +6307,12 @@ function OnDriverLateInit(reason)
   -- failure look like a healthy driver to everyone except the platform.
   -- Timers arm NO MATTER WHAT above them survives, and a failure NAMES itself.
   for _, step in ipairs({
-    { "registerSystemEvents", registerSystemEvents },
+    -- A GLOBAL, looked up when this runs. It was a `local function` declared
+    -- further down the file, so this line read a global of that name that
+    -- nobody had set: the step was nil, the guard logged "Init step
+    -- registerSystemEvents failed" and the Agent never registered for a
+    -- single Director event (test_locals_before_use.lua guards the pattern).
+    { "registerSystemEvents", RegisterSystemEvents },
     { "applyDiscovery", applyDiscovery },
     -- Phase 5: paint licensing properties from the cache, then fetch only
     -- if the revalidate window has passed. Guarded like the rest — a
@@ -6278,10 +6362,14 @@ end
 --- AgentTelemetry.SYSTEM_EVENT_NAMES (vendored C4SystemEvents table).
 local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
-local function registerSystemEvents()
+--- Registers for every event in SYSTEM_EVENTS, system-wide. Global so that
+--- OnDriverLateInit (above) reaches it and the tests can call it.
+--- @return integer registered How many registrations Director accepted.
+function RegisterSystemEvents()
+  local registered = 0
   if C4.RegisterSystemEvent == nil then
     log:warn("This controller's OS does not provide RegisterSystemEvent; falling back to polling only")
-    return
+    return registered
   end
   for id, name in pairs(SYSTEM_EVENTS) do
     local ok, err = pcall(function()
@@ -6290,11 +6378,13 @@ local function registerSystemEvents()
       C4:RegisterSystemEvent(id, 0)
     end)
     if ok then
+      registered = registered + 1
       log:debug("Registered for system event %d (%s)", id, name)
     else
       log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
     end
   end
+  return registered
 end
 
 --- Director calls this for every event registered above.
@@ -8228,6 +8318,152 @@ function EC.SEND_EVENT(tParams)
     name = name,
     detail = tParams.DETAIL or "",
   }, "event '" .. name .. "'")
+end
+
+-- ─── Send Push Notification (programming) ───────────────────────────────────
+--
+-- A push that needs no Control4 4Sight / Connect subscription: the Agent
+-- posts the message to SmartBuildOS over its own authenticated path, and the
+-- platform sends it as an Apple push to the SmartBuildOS Field app and as a
+-- web push, to the people named in this system's recipient profile, each
+-- through their own notification preferences and quiet hours.
+--
+-- Globals, not locals: the main chunk is at Lua's 200-local ceiling.
+
+AgentPushState = { gate = nil, seq = 0 }
+
+function AgentPushGate()
+  if AgentPushState.gate == nil then
+    AgentPushState.gate = AgentPush.new({ now = os.time })
+  end
+  return AgentPushState.gate
+end
+
+function AgentPushNote(text)
+  UpdateProperty("Last Push Notification", os.date("%H:%M:%S") .. " " .. tostring(text))
+end
+
+--- Sends one push through the gate. `Notification Failed` fires only for a
+--- push that was ATTEMPTED and did not go (SmartBuildOS refused it, or could
+--- not be reached). A duplicate, a rate-limited or an empty push is logged
+--- and nothing else: programming that answers Notification Failed with
+--- another push would otherwise feed itself.
+--- @param fields table { title, body, severity }
+--- @param source string "programming" | "test"
+--- @param options table|nil { fresh = true } to skip the dedupe check
+--- @return boolean attempted, string|nil whyNot
+function SendAgentPush(fields, source, options)
+  local msg, why = AgentPush.message(fields)
+  if msg == nil then
+    log:warn("Push notification ignored: %s", tostring(why))
+    AgentPushNote("ignored: " .. tostring(why))
+    return false, why
+  end
+  local gate = AgentPushGate()
+  local label = msg.title ~= "" and msg.title or msg.body
+  local admitted, refusal = gate:admit(msg, options)
+  if not admitted then
+    if refusal == "duplicate" then
+      log:info(
+        "Push notification not repeated: the same message was sent in the last %d s: %s",
+        AgentPush.LIMITS.dedupe_seconds,
+        label
+      )
+      AgentPushNote("not repeated (same message within 5 minutes): " .. label)
+    else
+      log:warn("Push notification dropped: %d already sent in the last hour: %s", AgentPush.LIMITS.per_hour, label)
+      AgentPushNote(string.format("dropped: hourly limit of %d reached", AgentPush.LIMITS.per_hour))
+    end
+    return false, refusal
+  end
+
+  AgentPushState.seq = AgentPushState.seq + 1
+  local settled = false
+  local function finish(accepted, detail)
+    if settled then
+      return
+    end
+    settled = true
+    gate:settle(accepted)
+    if accepted then
+      log:info("Push notification accepted by SmartBuildOS for %d recipient(s): %s", detail, label)
+      AgentPushNote(string.format("accepted for %d recipient(s): %s", detail, label))
+      return
+    end
+    log:error("Push notification not sent (%s): %s", AgentPush.explain(detail), label)
+    AgentPushNote("not sent: " .. AgentPush.explain(detail))
+    pcall(function()
+      C4:FireEvent("Notification Failed")
+    end)
+  end
+  send(
+    "push",
+    {
+      kind = "push",
+      source_event_id = string.format("agent-push:%s:%d:%d", tostring(C4:GetDeviceID()), os.time(), AgentPushState.seq),
+      observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+      title = msg.title,
+      body = msg.body,
+      severity = msg.severity,
+      source = source,
+    },
+    "push notification",
+    function(body)
+      finish(AgentPush.readAnswer(body))
+    end,
+    function()
+      -- Overwritten at once by the answer; stays only if SmartBuildOS said 200
+      -- with nothing readable in it.
+      AgentPushNote("delivered to SmartBuildOS, no answer read: " .. label)
+    end,
+    function(reason)
+      finish(false, reason)
+    end
+  )
+  return true
+end
+
+--- Send Push Notification, from the programming window. TITLE and MESSAGE
+--- may carry ${1}..${4} (the variable picked in VARIABLE 1..4) or
+--- ${Room->Device::VARIABLE}; a picked variable that neither names is added
+--- after the message. A variable that cannot be read is sent as "?" and
+--- logged; it never blocks the push.
+function EC.SEND_PUSH_NOTIFICATION(tParams)
+  tParams = tParams or {}
+  local function picked(n)
+    return tParams["VARIABLE " .. n]
+  end
+  local resolve = NotifyTemplate.resolver({
+    picked = picked,
+    devices = function()
+      local ok, list = pcall(function()
+        return C4:GetDevices({})
+      end)
+      return ok and type(list) == "table" and list or {}
+    end,
+    readVariables = function(deviceId)
+      local ok, vars = pcall(function()
+        return C4:GetDeviceVariables(deviceId)
+      end)
+      return ok and type(vars) == "table" and vars or nil
+    end,
+  })
+  local title, body, problems = NotifyTemplate.fill(tParams.TITLE, tParams.MESSAGE, resolve, picked)
+  for _, p in ipairs(problems) do
+    log:warn("Push notification variable %s not filled: %s", p.token, p.reason)
+  end
+  SendAgentPush({ title = title, body = body, severity = tParams.SEVERITY }, "programming")
+end
+
+--- Actions > Send Test Push. Skips the dedupe check so a second press sends
+--- again; the hourly limit still applies.
+function EC.SEND_TEST_PUSH()
+  log:info("Sending a test push through SmartBuildOS")
+  SendAgentPush({
+    title = "SmartBuildOS test push",
+    body = "Sent from the SmartBuildOS Agent in Composer. If this reached your phone, Send Push Notification works for this system.",
+    severity = "info",
+  }, "test", { fresh = true })
 end
 
 -- ─── Conditionals ─────────────────────────────────────────────────────────────

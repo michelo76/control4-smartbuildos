@@ -25,7 +25,8 @@ and this manual is where it is explained.
 | A switch, access point or NAS with no Control4 driver watched as well | **Non Control4 Devices** |
 | To tell SmartBuildOS something only programming can see (a rack door, a UPS on battery) | `SEND_EVENT`, `REPORT_STATE`, `REPORT_MEASUREMENT`, `REPORT_COUNTER`, `REPORT_FAULT`, `REPORT_SERVICE_EVENT` |
 | A SmartBuildOS notice on the homeowner's phone | *Service Update*, *Issue Detected*, *Issue Updated*, *Issue Resolved*, wired to a push notification |
-| To notice a controller that keeps restarting | *Director Reloaded*, `DIRECTOR_RELOADS`, **System Startups Today**, *Startup Threshold Reached* |
+| A push to your own team's phones from programming, with no 4Sight subscription | `SEND_PUSH_NOTIFICATION`. See [Push notifications from programming](#push-notifications-from-programming) |
+| To notice a controller that keeps restarting | *Director Reloaded*, `DIRECTOR_RELOADS_TODAY`, `DIRECTOR_RELOADS`, **System Startups Today**, *Startup Threshold Reached* |
 | Restart notices held back while you work on site | *Enter Service Mode* |
 | To decide what SmartBuildOS may operate in this home | **Remote Control** |
 | A read-only status page on a touchscreen | *Generate Touchpanel URL* |
@@ -198,6 +199,11 @@ down is reported once when it drops and once when it recovers. The first read
 after the driver loads is a baseline: it fires no device events, so a
 controller restart does not look like every device coming online at once.
 
+The Agent also registers for Director's own notices at start. When Director
+says a device came online or went offline, or a binding changed, a paired
+Agent polls five seconds later instead of waiting for the interval, so a burst
+of notices costs one poll. The timed poll stays as the backstop.
+
 **Non Control4 Devices** is a comma-separated list. Each entry is `Label=host`
 or a bare host, which is labelled with itself:
 
@@ -241,6 +247,7 @@ come back on the answers to requests the Agent already makes.
 | Telemetry | Every 45 seconds while anything is queued | Device online and offline transitions with their original time, `REPORT_...` entries, clock drift |
 | Licence refresh | See [Licensing](#licensing) | The SKU, version and device id of each registered SmartBuildOS driver, and of the Agent |
 | Startup observation | After a start, once **Stabilization Delay** has passed | How the start was classified, and the startup counters |
+| Push | On `SEND_PUSH_NOTIFICATION` and *Send Test Push* | The title, the message with its variables already filled in, the severity. No recipient: SmartBuildOS decides who receives it |
 
 Each report also names the system: the paired system or property, the
 controller model, OS and driver versions, the Agent's and Director's device
@@ -321,12 +328,17 @@ when the History agent is installed.
 **Last Reload** shows the time and `first`, `update` or `reload`. Only a
 reload, where Director came back under an unchanged driver, adds to
 **Director Reloads** and fires *Director Reloaded*; a driver update does not.
+**Director Reloads Today** is the same count for the current day only: it
+starts again at 0 at the controller's local midnight, whether or not anything
+restarted, and it is the number the reload email leads with ("restart number
+3 today"). The lifetime count carries on beside it.
 Separately, **System Startups Today** and
 **Controller Reboots Observed Today** count Director startups and changes of
 the controller's boot identity, and the start fires one of
 *System Startup Observed*, *Controller Reboot Observed* or
 *Startup Threshold Reached* (when today's count reaches
-**Startup Threshold**). Adding or updating the driver is never counted. The
+**Startup Threshold**). Adding or updating the driver is never counted.
+These two also go back to 0 at local midnight. The
 counters and any startup report not yet delivered survive a driver restart.
 
 **Service mode.** *Enter Service Mode* marks the system as being worked on for
@@ -334,7 +346,94 @@ counters and any startup report not yet delivered survive a driver restart.
 sent, marked so that SmartBuildOS holds back its notification. It ends by
 itself at **Service Mode Expires At**, or with *Exit Service Mode*.
 
+## Push notifications from programming
+
+`SEND_PUSH_NOTIFICATION` sends a push that you write in the programming
+window. It does not use Control4's Push Notification agent, so the project
+needs no 4Sight or Connect subscription. The Agent posts the message to
+SmartBuildOS on the connection it already has, and SmartBuildOS sends it.
+
+**Who receives it.** The people in this system's recipient profile, which is
+set in SmartBuildOS (System Studio, the system's Agent settings) and shown
+here in **Recipient Profile**. They are members of your company. The Agent
+never names a recipient, and nothing typed in Composer can add one. Each of
+them gets:
+
+- a push on an iPhone with the SmartBuildOS Field app signed in and
+  notifications allowed;
+- a web push in a browser where they turned SmartBuildOS notifications on;
+- the same notice in their SmartBuildOS inbox, whether or not a push arrives.
+
+Each person's own SmartBuildOS notification settings apply: push switched off,
+or quiet hours, hold the push back for that person, at every severity. The
+inbox still gets it.
+
+**What you write.**
+
+| Parameter | What it is |
+| --- | --- |
+| `TITLE` | The first line. Up to 120 characters. SmartBuildOS puts the system's name in front of it, so you do not need to write the site |
+| `MESSAGE` | The text. Up to 500 characters |
+| `SEVERITY` | `Info`, `Warning` or `Critical`: how the notice is marked in SmartBuildOS. It does not change who receives it |
+| `VARIABLE 1` to `VARIABLE 4` | Up to four variables, picked from Composer's own variable tree |
+
+A push needs a `TITLE` or a `MESSAGE`. The variables work as they do in the
+Notification Router:
+
+| You write | The push carries |
+| --- | --- |
+| `${1}` to `${4}` | The value, read at that moment, of the variable picked in `VARIABLE 1` to `VARIABLE 4` |
+| Nothing, with a variable picked | The value, after the message |
+| `${Room->Device::VARIABLE}` or `${Device::VARIABLE}` | That variable, written out. `${Variables::NAME}` reads a project variable |
+| `${1\|Open\|Closed}` | `Open` when the value is 1, true, on or yes, `Closed` when it is 0, false, off, no or empty |
+| `${2\|.1}` | A number rounded to one decimal (0 to 3) |
+
+A variable that cannot be read is sent as `?`, and the Lua output says which.
+A variable whose name marks it as a credential (a user code, a PIN, a
+password, a token) is sent as `[hidden]`. Neither stops the push.
+
+**Limits.** The same severity, title and message is sent once in five
+minutes; a different value in a variable makes it a different message. At
+most 30 pushes leave the Agent in any hour. A repeat or a push over the limit
+is dropped and written to the Lua output, and nothing else happens.
+
+**Knowing it went.** **Last Push Notification** shows the result of the last
+one: `accepted for 2 recipient(s)`, or why it was not sent. `Accepted` means
+SmartBuildOS took it and wrote it to those inboxes; it is not a confirmation
+that a phone showed it. *Notification Failed* fires when a push was attempted
+and did not go: SmartBuildOS refused it (no recipient profile set for the
+system, for instance), or could not be reached. It does not fire for a repeat
+or for the hourly limit, so programming that answers *Notification Failed*
+with another push cannot feed itself.
+
 ## Worked examples
+
+### A push to your team with a live value
+
+<!-- walkthrough: Send a push from programming without 4Sight -->
+1. In SmartBuildOS, open the system in System Studio and set its recipient
+   profile. On the Agent, **Recipient Profile** shows it after the next
+   check-in.
+1. On each phone, sign in to the SmartBuildOS Field app and allow
+   notifications.
+1. On the Agent's Actions tab press *Send Test Push*.
+   **Last Push Notification** should read `accepted for` and a number of
+   recipients, and the phones should show "SmartBuildOS test push".
+1. In Programming, select the Agent and the event *Director Reloaded*.
+1. From the Agent's commands add *Send Push Notification*: `TITLE`
+   `Controller`, `MESSAGE` `Controller restarted ${1} times today`, `SEVERITY`
+   `Warning`.
+1. In `VARIABLE 1` pick the Agent, then `DIRECTOR_RELOADS_TODAY`. It is set
+   before *Director Reloaded* fires, so the message carries the new count.
+
+After the third reload of the day the phones read "Controller restarted 3
+times today", under the system's name. SmartBuildOS also sends its own notice
+about a startup when **Notification Policy** says so; this one is yours to
+word.
+
+The same command reports what only programming can see. When a rack door
+contact changes: `TITLE` `Rack`, `MESSAGE` `Door is ${1|open|closed}`, with
+the contact's state variable in `VARIABLE 1`.
 
 ### A SmartBuildOS issue on the homeowner's phone
 
@@ -379,10 +478,12 @@ sent at once instead, and is not kept if the connection is down.
 | *Unexpected Restart* | With *Director Reloaded*, when no shutdown or OS-update notice was recorded before it |
 | *Service Update*, *Issue Detected*, *Issue Updated*, *Issue Resolved* | SmartBuildOS sends a notice |
 | *System Startup Observed*, *Controller Reboot Observed*, *Startup Threshold Reached* | At start, one of the three, when **Startup Monitoring** is `On` |
-| *Notification Failed* | SmartBuildOS reports it could not notify about a startup, or *Send Test Notification* fails |
+| *Notification Failed* | SmartBuildOS reports it could not notify about a startup; a `SEND_PUSH_NOTIFICATION` or *Send Test Push* was attempted and SmartBuildOS refused it or could not be reached; or *Send Test Notification* fails |
 | *License Status Changed* | The text of **License Cloud** changes |
 | *Clock Drift Detected* | The controller clock is 120 seconds or more from SmartBuildOS's. Once, until it has come back within 60 |
-| *Project Changed*, *Programming Changed*, *OS Update Started* | On Director's own notices. Not in this build: see [What is not claimed](#what-is-not-claimed) |
+| *Project Changed* | 30 seconds after Director's last notice that something in the project was added, removed, renamed, moved or rebound, so a burst of Composer work is one event. **Last Project Change** names what changed. Paired Agent only |
+| *Programming Changed* | 30 seconds after Director's last notice that a programming line was added, removed or moved. Paired Agent only |
+| *OS Update Started* | When Director says an OS update began |
 | *Report Ready*, *Report Failed*, *Controller Mismatch* | Nothing in this build fires them |
 
 ### Conditionals and variables
@@ -395,6 +496,7 @@ paired. The variables are all read-only:
 | Variable | Holds |
 | --- | --- |
 | `DIRECTOR_RELOADS`, `LAST_RELOAD` | The number in **Director Reloads**, and the time of the last start in UTC |
+| `DIRECTOR_RELOADS_TODAY` | The number in **Director Reloads Today**: reloads since local midnight. Use it in a message, or in a condition such as "more than 2 today" |
 | `NOTICE_TYPE`, `NOTICE_TEXT`, `ISSUE_TEXT`, `ISSUE_SEVERITY` | The last notice. See [Notices](#notices-restarts-and-service-mode) |
 | `SYSTEM_STARTUPS_TODAY`, `CONTROLLER_REBOOTS_OBSERVED_TODAY` | The two daily counters |
 | `SERVICE_MODE_ACTIVE`, `CLOUD_CONNECTED` | True while service mode is on; true while deliveries succeed |
@@ -415,6 +517,7 @@ paired. The variables are all read-only:
 | `REPORT_FAULT` | `NAME`, `DETAIL` | Queues a fault |
 | `REPORT_SERVICE_EVENT` | `NAME`, `DETAIL` | Queues a service event, such as Filter replaced |
 | `RECORD_SERVICE_NOTE` | `NOTE` | Sends a note of up to 1,000 characters to the service record |
+| `SEND_PUSH_NOTIFICATION` | `TITLE`, `MESSAGE`, `SEVERITY`, `VARIABLE 1` to `VARIABLE 4` | Sends a push to the system's recipient profile through SmartBuildOS. See [Push notifications from programming](#push-notifications-from-programming) |
 
 ## Properties
 
@@ -426,6 +529,7 @@ paired. The variables are all read-only:
 | **Pairing Backup** | Masked and read-only. Written by the Agent; cleared by *Unpair* |
 | **Remote Control** | `Off`, `Identify only` (default), `Comfort`, `Full control` |
 | **Paired Property**, **Connection Status**, **Last Successful Sync** | Read-only. The site, the state of the link, the last accepted payload |
+| **Last Push Notification** | Read-only. The time and result of the last `SEND_PUSH_NOTIFICATION` or *Send Test Push*: accepted and for how many recipients, not repeated, dropped at the hourly limit, or why it was not sent |
 | **License Cloud**, **Support ID**, **SmartBuildOS Company**, **Subscription Tier**, **Licensed Drivers** | Read-only. See [Licensing](#licensing) |
 | **Touchpanel Name**, **Touchpanel URL** | The label for the next panel, and the address *Generate Touchpanel URL* returned |
 | **Device Poll Interval** | `1m`, `5m` (default), `15m`, `30m` |
@@ -433,13 +537,14 @@ paired. The variables are all read-only:
 | **Non Control4 Devices** | Hosts to ping |
 | **Devices Offline**, **Last Device Change** | Read-only. How many monitored devices are down, and the last one to change |
 | **Director Reloads**, **Last Reload** | Read-only. The reload count, and the last start with its kind |
+| **Director Reloads Today** | Read-only. Reloads since local midnight; back to 0 every midnight |
 | **Agent Contract**, **Agent Configuration Version**, **Monitoring State**, **Agent Version**, **Pairing State**, **Cloud Connection State**, **Agent License State** | Read-only summary. **Agent License State** repeats **License Cloud** |
 | **System Startups Today**, **System Startups Lifetime**, **Controller Reboots Observed Today**, **Controller Reboots Observed Lifetime**, **Last Startup Classification**, **Last Startup Confidence** | Read-only. The startup counters, and how the last start was read |
 | **Last Report Status**, **Last Report At**, **Service Mode Expires At** | Read-only. The last report request; `Inactive`, or when service mode ends |
 | **Execution Controller Identity**, **Primary Controller Identity**, **Effective Service Profile ID**, **Effective Service Profile Version** | Read-only. The controller the Agent runs on. The other three read `Not reported` or `Not assigned` in this build |
 | **Startup Monitoring**, **Notification Policy**, **Startup Count Basis**, **Startup Threshold**, **Stabilization Delay**, **Service Mode Duration**, **Report Schedule**, **Recipient Profile**, **Auto-update Preference** | Read-only. Set in SmartBuildOS. The Agent accepts a settings document only whole: an unknown or out-of-range field refuses all of it, and an older version never replaces a newer one; **Agent Configuration Version** shows the version in force, or a refusal. Defaults: `On`, `default-escalation`, `system-startups`, `3`, `120 seconds`, `60 minutes`, `Not scheduled`, `Not configured`, `notify` |
 | **Alert Email**, **Email on Director Reload**, **Email on Device Offline**, **Email on Low Battery**, **Email on Sync Failure** | The address and the four switches (all `Off` by default) passed to SmartBuildOS |
-| **Last Project Change**, **Zigbee Events** | Read-only. Filled from Director's own notices; see [What is not claimed](#what-is-not-claimed) |
+| **Last Project Change**, **Zigbee Events** | Read-only. Filled from Director's own notices: the last project change and what it was, and counts of Zigbee nodes going offline, coming online and mesh changes since the driver loaded |
 | **Programming**, **Clock Offset** | Read-only. Event attachments, programming lines and disabled lines, counted daily; the controller clock against SmartBuildOS's, measured on every answer |
 | **Heartbeat Interval** | `30s` to `6h`, default `1m`. SmartBuildOS can set the check-in time itself (30 seconds to 1 hour), which then replaces this |
 | **Full Sync Interval** | `6h`, `12h`, `24h` (default) |
@@ -462,6 +567,7 @@ paired. The variables are all read-only:
 | Generate Touchpanel URL | Makes a read-only status page (what is playing, temperatures, system health) for the panel named in **Touchpanel Name**, for example `Kitchen T4`. Paste **Touchpanel URL** into a Web View driver. Each run makes a new address and leaves earlier panels working |
 | Generate System Report, Send System Report | Record a report request with SmartBuildOS. **Last Report Status** ends at `request-recorded` |
 | Send Test Notification | Fires *Service Update* with a test text |
+| Send Test Push | Sends a test push to the system's recipient profile through SmartBuildOS. Pressing it again sends again; it counts toward the hourly limit. **Last Push Notification** shows the result |
 | Enter Service Mode, Exit Service Mode | Start and end service mode |
 | Update Drivers, Check for Updates | Update the installed SmartBuildOS drivers now, even with automatic updates off, from the chosen **Update Source** and **Update Channel**. Only drivers on the Agent's built-in list that are already in the project are touched |
 | Unpair | Forgets the pairing. See [Setup](#updating-and-unpairing) |
@@ -495,6 +601,16 @@ hours.
 | `Offline too long - cloud validation required` | No fetch for over ten days. Restore the connection |
 | ... `(unsigned cache - re-pair to enable signing)` | This pairing predates signed licences. It works; pairing again adds signing |
 
+| Last Push Notification | Meaning |
+| --- | --- |
+| `accepted for` a number of recipients | SmartBuildOS wrote the notice for that many people. If a phone stays silent, check that person's notification settings and quiet hours in SmartBuildOS, and that the Field app is signed in with notifications allowed |
+| `not sent: no recipient profile is set for this system in System Studio` | Set the system's recipient profile in SmartBuildOS |
+| `not sent: the recipient profile is missing, disabled or has no in-app channel` | Open the profile in SmartBuildOS: it must be enabled and include the in-app channel |
+| `not sent: the recipient profile names nobody who is still in the company` | Add a current member, or a role someone holds, to the profile |
+| `not sent: HTTP 404` | This SmartBuildOS does not have the push service yet |
+| `not sent: not paired` | Pair the Agent |
+| `not repeated`, `dropped: hourly limit` | See the limits in [Push notifications from programming](#push-notifications-from-programming) |
+
 **Driver Status** reads `Online` after a normal start. `DRIVER DISABLED` means
 the controller's OS is older than 3.3.1.
 `Pairing backup unusable - re-pair needed` means the backup could not be read
@@ -507,17 +623,21 @@ shows what SmartBuildOS issued per SKU.
 
 ## What is not claimed
 
-- **Director's own notices.** The Agent has code to act within seconds on
-  Director's device, project, programming, Zigbee, shutdown and OS-update
-  notices. In this build it does not register for them at start. So device
-  changes are found by the poll, at **Device Poll Interval**;
-  *Project Changed*, *Programming Changed* and *OS Update Started* do not
-  fire; **Last Project Change** and **Zigbee Events** keep their starting
-  values; and no shutdown is recorded, so every reload reads as `unexpected`
-  and fires *Unexpected Restart*.
+- **Director's own notices.** Earlier builds never registered for them, so
+  *Project Changed*, *Programming Changed* and *OS Update Started* did not
+  fire, **Last Project Change** and **Zigbee Events** kept their starting
+  values, and every reload read as `unexpected`. This build registers at
+  start. The registration and the handling of each notice are covered by the
+  driver's tests; none of it has been seen on a controller yet, and which
+  notices a given OS version actually sends is not known.
 - **The reload path.** *Director Reloaded*, *Unexpected Restart* and the
   reload report need a controller restart, and have not been seen on a
   controller with this build.
+- **Push notifications.** `SEND_PUSH_NOTIFICATION` and *Send Test Push* have
+  been run against a simulated SmartBuildOS only. They have not been run on a
+  controller, and no push from them has been seen on a phone. How Composer
+  shows the command's variable pickers follows the Notification Router's,
+  which were seen on the bench.
 - **Reports.** *Generate System Report* and *Send System Report* record a
   request. The Agent does not say a report was generated or sent.
 - **Primary controller.** A changed boot identity is reported as a reboot of
