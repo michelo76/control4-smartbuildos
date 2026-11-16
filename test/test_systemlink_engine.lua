@@ -925,7 +925,7 @@ check(
   select(2, CA2:pollInterval()) == "active",
   select(2, CA2:pollInterval())
 )
-local cmd2 = assert(CA2:sendCommand("light.off", "Guest_Lamp", {}, 30))
+assert(CA2:sendCommand("light.off", "Guest_Lamp", {}, 30))
 sync(CA2, "ep-ca")
 quiet(CA2)
 advance(Engine.RESULT_WAIT_MS + 1)
