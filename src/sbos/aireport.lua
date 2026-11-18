@@ -548,14 +548,17 @@ function M.validateQuery(decl)
   if not keyOk(decl.id, 48) then
     return nil, "query_id"
   end
-  if not boundedText(decl.description or "", M.LIMITS.description) then
+  -- Required, non-empty text: AI Core (and the platform) refuse a describe
+  -- with an empty description, which would keep this driver's whole
+  -- describe from ever reaching the cloud (KI-47).
+  if not boundedText(decl.description, M.LIMITS.description) or decl.description == "" then
     return nil, "query_description"
   end
   local params, why = validateParamList(decl.params)
   if params == nil then
     return nil, why
   end
-  return { id = decl.id, description = decl.description or "", params = params }
+  return { id = decl.id, description = decl.description, params = params }
 end
 
 --- Validates an ActionDecl; returns a normalised copy or nil, reason.
@@ -569,7 +572,7 @@ function M.validateAction(decl)
   if not boundedText(decl.title, M.LIMITS.title) or decl.title == "" then
     return nil, "action_title"
   end
-  if not boundedText(decl.description or "", M.LIMITS.description) then
+  if not boundedText(decl.description, M.LIMITS.description) or decl.description == "" then
     return nil, "action_description"
   end
   if not M.RISKS[decl.risk] then
@@ -579,7 +582,7 @@ function M.validateAction(decl)
   if params == nil then
     return nil, why
   end
-  return { id = decl.id, title = decl.title, description = decl.description or "", params = params, risk = decl.risk }
+  return { id = decl.id, title = decl.title, description = decl.description, params = params, risk = decl.risk }
 end
 
 --- Validates incoming params against a declaration's Param list. Unknown
@@ -939,6 +942,20 @@ local function configInfo(key)
   return ""
 end
 
+--- The describe summary: the driver's own, else the built-in one for its
+--- file, else its label or file name. Never empty (AI Core refuses that).
+local function describeSummary(file)
+  -- A numeric loop: any of these may be nil, which would stop ipairs.
+  local candidates = { S.summary, M.SUMMARIES[file], M.LABELS[file], configInfo("name"), file }
+  for i = 1, 5 do
+    local c = M.clean(candidates[i], M.LIMITS.summary)
+    if c ~= "" then
+      return c
+    end
+  end
+  return "SmartBuildOS driver."
+end
+
 --- The describe report as it would be sent now (hash included).
 function M.buildDescribe()
   local file = S.file or ""
@@ -951,7 +968,7 @@ function M.buildDescribe()
       sku = M.clean(S.sku, M.LIMITS.sku),
       file = M.clean(file, M.LIMITS.file),
     },
-    summary = M.clean(S.summary or M.SUMMARIES[file] or "", M.LIMITS.summary),
+    summary = describeSummary(file),
     controls = S.controls,
     vocabulary = S.vocabulary,
     queries = sortedDecls(S.queries),
@@ -1465,9 +1482,12 @@ function M.describe(fields)
         S.counters.invalid = S.counters.invalid + 1
         return false, "control"
       end
+      local id = M.clean(c.id, M.LIMITS.control_id)
+      local label = M.clean(c.label, M.LIMITS.control_label)
       controls[i] = {
-        id = M.clean(c.id, M.LIMITS.control_id),
-        label = M.clean(c.label or c.id, M.LIMITS.control_label),
+        id = id,
+        -- An empty label would make AI Core refuse the describe: the id stands in.
+        label = label ~= "" and label or M.clean(id, M.LIMITS.control_label),
         class = c.class,
       }
     end
@@ -1478,14 +1498,25 @@ function M.describe(fields)
       return false, "vocabulary"
     end
     vocabulary = {}
-    for i, w in ipairs(fields.vocabulary) do
-      vocabulary[i] = M.clean(w, M.LIMITS.vocabulary_len)
+    for _, w in ipairs(fields.vocabulary) do
+      -- An empty word is dropped, never sent (AI Core refuses empty text).
+      local word = M.clean(w, M.LIMITS.vocabulary_len)
+      if word ~= "" then
+        vocabulary[#vocabulary + 1] = word
+      end
+    end
+  end
+  local summary = S.summary
+  if fields.summary ~= nil then
+    summary = M.clean(fields.summary, M.LIMITS.summary)
+    if summary == "" then
+      -- Passed explicitly but empty: refused (the built-in default stays).
+      S.counters.invalid = S.counters.invalid + 1
+      return false, "summary"
     end
   end
   local before = { S.summary, S.controls, S.vocabulary }
-  if fields.summary ~= nil then
-    S.summary = M.clean(fields.summary, M.LIMITS.summary)
-  end
+  S.summary = summary
   S.controls, S.vocabulary = controls, vocabulary
   local raw = encode(M.buildDescribe())
   if raw == nil or #raw > M.LIMITS.describe_bytes then
@@ -1633,7 +1664,9 @@ local function common(mode, opts)
   S.property = opts.property or M.PROPERTY
   S.sku = tostring(opts.sku or "")
   if opts.summary ~= nil then
-    S.summary = M.clean(opts.summary, M.LIMITS.summary)
+    local summary = M.clean(opts.summary, M.LIMITS.summary)
+    -- An empty summary in the options is ignored: the built-in default stands.
+    S.summary = summary ~= "" and summary or nil
   end
 end
 

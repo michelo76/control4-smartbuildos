@@ -859,6 +859,17 @@ aireport.declareAction({
 end)
 ```
 
+**Text is required and must not be empty.** AI Core refuses a describe that
+carries empty text, and a refused describe means the cloud never learns about
+the driver at all, so the helper refuses it first: `declareQuery` and
+`declareAction` return `false, reason` for a missing or empty (or blank) `id`
+(`query_id` / `action_id`), `description` (`query_description` /
+`action_description`) or, for an action, `title` (`action_title`).
+`describe` drops empty vocabulary words, labels a control that has no label
+with its id, and refuses an explicitly empty `summary` (`false, "summary"`;
+the summary in place is kept). Leaving `summary` out is fine: the built-in
+summary for the driver's file is used (else its label), never an empty one.
+
 Param types: `enum` (`values` 1–16 × ≤40), `integer` / `number` (`min`,
 `max`), `boolean`, `string` (`max_len` ≤64, default 64); `required` boolean;
 ≤ 6 params. A declaration that breaks a bound, or that would push describe

@@ -626,6 +626,22 @@ do
   check("zero SendToDevice", #frames == 0, #frames)
   check("event refused as absent, nothing sent", select(2, aireport.event("weather.change", "x")) == "absent" and #frames == 0)
   check("an unknown file is refused, nothing set up", aireport.start({ file = "nope.c4z" }) == false)
+  -- KI-47: an empty summary in the start options is ignored, not sent.
+  aireport.start({ sku = "SBOS_ATMOSPHERE", summary = "  " })
+  check(
+    "start with a blank summary keeps the built-in summary",
+    aireport.buildDescribe().summary == aireport.SUMMARIES["smartbuildos-atmosphere.c4z"],
+    aireport.buildDescribe().summary
+  )
+  local saved = aireport.SUMMARIES["smartbuildos-atmosphere.c4z"]
+  aireport.SUMMARIES["smartbuildos-atmosphere.c4z"] = nil
+  local fallback = aireport.buildDescribe().summary
+  aireport.SUMMARIES["smartbuildos-atmosphere.c4z"] = saved
+  check(
+    "a file without a built-in summary falls back to its label (never empty)",
+    fallback == aireport.LABELS["smartbuildos-atmosphere.c4z"],
+    fallback
+  )
 end
 
 -- ── [5] v1-only Agent ───────────────────────────────────────────────────────
@@ -1030,6 +1046,37 @@ do
   check("…and every directory change re-sends the latest state", #reportsOfKind("state") == sBefore + 1)
   check("controls: class closed", aireport.describe({ controls = { { id = "x", label = "X", class = "toaster" } } }) == false)
   check("describe keys closed", aireport.describe({ hash = "x" }) == false)
+  -- KI-47: no describe the helper builds may carry empty text, because AI
+  -- Core refuses such a describe whole. Checked against AI Core's own
+  -- validator (src/aicore/reports.lua), not a copy of its rules.
+  local AiReports = require("aicore.reports")
+  local function aiCoreAccepts()
+    local item, why, field = AiReports.validate("atmosphere", "800", aireport.buildDescribe())
+    return item ~= nil, tostring(why) .. ":" .. tostring(field)
+  end
+  check("(AI Core accepts the describe as it stands)", aiCoreAccepts())
+  local okV = aireport.describe({ vocabulary = { "rain", "", "   ", "\1\2", "wind" } })
+  local vocab = aireport.buildDescribe().vocabulary
+  check(
+    "empty vocabulary words are dropped, the rest kept in order",
+    okV == true and #vocab == 2 and vocab[1] == "rain" and vocab[2] == "wind",
+    JSON:encode(vocab)
+  )
+  check("…and AI Core accepts that describe", aiCoreAccepts())
+  local okE, whyE = aireport.describe({ summary = "" })
+  local okB, whyB = aireport.describe({ summary = " \t " })
+  check(
+    "an explicitly empty or blank summary is refused (summary), the old one kept",
+    okE == false and whyE == "summary" and okB == false and whyB == "summary" and aireport.buildDescribe().summary == "Weather."
+  )
+  local okC = aireport.describe({ controls = { { id = "zone_1", label = "", class = "other" }, { id = "zone_2", class = "other" } } })
+  local controls = aireport.buildDescribe().controls
+  check(
+    "a control with an empty or missing label is labelled with its id",
+    okC == true and controls[1].label == "zone_1" and controls[2].label == "zone_2",
+    JSON:encode(controls)
+  )
+  check("…and AI Core accepts that describe", aiCoreAccepts())
 
   -- clean()
   check("clean strips U+2066..2069 and U+061C", aireport.clean("a\226\129\166b\216\156c") == "abc")
@@ -1042,33 +1089,60 @@ do
   fresh()
   newAgent(2)
   aiRegister()
-  -- declaration validation
-  check("query id pattern", aireport.declareQuery({ id = "Bad" }, function() end) == false)
-  check("query keys closed", aireport.declareQuery({ id = "q", extra = 1 }, function() end) == false)
-  check("handler required", aireport.declareQuery({ id = "q" }) == false)
-  check("action risk closed", aireport.declareAction({ id = "a", title = "A", risk = "critical" }, function() end) == false)
-  check("action title <= 80", aireport.declareAction({ id = "a", title = string.rep("t", 81), risk = "low" }, function() end) == false)
+  -- declaration validation: each case is otherwise valid, so the reason
+  -- returned is the one under test (not a missing description).
+  local NOOP = function() end
+  local function reason(ok, why)
+    return ok == false and why or ("accepted:" .. tostring(ok))
+  end
+  local function q(decl, handler)
+    decl.description = decl.description or "d"
+    return reason(aireport.declareQuery(decl, handler == nil and NOOP or handler))
+  end
+  local function a(decl)
+    decl.description = decl.description or "d"
+    return reason(aireport.declareAction(decl, NOOP))
+  end
+  check("query id pattern", q({ id = "Bad" }) == "query_id")
+  check("query keys closed", q({ id = "q", extra = 1 }) == "query_keys")
+  check("handler required", reason(aireport.declareQuery({ id = "q", description = "d" })) == "handler")
+  check("action risk closed", a({ id = "a", title = "A", risk = "critical" }) == "action_risk")
+  check("action title <= 80", a({ id = "a", title = string.rep("t", 81), risk = "low" }) == "action_title")
   local seven = {}
   for i = 1, 7 do
     seven[i] = { name = "p" .. i, type = "boolean" }
   end
-  check("<= 6 params", aireport.declareQuery({ id = "q", params = seven }, function() end) == false)
+  check("<= 6 params", q({ id = "q", params = seven }) == "params")
   check(
     "duplicate param refused",
-    aireport.declareQuery({ id = "q", params = { { name = "a", type = "boolean" }, { name = "a", type = "boolean" } } }, function() end)
-      == false
+    q({ id = "q", params = { { name = "a", type = "boolean" }, { name = "a", type = "boolean" } } }) == "param_duplicate"
   )
-  check("enum needs values", aireport.declareQuery({ id = "q", params = { { name = "a", type = "enum" } } }, function() end) == false)
-  check(
-    "min <= max",
-    aireport.declareQuery({ id = "q", params = { { name = "a", type = "integer", min = 5, max = 1 } } }, function() end) == false
-  )
+  check("enum needs values", q({ id = "q", params = { { name = "a", type = "enum" } } }) == "param_values")
+  check("min <= max", q({ id = "q", params = { { name = "a", type = "integer", min = 5, max = 1 } } }) == "param_range")
   check(
     "max_len only on strings, <= 64",
-    aireport.declareQuery({ id = "q", params = { { name = "a", type = "string", max_len = 65 } } }, function() end) == false
-      and aireport.declareQuery({ id = "q", params = { { name = "a", type = "integer", max_len = 5 } } }, function() end)
-        == false
+    q({ id = "q", params = { { name = "a", type = "string", max_len = 65 } } }) == "param_max_len"
+      and q({ id = "q", params = { { name = "a", type = "integer", max_len = 5 } } }) == "param_max_len"
   )
+  -- KI-47: required, non-empty text. AI Core refuses a describe with empty
+  -- text, so the helper refuses the declaration instead.
+  check("query without a description → query_description", reason(aireport.declareQuery({ id = "q" }, NOOP)) == "query_description")
+  check(
+    "query with an empty or blank description → query_description",
+    q({ id = "q", description = "" }) == "query_description" and q({ id = "q", description = "   " }) == "query_description"
+  )
+  check("query with a missing id → query_id", q({ description = "d" }) == "query_id" and q({ id = "" }) == "query_id")
+  check(
+    "action without a description → action_description",
+    reason(aireport.declareAction({ id = "a", title = "A", risk = "low" }, NOOP)) == "action_description"
+      and a({ id = "a", title = "A", risk = "low", description = "" }) == "action_description"
+  )
+  check(
+    "action with a missing or empty title → action_title",
+    a({ id = "a", risk = "low" }) == "action_title" and a({ id = "a", title = "", risk = "low" }) == "action_title"
+  )
+  check("action with a missing id → action_id", a({ title = "A", risk = "low" }) == "action_id")
+  check("nothing refused above was declared", next(aireport._state().queries) == nil and next(aireport._state().actions) == nil)
 
   local queryCalls, actionCalls = 0, 0
   local okQ = aireport.declareQuery({
@@ -1117,6 +1191,8 @@ do
     "describe carries the declarations as data",
     #d.queries == 1 and d.queries[1].id == "forecast" and #d.actions == 1 and d.actions[1].risk == "low"
   )
+  local itemD, whyD, fieldD = require("aicore.reports").validate("atmosphere", "800", d)
+  check("AI Core accepts the describe carrying the declarations", itemD ~= nil, tostring(whyD) .. ":" .. tostring(fieldD))
   local hash = d.hash
   check("declarationHash() is the describe hash", aireport.declarationHash() == hash)
 
@@ -1192,7 +1268,7 @@ do
 
   -- a declaration change changes the hash: the approved one is refused
   local regs = count("SBOS_MODULE_REGISTER")
-  aireport.declareAction({ id = "refresh_now", title = "Refresh now", risk = "medium" }, function()
+  aireport.declareAction({ id = "refresh_now", title = "Refresh now", description = "d", risk = "medium" }, function()
     actionCalls = actionCalls + 1
     return "ok"
   end)
@@ -1208,7 +1284,7 @@ do
   aiRegister()
   aireport.start({ sku = "SBOS_ATMOSPHERE" })
   regs = count("SBOS_MODULE_REGISTER")
-  aireport.declareQuery({ id = "now" }, function()
+  aireport.declareQuery({ id = "now", description = "d" }, function()
     return { t = 1 }
   end)
   manifest = JSON:decode(last("SBOS_MODULE_REGISTER").params.manifest)
@@ -1258,7 +1334,7 @@ do
   check("discovered and described through the driver's client", d ~= nil and d.from == "flight_recorder")
   check("value: reporting", value() == "Found — reporting (v20261118.2)", value())
   local regs = count("SBOS_MODULE_REGISTER")
-  aireport.declareQuery({ id = "late" }, function()
+  aireport.declareQuery({ id = "late", description = "d" }, function()
     return {}
   end)
   check("attach never re-registers the driver's client", count("SBOS_MODULE_REGISTER") == regs)
