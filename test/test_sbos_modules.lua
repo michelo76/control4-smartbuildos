@@ -165,6 +165,92 @@ print("[7] touch updates status and config state")
 rr:touch(e, { status = "degraded", detail = "x", applied_config_version = "4", config_error = "bad budget" })
 check("touched", e.status == "degraded" and e.applied_config_version == "4" and e.config_error == "bad budget")
 
+print("[8] registry cap: 48 live registrations, the 49th refused registry_full")
+do
+  local cr = newR()
+  local okAll = true
+  for i = 1, 48 do
+    local okI = cr:register(reg({ module_id = "mod_" .. i, instance_id = tostring(1000 + i), singleton = "false" }))
+    okAll = okAll and okI
+  end
+  check("cap is 48", Mod.LIMITS.modules == 48)
+  check("48 distinct modules register", okAll and #cr.entries == 48)
+  local ok49, r49 = cr:register(reg({ module_id = "mod_49", instance_id = "1049", singleton = "false" }))
+  check("the 49th is refused registry_full", not ok49 and r49.reason == "registry_full", r49.reason)
+  local okRe = cr:register(reg({ module_id = "mod_1", instance_id = "1001", singleton = "false" }))
+  check("a full registry still re-registers an existing instance", okRe and #cr.entries == 48)
+end
+
+print("[9] identity binding: reserved module ids bound to their .c4z")
+do
+  local files =
+    { ["smartbuildos-pin-lock.c4z"] = { [900] = "PIN Lock" }, ["smartbuildos-ai-core.c4z"] = { [601] = "AI" } }
+  local asked = {}
+  local mode = "answer"
+  local function newBound()
+    return Mod.Registry.new({
+      now = function()
+        return clock.t
+      end,
+      newToken = function()
+        tokens = tokens + 1
+        return "tok" .. tokens
+      end,
+      devicesForFile = function(file)
+        asked[#asked + 1] = file
+        if mode == "nil" then
+          return nil
+        elseif mode == "throw" then
+          error("no such API")
+        end
+        return files[file] or {}
+      end,
+    })
+  end
+  local br = newBound()
+  local okS, rS = br:register(reg({ module_id = "pin_lock", instance_id = "777" }))
+  check(
+    "squatting pin_lock from a device that is not smartbuildos-pin-lock.c4z → refused not_permitted",
+    not okS and rS.reason == "not_permitted" and br:find("pin_lock", "777") == nil,
+    rS.reason
+  )
+  check("the resolver was asked for the PIN Lock file", asked[#asked] == "smartbuildos-pin-lock.c4z")
+  local okP, _, eP = br:register(reg({ module_id = "pin_lock", instance_id = "900" }))
+  check("pin_lock from the PIN Lock device → registered, verified", okP and eP.verified == true)
+  local okA, _, eA = br:register(reg({ module_id = "ai_core", instance_id = "601" }))
+  check("ai_core from the AI Core device → verified", okA and eA.verified == true)
+  local okSq = br:register(reg({ module_id = "ai_core", instance_id = "900" }))
+  check("ai_core claimed from the PIN Lock device → refused", not okSq)
+  local okN, _, eN = br:register(reg({ module_id = "atmosphere", instance_id = "333" }))
+  check("a non-reserved id registers as before, verified = false", okN and eN.verified == false)
+  mode = "nil"
+  local okU, _, eU = newBound():register(reg({ module_id = "pin_lock", instance_id = "777" }))
+  check("resolver answers nil (Director gave no table) → registered, verified = false", okU and eU.verified == false)
+  mode = "throw"
+  local okT, _, eT = newBound():register(reg({ module_id = "pin_lock", instance_id = "777" }))
+  check("resolver throws → registered, verified = false", okT and eT.verified == false)
+  mode = "answer"
+  -- A squatter persisted before binding existed loses the id when it
+  -- next registers.
+  local old = newBound()
+  old.entries[1] = { module_id = "pin_lock", instance_id = "777", token = "old", last_seen = clock.t }
+  local okO, _, _, removed = old:register(reg({ module_id = "pin_lock", instance_id = "777" }))
+  check(
+    "an earlier squatter entry is removed on refusal (and returned)",
+    not okO and removed ~= nil and removed.token == "old" and old:find("pin_lock", "777") == nil
+  )
+  local rows = br:heartbeatBlock({ paired = true, connected = true })
+  local pinRow
+  for _, row in ipairs(rows) do
+    if row.module_id == "pin_lock" then
+      pinRow = row
+    end
+  end
+  check("heartbeat block carries verified; never the token", pinRow and pinRow.verified == true and pinRow.token == nil)
+  local okNo, _, eNo = newR():register(reg({ module_id = "pin_lock", instance_id = "777" }))
+  check("no resolver injected → nothing bound (pure v1 behaviour), unverified", okNo and eNo.verified == false)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

@@ -32,7 +32,20 @@
 --- stored on the entry only when the negotiated protocol is 2 or more, and
 --- served to other modules by discovery. The v1 csv params are unchanged.
 ---
---- Pure: injected clock and token source; the Agent persists serialize().
+--- Identity binding (contract v2): a registration under a RESERVED module id
+--- (modulepolicy.RESERVED_MODULES, e.g. pin_lock, ai_core) is checked against
+--- the devices Director reports for that id's .c4z file, through an injected
+--- `devicesForFile(filename)` resolver (the Agent wires
+--- C4:GetDevicesByC4iName). The claimed instance id must be one of them:
+---   listed            -> registered, entry.verified = true
+---   not listed        -> refused `not_permitted` (any earlier entry for that
+---                        exact module + instance is removed)
+---   resolver gave no answer (nil / error) -> registered, verified = false
+--- A non-reserved id is registered as before with verified = false. Without
+--- an injected resolver nothing is bound (pure v1 behaviour, verified=false).
+---
+--- Pure: injected clock, token source and resolver; the Agent persists
+--- serialize().
 
 local Policy = require("sbos.modulepolicy")
 JSON = JSON or require("JSON")
@@ -41,7 +54,10 @@ local M = {}
 
 M.PROTOCOL_MIN = Policy.PROTOCOL_MIN
 M.PROTOCOL_MAX = Policy.PROTOCOL_MAX
-M.LIMITS = { modules = 16, csv_items = 32, detail = 200, stale_seconds = 15 * 60 }
+--- `modules`: registrations held at once (root drivers only; child drivers
+--- never register). The 49th live registration is refused `registry_full`.
+--- Persist, heartbeat and directory sizes at 48 are unmeasured on hardware.
+M.LIMITS = { modules = 48, csv_items = 32, detail = 200, stale_seconds = 15 * 60 }
 M.STATUS = {
   ready = "ready",
   waiting_for_agent = "waiting_for_agent",
@@ -167,13 +183,41 @@ function M.findCapability(entry, id, kind)
   return nil
 end
 
---- @param opts table { now = fun():number, newToken = fun():string }
+--- @param opts table { now = fun():number, newToken = fun():string,
+---   devicesForFile = optional fun(filename):table|nil (device id -> any),
+---   reserved = optional { module_id = { filename, … } } (tests) }
 function Registry.new(opts)
   local self = setmetatable({}, Registry)
   self.now = opts.now
   self.newToken = opts.newToken
+  self.devicesForFile = opts.devicesForFile
+  self.reserved = opts.reserved or Policy.RESERVED_MODULES
   self.entries = {}
   return self
+end
+
+--- Identity binding for one claim. Returns "bound", "mismatch", "unknown"
+--- (resolver gave no usable answer) or "unbound" (not a reserved id, or no
+--- resolver injected).
+function Registry:identity(moduleId, instanceId)
+  local files = self.reserved[moduleId]
+  if files == nil or type(self.devicesForFile) ~= "function" then
+    return "unbound"
+  end
+  local claimed = tonumber(instanceId)
+  local answered = false
+  for _, file in ipairs(files) do
+    local ok, devices = pcall(self.devicesForFile, file)
+    if ok and type(devices) == "table" then
+      answered = true
+      for id in pairs(devices) do
+        if claimed ~= nil and tonumber(id) == claimed then
+          return "bound"
+        end
+      end
+    end
+  end
+  return answered and "mismatch" or "unknown"
 end
 
 --- Restores from serialize() output; anything unreadable yields an empty
@@ -221,7 +265,8 @@ end
 --- Validates and (re)registers. Re-registration of the same instance
 --- replaces the token and metadata but keeps registered_at and counters —
 --- the server sees one row per instance, not a new one per Director reload.
---- @return boolean ok, table reply (to send back), table|nil entry
+--- @return boolean ok, table reply (to send back), table|nil entry,
+---   table|nil removed (an entry dropped by an identity refusal)
 function Registry:register(params)
   params = type(params) == "table" and params or {}
   local moduleId = tostring(params.module_id or "")
@@ -243,6 +288,18 @@ function Registry:register(params)
     reply.agent_protocol_min = tostring(M.PROTOCOL_MIN)
     reply.agent_protocol_max = tostring(M.PROTOCOL_MAX)
     return false, reply
+  end
+  local identity = self:identity(moduleId, instanceId)
+  if identity == "mismatch" then
+    -- A reserved id claimed from a device that is not that id's driver
+    -- file. Refused, and an earlier entry for this exact claim (registered
+    -- before binding existed) is dropped so it cannot keep the id.
+    reply.reason = "not_permitted"
+    local removed = self:find(moduleId, instanceId)
+    if removed ~= nil then
+      self:remove(moduleId, instanceId)
+    end
+    return false, reply, nil, removed
   end
   local existing, index = self:find(moduleId, instanceId)
   local singleton = tostring(params.singleton or "") == "true"
@@ -281,6 +338,7 @@ function Registry:register(params)
   entry.status = tostring(params.status or "")
   entry.detail = tostring(params.detail or ""):sub(1, M.LIMITS.detail)
   entry.singleton = singleton
+  entry.verified = identity == "bound"
   entry.manifest = nil
   entry.manifest_error = nil
   if hi >= Policy.V2 then
@@ -439,6 +497,7 @@ function Registry:heartbeatBlock(agent)
       detail = e.detail,
       display_status = M.displayStatus(e, agent, stale),
       stale = stale,
+      verified = e.verified == true,
       registered_at = e.registered_at,
       last_seen = e.last_seen,
       registrations = e.registrations,
