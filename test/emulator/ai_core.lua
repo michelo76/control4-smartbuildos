@@ -211,11 +211,15 @@ print("[1] startup and registration: Agent + Flight Recorder + AI Core")
 local fr = assert(d:addDevice(OUT .. "/smartbuildos-flight-recorder", { roomId = room, name = "Flight Recorder" }))
 local aic = assert(d:addDevice(OUT .. "/smartbuildos-ai-core", { roomId = room, name = "AI Core" }))
 aicId = aic.id
--- (Kitchen stays empty: run_diagnostic below asks for a room with no
--- history. No second AI Core instance is added and removed to populate it:
--- the Agent's licence inventory keeps ONE device id per SKU, so removing a
--- second instance dropped SBOS_AI_CORE from the inventory although the
--- first was still installed.)
+-- A second AI Core instance, added and removed: it gives the Kitchen a
+-- device id (run_diagnostic below asks for a room with no history), and it
+-- is the case the Agent's licence inventory used to get wrong — it kept ONE
+-- device id per SKU, so removing this instance dropped SBOS_AI_CORE for the
+-- first one, which stays installed. It now keeps the set of instances.
+local lamp = assert(d:addDevice(OUT .. "/smartbuildos-ai-core", { roomId = kitchen, name = "Stand-in device" }))
+d:advance(1000)
+local lampId = lamp.id
+d:removeDevice(lamp)
 d:advance(10000)
 check("Agent paired against the scripted cloud", agent.env.gModules ~= nil and agent.env.gBus ~= nil)
 check("both modules registered with the Agent", agent.env.gModules:count() == 2, agent.env.gModules:count())
@@ -259,8 +263,26 @@ check(
   aic.Properties["License Status"] == "Licensed / Subscribed",
   aic.Properties["License Status"]
 )
+local refreshesBefore = #S.cloud.requests
 d:executeCommand(agent, "REFRESH_ENTITLEMENTS", {})
 d:advance(5000)
+local keptFor, sawLamp = nil, false
+for i = refreshesBefore + 1, #S.cloud.requests do
+  local r = S.cloud.requests[i]
+  if r.path == "/api/driver-cloud/entitlements/refresh" and type(r.body) == "table" then
+    for _, item in ipairs(r.body.installed or {}) do
+      if item.sku == "SBOS_AI_CORE" then
+        keptFor = tonumber(item.device_id)
+        sawLamp = sawLamp or tonumber(item.device_id) == lampId
+      end
+    end
+  end
+end
+check(
+  "a second instance removed: SBOS_AI_CORE stays inventoried, under the instance that remains",
+  keptFor == aic.id and not sawLamp,
+  tostring(keptFor) .. " (AI Core " .. tostring(aic.id) .. ", removed " .. tostring(lampId) .. ")"
+)
 check(
   "licence answered through the real Agent (signed assertion)",
   aic.Properties["License Status"] == "Licensed / Subscribed",
@@ -320,6 +342,20 @@ local commands = {
   { "AI_GENERATE_REPORT", { TYPE = "System Health", PERIOD = "Last 7 Days" }, "generate_report" },
   { "AI_SEND_NOTIFICATION", { TITLE = "Test", MESSAGE = "Emulator", AUDIENCE = "Integrator" }, "send_notification" },
 }
+-- What rpc/ops.ts answers per op: a job for most; set_context and
+-- send_notification are done at once ({accepted: true, job_id: null}; a
+-- JSON null arrives as an absent key); learn_preference is unsupported.
+S.rpc.answer = function(body)
+  if body.op == "set_context" then
+    return { ok = true, result = { accepted = true, applied = true, key = body.body.key } }
+  elseif body.op == "send_notification" then
+    return { ok = true, result = { accepted = true, sent = { audience = body.body.audience } } }
+  elseif body.op == "learn_preference" then
+    return { ok = false, error_code = "unsupported", result = { op = "learn_preference" } }
+  end
+  return nil
+end
+local done0 = diagnostics(d, aic).cloud_completed or 0
 for _, c in ipairs(commands) do
   local n = #S.rpc.calls
   d:executeCommand(aic, c[1], c[2])
@@ -341,6 +377,23 @@ local cmds = cloudEnvelopes(S, "ai_core.command")
 check("an ai_core.command envelope per cloud command reached the cloud", #cmds >= #commands, #cmds)
 check("AI_RECORD_EVENT → ai_core.record through the durable event path", #cloudEnvelopes(S, "ai_core.record") == 1)
 check("AI_STATUS working (jobs accepted, results pending)", var(aic, "AI_STATUS") == "working", var(aic, "AI_STATUS"))
+local ctxCall
+for _, call in ipairs(S.rpc.calls) do
+  if call.op == "set_context" then
+    ctxCall = call
+  end
+end
+check(
+  "set_context body names the key `key`, as rpc/ops.ts validates it",
+  ctxCall ~= nil and ctxCall.body.key == "vacation" and ctxCall.body.context_key == nil,
+  ctxCall and json.encode(ctxCall.body)
+)
+local dc = diagnostics(d, aic)
+check(
+  "set_context and send_notification answered without a job: completed, not waited for",
+  dc.cloud_completed == done0 + 2 and tostring(dc.jobs_dropped) == "0",
+  tostring(dc.cloud_completed)
+)
 S.rpc.answer = function()
   return { ok = false, error_code = "not_permitted" }
 end
@@ -379,6 +432,26 @@ state =
   moduleCommand(S, agent, "raise_event", { event = "pattern_detected", detail = "hall light 03:00 on 4 of 7 nights" })
 check("raise_event pattern_detected → Pattern Detected", state == "Completed" and firedCount(d, aic, 2) == p0 + 1)
 check("AI_LAST_EVENT_DETAIL", tostring(var(aic, "AI_LAST_EVENT_DETAIL")):find("4 of 7") ~= nil)
+local a0 = firedCount(d, aic, 6)
+local ACTION = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+state = moduleCommand(S, agent, "raise_event", {
+  event = "approval_required",
+  detail = "AI Core action awaiting approval: lights.set_level",
+  correlation_id = ACTION,
+})
+check(
+  "raise_event WITH correlation_id (as the actions service sends it) → Completed, Approval Required",
+  state == "Completed" and firedCount(d, aic, 6) == a0 + 1,
+  state
+)
+check("AI_LAST_CORRELATION_ID = the action id", var(aic, "AI_LAST_CORRELATION_ID") == ACTION, var(aic, "AI_LAST_CORRELATION_ID"))
+d:advance(40000)
+local raised = cloudEnvelopes(S, "ai_core.event")
+check(
+  "the ai_core.event envelope reached the cloud carrying it as its correlation_id",
+  #raised >= 1 and raised[#raised].correlation_id == ACTION and raised[#raised].payload.event == "approval_required",
+  #raised
+)
 local before = #d.eventLog
 state = moduleCommand(S, agent, "raise_event", { event = "unlock_front_door" })
 check(

@@ -17,8 +17,19 @@
 --       (envelope.ts) = AI_CORE_EVENT_PREFIX = vocab.EVENT_PREFIX
 --   [5] the v2 error vocabulary and its retryable subset and delays
 --   [6] request policy (requesters and provider) and topic policy
--- Reported, not asserted ([7]): mirrors that differ today; each NOTE line
--- names both sides.
+--   [7] restricted operations: every argument key the platform declares
+--       (AI_CORE_OPERATION_ARG_KEYS, RAISE_EVENT_KEYS) or builds
+--       (rpc/deliver.ts, actions/service.ts raiseEvent) is ACCEPTED by
+--       operations.lua with a value of the platform's shape; result kinds,
+--       detail, count and text bounds fit
+--   [8] cloud ops: every body key the driver sends is in rpc/ops.ts
+--       OP_BODIES (+ COMMON), every required field is in the minimal body,
+--       enum lists equal, text bounds fit; {accepted, job_id: null} answers
+--       read as completed, job answers as accepted
+-- Reported, not asserted ([9] and NOTE lines in [7]/[8]): differences that
+-- break nothing today (a key the driver accepts that nobody sends, an op
+-- the platform answers `unsupported`, a body it does not validate); each
+-- NOTE line names both sides.
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
@@ -280,54 +291,405 @@ for _, prefix in ipairs(topicDriver) do
 end
 check("same subscribers per prefix", #topicWrong == 0, table.concat(topicWrong, ","))
 
-print("[7] reported differences (NOTE lines are not failures)")
+-- ── more literal readers: non-exported consts, object literals, functions ───
+
+--- The balanced literal after `const NAME` (exported or not).
+local function anyLiteral(src, name)
+  local at = src:find("const " .. name .. "[%s:=]")
+  if at == nil then
+    return nil
+  end
+  local eq = src:find("=", at, true)
+  local open = eq and src:find("[%[{]", eq)
+  if open == nil then
+    return nil
+  end
+  local o = src:sub(open, open)
+  return src:match("%b" .. o .. (o == "[" and "]" or "}"), open)
+end
+
+--- `{ a: {..}, b: {..} }` → ordered list of { name, literal } (one level).
+local function entries(lit)
+  local out = {}
+  for name, body in tostring(lit or ""):sub(2, -2):gmatch("([%w_]+):%s*(%b{})") do
+    out[#out + 1] = { name = name, body = body }
+  end
+  return out
+end
+
+--- The keys of an object literal: `k: v`, `...(x ? { k: v } : {})` and
+--- shorthand `{ event, detail }`.
+local function objectKeys(lit)
+  local out, seen = {}, {}
+  local body = tostring(lit or ""):sub(2, -2)
+  local function add(k)
+    if k and not seen[k] then
+      seen[k] = true
+      out[#out + 1] = k
+    end
+  end
+  for k in body:gmatch("([%a_][%w_]*)%s*:") do
+    add(k)
+  end
+  if body:find(":", 1, true) == nil then
+    for part in body:gmatch("[^,]+") do
+      add(part:match("^%s*([%a_][%w_]*)%s*$"))
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+local function minus(a, b)
+  local sb, out = set(b), {}
+  for _, v in ipairs(a) do
+    if not sb[v] then
+      out[#out + 1] = v
+    end
+  end
+  return out
+end
+
 local notes = 0
 local function note(text)
   notes = notes + 1
   print("  NOTE " .. text)
 end
--- raise_event arguments: the platform's validator vs the driver's parser.
 local Operations = require("aicore.operations")
-local validator = protocolTs:match("function validateRaiseEventArgs.-\n}")
-local tsRaiseKeys = sorted(strings(tostring(validator):match("%!%[(.-)%]%.includes")))
-local argKeys = record(protocolTs, "AI_CORE_OPERATION_ARG_KEYS") or {}
-local driverRaise = {}
-for _, k in ipairs({ "event", "detail", "pending_approvals", "recommendation_count", "correlation_id" }) do
-  local args = { event = "pattern_detected" }
-  if k ~= "event" then
-    args[k] = k == "detail" and "x" or (k == "correlation_id" and "c-1" or 1)
-  end
-  if Operations.parse("raise_event", args) ~= nil then
-    driverRaise[#driverRaise + 1] = k
-  end
-end
-table.sort(driverRaise)
-if not same(driverRaise, tsRaiseKeys) then
-  note(
-    "raise_event keys: driver accepts {"
-      .. table.concat(driverRaise, ",")
-      .. "}; protocol.ts validateRaiseEventArgs accepts {"
-      .. table.concat(tsRaiseKeys, ",")
-      .. "} — a correlation_id the platform validates is refused whole by the driver; pending_approvals / recommendation_count the driver reads are refused by the validator"
-  )
-end
-if not same(driverRaise, sorted(argKeys.raise_event)) then
-  note(
-    "AI_CORE_OPERATION_ARG_KEYS.raise_event {"
-      .. table.concat(sorted(argKeys.raise_event), ",")
-      .. "} vs driver {"
-      .. table.concat(driverRaise, ",")
-      .. "}"
-  )
-end
+
+local opsTs = assert(read(ROOT .. "/src/lib/ai-core/rpc/ops.ts"), "rpc/ops.ts missing")
+local deliverTs = assert(read(ROOT .. "/src/lib/ai-core/rpc/deliver.ts"), "rpc/deliver.ts missing")
 local actionsTs = read(ROOT .. "/src/lib/ai-core/actions/service.ts") or ""
-if actionsTs:find("correlation_id: row.id", 1, true) and not set(driverRaise).correlation_id then
-  note(
-    "BREAK: src/lib/ai-core/actions/service.ts raiseEvent() sends raise_event args WITH correlation_id;"
-      .. " operations.lua refuses the whole operation, so approval_required / action_completed /"
-      .. " action_failed queued by the actions service end Failed on the controller"
+local Commands = require("aicore.commands")
+
+print("[7] restricted operations: every argument the platform sends, field by field")
+-- Asserted: every key the platform declares or builds for an operation is
+-- one the driver's operations.lua ACCEPTS, with a value of the platform's
+-- shape (the driver refuses the WHOLE operation for one unknown key, so one
+-- such key ends every such operation Failed on the controller). Reported
+-- (NOTE): keys the driver accepts that the platform never sends.
+local SAMPLE = {
+  config = {},
+  version = 1,
+  response_id = "r-1",
+  request_id = "aic-1",
+  job_id = "job-1",
+  text = "t",
+  kind = "answer",
+  pending_approvals = 1,
+  recommendation_count = 1,
+  event = "pattern_detected",
+  detail = "d",
+  correlation_id = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc",
+  active = true,
+  reason = "r",
+  device_id = 12,
+  room_id = 3,
+  note = "n",
+}
+local BASE = {
+  apply_config = { config = {}, version = 1 },
+  refresh_status = {},
+  deliver_result = { response_id = "r-1", text = "t" },
+  raise_event = { event = "pattern_detected" },
+  set_learning = { active = true },
+  run_diagnostic = { device_id = 12 },
+}
+--- Whether the driver accepts `key` (with the platform's kind of value) on `op`.
+local function driverTakes(op, key)
+  local args = {}
+  for k, v in pairs(BASE[op] or {}) do
+    args[k] = v
+  end
+  if op == "run_diagnostic" and key == "room_id" then
+    args.device_id = nil
+  end
+  args[key] = SAMPLE[key] ~= nil and SAMPLE[key] or "x"
+  return Operations.parse(op, args) ~= nil
+end
+local argKeysTs = record(protocolTs, "AI_CORE_OPERATION_ARG_KEYS") or {}
+local sources = {} -- op → { {label, keys} }
+for _, op in ipairs(V.OPERATIONS) do
+  sources[op] = { { "AI_CORE_OPERATION_ARG_KEYS." .. op .. " (protocol.ts)", sorted(argKeysTs[op] or {}) } }
+end
+local raiseKeysTs = sorted(strings(anyLiteral(protocolTs, "RAISE_EVENT_KEYS")))
+table.insert(sources.raise_event, { "RAISE_EVENT_KEYS (protocol.ts validateRaiseEventArgs)", raiseKeysTs })
+local deliverFn = deliverTs:match("export function deliverResultArgs.-\n}") or ""
+local deliverKeys = objectKeys(deliverFn:match("return (%b{});"))
+table.insert(sources.deliver_result, { "deliverResultArgs() (rpc/deliver.ts)", deliverKeys })
+local raiseFn = deliverTs:match("export function raiseEventArgs.-\n}") or ""
+local raiseKeys = objectKeys(raiseFn:match("verdict%.ok %? (%b{})"))
+table.insert(sources.raise_event, { "raiseEventArgs() (rpc/deliver.ts)", raiseKeys })
+local svcFn = actionsTs:match("async function raiseEvent.-\n}") or ""
+local svcArgs = svcFn:match("validateRaiseEventArgs%((%b{})%)")
+if svcArgs then
+  table.insert(sources.raise_event, { "actions/service.ts raiseEvent()", objectKeys(svcArgs) })
+end
+check("the platform's key lists are readable", #(argKeysTs.deliver_result or {}) > 0 and #raiseKeysTs > 0 and #deliverKeys > 0 and #raiseKeys > 0)
+for _, op in ipairs(V.OPERATIONS) do
+  local platformKeys = {}
+  for _, src in ipairs(sources[op]) do
+    local refused = {}
+    for _, k in ipairs(src[2]) do
+      platformKeys[k] = true
+      if not driverTakes(op, k) then
+        refused[#refused + 1] = k
+      end
+    end
+    check(
+      op .. ": the driver accepts every key of " .. src[1],
+      #refused == 0,
+      "refused by operations.lua: {" .. table.concat(refused, ",") .. "} — every such " .. op .. " ends Failed on the controller"
+    )
+  end
+  local extra = minus(Operations.argKeys(op), keys(platformKeys))
+  if #extra > 0 then
+    note(op .. ": the driver also accepts {" .. table.concat(extra, ",") .. "}, which no platform source sends")
+  end
+end
+check(
+  "deliver_result kinds: AI_CORE_RESULT_KINDS = operations.lua RESULT_KINDS",
+  same(keys(Operations.RESULT_KINDS), sorted(strings(literal(protocolTs, "AI_CORE_RESULT_KINDS"))))
+)
+local detailMaxTs = tonumber(protocolTs:match("RAISE_EVENT_DETAIL_MAX = (%d+)"))
+check(
+  "raise_event detail: what the platform sends (RAISE_EVENT_DETAIL_MAX) fits what the driver keeps",
+  detailMaxTs ~= nil and detailMaxTs <= V.LIMITS.event_detail,
+  tostring(detailMaxTs) .. " vs " .. V.LIMITS.event_detail
+)
+local countMaxTs = tonumber(protocolTs:match("RAISE_EVENT_COUNT_MAX = (%d+)"))
+check(
+  "counts: RAISE_EVENT_COUNT_MAX is accepted by the driver, one more is not",
+  countMaxTs ~= nil
+    and Operations.parse("raise_event", { event = "pattern_detected", pending_approvals = countMaxTs }) ~= nil
+    and Operations.parse("raise_event", { event = "pattern_detected", pending_approvals = countMaxTs + 1 }) == nil
+)
+local corrMaxTs = tonumber(protocolTs:match("RAISE_EVENT_CORRELATION_MAX = (%d+)"))
+if corrMaxTs == nil then
+  note("protocol.ts has no RAISE_EVENT_CORRELATION_MAX: the platform does not bound raise_event correlation_id")
+else
+  check(
+    "raise_event correlation_id: RAISE_EVENT_CORRELATION_MAX fits the driver's bound",
+    corrMaxTs <= Operations.CORRELATION_MAX,
+    corrMaxTs .. " vs " .. Operations.CORRELATION_MAX
   )
 end
+local textBytesTs = tonumber(protocolTs:match("DELIVER_RESULT_TEXT_BYTES = (%d+)"))
+check(
+  "deliver_result text: DELIVER_RESULT_TEXT_BYTES fits the driver's result_text",
+  textBytesTs ~= nil and textBytesTs <= V.LIMITS.result_text
+)
+
+print("[8] cloud ops: every body the driver sends against rpc/ops.ts OP_BODIES")
+-- Asserted, per op the driver sends: every body key is one OP_BODIES (with
+-- COMMON) lists — validateOpBody refuses the whole request for one unknown
+-- key — every field the platform requires is in the driver's minimal body,
+-- enum vocabularies are equal, and the driver's text bounds fit the
+-- platform's. And per answer shape: an op the platform answers
+-- {accepted: true, job_id: null} is read by the driver as COMPLETED (no
+-- pending job), a job op as ACCEPTED (a job waits for deliver_result).
+local driverSrc = assert(read("drivers/smartbuildos-ai-core/driver.lua"))
+local limitsTs = record(protocolTs, "AI_CORE_DRIVER_LIMITS") or {}
+for k, v in tostring(literal(protocolTs, "AI_CORE_DRIVER_LIMITS")):gmatch("([%w_]+): (%d+)") do
+  limitsTs[k] = tonumber(v)
+end
+local function platformFields(lit)
+  local out = {}
+  for _, f in ipairs(entries(lit)) do
+    local max = f.body:match("max:%s*([%w_%.]+)")
+    if max and max:match("^L%.") then
+      max = limitsTs[max:sub(3)]
+    else
+      max = tonumber(max)
+    end
+    out[f.name] = {
+      kind = f.body:match('kind:%s*"(%w+)"'),
+      required = f.body:find("required:%s*true") ~= nil,
+      max = max,
+      list = f.body:match("list:%s*([%w_]+)"),
+    }
+  end
+  return out
+end
+local common = platformFields(anyLiteral(opsTs, "COMMON"))
+local bodies = {}
+for _, e in ipairs(entries(anyLiteral(opsTs, "OP_BODIES"))) do
+  local spec = platformFields(e.body)
+  for k, v in pairs(common) do
+    spec[k] = v
+  end
+  bodies[e.name] = spec
+end
+check("OP_BODIES and COMMON are readable", bodies.ask ~= nil and common.request_id ~= nil and bodies.ask.question ~= nil)
+local handled = set(strings(literal(opsTs, "AI_CORE_JOB_OPS")))
+for name in opsTs:gmatch("handlers%.([%w_]+) = async") do
+  handled[name] = true
+end
+local routeTs = read(ROOT .. "/src/app/api/integrations/control4/modules/rpc/route.ts") or ""
+if routeTs:find("status: statusHandler", 1, true) then
+  handled.status = true
+end
+
+-- The driver's bodies: the Composer commands (built by commands.lua), the
+-- extra start_diagnostic fields and the two actions (read from driver.lua).
+local ctx = {
+  rooms = function()
+    return { [3] = "Kitchen" }
+  end,
+  devices = function()
+    return { [12] = { name = "Pendants", room_id = 3, room_name = "Kitchen" } }
+  end,
+  learningActive = true,
+}
+local FULL = {
+  QUESTION = "q",
+  ROOM = "3",
+  NAME = "n",
+  DETAIL = "d",
+  CATEGORY = "general",
+  KEY = "vacation",
+  VALUE = "v",
+  STATEMENT = "s",
+  OCCASION = "o",
+  TYPE = "usage",
+  PERIOD = "today",
+  DEVICE = "12",
+  TITLE = "t",
+  MESSAGE = "m",
+  AUDIENCE = "all",
+}
+local diagExtra = {}
+for k in tostring(driverSrc:match("cloud%(cmd, requestId, (%b{})%)")):gmatch("([%a_][%w_]*) =") do
+  diagExtra[k] = true
+end
+check("driver.lua's start_diagnostic extra fields are readable", next(diagExtra) ~= nil)
+local function driverBody(name, minimal)
+  local spec = Commands.SPECS[name]
+  local params = {}
+  for key, p in pairs(spec.params) do
+    if not minimal or p.required then
+      params[key] = FULL[key]
+    end
+  end
+  if spec.one_of then
+    params.ROOM = nil -- exactly one: the device
+    params.DEVICE = FULL.DEVICE
+  end
+  local cmd = assert(Commands.build(name, params, ctx))
+  local extra = nil
+  if spec.op == "start_diagnostic" then
+    extra = {}
+    for k in pairs(diagExtra) do
+      extra[k] = k == "local_event_ids" and { "e-1" } or (k == "flight_recorder_available" and true or "e-1")
+    end
+  end
+  return Commands.body(cmd, "aic-1", extra)
+end
+local driverBodies = {} -- op → { full = body, minimal = body, max = { key → bound } }
+for _, name in ipairs(Commands.NAMES) do
+  local spec = Commands.SPECS[name]
+  if spec.op then
+    local bounds = {}
+    for key, p in pairs(spec.params) do
+      if p.kind == "text" then
+        bounds[Commands.BODY_NAMES[key:lower()] or key:lower()] = p.max
+      end
+    end
+    driverBodies[spec.op] = { full = driverBody(name, false), minimal = driverBody(name, true), max = bounds }
+  end
+end
+for _, op in ipairs({ "test_provider", "status" }) do
+  local lit = driverSrc:match('cloudRequest%("' .. op .. '", (%b{})')
+  local body = {}
+  for k in tostring(lit):gmatch("([%a_][%w_]*) =") do
+    body[k] = true
+  end
+  driverBodies[op] = { full = body, minimal = body, max = {} }
+end
+for _, op in ipairs(keys(V.CLOUD_OPS)) do
+  local d = driverBodies[op]
+  local spec = bodies[op]
+  if d == nil then
+    note(op .. ": in the vocabulary, but no driver path sends it")
+  elseif not handled[op] then
+    note(
+      op
+        .. ": the driver sends it; the platform registers no handler, so it answers `unsupported`"
+        .. " (shown as a refusal on the controller; tested in test_aicore_cloud_answers.lua [2])"
+    )
+  elseif spec == nil then
+    note(op .. ": the platform validates no body for it (OP_BODIES has no entry); the driver sends {" .. table.concat(keys(d.full), ",") .. "}")
+  else
+    local unknown = minus(keys(d.full), keys(spec))
+    check(
+      op .. ": every body key the driver sends is in OP_BODIES." .. op .. " (+ COMMON)",
+      #unknown == 0,
+      "unknown to the platform: {" .. table.concat(unknown, ",") .. "} — validateOpBody refuses the whole request"
+    )
+    local missing = {}
+    for field, f in pairs(spec) do
+      if f.required and d.minimal[field] == nil then
+        missing[#missing + 1] = field
+      end
+    end
+    table.sort(missing)
+    check(
+      op .. ": every field the platform requires is in the driver's minimal body",
+      #missing == 0,
+      "missing: {" .. table.concat(missing, ",") .. "}"
+    )
+    for field, f in pairs(spec) do
+      if f.kind == "enum" and d.full[field] ~= nil and f.list then
+        local tsList = sorted(strings(literal(protocolTs, f.list)))
+        local driverList = {}
+        for _, name in ipairs(Commands.NAMES) do
+          local sp = Commands.SPECS[name]
+          if sp.op == op then
+            for key, p in pairs(sp.params) do
+              if p.kind == "enum" and (Commands.BODY_NAMES[p.as or key:lower()] or p.as or key:lower()) == field then
+                driverList = keys(p.list)
+              end
+            end
+          end
+        end
+        check(op .. "." .. field .. ": the same closed list (" .. f.list .. ")", same(driverList, tsList), show(driverList, tsList))
+      elseif f.kind == "text" and d.full[field] ~= nil and field ~= "command" then
+        local bound = d.max[field]
+        if bound == nil then
+          note(
+            op .. "." .. field .. ": the driver sends a name Director supplies, not bounded by the driver; the platform refuses over " .. tostring(f.max) .. " characters"
+          )
+        else
+          check(
+            op .. "." .. field .. ": the driver's bound " .. bound .. " fits the platform's " .. tostring(f.max),
+            f.max ~= nil and bound <= f.max
+          )
+        end
+      end
+    end
+  end
+end
+-- Answer shapes.
+local syncNull = {}
+for name, block in opsTs:gmatch("handlers%.([%w_]+) = async(.-)\n%s+};") do
+  if block:find("job_id: null", 1, true) then
+    syncNull[#syncNull + 1] = name
+  end
+end
+table.sort(syncNull)
+check("ops.ts has synchronous answers ({..., job_id: null}) to compare", #syncNull > 0)
+for _, op in ipairs(syncNull) do
+  local r = Commands.interpret({ status = "ok", result = require("JSON"):decode('{"accepted":true,"job_id":null}') })
+  check(op .. ": {accepted: true, job_id: null} → the driver reads it as completed (no pending job)", r.outcome == "completed", r.outcome)
+end
+local jobFn = opsTs:match("function jobOp.-\n}") or ""
+check(
+  "job ops answer {accepted: true, job_id} → the driver tracks the job",
+  jobFn:find("accepted: true, job_id: jobId", 1, true) ~= nil
+    and Commands.interpret({ status = "ok", result = { accepted = true, job_id = "uuid-1" } }).outcome == "accepted"
+)
+
+print("[9] reported differences (NOTE lines are not failures)")
 local detailMax = tonumber(protocolTs:match("RAISE_EVENT_DETAIL_MAX = (%d+)"))
 if detailMax ~= V.LIMITS.event_detail then
   note(
@@ -341,7 +703,9 @@ if detailMax ~= V.LIMITS.event_detail then
   )
 end
 local typesTs = strings(literal(protocolTs, "AI_CORE_EVENT_TYPES"))
-local emitted = set({ "ai_core.command", "ai_core.record", "ai_core.status", "ai_core.diagnostic" })
+-- What the driver emits besides ai_core.observation.* (AI_CORE_OBSERVATION_PREFIX).
+local emittedList = { "ai_core.command", "ai_core.record", "ai_core.status", "ai_core.diagnostic", "ai_core.event" }
+local emitted = set(emittedList)
 for _, t in ipairs(typesTs) do
   if not emitted[t] then
     note(
@@ -349,6 +713,12 @@ for _, t in ipairs(typesTs) do
         .. t
         .. ", which the driver never emits (DRIVER.md §15: the context travels in the ai_core.command of AI_SET_CONTEXT)"
     )
+  end
+end
+local listedTs = set(typesTs)
+for _, t in ipairs(emittedList) do
+  if not listedTs[t] then
+    note("the driver emits " .. t .. ", which AI_CORE_EVENT_TYPES (protocol.ts) does not list")
   end
 end
 local featuresTs = sorted(strings(literal(protocolTs, "AI_CORE_FEATURES")))
