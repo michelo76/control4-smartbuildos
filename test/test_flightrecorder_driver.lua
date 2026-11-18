@@ -295,7 +295,7 @@ check("register frame to the Agent", reg ~= nil and reg.device == AGENT_ID, reg 
 check(
   "frame carries the contract",
   reg.params.module_id == "flight_recorder"
-    and reg.params.protocol_max == "1"
+    and reg.params.protocol_max == "2"
     and reg.params.entitlements == "SBOS_FLIGHT_RECORDER"
     and reg.params.singleton == "true"
     and reg.params.commands:find("apply_config") ~= nil

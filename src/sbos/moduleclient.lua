@@ -20,18 +20,36 @@
 --- on-controller (structured data travels JSON-encoded in one param); the
 --- receiver's ExecuteCommand learns nothing about the sender, so the token
 --- the Agent answers registration with is the only proof of identity.
+---
+--- Contract v2 (docs/protocol/MODULE-CONTRACT-V2.md), negotiated 1..2:
+---   setup opts add  manifest = { driver, version, capabilities = {...} }
+---                   require_protocol = 2   (bus features needed; against a
+---                                           v1-only Agent the module reports
+---                                           agent_update_required and keeps
+---                                           its v1 services)
+---                   onDirectoryChanged = fn(version)
+---   calls           client.discover(filter, cb)
+---                   client.subscribe(id, topics, onEvents, onResult)
+---                   client.unsubscribe(id)
+---                   client.request(to, capability, args, opts, cb)
+---                   client.onRequest(capability, handler) / client.respond(...)
+---                   client.cloudRequest(op, body, opts, cb)
+---   Engine: sbos.modulerpc. Re-registration on SBOS_MODULE_AGENT_HELLO
+---   re-sends every subscription once the Agent answers.
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local Envelope = require("sbos.envelope")
 local SeqBlock = require("sbos.seqblock")
+local ModuleRpc = require("sbos.modulerpc")
+local Policy = require("sbos.modulepolicy")
 JSON = JSON or require("JSON")
 
 local M = {}
 
-M.PROTOCOL_MIN = 1
-M.PROTOCOL_MAX = 1
+M.PROTOCOL_MIN = Policy.PROTOCOL_MIN
+M.PROTOCOL_MAX = Policy.PROTOCOL_MAX
 --- Events staged locally while unregistered or awaiting the Agent's local
 --- ack. Small on purpose: the Agent's queue is the durable one.
 M.MAX_STAGED = 300
@@ -63,6 +81,8 @@ local function fresh()
     backoff = 30,
     counters = { events_sent = 0, events_acked = 0, events_dropped_local = 0, frames_resent = 0, registrations = 0 },
     lastError = "",
+    agentUpdateRequired = false,
+    rpc = nil,
   }
 end
 state = fresh()
@@ -142,6 +162,9 @@ function M.sendStatus(extra)
   end
   merged.staged = #state.staged
   merged.pending_frames = #state.pendingOrder
+  if state.rpc ~= nil then
+    merged.bus = state.rpc.counters
+  end
   local params = authParams({ status = status, detail = detail, counters = JSON:encode(merged) })
   for k, v in pairs(extra or {}) do
     params[k] = tostring(v)
@@ -298,9 +321,48 @@ function M.register()
     config_version = tostring(o.configVersion and o.configVersion() or ""),
     singleton = o.singleton ~= false and "true" or "false",
     status = select(1, statusTriple()),
+    manifest = M.manifestParam(),
   })
   armRegisterRetry()
   return true
+end
+
+--- The v2 capability manifest as a registration param ("" when none). A v1
+--- Agent ignores the extra param.
+function M.manifestParam()
+  local m = state.opts.manifest
+  if type(m) ~= "table" then
+    return nil
+  end
+  local doc = {
+    driver = m.driver,
+    version = m.version or state.opts.driver_version,
+    protocol = Policy.PROTOCOL_MAX,
+    capabilities = m.capabilities or {},
+  }
+  local ok, encoded = pcall(function()
+    return JSON:encode(doc)
+  end)
+  return ok and encoded or nil
+end
+
+--- Whether this module needs a newer Agent than the one it registered with
+--- (set require_protocol = 2 to depend on discovery / pub/sub / requests).
+local function noteAgentProtocol(agentMax)
+  local need = tonumber(state.opts.require_protocol) or 1
+  local was = state.agentUpdateRequired
+  state.agentUpdateRequired = need > 1 and (tonumber(agentMax) or 0) < need
+  if state.agentUpdateRequired and not was then
+    state.lastError = string.format(
+      "agent_update_required: this driver needs SmartBuildOS Agent protocol %d (the Agent speaks %s)",
+      need,
+      tostring(agentMax)
+    )
+    log:warn("%s", state.lastError)
+    if state.opts.onAgentState then
+      pcall(state.opts.onAgentState, state.agent, "agent_update_required")
+    end
+  end
 end
 
 local function onRegistered(tParams)
@@ -312,8 +374,14 @@ local function onRegistered(tParams)
   if tostring(tParams.ok) ~= "true" then
     state.registered = false
     state.token = nil
+    if state.rpc then
+      state.rpc:onUnregistered()
+    end
     state.lastError = "registration refused: " .. tostring(tParams.reason or "unknown")
     log:warn("%s", state.lastError)
+    if tParams.reason == "incompatible_protocol" and tParams.agent_protocol_max ~= nil then
+      noteAgentProtocol(tParams.agent_protocol_max)
+    end
     if state.opts.onRegistered then
       pcall(state.opts.onRegistered, tParams)
     end
@@ -334,6 +402,10 @@ local function onRegistered(tParams)
   state.agent.boot_id = tParams.boot_id
   state.agent.agent_version = tParams.agent_version
   CancelTimer(REGISTER_TIMER)
+  -- A v1-only Agent sends no agent_protocol_max; the negotiated protocol
+  -- is then its maximum.
+  noteAgentProtocol(tParams.agent_protocol_max or state.protocol)
+  state.rpc:onRegistered(state.protocol)
   log:info(
     "Registered with the SmartBuildOS Agent (device %s, protocol %s)",
     tostring(state.agentId),
@@ -385,12 +457,62 @@ end
 function M.setup(opts)
   state = fresh()
   state.opts = opts or {}
+  state.rpc = ModuleRpc.new({
+    send = function(command, params)
+      return sendToAgent(command, authParams(params))
+    end,
+    token = function()
+      return state.token
+    end,
+    now = now,
+    setTimer = function(id, ms, fn)
+      SetTimer(id, ms, fn)
+    end,
+    cancelTimer = function(id)
+      CancelTimer(id)
+    end,
+    newId = function()
+      return ModuleRpc.newId(C4)
+    end,
+    onDirectoryChanged = function(version)
+      if state.opts.onDirectoryChanged then
+        state.opts.onDirectoryChanged(version)
+      end
+    end,
+  })
   EC.SBOS_MODULE_REGISTERED = onRegistered
+  -- Contract v2 frames (the engine checks each one carries our token).
+  EC.SBOS_MODULE_DIRECTORY = function(tParams)
+    state.rpc:onDirectory(tParams or {})
+  end
+  EC.SBOS_MODULE_DIRECTORY_CHANGED = function(tParams)
+    state.rpc:onDirectoryChanged(tParams or {})
+  end
+  EC.SBOS_MODULE_SUBSCRIBED = function(tParams)
+    state.rpc:onSubscribed(tParams or {})
+  end
+  EC.SBOS_MODULE_PUBLISH = function(tParams)
+    state.rpc:onPublish(tParams or {})
+  end
+  EC.SBOS_MODULE_REQUEST_ACK = function(tParams)
+    state.rpc:onRequestAck(tParams or {})
+  end
+  EC.SBOS_MODULE_REQUEST = function(tParams)
+    state.rpc:onIncomingRequest(tParams or {})
+  end
+  EC.SBOS_MODULE_RESPONSE = function(tParams)
+    state.rpc:onResponse(tParams or {})
+  end
+  EC.SBOS_MODULE_CLOUD_RESPONSE = function(tParams)
+    state.rpc:onCloudResponse(tParams or {})
+  end
   EC.SBOS_MODULE_AGENT_HELLO = function(tParams)
-    -- The Agent (re)started: our token is gone with its memory. Re-register.
+    -- The Agent (re)started: our token is gone with its memory. Re-register
+    -- (and, once it answers, re-subscribe: subscriptions died with it too).
     state.registered = false
     state.token = nil
     state.backoff = 30
+    state.rpc:onAgentHello()
     CancelTimer(STATUS_TIMER)
     if state.opts.onAgentState then
       pcall(state.opts.onAgentState, state.agent, "hello")
@@ -480,6 +602,9 @@ function M.setup(opts)
 end
 
 function M.stop()
+  if state.rpc ~= nil then
+    state.rpc:stop()
+  end
   CancelTimer(FLUSH_TIMER)
   CancelTimer(REGISTER_TIMER)
   CancelTimer(STATUS_TIMER)
@@ -492,6 +617,58 @@ end
 
 function M.isRegistered()
   return state.registered
+end
+
+-- ── contract v2 calls (sbos.modulerpc; no-ops with an error code until a
+--    v2 registration exists) ──────────────────────────────────────────────
+
+local function rpc()
+  if state.rpc == nil then
+    error("sbos.moduleclient: call setup() first")
+  end
+  return state.rpc
+end
+
+function M.discover(filter, cb)
+  return rpc():discover(filter, cb)
+end
+
+function M.subscribe(id, topics, onEvents, onResult)
+  return rpc():subscribe(id, topics, onEvents, onResult)
+end
+
+function M.unsubscribe(id)
+  return rpc():unsubscribe(id)
+end
+
+function M.request(to, capability, args, opts, cb)
+  return rpc():request(to, capability, args, opts, cb)
+end
+
+function M.onRequest(capability, handler)
+  return rpc():onRequest(capability, handler)
+end
+
+function M.respond(requestId, status, result, errorCode, cursor)
+  return rpc():respond(requestId, status, result, errorCode, cursor)
+end
+
+function M.cloudRequest(op, body, opts, cb)
+  return rpc():cloudRequest(op, body, opts, cb)
+end
+
+--- The negotiated protocol (nil until registered).
+function M.protocol()
+  return state.protocol
+end
+
+--- True when require_protocol is higher than what the Agent speaks.
+function M.agentUpdateRequired()
+  return state.agentUpdateRequired
+end
+
+function M.busCounters()
+  return state.rpc and state.rpc.counters or {}
 end
 
 function M.agent()
@@ -515,6 +692,9 @@ end
 function M.displayStatus()
   if state.agentId == nil then
     return "waiting_for_agent"
+  end
+  if state.agentUpdateRequired then
+    return "agent_update_required"
   end
   if not state.registered then
     local reason = state.lastReply and tostring(state.lastReply.reason or "") or ""
