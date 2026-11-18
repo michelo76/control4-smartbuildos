@@ -43,6 +43,12 @@ no broadcast and no delivery guarantee, so the Agent supplies them:
   UUID; otherwise the v1 generator (4 × `math.random`, seeded once). A new
   token is issued on every registration, so a re-registration ends the old
   session.
+- **Debug log:** ExecuteCommand (vendor `handlers.lua`) prints every param
+  when debug printing is on. The Agent sets `EC.suppressDebug` for
+  `SBOS_MODULE_REQUEST`, `SBOS_MODULE_RESPONSE`, `SBOS_MODULE_CLOUD_REQUEST`
+  and `SBOS_MODULE_CLOUD_RESPONSE` (the last is only ever sent by the Agent;
+  it is listed so a future handler cannot start printing results), so
+  request args, results and cloud bodies never reach its debug output.
 
 ## 2. Versions and negotiation
 
@@ -89,6 +95,46 @@ the negotiated protocol is ≥ 2.
 | `topics` | required for `topic`: 1–16 prefixes, `^[a-z][a-z0-9_]*\.[a-z0-9_.]*$`, ≤ 64 |
 | `driver` ≤ 64, `version` ≤ 32 | informational |
 
+**Registry cap:** the Agent holds at most **48** registrations; the 49th
+live one is refused `registry_full` (stale entries are pruned first to make
+room; re-registering an existing instance always works). Only root drivers
+register; child drivers never do. Persist, heartbeat and directory sizes at
+48 entries are unmeasured on hardware.
+
+**Identity binding (reserved module ids).** The Agent table
+(`modulepolicy.RESERVED_MODULES`) binds a module id to the `.c4z` file(s)
+that may register it:
+
+| Module id | Driver file |
+| --- | --- |
+| `ai_core` | `smartbuildos-ai-core.c4z` |
+| `flight_recorder` | `smartbuildos-flight-recorder.c4z` |
+| `usage_analytics` | `smartbuildos-usage-analytics.c4z` |
+| `mqtt_broker` | `smartbuildos-mqtt-broker.c4z` |
+| `venueflow` | `smartbuildos-venueflow.c4z` |
+| `pin_lock` | `smartbuildos-pin-lock.c4z` |
+
+On a registration under a reserved id the Agent asks Director
+(`C4:GetDevicesByC4iName(file)`, injected into the registry as a resolver)
+which devices run that file, and compares the claimed `instance_id`:
+
+| Director's answer | Result |
+| --- | --- |
+| the claimed device is listed | registered, `verified = true` |
+| a table that does not list it | refused, `reason = not_permitted`; an earlier entry for that exact module + instance is removed (and its routes answered `target_unavailable`) |
+| no table (nil, or the call errors) | registered, `verified = false` |
+
+Any other module id registers exactly as before with `verified = false`.
+`verified` is the Agent's own finding, carried in directory rows (§4) and
+heartbeat module rows (§14); a module's own claim is never copied into it.
+Consumers decide what an unverified module may do (the platform refuses
+declared actions from one; AI Core refuses PIN verification unless
+`pin_lock` is verified). The bus itself does not consult `verified`: the
+policy tables (§9) already confine what any module id can do, and a
+reserved id can only be held by its own driver file unless Director gave no
+answer. Adding a SmartBuildOS module id to the reserved table is an Agent
+release.
+
 A malformed manifest does not fail the registration: the entry is stored
 without a manifest and the reply carries `manifest_error`
 (`invalid_manifest`, `manifest_too_large`, `too_many_capabilities`,
@@ -102,7 +148,7 @@ All params are strings. "auth" = `module_id`, `instance_id`, `token`.
 | Direction | Command | Params (beyond auth) | Answer |
 | --- | --- | --- | --- |
 | M→A | `SBOS_MODULE_DISCOVER` | `request_id`, `filter` (JSON `{module_id?, capability?}`, optional) | `SBOS_MODULE_DIRECTORY` |
-| A→M | `SBOS_MODULE_DIRECTORY` | `request_id`, `error_code`, `directory_version`, `agent` (JSON `{version, protocol_min, protocol_max, paired, connected}`), `modules` (JSON array of `{module_id, instance_id, driver, driver_version, protocol, status, stale, capabilities[]}`), `truncated` | — |
+| A→M | `SBOS_MODULE_DIRECTORY` | `request_id`, `error_code`, `directory_version`, `agent` (JSON `{version, protocol_min, protocol_max, paired, connected}`), `modules` (JSON array of `{module_id, instance_id, driver, driver_version, protocol, status, stale, verified, capabilities[]}`), `truncated` | — |
 | A→M | `SBOS_MODULE_DIRECTORY_CHANGED` | `directory_version` | — |
 | M→A | `SBOS_MODULE_SUBSCRIBE` | `subscription_id`, `topics` (JSON array, 1–16) | `SBOS_MODULE_SUBSCRIBED` |
 | A→M | `SBOS_MODULE_SUBSCRIBED` | `subscription_id`, `ok`, `reason`, `granted` (JSON), `refused` (JSON) | — |
@@ -178,7 +224,7 @@ Refused`:
 | `deadline` ≤ now | `deadline_exceeded` |
 | `deadline` > now + 60 | `invalid_args` |
 | `request_id` already routed | `duplicate_request` |
-| capability not in `MODULE_REQUEST_POLICY` or requester not listed | `not_permitted` |
+| capability not in `MODULE_REQUEST_POLICY`, or requester not listed (and the row is not the `ANY` wildcard) | `not_permitted` |
 | same `(requester module, idempotency_key)` answered before | **replayed** (below) |
 | same key still in flight and before its deadline | `duplicate_request` |
 | no registered module `to` (or no such `to_instance`) | `unknown_target` |
@@ -263,7 +309,12 @@ other Agent route. AI Core ops are expected to return quickly with
 
 ## 9. Policy tables (Agent data; mirrored in the web repo)
 
-`MODULE_REQUEST_POLICY[capability] = { provider, requesters }`:
+`MODULE_REQUEST_POLICY[capability] = { provider, requesters }`. `provider`
+nil means any module whose manifest advertises the capability may serve it.
+`requesters = ANY` (`modulepolicy.ANY`, mirrored as `"*"`) means every
+authenticated, registered v2 module may call it; frames without a valid
+registration token never reach policy (§1). `ANY` is a unique empty
+read-only table, so an engine that does not know it refuses.
 
 | Capability | Provider | Requesters |
 | --- | --- | --- |
@@ -271,18 +322,41 @@ other Agent route. AI Core ops are expected to return quickly with
 | `events.timeline` | `flight_recorder` | `ai_core` |
 | `events.device_history` | `flight_recorder` | `ai_core` |
 | `events.room_activity` | `flight_recorder` | `ai_core` |
+| `ai_core.report` | `ai_core` | `ANY` |
+| `pinlock.availability` | `pin_lock` | `ai_core` |
+| `pinlock.challenge` | `pin_lock` | `ai_core` |
+| `pinlock.redeem` | `pin_lock` | `ai_core` |
+| `ai.query` | any (nil) | `ai_core` |
+| `ai.action` | any (nil) | `ai_core` |
+
+These rows are routing policy only. The capabilities' argument and result
+contracts, and the drivers that serve them, are specified with the features
+that use them (no PIN ever travels in a `pinlock.*` frame).
 
 `MODULE_TOPIC_POLICY[prefix] = { subscribers }`: `capture.`, `observation.`,
 `trace.` → `ai_core`.
 
 `MODULE_CLOUD_OPS.ai_core`: `ask`, `analyze_room`, `analyze_system`,
 `learn_preference`, `suggest_scene`, `generate_report`, `start_diagnostic`,
-`send_notification`, `set_context`, `status`, `test_provider`.
+`send_notification`, `set_context`, `status`, `test_provider`,
+`analyze_household`, `approvals_pending`, `approval_detail`,
+`approval_decide`, `driver_reports`, `driver_query_result`,
+`driver_action_result`.
 
 Related v1 tables updated for AI Core: `MODULE_COMMANDS.ai_core` (Agent,
 `drivers/smartbuildos/driver.lua`) = `apply_config`, `refresh_status`,
-`deliver_result`, `raise_event`, `set_learning`, `run_diagnostic`;
+`deliver_result`, `raise_event`, `set_learning`, `run_diagnostic`,
+`run_driver_query`, `invoke_driver_action`;
 `Envelope.PREFIXES.ai_core = { "ai_core." }`.
+
+**Remote Control tier.** A `MODULE_COMMANDS` entry that is a number instead
+of `true` is the minimum rank of the Agent's Composer *Remote Control*
+property (Off 0, Identify only 1, Comfort 2, Full control 3) the verb needs.
+`invoke_driver_action = 2`: `ModuleCommandDispatch` refuses it below Comfort
+(the command is acked failed with the tier message and nothing is
+forwarded), and the heartbeat advertises capability `driver_actions_v1`
+only at rank ≥ 2. `run_driver_query` is read-only and needs no tier. As for
+every module verb, the target instance must also register the command.
 
 Anything not listed is `not_permitted`. These tables are code: changing them
 is a driver release.
@@ -302,6 +376,7 @@ is a driver release.
 | deadline | ≤ now + 60 s; routing state kept to deadline + 5 s |
 | idempotency ring (Agent) / target dedup ring (client) | 256 / 256 |
 | routes in flight (Agent, requests + cloud) | 128 |
+| registrations (Agent registry) | 48 (49th → `registry_full`) |
 | `cursor` | 256 characters |
 | request bucket per module (REQUEST + DISCOVER) | 30/min, burst 10 |
 | cloud bucket per module | 20/min, burst 10 |
@@ -367,8 +442,10 @@ checked before anything is sent.
   `ignored`, `inflight`, `subscriptions`, `buffered`, `directory_version`.
 - Heartbeat `modules[]` rows add `bus` (what the Agent measured for that
   instance: `requests`, `refused`, `served`, `published`, `dropped`,
-  `cloud_requests`, `rate_limited`) and `manifest` / `manifest_error`. Tokens
-  never leave the controller.
+  `cloud_requests`, `rate_limited`), `manifest` / `manifest_error` and
+  `verified` (identity binding, §3). Tokens never leave the controller.
+- Heartbeat capabilities add `driver_actions_v1` at Remote Control Comfort
+  or above (§9).
 - The module's `SBOS_MODULE_STATUS.counters` gains `bus` (what the client
   measured: `requests`, `responses_ok`, `errors`, `timeouts`, `retries`,
   `served`, `served_duplicates`, `published_received`, `dropped_reported`,
@@ -385,6 +462,9 @@ client.setup({
   require_protocol = 2,                       -- needs v2 → agent_update_required on a v1 Agent
   onDirectoryChanged = function(version) end,
   onAgentState = function(agent, why) end,    -- "hello", "update", "agent_update_required", …
+  claim_driver_config = false,                -- optional: leave EC.SBOS_DRIVER_CONFIG
+                                              -- to the driver (default true: the client
+                                              -- takes it, as before)
   -- v1 options unchanged (status, onRegistered, onCommand, onConfig, …)
 })
 client.register()
@@ -422,10 +502,15 @@ Callbacks may run synchronously when a call is refused locally.
 - Agent restarts lose subscriptions, routes, buckets and idempotency
   answers; recovery depends on modules handling `SBOS_MODULE_AGENT_HELLO`
   (the shared client does).
-- Module identity is still a self-claimed `module_id` at registration (v1):
-  the token proves a frame comes from the registered instance, not that the
-  driver is the genuine product. Singleton modules block a second live
-  instance; the policy tables bound what any module id can do.
+- Module identity: a **reserved** module id is bound to its `.c4z` filename
+  (§3); every other id is still self-claimed and shown unverified. The
+  binding proves "the device at this id runs a file of that name", not that
+  the file is genuine SmartBuildOS code. When Director gives no answer the
+  module registers unverified. `C4:GetDevicesByC4iName`'s answer format on
+  each OS is assumed from the emulator and the Agent's existing SKU use, not
+  measured for this purpose. A registration can still name ANOTHER device's
+  id: the token is sent to that device, so the claimant never holds it, but
+  the claimed entry's metadata is replaced (as in v1).
 - Legacy unauthenticated Agent commands used from Composer programming
   (`SEND_EVENT`, `REPORT_*`, `SEND_PUSH_NOTIFICATION`) remain
   sender-unverified because programming has no token.
@@ -441,7 +526,8 @@ Callbacks may run synchronously when a call is refused locally.
 | Client engine against the real bus (retries, deadlines, dedup, restart) | `test/test_sbos_modulerpc.lua` |
 | `moduleclient` wiring (manifest, v1-Agent degradation, hello) | `test/test_sbos_moduleclient_v2.lua` |
 | Agent driver wiring (auth, stamping, fan-out, cloud POST, heartbeat, restart) | `test/test_agent_modules_v2.lua` |
-| Registry negotiation | `test/test_sbos_modules.lua`, `test/test_agent_modules.lua` |
+| Registry negotiation, cap, identity binding | `test/test_sbos_modules.lua`, `test/test_agent_modules.lua` |
+| Agent tier gate, `driver_actions_v1`, debug suppression, identity binding through the Agent | `test/test_agent_modules_v2.lua` [10]–[12] |
 | End to end under the Director emulator (EMULATOR ONLY) | `test/emulator/run-module-contract-v2.sh` → `test/emulator/module_contract_v2.lua` |
 
 Each guard was proven by breaking it once and watching a test fail.
