@@ -61,13 +61,25 @@ const bounded = (promise, ms, what) => {
   const limit = new Promise((_r, reject) => { timer = setTimeout(() => reject(new Error(`TIMEOUT after ${ms} ms: ${what} (step: ${step})`)), ms); });
   return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 };
-const watchdog = setTimeout(() => { console.error(`\nHUNG: the run exceeded ${RUN_MS} ms; last step: ${step}`); process.exit(2); }, RUN_MS);
+// On abort, close the browser (bounded) before exiting so no Chromium is left orphaned.
+let browser = null;
+let aborting = false;
+const abort = (code, msg) => {
+  if (aborting) return; // the first cause wins; later rejections are its fallout
+  aborting = true;
+  console.error(msg);
+  const done = () => process.exit(code);
+  setTimeout(done, 5000).unref();
+  Promise.resolve(browser && browser.close()).catch(() => {}).finally(done);
+};
+const watchdog = setTimeout(() => abort(2, `\nHUNG: the run exceeded ${RUN_MS} ms; last step: ${step}`), RUN_MS);
 watchdog.unref();
-process.on("unhandledRejection", (e) => { console.error(`\nFAILED in step “${step}”: ${e && e.stack || e}`); process.exit(3); });
+process.on("unhandledRejection", (e) => abort(3, `\nFAILED in step “${step}”: ${e && e.stack || e}`));
+process.on("uncaughtException", (e) => abort(3, `\nFAILED in step “${step}”: ${e && e.stack || e}`));
 const section = (name) => { step = name; console.log(`· ${name}`); };
 const shots = [];
 
-const browser = await chromium.launch();
+browser = await chromium.launch();
 const external = [];
 const consoleProblems = [];
 async function newPage(opts = {}) {
