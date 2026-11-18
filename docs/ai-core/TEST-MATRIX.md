@@ -97,6 +97,45 @@ the test prints after `ok`.
 | `AI_GENERATE_REPORT` requires `TYPE` and `PERIOD` (as documented) | `test/test_aicore_commands.lua` [7] "no TYPE → refused, TYPE: is required", "no PERIOD → refused, PERIOD: is required", "neither → refused" | unit |
 | `AI_LAST_RESPONSE` ≤ 1024 bytes, cut between UTF-8 characters; `raise_event` detail ≤ 512 bytes likewise | `test/test_aicore_operations.lua` [4] "exactly 1024 bytes of 2-byte characters: kept whole", "1025 bytes: cut to 1021 bytes of whole characters + '...'", "4-byte characters, offset 0..3: no partial sequence before the marker", "raise_event detail: bounded to 512 bytes, cut between characters"; `test/test_aicore_driver.lua` [8] "AI_LAST_RESPONSE bounded to 1024 bytes and marked", "no split UTF-8 sequence" | unit |
 
+## Report hub and driver operations (D4)
+
+Unit = `test/test_aicore_reports.lua` (pure hub + the driver under the
+scripted Agent); emulator = `test/emulator/ai_core_reports.lua` (run by
+`test/emulator/run-ai-core.sh`): the real Agent, the real AI Core and two
+reporters built on the real helper (`test/emulator/fixtures/sbos-ai-reporter`,
+assembled as `smartbuildos-atmosphere.c4z` and `smartbuildos-mode-composer.c4z`).
+
+| Item | Test | Class |
+| --- | --- | --- |
+| Accepted reports of each kind | unit [1] "a valid describe / state / event / diagnostic is accepted"; emulator [2] "a describe from atmosphere@A reached the cloud", [3] "event uploaded, `at` in epoch seconds", "diagnostic uploaded", "state uploaded with the driver's facts and the baseline" | unit, emulator |
+| Unknown kind and oversize refused | unit [1] "an unknown kind is refused (invalid)", "a describe over 8 KB → too_large"; [4] "unknown kind refused (invalid)", "oversize describe refused (too_large)"; emulator [4] "unknown kind → accepted false, invalid", "oversize describe (> 8 KB) → accepted false, too_large" | unit, emulator |
+| Identity from the Agent's stamp, never from the report | unit [1] "a report that names its own sender (from_module_id) is refused: unknown key"; [4] "items carry the Agent's stamp (atmosphere@321, mode_composer@322)", "no item under a sender a report named"; emulator [4] "a report naming its sender → accepted false, invalid", "…and no item under that name ever reaches the cloud" | unit, emulator |
+| Validation to the platform's item shapes (one bad item fails a batch there) | unit [1] "empty summary refused (the platform requires text)", "hash must be 16 lower-case hex", "`at` as ISO text → invalid (epoch seconds only)", "free text: newline/tab/controls → space, bidi removed, U+2028 → space", "an enum value with a control character is refused"; cross-repo `test/test_aicore_platform_parity.lua` [8a] | unit |
+| Answer shape, version, need_describe, unlicensed | unit [2] "answer shape: accepted, ai_core{state, version}", "need_describe while no describe is held", "unlicensed AI Core: answers accepted=false, state unlicensed, nothing kept"; [4] "ai_core.version = the driver_version AI Core registered with"; emulator [2] "the Agent's directory lists AI Core at its driver version", "reporter A: Found — reporting (v<AI Core's version>)"; [11] "reporter A: Found — not licensed (v…)" | unit, emulator |
+| Per-instance rates, coalescing, ring and instance bounds | unit [2] "state: 6 a minute per instance", "…coalesced: only the latest waits", "event: 10 a minute", "diagnostic: 6 a minute", "ring bounded at 200, oldest dropped and counted", "48 instances held; the least recently heard is evicted (counted)" | unit |
+| Batching within the budget | unit [3] "at most 3 batches in any minute", "a batch holds at most 64 items", "…and fits the 16 KB cloud body", "refused: the items are dropped and counted", "the next batch says how many were dropped since the last delivered one"; [4] "at most 3 driver_reports batches in any 60 s (budget)"; emulator [5] "at most 3 batches in any 60 s (…)" | unit, emulator |
+| AI Core restart → `need_describe` → describe re-sent | unit [4] "after an AI Core restart: need_describe on the next report"; helper `test/test_sbos_aireport.lua` [13a] "a state answered need_describe -> the same-hash describe goes again at once", "a describe AI Core refused (invalid) is not re-sent on need_describe"; emulator [10] "reporter A was told need_describe and re-sent its describe", "atmosphere's describe reached the cloud again after the restart" | unit, emulator |
+| Reporter with AI Core absent sends nothing | emulator [1] "AI Core absent: no report frame left either reporter"; [12] "no report frame after AI Core is gone"; helper `test/test_sbos_aireport.lua` [6] | emulator, unit |
+| Query round trip | unit [5] "driver_query_result {query_ref, status completed, data}", "a 20 KB answer (bus ok, cloud body 16 KB) → failed payload_too_large, never cut"; emulator [6] "driver_query_result completed with the driver's data" | unit, emulator |
+| Action round trip with the real outcome | unit [6] "Completed only after the driver said ok", "the driver's refusal: failed, its words as result_text", "no answer: failed deadline_exceeded, 'outcome is unknown' — never completed", "the same ai_action_id is never run twice (duplicate_request)"; emulator [7] "completed, with the driver's result_text", "the driver refused: failed, its words as result_text (never completed)" | unit, emulator |
+| `declaration_changed` | unit [6] "a changed declaration: failed not_permitted, result_text declaration_changed"; emulator [8] "the approved (old) declaration → failed not_permitted, declaration_changed", "…the handler did not run" | unit, emulator |
+| Action refused for an unverified module | unit [6] "an unverified module: refused before anything is sent (not_permitted, target_unverified)"; emulator [9] "the Agent registered reporter B unverified", "failed not_permitted, target_unverified", "…nothing reached reporter B" | unit, emulator |
+| Licence: reports and queries on `BASE`, actions on `AI_ACTIONS` | unit [6] "licence without AI_ACTIONS (enforced): refused, nothing sent", "an unlicensed AI Core refuses queries (BASE), nothing sent", "…and uploads no batch while unlicensed"; emulator [11] "unlicensed: invoke refused (not_permitted, not_licensed)", "unlicensed: no driver_reports batch" | unit, emulator |
+| Debug suppression of the `SBOS_MODULE_*` frames AI Core receives | unit [4] "EC.suppressDebug covers the SBOS_MODULE_* frames AI Core receives" | unit |
+| Strict operation parity (the D1 allowance removed) | `test/test_aicore_surface.lua` [5] "MODULE_COMMANDS.ai_core = the driver's restricted operations, exactly (vocab.OPERATIONS)"; `test/test_aicore_platform_parity.lua` [1] "= the driver's registered vocab.OPERATIONS, exactly" | unit |
+
+Each guard was proved by reintroducing its defect once and seeing the named
+checks fail (2026-11-18, then restored):
+
+| Defect reintroduced | Failed |
+| --- | --- |
+| no batching timer / budget (one batch per report) | unit [4] "at most 3 driver_reports batches in any 60 s (budget)" (12 in a minute); emulator [5] "at most 3 batches in any 60 s" (16 in a minute). In that emulator run [4] "unknown kind → accepted false, invalid" also failed: the raw report reused an earlier request id (the emulator's `C4:UUID` is low-entropy) and AI Core's module client replayed the stored answer of another report — its served-dedup ring is keyed by `request_id` alone (`src/sbos/modulerpc.lua`), see the D4 report |
+| a sender id taken from inside the report | unit [4] "a report naming another sender is refused", "no item under a sender a report named"; emulator [4] "a report naming its sender → accepted false, invalid", "…and no item under that name ever reaches the cloud" |
+| an action reported completed on forward | unit [5]/[6] "Executing, then Completed on the driver's answer", "the driver's refusal: failed, its words as result_text", "a changed declaration: …"; emulator [6] "driver_query_result completed with the driver's data", [7] "completed, with the driver's result_text", "the driver refused: failed, its words as result_text (never completed)", "…the Agent's record ended Failed" |
+| invoke on an unverified module | unit [6] "an unverified module: refused before anything is sent (…)"; emulator [9] "failed not_permitted, target_unverified", "…nothing reached reporter B" |
+| an unknown kind accepted | unit [1] "an unknown kind is refused (invalid)", [2], [4] "unknown kind refused (invalid)"; emulator [4] "unknown kind → accepted false, invalid" |
+| `need_describe` skipped | unit [2] "need_describe while no describe is held", [4] "after an AI Core restart: need_describe on the next report"; emulator [10] "reporter A was told need_describe and re-sent its describe", "atmosphere's describe reached the cloud again after the restart", "mode_composer's too" |
+
 ## Known gaps the tests pin rather than hide
 
 * An assertion that fails verification is dropped and the SKU answers
@@ -110,9 +149,9 @@ the test prints after `ok`.
   platform must issue — and for `SBOS_AI_CORE` the refresh route issues it
   nowhere today (only System Link does); a transferred licence reaches the
   old controller as `NOT_ENTITLED`.
-* `AI_ACTIONS` and `AI_CONCIERGE` gate nothing on the controller because the
-  driver has no action or concierge path (device actions use the Agent's
-  command queue, D4); the platform must enforce them.
+* `AI_CONCIERGE` gates nothing on the controller because the driver has no
+  concierge path; the platform must enforce it. `AI_ACTIONS` gates only
+  `invoke_driver_action` (device actions still use the Agent's command queue).
 
 ## Hardware validation plan
 
