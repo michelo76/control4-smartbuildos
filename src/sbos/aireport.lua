@@ -1402,9 +1402,12 @@ local function declarationsChanged(capsBefore)
   end
 end
 
-local function declare(kind, decl, handler)
+local function declare(kind, decl, handler, opts)
   if type(handler) ~= "function" then
     return false, "handler"
+  end
+  if opts ~= nil and (type(opts) ~= "table" or not closedKeys(opts, { replace = true })) then
+    return false, "options"
   end
   local norm, why
   if kind == "query" then
@@ -1417,6 +1420,15 @@ local function declare(kind, decl, handler)
     return false, why
   end
   local map = kind == "query" and S.queries or S.actions
+  local existing = map[norm.id]
+  if existing ~= nil and canonical(existing.decl) ~= canonical(norm) and not (opts and opts.replace == true) then
+    -- A second, DIFFERENT declaration under an id already declared is a
+    -- mistake (two queries named alike), not a silent replacement: refused,
+    -- the first one stays. Re-declaring the same declaration only swaps the
+    -- handler; changing one on purpose passes { replace = true }.
+    S.counters.invalid = S.counters.invalid + 1
+    return false, kind .. "_duplicate"
+  end
   local limit = kind == "query" and M.LIMITS.queries or M.LIMITS.actions
   local count = 0
   for id in pairs(map) do
@@ -1441,16 +1453,19 @@ end
 
 --- Declares a read-only query. handler(params, req) returns a data table
 --- (scalars and tables, at most 3 deep, <= 24 KB encoded), or nil, reason.
-function M.declareQuery(decl, handler)
-  return declare("query", decl, handler)
+--- An id already declared with a different declaration is refused
+--- (`query_duplicate`) unless opts = { replace = true }.
+function M.declareQuery(decl, handler, opts)
+  return declare("query", decl, handler, opts)
 end
 
 --- Declares an action. It never runs without a person's approval in the
 --- platform; here it runs only for a verified AI Core with the current
 --- declaration hash. handler(params, req) returns result text (<= 240), or
---- nil, reason.
-function M.declareAction(decl, handler)
-  return declare("action", decl, handler)
+--- nil, reason. An id already declared with a different declaration is
+--- refused (`action_duplicate`) unless opts = { replace = true }.
+function M.declareAction(decl, handler, opts)
+  return declare("action", decl, handler, opts)
 end
 
 -- ── reports ─────────────────────────────────────────────────────────────────
@@ -1472,6 +1487,7 @@ function M.describe(fields)
       return false, "controls"
     end
     controls = {}
+    local seenIds = {}
     for i, c in ipairs(fields.controls) do
       if
         type(c) ~= "table"
@@ -1483,6 +1499,13 @@ function M.describe(fields)
         return false, "control"
       end
       local id = M.clean(c.id, M.LIMITS.control_id)
+      if seenIds[id] then
+        -- AI Core refuses a describe with two controls of one id (the
+        -- whole describe), so the helper refuses it first.
+        S.counters.invalid = S.counters.invalid + 1
+        return false, "control_duplicate"
+      end
+      seenIds[id] = true
       local label = M.clean(c.label, M.LIMITS.control_label)
       controls[i] = {
         id = id,

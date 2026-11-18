@@ -1077,6 +1077,28 @@ do
     JSON:encode(controls)
   )
   check("…and AI Core accepts that describe", aiCoreAccepts())
+  -- Two controls of one id: AI Core refuses that whole describe, so the
+  -- helper refuses it first and keeps the controls it had.
+  local before = JSON:encode(aireport.buildDescribe().controls)
+  local okDup, whyDup = aireport.describe({
+    controls = { { id = "zone_1", label = "One", class = "other" }, { id = "zone_1", label = "Two", class = "other" } },
+  })
+  check(
+    "duplicate control ids are refused (control_duplicate), the old controls kept",
+    okDup == false and whyDup == "control_duplicate" and JSON:encode(aireport.buildDescribe().controls) == before,
+    tostring(okDup) .. ":" .. tostring(whyDup)
+  )
+  local okDup2, whyDup2 = aireport.describe({
+    controls = { { id = "zone_1", label = "One", class = "other" }, { id = "zone_1\1", label = "Two", class = "other" } },
+  })
+  check("…also when two ids only differ before cleaning", okDup2 == false and whyDup2 == "control_duplicate")
+  check("…and AI Core accepts the describe the helper still holds", aiCoreAccepts())
+  -- The defect itself, built by hand: AI Core refuses it (so the guard is
+  -- what keeps it off the wire).
+  local raw = aireport.buildDescribe()
+  raw.controls = { { id = "a", label = "A", class = "other" }, { id = "a", label = "B", class = "other" } }
+  raw.hash = aireport.hash(raw)
+  check("(AI Core refuses a describe with duplicate control ids)", AiReports.validate("atmosphere", "800", raw) == nil)
 
   -- clean()
   check("clean strips U+2066..2069 and U+061C", aireport.clean("a\226\129\166b\216\156c") == "abc")
@@ -1268,11 +1290,48 @@ do
 
   -- a declaration change changes the hash: the approved one is refused
   local regs = count("SBOS_MODULE_REGISTER")
+  -- A second, different declaration under the same id is refused: the
+  -- first one stays, the hash does not move.
+  local okDupA, whyDupA = aireport.declareAction({ id = "refresh_now", title = "Refresh now", description = "d", risk = "medium" }, function()
+    actionCalls = actionCalls + 1
+    return "dup"
+  end)
+  check(
+    "a different action under a declared id is refused (action_duplicate), the hash unchanged",
+    okDupA == false and whyDupA == "action_duplicate" and aireport.declarationHash() == hash,
+    tostring(okDupA) .. ":" .. tostring(whyDupA)
+  )
+  local okDupQ, whyDupQ = aireport.declareQuery({ id = "forecast", description = "Another forecast." }, function()
+    return {}
+  end)
+  check(
+    "a different query under a declared id is refused (query_duplicate)",
+    okDupQ == false and whyDupQ == "query_duplicate" and aireport.declarationHash() == hash
+  )
+  local sameDecl = aireport._state().actions.refresh_now.decl
+  local okSame = aireport.declareAction({
+    id = sameDecl.id,
+    title = sameDecl.title,
+    description = sameDecl.description,
+    params = { { name = "source", type = "enum", values = { "primary", "backup" }, required = false } },
+    risk = sameDecl.risk,
+  }, function(params)
+    actionCalls = actionCalls + 1
+    return "Refreshed from " .. tostring(params.source or "primary")
+  end)
+  check("re-declaring the SAME declaration is accepted (handler swapped, hash unchanged)", okSame == true and aireport.declarationHash() == hash)
+  check(
+    "options are closed",
+    select(2, aireport.declareQuery({ id = "forecast", description = "x" }, function() end, { force = true })) == "options"
+  )
+  local dNow = aireport.buildDescribe()
+  local itemNow = require("aicore.reports").validate("atmosphere", "800", dNow)
+  check("AI Core accepts the describe after the refused duplicates", itemNow ~= nil)
   aireport.declareAction({ id = "refresh_now", title = "Refresh now", description = "d", risk = "medium" }, function()
     actionCalls = actionCalls + 1
     return "ok"
-  end)
-  check("changed declaration -> new hash", aireport.declarationHash() ~= hash)
+  end, { replace = true })
+  check("changed declaration ({ replace = true }) -> new hash", aireport.declarationHash() ~= hash)
   r = act({ action_id = "refresh_now", params = {}, ai_action_id = "act-7", declaration_hash = hash })
   check("…the old hash is refused", r and r.result.reason == "declaration_changed" and actionCalls == 1)
   check("same capability set: no re-registration", count("SBOS_MODULE_REGISTER") == regs)
