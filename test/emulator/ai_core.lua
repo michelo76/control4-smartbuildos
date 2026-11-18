@@ -68,9 +68,17 @@ local function newDirector(cacheSuffix)
         S.pending.driver_config = nil
       end
       resp.body = json.encode(body)
-    elseif resp and resp.code == 200 and path == "/api/driver-cloud/entitlements/refresh" and S.pending.enforcement then
+    elseif
+      resp
+      and resp.code == 200
+      and path == "/api/driver-cloud/entitlements/refresh"
+      and (S.pending.enforcement or S.pending.refreshEdit)
+    then
       local body = json.decode(resp.body)
       body.enforcement = S.pending.enforcement
+      if S.pending.refreshEdit then
+        S.pending.refreshEdit(body)
+      end
       resp.body = json.encode(body)
     end
     return resp
@@ -203,8 +211,11 @@ print("[1] startup and registration: Agent + Flight Recorder + AI Core")
 local fr = assert(d:addDevice(OUT .. "/smartbuildos-flight-recorder", { roomId = room, name = "Flight Recorder" }))
 local aic = assert(d:addDevice(OUT .. "/smartbuildos-ai-core", { roomId = room, name = "AI Core" }))
 aicId = aic.id
-local lamp = assert(d:addDevice(OUT .. "/smartbuildos-ai-core", { roomId = kitchen, name = "Stand-in device" }))
-d:removeDevice(lamp) -- (only to have a second room with a device id in it)
+-- (Kitchen stays empty: run_diagnostic below asks for a room with no
+-- history. No second AI Core instance is added and removed to populate it:
+-- the Agent's licence inventory keeps ONE device id per SKU, so removing a
+-- second instance dropped SBOS_AI_CORE from the inventory although the
+-- first was still installed.)
 d:advance(10000)
 check("Agent paired against the scripted cloud", agent.env.gModules ~= nil and agent.env.gBus ~= nil)
 check("both modules registered with the Agent", agent.env.gModules:count() == 2, agent.env.gModules:count())
@@ -220,6 +231,34 @@ check(
   aic.Properties["SmartBuildOS Connection Status"]
 )
 check("Agent Pairing Status Paired", aic.Properties["Agent Pairing Status"] == "Paired")
+-- Activation: nothing pressed. AI Core registered its SKU with the Agent,
+-- the Agent inventoried it and asked the cloud by itself (10 s debounce).
+local asked = false
+for _, r in ipairs(S.cloud.requests) do
+  if r.path == "/api/driver-cloud/entitlements/refresh" and type(r.body) == "table" then
+    for _, item in ipairs(r.body.installed or {}) do
+      asked = asked or (item.sku == "SBOS_AI_CORE" and tonumber(item.device_id) == aic.id)
+    end
+  end
+end
+check(
+  "activation: the Agent asked the cloud for SBOS_AI_CORE on its own",
+  asked,
+  (function()
+    local seen = {}
+    for _, r in ipairs(S.cloud.requests) do
+      if r.path == "/api/driver-cloud/entitlements/refresh" then
+        seen[#seen + 1] = json.encode(r.body)
+      end
+    end
+    return table.concat(seen, " || ")
+  end)()
+)
+check(
+  "activation: licensed before anyone pressed anything",
+  aic.Properties["License Status"] == "Licensed / Subscribed",
+  aic.Properties["License Status"]
+)
 d:executeCommand(agent, "REFRESH_ENTITLEMENTS", {})
 d:advance(5000)
 check(
@@ -592,6 +631,190 @@ check(
   "grace → operational again",
   var(aic, "AI_STATUS") == "ready" or var(aic, "AI_STATUS") == "working",
   var(aic, "AI_STATUS")
+)
+
+-- ── licensing end to end, real Agent + real signatures (EMULATOR ONLY) ──────
+local digest = require("director.digest")
+local aicAsk = aic.env.EC.AI_ASK -- a reload would build a new one
+local function refresh()
+  d:executeCommand(agent, "REFRESH_ENTITLEMENTS", {})
+  d:advance(40000)
+end
+local function aiStatus()
+  return var(aic, "AI_STATUS")
+end
+local function operational()
+  return aiStatus() ~= "unlicensed" and aiStatus() ~= "no_agent"
+end
+--- Sends one BASE command; true when it reached the rpc route.
+local function commandGoes()
+  d:advance(61000)
+  local n = #S.rpc.calls
+  d:executeCommand(aic, "AI_ANALYZE_SYSTEM", {})
+  d:advance(3000)
+  return #S.rpc.calls == n + 1
+end
+--- Re-signs AI Core's assertion in the refresh answer as `fields`, with `secret`.
+local function resign(secret, fields)
+  return function(body)
+    for _, a in ipairs(body.assertions or {}) do
+      if a.driver_sku == "SBOS_AI_CORE" then
+        for k, v in pairs(fields) do
+          a[k] = v
+        end
+        local canonical = table.concat({
+          "1",
+          a.sig_alg,
+          a.company_id,
+          a.controller_id,
+          a.driver_sku,
+          a.status,
+          a.license_type,
+          table.concat(a.features, ","),
+          a.issued_at,
+          "",
+          "",
+        }, "|")
+        a.sig = digest.tohex(digest.hmac("SHA256", secret, canonical))
+      end
+    end
+  end
+end
+local GRANT_ALL = {
+  status = "AUTHORIZED_PERPETUAL",
+  license_type = "PERPETUAL",
+  features = { "BASE", "AI_LEARNING", "AI_ACTIONS", "AI_CONCIERGE" },
+}
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_SUBSCRIPTION"
+
+print("[13a] a controller-bound assertion is accepted")
+S.pending.refreshEdit = resign(S.cloud.secret, GRANT_ALL)
+refresh()
+check(
+  "signed for this controller: Licensed / Permanent",
+  aic.Properties["License Status"] == "Licensed / Permanent" and operational(),
+  aic.Properties["License Status"]
+)
+
+print("[13b] an assertion for another controller is refused")
+local other = { controller_id = "controller-0002" }
+for k, v in pairs(GRANT_ALL) do
+  other[k] = v
+end
+S.pending.refreshEdit = resign("another-controllers-secret-00000000", other)
+refresh()
+check(
+  "signed with another controller's secret: not honoured (the Agent drops it at fetch)",
+  aic.Properties["License Status"] ~= "Licensed / Permanent",
+  aic.Properties["License Status"]
+)
+check(
+  "…AI Core falls back to the no-assertion status (LEGACY), as the Agent answers today",
+  aic.Properties["License Status"] == "Licensing Not Yet Enforced",
+  aic.Properties["License Status"]
+)
+S.pending.refreshEdit = nil
+S.cloud.catalog.SBOS_AI_CORE.status = "CONTROLLER_MISMATCH"
+S.cloud.catalog.SBOS_AI_CORE.features = {}
+refresh()
+check(
+  "server-issued CONTROLLER_MISMATCH (signed, enforced): unlicensed, read-only",
+  aiStatus() == "unlicensed"
+    and aic.Properties["License Status"] == "License Registered To Another Controller (read-only)",
+  aic.Properties["License Status"]
+)
+check(
+  "…commands refused, the reason named, nothing sent",
+  not commandGoes() and tostring(aic.Properties["Last Error"]):find("Another Controller") ~= nil,
+  aic.Properties["Last Error"]
+)
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_SUBSCRIPTION"
+S.cloud.catalog.SBOS_AI_CORE.features = { "BASE", "AI_LEARNING" }
+refresh()
+
+print("[13c] signature tampering is refused")
+S.cloud.tamper.SBOS_AI_CORE = true
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_PERPETUAL"
+refresh()
+check(
+  "a tampered assertion is not honoured (no Licensed / Permanent)",
+  aic.Properties["License Status"] == "Licensing Not Yet Enforced",
+  aic.Properties["License Status"]
+)
+S.cloud.tamper.SBOS_AI_CORE = nil
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_SUBSCRIPTION"
+refresh()
+check("a correctly signed one is honoured again", aic.Properties["License Status"] == "Licensed / Subscribed")
+
+print("[13d] cache → grace → cloud validation required (virtual time, cloud down)")
+--- Moves the controller's wall clock (timers then fire once, late).
+local function jump(ms)
+  d.clock.epochMs = d.clock.epochMs + ms
+  d.clock.tickMs = d.clock.tickMs + ms
+  d:advance(5000)
+end
+S.cloud.down = true
+jump(8 * 86400 * 1000)
+d:advance(3600 * 1000) -- the Agent's hourly licence tick
+check(
+  "day 8 offline: the Agent rides grace",
+  tostring(agent.Properties["License Cloud"]):find("^Offline %- riding grace until") ~= nil,
+  agent.Properties["License Cloud"]
+)
+check(
+  "day 8: AI Core told Licensed / Grace (dated) without a refresh",
+  tostring(aic.Properties["License Status"]):find("^Licensed / Grace %(until") ~= nil,
+  aic.Properties["License Status"]
+)
+check("day 8: AI Core operational (commands go)", operational() and commandGoes(), aiStatus())
+jump(3 * 86400 * 1000)
+d:advance(3600 * 1000)
+check(
+  "day 11: Cloud Validation Required",
+  aic.Properties["License Status"] == "Cloud Validation Required",
+  aic.Properties["License Status"]
+)
+check("day 11: never bricked (not unlicensed; commands go)", operational() and commandGoes(), aiStatus())
+
+print("[13e] renewal restores service without a reload")
+S.cloud.down = false
+refresh()
+check("cloud back: Licensed / Subscribed", aic.Properties["License Status"] == "Licensed / Subscribed")
+check("…operational, commands go", operational() and commandGoes(), aiStatus())
+check("…AI Core was not reloaded", aic.env.EC.AI_ASK == aicAsk)
+
+print("[13f] clock skew is flagged, never enforced")
+S.pending.refreshEdit = function(body)
+  body.checked_at = os.date("!%Y-%m-%dT%H:%M:%S.000Z", math.floor(d.clock:now() / 1000) - 3 * 86400)
+end
+refresh()
+local skewReported = false
+for _, e in ipairs(S.cloud.events) do
+  skewReported = skewReported or e.code == "clock_skew"
+end
+check("the Agent reports the skew to SmartBuildOS (clock_skew licence event)", skewReported)
+check(
+  "AI Core stays licensed and operational",
+  aic.Properties["License Status"] == "Licensed / Subscribed" and commandGoes()
+)
+S.pending.refreshEdit = nil
+
+print("[13g] transfer: revoked on this controller, then granted again")
+-- After the platform's licence transfer closes this controller's row, the
+-- next refresh signs NOT_ENTITLED here (decideCatalogEntitlement).
+S.cloud.catalog.SBOS_AI_CORE = { status = "NOT_ENTITLED", license_type = "", features = {} }
+refresh()
+check(
+  "moved away: unlicensed, commands refused",
+  aiStatus() == "unlicensed" and not commandGoes(),
+  aic.Properties["License Status"]
+)
+S.cloud.catalog.SBOS_AI_CORE = GRANT_ALL
+refresh()
+check(
+  "granted again: Licensed / Permanent, commands go, no reload",
+  aic.Properties["License Status"] == "Licensed / Permanent" and commandGoes() and aic.env.EC.AI_ASK == aicAsk,
+  aic.Properties["License Status"]
 )
 
 print("[14] no equipment control reachable")
