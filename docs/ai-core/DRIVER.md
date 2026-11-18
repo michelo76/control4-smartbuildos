@@ -19,7 +19,7 @@ from it, so the names here are exact.
 | Feature entitlements | `BASE`, `AI_LEARNING`, `AI_ACTIONS`, `AI_CONCIERGE` |
 | Event-type prefix | `ai_core.` |
 | Minimum OS | 3.3.2 (`<minimum_os_version>`) |
-| Variable ids | 4000–4009 |
+| Variable ids | 4000–4010 |
 | Pure logic | `src/aicore/{vocab,commands,config,operations,buffer,collector,state,diagnostic}.lua` |
 | Driver wiring | `drivers/smartbuildos-ai-core/driver.lua` |
 | Dealer manual | `drivers/smartbuildos-ai-core/www/documentation/index.md` |
@@ -99,17 +99,32 @@ Flow of a cloud command: validate → new `request_id` (`aic-<uuid>`,
 correlation id = request id) → `client.cloudRequest(op, body,
 {idempotency_key = request_id})` → the Agent POSTs
 `/api/integrations/control4/modules/rpc`. Body: `{command, request_id,
-<normalised args>}` (+ `room_id`/`room_name`, `device_id`/`device_name`).
+<normalised args>}` (+ `room_id`/`room_name`, `device_id`/`device_name`). The
+body names are the platform's (`src/lib/ai-core/rpc/ops.ts` `OP_BODIES`, which
+refuses the whole request for an unknown key): the context key is `key` in the
+`set_context` body, and `context_key` only in the envelope (§15).
 
 The quick answer (`aicore.commands.interpret`):
 
 | Answer | Meaning | Shown |
 | --- | --- | --- |
-| `status=ok`, `result.accepted=true` | accepted; `job_id` kept as a pending job (≤ 20, 30 min) | `AI Status` Working; `AI_STATUS` `working` |
+| `status=ok`, `result.accepted=true` with a `job_id` (a non-empty string or a number) | accepted as a job; the job waits for `deliver_result` (≤ 20, 30 min) | `AI Status` Working; `AI_STATUS` `working` |
+| `status=ok`, `result.accepted=true`, `job_id` null or absent | **completed** now: nothing will be delivered later, so no job is tracked and `AI Response Ready` is never fired for it (`set_context`, `send_notification`, `learn_preference` when the platform records it) | `AI Status` stays Ready; counter `cloud_completed`; `last_cloud_result` `<COMMAND>: completed` |
 | `status=ok` without `accepted=true` | **not** success (`cloud_refused`) | Last Error `…answered without accepting…` |
 | `not_permitted`, `invalid_args`, `unsupported`, `payload_too_large`, `agent_not_paired`, `cloud_refused`, other | refused, not retried | Last Error `refused by SmartBuildOS: <code>`; AI Status `— last request refused (<code>)` |
-| `cloud_unreachable`, `deadline_exceeded`, `target_unavailable`, `rate_limited` (after the client's 2 retries, same key) | not delivered | Last Error `no answer from SmartBuildOS (<code>)`; `cloud_unreachable` also sets the connection state |
+| `rate_limited` (the platform's per-system limits on `send_notification` and `test_provider`, or the Agent's bucket; after the client's 2 retries, same key) | refused: an answer, not silence | Last Error `rate limited by SmartBuildOS (rate_limited); try again later`; the connection state is not touched |
+| `cloud_unreachable`, `deadline_exceeded`, `target_unavailable` (after the client's 2 retries, same key) | not delivered | Last Error `no answer from SmartBuildOS (<code>)`; `cloud_unreachable` also sets the connection state |
 | `incompatible_protocol` | v1 Agent | refused locally before sending when the Agent is v1 |
+
+What each cloud op answers (`rpc/ops.ts`, `rpc/status.ts`): `ask`,
+`analyze_room`, `analyze_system`, `suggest_scene`, `generate_report`,
+`start_diagnostic`, `test_provider` → a job; `set_context`,
+`send_notification` → completed (`job_id: null`); `learn_preference` →
+completed when the platform's memory library is wired, else `unsupported`;
+`status` (Sync Now) → its own synchronous object (no `accepted`), read as a
+successful sync. `Test AI Connection` shows `test accepted (job …); result
+follows as AI Response Ready` for a job, `answered by SmartBuildOS (no result
+follows)` without one, and `refused (<code>)` for a refusal.
 
 ## 4. Composer events
 
@@ -117,7 +132,7 @@ Ids are permanent. Registered from XML and again with `C4:AddEvent` at start.
 
 | Id | Event | Fired when |
 | --- | --- | --- |
-| 1 | `AI Response Ready` | `deliver_result` (or `raise_event ai_response_ready`) |
+| 1 | `AI Response Ready` | `deliver_result` (or `raise_event ai_response_ready`); never for a request the cloud completed at once (§3) |
 | 2 | `Pattern Detected` | `raise_event pattern_detected` |
 | 3 | `Recommendation Available` | `raise_event recommendation_available` |
 | 4 | `Automation Conflict Detected` | `raise_event automation_conflict_detected` |
@@ -144,6 +159,7 @@ Variables (ids fixed, order frozen):
 | 4007 | `AGENT_CONNECTED` | BOOL | registered and answering |
 | 4008 | `LEARNING_ACTIVE` | BOOL | learning on |
 | 4009 | `AI_LAST_ERROR` | STRING | as `Last Error` (empty when clear); includes the platform's AI provider error (`raise_event ai_provider_error`) |
+| 4010 | `AI_LAST_CORRELATION_ID` | STRING | the `correlation_id` of the last `raise_event` (for an approval or action event, the platform's action id); set to empty by an event without one, so it never names an earlier event's subject. Not part of the brief's ten: added so programming and support can tie `Approval Required` / `Action Completed` / `Action Failed` to the action in System Studio |
 
 All except `AI_STATUS`, `AGENT_CONNECTED` and `LEARNING_ACTIVE` (recomputed
 at start) are persisted and repainted after a reload.
@@ -200,7 +216,7 @@ equipment, runs code, or takes a command name to forward.
 | `apply_config` | `config` (object), `version` (integer) | as §9; `Completed` / `Failed` with the refusals; status frame with `applied_config_version` / `config_error` |
 | `refresh_status` | — | repaint, `ai_core.status` envelope, status frame |
 | `deliver_result` | `response_id` (id, required), `text` (≤ 4000, required), `request_id`, `job_id`, `kind` (`answer`, `analysis`, `report`, `scene_suggestion`, `diagnostic`), `pending_approvals`, `recommendation_count` (0–9999) | sets `AI_LAST_RESPONSE` (bounded), `AI_LAST_RESPONSE_ID`, counts; clears the pending job; fires `AI Response Ready` |
-| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512, control characters removed), `pending_approvals`, `recommendation_count` | sets `AI_LAST_EVENT_DETAIL`, counts; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
+| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512, control characters removed), `pending_approvals`, `recommendation_count`, `correlation_id` (optional; 1–96 characters, no control characters — the envelope's rule; anything else refuses the operation) | sets `AI_LAST_EVENT_DETAIL`, `AI_LAST_CORRELATION_ID` (empty without one), counts; records one `ai_core.event` envelope whose `correlation_id` is it; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
 | `set_learning` | `active` (boolean), `reason` (≤ 120) | learning on/off (on needs `AI_LEARNING` when enforced); re-plans collection |
 | `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8); `Executing` then `Completed` with the envelope id and how many local events |
 
@@ -349,6 +365,7 @@ provide those; unknown stays unknown (category `unknown`).
 | `ai_core.command` | `requested` | each cloud command (payload `command`, `op`, `request_id`, `args`) |
 | `ai_core.record` | `instrumented` | `AI_RECORD_EVENT` (severity warning for security/safety) |
 | `ai_core.status` | `derived` | each state change and `refresh_status` (payload `state`, `previous_state`, counts) |
+| `ai_core.event` | `system` | each `raise_event` (label = the event; envelope `correlation_id` = the operation's `correlation_id` when given; payload `event`, `detail`, `correlation_id`, `operation_request_id`, counts; severity warning for `action_failed` and `ai_provider_error`, else info) |
 | `ai_core.observation.system` | `system` | own system events |
 | `ai_core.observation.agent` | `system` | Agent events, recorder absent |
 | `ai_core.observation.variable` | `initial` / `observed` | own variable listeners, recorder absent |
@@ -370,7 +387,7 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
 * `SBOS_MODULE_STATUS` counters: `events_recorded`, `events_buffered`,
   `events_staged`, `events_sent`, `events_dropped`, `events_unrecordable`,
   `buffer_depth`, `buffer_dropped`, `buffer_flushed`, `requests`, `refusals`,
-  `cloud_accepted`, `cloud_refused`, `cloud_unreachable`,
+  `cloud_accepted`, `cloud_completed`, `cloud_refused`, `cloud_unreachable`,
   `last_cloud_result`, `results_delivered`, `events_raised`, `operations`,
   `operations_refused`, `liveness_failures`, `jobs_expired`, `jobs_dropped`,
   `system_events`, `variable_events`, `agent_events`, `collector_*`,
@@ -387,7 +404,10 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
   configuration). `AI_ACTIONS` and `AI_CONCIERGE` gate nothing here: the
   driver has no action or concierge path; the platform enforces them.
   An assertion the Agent cannot verify is dropped and the SKU answers
-  `LEGACY` (operational). Updates: the Agent's updater (`DRIVER_FILENAMES`;
+  `LEGACY` (operational). The Agent's licence inventory keeps the **set of
+  instances** per SKU: removing one instance of a driver keeps the SKU while
+  another remains, and every instance is told its licence
+  (`SbosInventoryInstances`, `drivers/smartbuildos/driver.lua`). Updates: the Agent's updater (`DRIVER_FILENAMES`;
   store `sku_for`).
 * Limits: question 500, statement 300, name 120, detail 400, value 120,
   occasion 120, title 80, message 400, room 64, result text 4000,
@@ -400,6 +420,7 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
 | What | Where |
 | --- | --- |
 | Driver under the shim with a scripted Agent (19 sections) | `test/test_aicore_driver.lua` (+ `test/aicore_harness.lua`) |
+| `raise_event` `correlation_id`; every cloud answer shape per op (job, completed, unsupported, rate limited, status) | `test/test_aicore_cloud_answers.lua` |
 | Names agree across XML, code, Agent tables, policy, docs | `test/test_aicore_surface.lua` |
 | Per module | `test/test_aicore_{commands,config,operations,buffer,collector,state,diagnostic}.lua` |
 | Packaging (squish closure; built `.c4z` when present) | `test/test_aicore_package.lua` |
@@ -408,7 +429,7 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
 | Store update selection for AI Core | `test/test_aicore_updates.lua` |
 | Failure modes no other suite named (pairing, Agent cloud loss, missing history, approvals, refused operations) | `test/test_aicore_failure_modes.lua` |
 | Malformed input, timers on destroy, persistence growth, tokens in Trace output | `test/test_aicore_robustness.lua` |
-| Vocabularies against the platform's mirrors (needs `SBOS_PLATFORM_REPO`) | `test/test_aicore_platform_parity.lua` |
+| Vocabularies against the platform's mirrors; every restricted-operation argument the platform sends against `operations.lua`; every cloud body the driver sends against `rpc/ops.ts` `OP_BODIES`, and each answer shape (needs `SBOS_PLATFORM_REPO`) | `test/test_aicore_platform_parity.lua` |
 | Real Agent + real Flight Recorder + AI Core, incl. licensing with real signatures (EMULATOR ONLY) | `test/emulator/run-ai-core.sh` → `test/emulator/ai_core.lua` |
 
 Every item of the product brief's test list is mapped to a named test in
@@ -435,7 +456,8 @@ service, or module contract v2. The bench procedures are in
 | --- | --- |
 | `AI_RECORD_EVENT` makes no cloud call; it is recorded as `ai_core.record` through the durable event path | `MODULE_CLOUD_OPS.ai_core` has no op for it; the event path is durable and deduplicated |
 | No separate `ai_core.context` envelope | the context is already in the `ai_core.command` envelope of `AI_SET_CONTEXT`; a second envelope would duplicate it |
-| Context key travels as `context_key` | `key` is redacted by the envelope's credential rules |
+| Context key travels as `context_key` in the envelope, `key` in the `set_context` cloud body | `key` is redacted by the envelope's credential rules; the cloud body is not an envelope and the platform validates `key` |
+| An 11th variable, `AI_LAST_CORRELATION_ID` (4010) | `raise_event` carries the platform's `correlation_id`; a variable is where a dealer can see and use it |
 | `ROOM` is a STRING (name or id), not a room selector | the documented command parameter types have no room selector; DYNAMIC_LIST needs a 3.3 `GetCommandParamList` path that is unverified here |
 | Device events are not collected when the Flight Recorder is absent | `RegisterDeviceEvent` needs per-driver event ids (the recorder's catalogue); duplicating that catalogue would be the double capture D7 forbids |
 | Variables are collected by AI Core only when listed in `collection.variables` | no documented API identifies a device's proxy type reliably; System Studio selects |

@@ -58,9 +58,12 @@ minute.
 | `AI_START_DIAGNOSTIC`  | `DEVICE` or `ROOM` (one of them)                                                                                                                                               | Starts a diagnostic, with the Flight Recorder's recent local events for that device or room     |
 | `AI_SEND_NOTIFICATION` | `TITLE` (up to 80), `MESSAGE` (up to 400), `AUDIENCE` (Homeowner, Integrator, All)                                                                                             | Sends a notification through SmartBuildOS; recipients are decided there                         |
 
-SmartBuildOS answers each request at once: *accepted* (the result follows) or a
-refusal such as *not permitted* or *unsupported*. A refusal is shown as it is in
-**Last Error** and **AI Status**; it is never reported as success. A command on
+SmartBuildOS answers each request at once: *accepted* (the result follows as
+**AI Response Ready**), *done* (`AI_SET_CONTEXT`, `AI_SEND_NOTIFICATION` and a
+recorded `AI_LEARN_PREFERENCE` complete at once: nothing follows and **AI
+Status** stays *Ready*), or a refusal such as *not permitted*, *unsupported* or
+*rate limited*. A refusal is shown as it is in **Last Error** and **AI Status**;
+it is never reported as success. A command on
 a room excluded in System Studio is refused (except `AI_ASK` and
 `AI_SEND_NOTIFICATION`).
 
@@ -95,6 +98,7 @@ Wire the events you care about to the Notification Agent for push or email.
 | `AGENT_CONNECTED`         | BOOL   | Registered with the Agent and answered                                                                                                    |
 | `LEARNING_ACTIVE`         | BOOL   | Learning is on                                                                                                                            |
 | `AI_LAST_ERROR`           | STRING | The last error or refusal, including an AI provider error reported by SmartBuildOS (empty when none)                                      |
+| `AI_LAST_CORRELATION_ID`  | STRING | What the last SmartBuildOS event is about — for Approval Required / Action Completed / Action Failed, the action's id (empty when none)   |
 
 ### Conditionals
 
@@ -151,7 +155,8 @@ none of it is applied, the previous one stays, and **Last Error** says why.
 SmartBuildOS can also send six restricted operations through the Agent:
 `apply_config`, `refresh_status`, `deliver_result` (a result: variables and AI
 Response Ready), `raise_event` (one of the events above, from a closed list;
-never Agent Disconnected), `set_learning`, `run_diagnostic`. None of them
+never Agent Disconnected; it may name what it is about, shown in
+`AI_LAST_CORRELATION_ID`), `set_learning`, `run_diagnostic`. None of them
 controls equipment or runs code.
 
 ## What it collects
