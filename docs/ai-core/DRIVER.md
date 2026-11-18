@@ -47,14 +47,14 @@ All read-only except **Log Level** and **Log Mode**.
 | `AI API Credential` | the **status text** System Studio wrote (e.g. `Configured in System Studio · Anthropic ••••abcd`), else `Not configured`. Not an input; the driver never receives, stores or displays a key | configuration `credential_status` |
 | `AI Status` | `Ready`, `Working: N request(s) waiting for a result`, `Degraded: <connection text>`, `Unavailable: <licence>`; `(learning paused)` and `— last request refused (<code>)` / `refused locally (<code>)` / `not delivered (<code>)` appended when they apply | state machine + last refusal |
 | `Telemetry Status` | `Through the Agent: N sent, N acknowledged, N dropped; buffer N, buffer drops N`, or `No Agent answering: N critical event(s) buffered, N waiting in memory, N dropped`, or `Learning paused: …` | module client + buffer |
-| `Learning Status` | `Active`, `Paused by <who>: <reason>`, `Stopped (not licensed)` | config / `set_learning` / licence |
+| `Learning Status` | `Off (not switched on in System Studio)` (the default: no valid configuration has switched learning on), `Active`, `Paused by <who>: <reason>` (`Paused by System Studio` — a document or `set_learning` said off; `Paused by System Studio: the configuration does not switch it on` — a valid document without `learning`; `Paused by configuration: vN refused` — an invalid document; `… the licence does not include AI_LEARNING`), `Stopped (not licensed)` | config / `set_learning` / licence |
 | `Permission Mode` | `observe`, `recommend` or `execute_low_risk` + ` (set in System Studio)`, else `Not delivered yet (System Studio owns it)` | configuration `permission_mode` |
 | `Flight Recorder Link` | `Installed: local history served; topics subscribed`, `Installed (no local history service; update the Flight Recorder)`, `Not installed: AI Core collects its minimal set itself`, `Unknown (needs Agent protocol 2)` | Agent directory |
 | `License Status` | the licence SDK's one line (`sbos.license`) | Agent |
 | `License Source`, `Subscription Tier`, `SmartBuildOS Company` | licence display set | Agent |
 | `Last Synchronization` | last time the platform was heard (config applied, restricted operation, accepted cloud answer, Sync Now) | driver |
 | `Last Test Result` | result line of Test Agent Link / Test AI Connection | actions |
-| `Last Error` | last error or refusal, ≤ 240 characters, `none` when clear | driver |
+| `Last Error` | last error or refusal, ≤ 240 bytes (cut between UTF-8 characters), `none` when clear | driver |
 | `Log Level` (editable) | `0 - Fatal` … `5 - Trace` | — |
 | `Log Mode` (editable) | `Off`, `Print`, `Log`, `Print and Log` | — |
 
@@ -69,26 +69,46 @@ All read-only except **Log Level** and **Log Mode**.
 
 ## 3. Composer commands
 
-Parameters arrive as strings. Every value is validated; an over-long text is
-**refused**, not cut. A refused command sends nothing, sets `Last Error` /
+Parameters arrive as strings. Every value is validated; an over-long typed text
+is **refused**, not cut. Lengths are counted in **characters** (Unicode code
+points), as the platform counts them (`rpc/ops.ts` `[...t].length`), not in
+bytes. A refused command sends nothing, sets `Last Error` /
 `AI_LAST_ERROR` and `AI Status` (`refused locally (<code>)`). At most 10
 commands a minute (local token bucket; the 11th is refused `rate_limited`).
 `ROOM` is a room **name or id** resolved against `C4:GetDevices` (rooms are
-known through the devices in them). LIST labels normalise to codes
-(`Last 7 Days` → `last_7_days`).
+known through the devices in them); a typed `ROOM` longer than 64 characters is
+refused (`… (use the room id)`). LIST labels normalise to codes
+(`Last 7 Days` → `last_7_days`); an empty optional LIST takes its default, an
+empty required one is refused `<PARAM>: is required`.
+
+**Text sent to the cloud** (`aicore.commands.sanitise`). The platform refuses
+the WHOLE request (`invalid_args`) for one text field that is longer than its
+bound, or that contains a character of `UNPRINTABLE` (U+0000–U+0008,
+U+000B–U+001F, U+007F–U+009F, U+2028, U+2029). So every text field of every
+cloud-op body is cleaned before it is sent: every C0 control (TAB and LF too),
+DEL, every C1 control, U+2028 and U+2029 becomes a space; a byte that is not
+well-formed UTF-8 is dropped; the ends are trimmed with the platform's (JS
+`trim`) whitespace set. Names Director supplies are then **cut** on a character
+boundary (never inside a multi-byte character) to the platform's bound —
+`room_name` 64, `device_name` 120 characters — and a name with nothing
+printable left is not sent. Typed text (`QUESTION`, `STATEMENT`, `VALUE`,
+`OCCASION`, `TITLE`, `MESSAGE`, `NAME`, `DETAIL`) is cleaned the same way and
+**refused** over its bound; `body()` applies every bound again as a last guard
+(`BODY_TEXT_MAX`). Labels the driver writes into envelopes (bounded at 120
+bytes by the envelope) are cut between characters too.
 
 | Command | Parameters (type, bound) | Cloud op | Feature |
 | --- | --- | --- | --- |
-| `AI_ASK` | `QUESTION` STRING ≤ 500, required; `ROOM` STRING optional | `ask` | `BASE` |
-| `AI_ANALYZE_ROOM` | `ROOM` STRING required | `analyze_room` | `BASE` |
+| `AI_ASK` | `QUESTION` STRING ≤ 500, required; `ROOM` STRING, optional | `ask` | `BASE` |
+| `AI_ANALYZE_ROOM` | `ROOM` STRING, required | `analyze_room` | `BASE` |
 | `AI_ANALYZE_SYSTEM` | — | `analyze_system` | `BASE` |
-| `AI_RECORD_EVENT` | `NAME` STRING ≤ 120 required; `DETAIL` STRING ≤ 400; `ROOM` STRING; `CATEGORY` LIST (General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance; default General) | none — recorded as `ai_core.record` | `BASE` |
-| `AI_SET_CONTEXT` | `KEY` LIST (Occupancy, Guests Present, Vacation, Quiet Hours, Special Event, Cleaning, Maintenance Window) required; `VALUE` STRING ≤ 120 required | `set_context` (key sent as `context_key`) | `BASE` |
-| `AI_LEARN_PREFERENCE` | `STATEMENT` STRING ≤ 300 required; `ROOM` STRING | `learn_preference` (refused while learning is paused) | `AI_LEARNING` |
-| `AI_SUGGEST_SCENE` | `ROOM` STRING required; `OCCASION` STRING ≤ 120 required | `suggest_scene` | `BASE` |
-| `AI_GENERATE_REPORT` | `TYPE` LIST (System Health, Usage, Energy, Security, Comfort, Device Reliability); `PERIOD` LIST (Today, Last 24 Hours, Last 7 Days, Last 30 Days) | `generate_report` | `BASE` |
-| `AI_START_DIAGNOSTIC` | `DEVICE` DEVICE_SELECTOR **or** `ROOM` STRING (exactly one) | `start_diagnostic` (after the local diagnostic, §8) | `BASE` |
-| `AI_SEND_NOTIFICATION` | `TITLE` STRING ≤ 80 required; `MESSAGE` STRING ≤ 400 required; `AUDIENCE` LIST (Homeowner, Integrator, All; default Homeowner) | `send_notification` (recipients decided by the platform) | `BASE` |
+| `AI_RECORD_EVENT` | `NAME` STRING ≤ 120, required; `DETAIL` STRING ≤ 400, optional; `ROOM` STRING, optional; `CATEGORY` LIST (General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance), optional, default General | none — recorded as `ai_core.record`; refused (`not recorded (paused)`) while learning is off, and for an excluded room or category | `BASE` |
+| `AI_SET_CONTEXT` | `KEY` LIST (Occupancy, Guests Present, Vacation, Quiet Hours, Special Event, Cleaning, Maintenance Window), required; `VALUE` STRING ≤ 120, required | `set_context` (the key is `key` in the cloud body, `context_key` in the envelope) | `BASE` |
+| `AI_LEARN_PREFERENCE` | `STATEMENT` STRING ≤ 300, required; `ROOM` STRING, optional | `learn_preference` (refused while learning is off) | `AI_LEARNING` |
+| `AI_SUGGEST_SCENE` | `ROOM` STRING, required; `OCCASION` STRING ≤ 120, required | `suggest_scene` | `BASE` |
+| `AI_GENERATE_REPORT` | `TYPE` LIST (System Health, Usage, Energy, Security, Comfort, Device Reliability), **required**; `PERIOD` LIST (Today, Last 24 Hours, Last 7 Days, Last 30 Days), **required** — no defaults | `generate_report` | `BASE` |
+| `AI_START_DIAGNOSTIC` | `DEVICE` DEVICE_SELECTOR **or** `ROOM` STRING (exactly one; `DEVICE` `0`, Composer's empty selector, counts as none) | `start_diagnostic` (after the local diagnostic, §8) | `BASE` |
+| `AI_SEND_NOTIFICATION` | `TITLE` STRING ≤ 80, required; `MESSAGE` STRING ≤ 400, required; `AUDIENCE` LIST (Homeowner, Integrator, All), optional, default Homeowner | `send_notification` (recipients decided by the platform) | `BASE` |
 
 Room exclusions: a command whose room (or whose device's room) is excluded by
 configuration is refused `not_permitted`, except `AI_ASK` and
@@ -150,14 +170,14 @@ Variables (ids fixed, order frozen):
 | Id | Variable | Type | Value |
 | --- | --- | --- | --- |
 | 4000 | `AI_STATUS` | STRING | state code (§6) or `working` |
-| 4001 | `AI_LAST_RESPONSE` | STRING | last delivered result, ≤ 1024 bytes (cut on a UTF-8 boundary, marked `...`) |
+| 4001 | `AI_LAST_RESPONSE` | STRING | last delivered result, ≤ 1024 **bytes** (not characters: an accented letter is 2 bytes, an emoji 4). A longer result keeps its first ≤ 1021 bytes, cut between two UTF-8 characters, followed by `...` (`aicore.operations.boundResponse`) |
 | 4002 | `AI_LAST_RESPONSE_ID` | STRING | its `response_id` |
 | 4003 | `AI_LAST_REQUEST_ID` | STRING | the last command's `request_id` |
-| 4004 | `AI_LAST_EVENT_DETAIL` | STRING | `raise_event` detail (≤ 512) or the Agent Disconnected reason |
+| 4004 | `AI_LAST_EVENT_DETAIL` | STRING | `raise_event` detail (≤ 512 bytes, cut between UTF-8 characters) or the Agent Disconnected reason |
 | 4005 | `AI_PENDING_APPROVALS` | NUMBER | from `deliver_result` / `raise_event` `pending_approvals` |
 | 4006 | `AI_RECOMMENDATION_COUNT` | NUMBER | from `recommendation_count` |
 | 4007 | `AGENT_CONNECTED` | BOOL | registered and answering |
-| 4008 | `LEARNING_ACTIVE` | BOOL | learning on |
+| 4008 | `LEARNING_ACTIVE` | BOOL | learning on (`false` until a valid configuration or `set_learning` switches it on) |
 | 4009 | `AI_LAST_ERROR` | STRING | as `Last Error` (empty when clear); includes the platform's AI provider error (`raise_event ai_provider_error`) |
 | 4010 | `AI_LAST_CORRELATION_ID` | STRING | the `correlation_id` of the last `raise_event` (for an approval or action event, the platform's action id); set to empty by an event without one, so it never names an earlier event's subject. Not part of the brief's ten: added so programming and support can tie `Approval Required` / `Action Completed` / `Action Failed` to the action in System Studio |
 
@@ -216,9 +236,9 @@ equipment, runs code, or takes a command name to forward.
 | `apply_config` | `config` (object), `version` (integer) | as §9; `Completed` / `Failed` with the refusals; status frame with `applied_config_version` / `config_error` |
 | `refresh_status` | — | repaint, `ai_core.status` envelope, status frame |
 | `deliver_result` | `response_id` (id, required), `text` (≤ 4000, required), `request_id`, `job_id`, `kind` (`answer`, `analysis`, `report`, `scene_suggestion`, `diagnostic`), `pending_approvals`, `recommendation_count` (0–9999) | sets `AI_LAST_RESPONSE` (bounded), `AI_LAST_RESPONSE_ID`, counts; clears the pending job; fires `AI Response Ready` |
-| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512, control characters removed), `pending_approvals`, `recommendation_count`, `correlation_id` (optional; 1–96 characters, no control characters — the envelope's rule; anything else refuses the operation) | sets `AI_LAST_EVENT_DETAIL`, `AI_LAST_CORRELATION_ID` (empty without one), counts; records one `ai_core.event` envelope whose `correlation_id` is it; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
+| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512 bytes, cut between UTF-8 characters; control characters removed), `pending_approvals`, `recommendation_count`, `correlation_id` (optional; 1–96 characters, no control characters — the envelope's rule; anything else refuses the operation) | sets `AI_LAST_EVENT_DETAIL`, `AI_LAST_CORRELATION_ID` (empty without one), counts; records one `ai_core.event` envelope whose `correlation_id` is it; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
 | `set_learning` | `active` (boolean), `reason` (≤ 120) | learning on/off (on needs `AI_LEARNING` when enforced); re-plans collection |
-| `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8); `Executing` then `Completed` with the envelope id and how many local events |
+| `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8; the target's Director name cleaned and bounded as in §3); `Executing` then `Completed` with the envelope id and how many local events |
 
 Proof that no path reaches equipment: `test/test_aicore_driver.lua` [19] and
 `test/emulator/ai_core.lua` [14] record every `C4:SendToDevice` the driver
@@ -305,9 +325,8 @@ document can arrive by `apply_config`.
 }
 ```
 
-Rules (`aicore.config`): every key optional (defaults: learning on,
-nothing excluded, system events on, topics on, Agent events on, no
-variables, 60/min); **unknown keys refuse the document**; any key anywhere
+Rules (`aicore.config`): every key optional, and what a document does not say
+is **not switched on** (the defaults below); **unknown keys refuse the document**; any key anywhere
 whose name is credential-shaped (`api_key`, `token`, `secret`, … —
 `sbos.envelope.isSensitiveKey`) refuses it; display strings are bounded
 (`provider.name` 40, `provider.model` 80, `credential_status` 96), have no
@@ -321,6 +340,33 @@ field refuses the whole document; the last valid one stays in force and
 `Last Error` says `Configuration vN refused: <path>: <reason> (vM kept)`.
 `learning.active` is the platform's latest word on learning (a later
 `set_learning` overrides it until the next document).
+
+**Defaults** — with no configuration, for a field a valid document leaves out,
+and (for learning) after an invalid document. Each is the conservative value:
+the most private, the least capable.
+
+| Field | Default | Effect of the default |
+| --- | --- | --- |
+| `learning.active` | **`false`** (off) | no collection at all (below), `AI_LEARN_PREFERENCE` and `AI_RECORD_EVENT` refused, `LEARNING_ACTIVE` false, `Learning Status` `Off (not switched on in System Studio)`. A valid document with `learning.active: true` turns it on; a valid document without `learning` leaves it off (`Paused by System Studio: the configuration does not switch it on`); an **invalid** document turns it off (`Paused by configuration: vN refused`) while the rest of the last valid document stays in force — the refused document may be the one that switched learning off |
+| `collection.system_events` | `false` | no Director system event registered |
+| `collection.flight_recorder_topics` | `false` | no subscription to the recorder's topics |
+| `collection.agent_events` | `false` | Agent events not recorded |
+| `collection.variables` | `[]` | no variable listener |
+| `collection.max_events_per_minute` | `60` | an upper bound on own observations; it switches nothing on |
+| `exclusions.rooms` / `exclusions.categories` | `[]` / `[]` | nothing excluded — exclusions only narrow what learning and the collection sources allow, and with the defaults nothing is collected |
+| `permission_mode` | none (`Not delivered yet (System Studio owns it)`) | display only on the controller; the platform's own default is `observe` |
+| `provider.name`, `provider.model`, `credential_status` | none (`Not configured (System Studio)`, `Not configured`) | display only |
+| `property_id`, `controller_id` | none (`Not delivered yet (System Studio)`) | display only |
+| `schema` | `1` | the only schema |
+
+What learning gates (`aicore.collector.plan`, `admit`): every own observation
+(Director system events, Agent events and variables when the recorder is
+absent), the Flight Recorder topic subscription and its consumption, and
+`AI_RECORD_EVENT` (AI Core's own marker). Not gated by learning — the
+non-learning features: every other Composer command and its cloud op, the
+local diagnostic (`AI_START_DIAGNOSTIC`, `run_diagnostic` ask the Flight
+Recorder for its local history on demand), restricted operations, status
+envelopes, Test/Sync actions.
 
 ## 10. Event collection (D7: no double capture)
 
@@ -351,7 +397,7 @@ through the recorder's own upload); AI Core uses them locally (counters,
 dedup) only.
 
 Before anything is recorded or consumed, `aicore.collector` applies, in
-order: learning paused or licence halted → nothing (and the subscription,
+order: learning off (the default, §9) or licence halted → nothing (and the subscription,
 system-event registrations and variable listeners are released); excluded
 room; excluded category; event-id dedup (ring of 512); per-minute budget
 (own observations only). Events never claim who caused a change, the
@@ -409,9 +455,10 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
   another remains, and every instance is told its licence
   (`SbosInventoryInstances`, `drivers/smartbuildos/driver.lua`). Updates: the Agent's updater (`DRIVER_FILENAMES`;
   store `sku_for`).
-* Limits: question 500, statement 300, name 120, detail 400, value 120,
-  occasion 120, title 80, message 400, room 64, result text 4000,
-  `AI_LAST_RESPONSE` 1024 bytes, event detail 512, error 240; 10 commands a
+* Limits (characters = code points): question 500, statement 300, name 120,
+  detail 400, value 120, occasion 120, title 80, message 400, room name 64,
+  device name 120; (bytes) result text 4000, `AI_LAST_RESPONSE` 1024 (`...`
+  included), event detail 512, error 240; 10 commands a
   minute; 20 pending jobs for 30 min; cloud body 16 KB, request args 16 KB,
   result 24 KB (contract v2).
 
@@ -423,13 +470,14 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
 | `raise_event` `correlation_id`; every cloud answer shape per op (job, completed, unsupported, rate limited, status) | `test/test_aicore_cloud_answers.lua` |
 | Names agree across XML, code, Agent tables, policy, docs | `test/test_aicore_surface.lua` |
 | Per module | `test/test_aicore_{commands,config,operations,buffer,collector,state,diagnostic}.lua` |
+| Learning off by default; absent / invalid / explicit-on / explicit-off configuration; non-learning features with learning off; Director names bounded end to end | `test/test_aicore_learning_default.lua` |
 | Packaging (squish closure; built `.c4z` when present) | `test/test_aicore_package.lua` |
 | Flight Recorder local history | `test/test_flightrecorder_localquery.lua`, `test/test_flightrecorder_v2.lua` |
 | Licensing as the driver sees it (statuses × enforcement, features, renewal, transfer, trial) | `test/test_aicore_licence.lua` |
 | Store update selection for AI Core | `test/test_aicore_updates.lua` |
 | Failure modes no other suite named (pairing, Agent cloud loss, missing history, approvals, refused operations) | `test/test_aicore_failure_modes.lua` |
 | Malformed input, timers on destroy, persistence growth, tokens in Trace output | `test/test_aicore_robustness.lua` |
-| Vocabularies against the platform's mirrors; every restricted-operation argument the platform sends against `operations.lua`; every cloud body the driver sends against `rpc/ops.ts` `OP_BODIES`, and each answer shape (needs `SBOS_PLATFORM_REPO`) | `test/test_aicore_platform_parity.lua` |
+| Vocabularies against the platform's mirrors; every restricted-operation argument the platform sends against `operations.lua`; every cloud body the driver sends against `rpc/ops.ts` `OP_BODIES` (keys, required fields, enums, every text bound incl. `room_name`/`device_name`, the `UNPRINTABLE` character rule, bounds in code points), and each answer shape (needs `SBOS_PLATFORM_REPO`) | `test/test_aicore_platform_parity.lua` |
 | Real Agent + real Flight Recorder + AI Core, incl. licensing with real signatures (EMULATOR ONLY) | `test/emulator/run-ai-core.sh` → `test/emulator/ai_core.lua` |
 
 Every item of the product brief's test list is mapped to a named test in

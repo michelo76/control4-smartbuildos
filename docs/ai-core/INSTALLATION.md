@@ -68,8 +68,9 @@ Until System Studio delivers the configuration: `AI Provider` and `AI Model`
 read `Not configured (System Studio)`, `AI API Credential` reads `Not
 configured`, `Permission Mode` reads `Not delivered yet (System Studio owns
 it)`, `Property ID` / `Controller ID` read `Not delivered yet (System
-Studio)`, `Learning Status` reads `Active` (the default until the platform
-says otherwise). `Telemetry Status` reads `No Agent answering: …` until the
+Studio)`, `Learning Status` reads `Off (not switched on in System Studio)`
+and `LEARNING_ACTIVE` is false: learning, and every collection source, is off
+until a valid configuration switches it on (`DRIVER.md` §9, defaults). `Telemetry Status` reads `No Agent answering: …` until the
 Agent registers AI Core, then `Through the Agent: N sent, N acknowledged, N
 dropped; buffer N, buffer drops N`.
 
@@ -134,7 +135,7 @@ account-number flow on the Agent). AI Core follows the Agent:
 | `Licensing Not Yet Enforced` | The Agent holds no AI Core assertion (not issued yet, or one failed verification and was dropped) | Refresh entitlements; check the Agent's Lua output for `failed verification` |
 | `... (read-only)` on `License Status`, `AI_STATUS` `unlicensed` | A definitive licence refusal with enforcement on | Licence AI Core for this controller in SmartBuildOS |
 | `Last Error`: `AI_LEARN_PREFERENCE refused: the licence does not include AI_LEARNING` | The licence lacks `AI_LEARNING` (enforced) | Add the feature, or do not use learning |
-| `Last Error`: `Configuration vN refused: <path>: <reason> (vM kept)` | System Studio sent a document AI Core rejects whole (unknown key, a key-shaped value, a bad bound) | Fix it in System Studio; the previous version stays in force |
+| `Last Error`: `Configuration vN refused: <path>: <reason> (vM kept)` | System Studio sent a document AI Core rejects whole (unknown key, a key-shaped value, a bad bound) | Fix it in System Studio; the previous version stays in force, except learning, which is off until a valid document switches it on |
 | `Flight Recorder Link`: `Installed (no local history service; update the Flight Recorder)` | An older Flight Recorder | Update it to the same build |
-| `Learning Status`: `Paused by System Studio…` / `Stopped (not licensed)` | Learning turned off, or the licence is refused | System Studio / licence |
+| `Learning Status`: `Off (not switched on in System Studio)` / `Paused by System Studio…` / `Paused by configuration: vN refused` / `Stopped (not licensed)` | Learning not switched on yet (the default), turned off, the last document refused, or the licence is refused | System Studio / licence |
 | `AI_LAST_ERROR`: `AI provider error: …` | The provider (OpenAI / Anthropic) failed for the platform | Check the key and the provider's limits in System Studio |

@@ -34,6 +34,7 @@ tests and in a Director emulator only. See *What is not claimed*.
 1. In System Studio, choose the AI provider, enter its key, and set learning,
    exclusions and the permission mode. **AI Provider**, **AI Model**, **AI API
    Credential** and **Permission Mode** fill in when the configuration arrives.
+   Learning stays **off** until it is switched on there.
 1. Run *Test AI Connection*.
 
 ## Programming
@@ -42,21 +43,27 @@ tests and in a Director emulator only. See *What is not claimed*.
 
 Every command checks its parameters first and refuses — sending nothing — when
 one is missing, too long or not in its list; the reason is in **Last Error** and
-`AI_LAST_ERROR`. `ROOM` is a room name or a room id. At most 10 AI commands a
-minute.
+`AI_LAST_ERROR`. Lengths count characters (an accented letter or an emoji is one
+character). `ROOM` is a room name or a room id; for a room whose name is longer
+than 64 characters, use its id. At most 10 AI commands a minute.
 
-| Command                | Parameters                                                                                                                                                                     | What happens                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `AI_ASK`               | `QUESTION` (up to 500 characters), `ROOM` (optional)                                                                                                                           | Asks the AI. The answer arrives later: **AI Response Ready**, `AI_LAST_RESPONSE`                |
-| `AI_ANALYZE_ROOM`      | `ROOM`                                                                                                                                                                         | Asks for an analysis of one room                                                                |
-| `AI_ANALYZE_SYSTEM`    | —                                                                                                                                                                              | Asks for an analysis of the whole system                                                        |
-| `AI_RECORD_EVENT`      | `NAME` (up to 120), `DETAIL` (up to 400), `ROOM`, `CATEGORY` (General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance) | Records a named event for the AI. It says what your programming reports, not an observed result |
-| `AI_SET_CONTEXT`       | `KEY` (Occupancy, Guests Present, Vacation, Quiet Hours, Special Event, Cleaning, Maintenance Window), `VALUE` (up to 120)                                                     | Tells the AI about the home's situation                                                         |
-| `AI_LEARN_PREFERENCE`  | `STATEMENT` (up to 300), `ROOM` (optional)                                                                                                                                     | Teaches a household preference. Refused while learning is paused                                |
-| `AI_SUGGEST_SCENE`     | `ROOM`, `OCCASION` (up to 120)                                                                                                                                                 | Asks for a scene suggestion. A suggestion only: nothing is changed                              |
-| `AI_GENERATE_REPORT`   | `TYPE` (System Health, Usage, Energy, Security, Comfort, Device Reliability), `PERIOD` (Today, Last 24 Hours, Last 7 Days, Last 30 Days)                                       | Asks for a report                                                                               |
-| `AI_START_DIAGNOSTIC`  | `DEVICE` or `ROOM` (one of them)                                                                                                                                               | Starts a diagnostic, with the Flight Recorder's recent local events for that device or room     |
-| `AI_SEND_NOTIFICATION` | `TITLE` (up to 80), `MESSAGE` (up to 400), `AUDIENCE` (Homeowner, Integrator, All)                                                                                             | Sends a notification through SmartBuildOS; recipients are decided there                         |
+Text is sent clean: control characters and line or paragraph separators become
+spaces, and the names Control4 gives rooms and devices are shortened to what
+SmartBuildOS accepts (room 64, device 120 characters), never in the middle of a
+character.
+
+| Command                | Parameters                                                                                                                                                                                                                               | What happens                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_ASK`               | `QUESTION` (required, up to 500 characters), `ROOM` (optional)                                                                                                                                                                           | Asks the AI. The answer arrives later: **AI Response Ready**, `AI_LAST_RESPONSE`                                               |
+| `AI_ANALYZE_ROOM`      | `ROOM` (required)                                                                                                                                                                                                                        | Asks for an analysis of one room                                                                                               |
+| `AI_ANALYZE_SYSTEM`    | —                                                                                                                                                                                                                                        | Asks for an analysis of the whole system                                                                                       |
+| `AI_RECORD_EVENT`      | `NAME` (required, up to 120), `DETAIL` (optional, up to 400), `ROOM` (optional), `CATEGORY` (optional, default General: General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance) | Records a named event for the AI. It says what your programming reports, not an observed result. Refused while learning is off |
+| `AI_SET_CONTEXT`       | `KEY` (required: Occupancy, Guests Present, Vacation, Quiet Hours, Special Event, Cleaning, Maintenance Window), `VALUE` (required, up to 120)                                                                                           | Tells the AI about the home's situation                                                                                        |
+| `AI_LEARN_PREFERENCE`  | `STATEMENT` (required, up to 300), `ROOM` (optional)                                                                                                                                                                                     | Teaches a household preference. Refused while learning is off                                                                  |
+| `AI_SUGGEST_SCENE`     | `ROOM` (required), `OCCASION` (required, up to 120)                                                                                                                                                                                      | Asks for a scene suggestion. A suggestion only: nothing is changed                                                             |
+| `AI_GENERATE_REPORT`   | `TYPE` (required: System Health, Usage, Energy, Security, Comfort, Device Reliability), `PERIOD` (required: Today, Last 24 Hours, Last 7 Days, Last 30 Days)                                                                             | Asks for a report                                                                                                              |
+| `AI_START_DIAGNOSTIC`  | `DEVICE` or `ROOM` (exactly one of them)                                                                                                                                                                                                 | Starts a diagnostic, with the Flight Recorder's recent local events for that device or room                                    |
+| `AI_SEND_NOTIFICATION` | `TITLE` (required, up to 80), `MESSAGE` (required, up to 400), `AUDIENCE` (optional, default Homeowner: Homeowner, Integrator, All)                                                                                                      | Sends a notification through SmartBuildOS; recipients are decided there                                                        |
 
 SmartBuildOS answers each request at once: *accepted* (the result follows as
 **AI Response Ready**), *done* (`AI_SET_CONTEXT`, `AI_SEND_NOTIFICATION` and a
@@ -85,19 +92,19 @@ Wire the events you care about to the Notification Agent for push or email.
 
 ### Variables
 
-| Variable                  | Type   | Holds                                                                                                                                     |
-| ------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `AI_STATUS`               | STRING | `ready`, `working`, `no_agent`, `agent_update_required`, `agent_lost`, `registering`, `agent_unpaired`, `cloud_unreachable`, `unlicensed` |
-| `AI_LAST_RESPONSE`        | STRING | The last result (up to 1024 characters; a longer one ends in `...`)                                                                       |
-| `AI_LAST_RESPONSE_ID`     | STRING | Its id                                                                                                                                    |
-| `AI_LAST_REQUEST_ID`      | STRING | The id of the last command sent                                                                                                           |
-| `AI_LAST_EVENT_DETAIL`    | STRING | Detail of the last event (up to 512 characters)                                                                                           |
-| `AI_PENDING_APPROVALS`    | NUMBER | Actions waiting for approval                                                                                                              |
-| `AI_RECOMMENDATION_COUNT` | NUMBER | Recommendations available                                                                                                                 |
-| `AGENT_CONNECTED`         | BOOL   | Registered with the Agent and answered                                                                                                    |
-| `LEARNING_ACTIVE`         | BOOL   | Learning is on                                                                                                                            |
-| `AI_LAST_ERROR`           | STRING | The last error or refusal, including an AI provider error reported by SmartBuildOS (empty when none)                                      |
-| `AI_LAST_CORRELATION_ID`  | STRING | What the last SmartBuildOS event is about — for Approval Required / Action Completed / Action Failed, the action's id (empty when none)   |
+| Variable                  | Type   | Holds                                                                                                                                                        |
+| ------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_STATUS`               | STRING | `ready`, `working`, `no_agent`, `agent_update_required`, `agent_lost`, `registering`, `agent_unpaired`, `cloud_unreachable`, `unlicensed`                    |
+| `AI_LAST_RESPONSE`        | STRING | The last result, up to 1024 bytes (an ordinary letter is 1 byte, an accented letter 2, an emoji 4); a longer one is cut between characters and ends in `...` |
+| `AI_LAST_RESPONSE_ID`     | STRING | Its id                                                                                                                                                       |
+| `AI_LAST_REQUEST_ID`      | STRING | The id of the last command sent                                                                                                                              |
+| `AI_LAST_EVENT_DETAIL`    | STRING | Detail of the last event (up to 512 bytes, cut between characters)                                                                                           |
+| `AI_PENDING_APPROVALS`    | NUMBER | Actions waiting for approval                                                                                                                                 |
+| `AI_RECOMMENDATION_COUNT` | NUMBER | Recommendations available                                                                                                                                    |
+| `AGENT_CONNECTED`         | BOOL   | Registered with the Agent and answered                                                                                                                       |
+| `LEARNING_ACTIVE`         | BOOL   | Learning is on (false until System Studio switches it on)                                                                                                    |
+| `AI_LAST_ERROR`           | STRING | The last error or refusal, including an AI provider error reported by SmartBuildOS (empty when none)                                                         |
+| `AI_LAST_CORRELATION_ID`  | STRING | What the last SmartBuildOS event is about — for Approval Required / Action Completed / Action Failed, the action's id (empty when none)                      |
 
 ### Conditionals
 
@@ -121,7 +128,7 @@ Read-only except **Log Level** and **Log Mode**.
 | AI API Credential              | Status only, e.g. *Configured in System Studio · Anthropic ••••abcd*. Keys are entered in System Studio and never reach the controller |
 | AI Status                      | *Ready*, *Working*, or why not; the last refusal is added when there is one                                                            |
 | Telemetry Status               | Events sent through the Agent, or held while no Agent answers, and how many were dropped                                               |
-| Learning Status                | *Active*, or who paused it and why                                                                                                     |
+| Learning Status                | *Off (not switched on in System Studio)* until it is switched on; then *Active*, or who paused it and why                              |
 | Permission Mode                | *observe*, *recommend* or *execute_low_risk* — set in System Studio, not here                                                          |
 | Flight Recorder Link           | Whether a Flight Recorder is installed and read                                                                                        |
 | License Status                 | This driver's licence, as the Agent reports it                                                                                         |
@@ -149,7 +156,14 @@ Configuration arrives through the Agent (SKU `SBOS_AI_CORE`): learning on or
 off, rooms and categories to exclude, the permission mode, the provider and
 model names, the key's status text, and what the driver collects. The whole
 document is checked; if any part is wrong — or anything in it looks like a key —
-none of it is applied, the previous one stays, and **Last Error** says why.
+none of it is applied, the previous one stays, **Last Error** says why, and
+learning is turned off until a valid configuration turns it on again.
+
+Until System Studio says otherwise, everything is off: learning, the Director
+system events, the Flight Recorder's topics, the Agent's events and any
+variables. Nothing is excluded (with nothing collected there is nothing to
+exclude), and the provider, model, key status, permission mode and ids read *Not
+configured* or *Not delivered yet*.
 
 SmartBuildOS can also send six restricted operations through the Agent:
 `apply_config`, `refresh_status`, `deliver_result` (a result: variables and AI
@@ -164,10 +178,12 @@ With the Flight Recorder installed, AI Core reads its device events, variable
 changes and programming traces instead of capturing them again, and records only
 what the recorder does not: Director system events (device online and offline,
 network bindings, Director address). Without the recorder it also records the
-Agent's system events and any variables System Studio selected. Nothing is
-collected while learning is paused, from excluded rooms or categories, or while
-the driver is not licensed. Events never say who or what caused a change, or
-what the value was before: Control4 does not tell a driver.
+Agent's system events and any variables System Studio selected. Each of these is
+collected only once System Studio switches learning and that source on. Nothing
+is collected while learning is off or paused, from excluded rooms or categories,
+or while the driver is not licensed. Questions, reports, notifications and
+diagnostics work with learning off. Events never say who or what caused a
+change, or what the value was before: Control4 does not tell a driver.
 
 While no Agent answers, important events (warnings and above) are kept on the
 controller (up to 50, dropped ones are counted) and sent, in order, when the
@@ -175,15 +191,15 @@ Agent is back.
 
 ## Troubleshooting
 
-| Shows                                 | Do                                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------------- |
-| No SmartBuildOS Agent in this project | Install `smartbuildos.c4z`                                                      |
-| Agent update required                 | Update the SmartBuildOS Agent to a build with module contract v2                |
-| SmartBuildOS Agent not responding     | Check the Agent is running; *Sync Now*                                          |
-| SmartBuildOS Agent not paired         | Pair the Agent                                                                  |
-| SmartBuildOS cloud unreachable        | Check the internet connection; requests are not retried forever                 |
-| Last request refused (not_permitted)  | SmartBuildOS refused it (permission mode, licence features, homeowner settings) |
-| Learning paused                       | Learning was turned off in System Studio                                        |
+| Shows                                 | Do                                                                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| No SmartBuildOS Agent in this project | Install `smartbuildos.c4z`                                                                                                                 |
+| Agent update required                 | Update the SmartBuildOS Agent to a build with module contract v2                                                                           |
+| SmartBuildOS Agent not responding     | Check the Agent is running; *Sync Now*                                                                                                     |
+| SmartBuildOS Agent not paired         | Pair the Agent                                                                                                                             |
+| SmartBuildOS cloud unreachable        | Check the internet connection; requests are not retried forever                                                                            |
+| Last request refused (not_permitted)  | SmartBuildOS refused it (permission mode, licence features, homeowner settings)                                                            |
+| Learning off / Learning paused        | Learning is off until switched on in System Studio, or it was turned off there, or the last configuration was refused (see **Last Error**) |
 
 ## What is not claimed
 
