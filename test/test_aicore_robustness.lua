@@ -148,6 +148,13 @@ check(
   H.prop("Last Test Result"):find("Agent link: OK") ~= nil,
   H.prop("Last Test Result")
 )
+EC.TEST_AGENT_LINK()
+okD, errD = directoryFrame("[]", JSON:encode({ version = string.rep("v", 20000), protocol_min = string.rep("1", 500) }))
+check(
+  "an oversized Agent version is bounded in Last Test Result",
+  okD and #H.prop("Last Test Result") <= 200,
+  #tostring(H.prop("Last Test Result"))
+)
 EC.SYNC_NOW()
 okD, errD = directoryFrame('[1, true, {"module_id":"flight_recorder","capabilities":7,"protocol":{}}]', "[]")
 check("the recorder probe with a malformed directory does not throw", okD, errD)

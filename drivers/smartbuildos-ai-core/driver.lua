@@ -1352,9 +1352,10 @@ function EC.TEST_AGENT_LINK()
       gLast.test = string.format(
         "Agent link: OK at %s — Agent %s, protocol %s..%s, %s, %s; %d module(s)",
         stamp(now()),
-        tostring(a.version or "?"),
-        tostring(a.protocol_min or "?"),
-        tostring(a.protocol_max or "?"),
+        -- The Agent's own words, bounded: a property is not a log.
+        tostring(a.version or "?"):sub(1, 40),
+        tostring(a.protocol_min or "?"):sub(1, 8),
+        tostring(a.protocol_max or "?"):sub(1, 8),
         a.paired and "paired" or "not paired",
         a.connected and "cloud connected" or "cloud NOT connected",
         #modules
