@@ -23,8 +23,8 @@ const ARCH = {
       resp: ['Static system prompt (no tenant data); fixed tool list per turn.', 'At most 4 rounds by default (ceiling 8); budget check before every call.', 'Structured answer with confirmed / possible / unknowns; evidence post-check.'], src: 'src/lib/ai-core/orchestrator/' },
     { id: 'prov', label: 'Provider layer', sub: 'Anthropic · OpenAI', x: 566, y: 164, w: 180, layer: 1, status: 'providers',
       resp: ['Neutral types over Messages (Anthropic) and Responses with store:false (OpenAI).', 'Model classes deep / fast; retry, timeout and fallback; versioned prices.', 'Re-validates every tool argument; redacts key material.'], src: 'src/lib/ai-core/providers/' },
-    { id: 'tools', label: 'Tool registry', sub: '35 tools', x: 14, y: 254, w: 168, layer: 1, status: 'cloudTools',
-      resp: ['Seven Flight Recorder read tools; device, room, usage and health reads; memory search and proposals; service findings; a notification request; six action proposals; eleven concierge tools (in development).', 'Each tool declares its risk once; closed argument schemas.'], src: 'src/lib/ai-core/tools/' },
+    { id: 'tools', label: 'Tool registry', sub: 'typed, risk-classed', x: 14, y: 254, w: 168, layer: 1, status: 'cloudTools',
+      resp: ['Seven Flight Recorder read tools; device, room, usage and health reads; memory search and proposals; three service tools; six action proposals; eleven concierge tools (homeowner conversations only).', 'Each tool declares its risk once; closed argument schemas.'], src: 'src/lib/ai-core/tools/' },
     { id: 'authz', label: 'Permission engine', sub: 'allow · approval · deny', x: 198, y: 254, w: 168, layer: 1, status: null,
       resp: ['Pure function over actor, mode, risk, target class, capabilities, features, rules, basis and gate.', 'Fails closed on anything unrecognised.', 'Tested with 108 matrix tests (checklist 7.1).'], src: 'src/lib/ai-core/authz/engine.ts' },
     { id: 'learn', label: 'Learning', sub: 'memory · patterns · recs', x: 382, y: 254, w: 168, layer: 1, status: 'learning',
@@ -38,9 +38,9 @@ const ARCH = {
     { id: 'audit', label: 'Audit', sub: 'ai_core_audit_events', x: 382, y: 344, w: 168, layer: 1, status: null,
       resp: ['Append-only record of turns, provider calls, refusals and tool decisions.', 'A tool decision is written before its handler runs; an unrecorded action is not taken.'], src: 'src/lib/ai-core/audit/' },
     { id: 'studio', label: 'System Studio', sub: 'Intelligence pages', x: 14, y: 478, w: 230, layer: 2, status: 'studio',
-      resp: ['Staff enter provider keys, settings, limits and the permission mode.', 'Overview, Household Usage, Flight Recorder Intelligence (in development).', 'Staff approve low-risk actions a person asked for.'], src: '/api/monitoring/ai-core/*' },
-    { id: 'portal', label: 'Homeowner portal', sub: 'approvals · learning controls', x: 262, y: 478, w: 230, layer: 2, status: 'portalUi',
-      resp: ['Approves lock, garage and security actions.', 'Consents to pre-approved rules.', 'Reviews, corrects, exports and erases what was learned.'], src: '/api/portal/ai-core/*' },
+      resp: ['Intelligence: Overview and Provider & settings (keys, limits, permission mode, learning).', 'Household Usage, Flight Recorder Intelligence, Recommendations (with actions, rules, hand-offs, pending memories), Service and Conversations.', 'Staff approve low-risk actions a person asked for; never locks, garage or security.'], src: 'src/components/system-studio/intelligence/; /api/monitoring/ai-core/*' },
+    { id: 'portal', label: 'Homeowner portal', sub: 'Your home assistant', x: 262, y: 478, w: 230, layer: 2, status: 'portalUi',
+      resp: ['Approves lock, garage and security actions (then a second Control4 approval).', 'Consents to and revokes pre-approved rules.', 'Reviews, corrects, exports and erases what was learned.', 'Plans reservations step by step — SIMULATION sandbox only.'], src: 'src/components/portal/ai-core/; /api/portal/ai-core/*' },
     { id: 'vendors', label: 'Anthropic · OpenAI', sub: 'customer’s own account', x: 510, y: 478, w: 236, layer: 2, status: 'providers',
       resp: ['Called only from the cloud, with the customer’s key.', 'No live call has been made yet (needs a real key).'], src: 'providers/anthropic.ts, providers/openai.ts' },
   ],
@@ -58,7 +58,9 @@ function initArch() {
     svg += '<g class="node" tabindex="0" role="button" aria-pressed="false" data-id="' + n.id + '"' + tone + ' aria-label="' + esc(n.label + ': ' + n.sub) + '"><rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + H + '" rx="8"/><text x="' + (n.x + 10) + '" y="' + (n.y + 21) + '">' + esc(n.label) + '</text><text class="sub" x="' + (n.x + 10) + '" y="' + (n.y + 38) + '">' + esc(n.sub) + '</text></g>';
   });
   svg += '</svg>';
-  $('#archSvgHost').innerHTML = svg + '<div class="chips" style="margin-top:10px" role="group" aria-label="Components as a list">' + ARCH.nodes.map((n) => '<button type="button" class="chip arch-chip" data-id="' + n.id + '" aria-pressed="false">' + esc(n.label) + '</button>').join('') + '</div>';
+  // The same components as stacked layers of buttons: the accessible list, and the only layout on a phone.
+  const list = '<div class="arch-list" role="group" aria-label="Components by layer">' + ARCH.layers.map((l, li) => '<div class="arch-layer"><h4>' + esc(l.title) + '</h4><div class="arch-layer-items">' + ARCH.nodes.filter((n) => n.layer === li).map((n) => '<button type="button" class="chip arch-chip" data-id="' + n.id + '" aria-pressed="false"><span class="lbl">' + esc(n.label) + '</span><span class="sub">' + esc(n.sub) + '</span></button>').join('') + '</div></div>').join('') + '</div>';
+  $('#archSvgHost').innerHTML = '<div class="arch-svg">' + svg + '</div>' + list;
   function select(id) {
     const n = nodeById[id];
     const related = ARCH.wires.filter(([a, b]) => a === id || b === id).map(([a, b]) => (a === id ? b : a));
@@ -80,7 +82,7 @@ const COMM = [
   { id: 'register', title: 'Registration (v2)', summary: 'AI Core registers with its manifest, receives its token and the last configuration, and the Agent tells other v2 modules the directory changed.', steps: [
     { f: 'ai', t: 'agent', frame: 'SBOS_MODULE_REGISTER', p: { module_id: 'ai_core', instance_id: '412', driver_version: '<built version>', protocol_min: '1', protocol_max: '2', entitlements: 'SBOS_AI_CORE', event_types: 'ai_core.', singleton: 'true', manifest: { driver: 'sbos.ai_core', protocol: 2, capabilities: [] } }, n: 'Sent on every LateInit; retried every 30 s doubling to 5 min while there is no answer.' },
     { f: 'agent', t: 'ai', frame: 'SBOS_MODULE_REGISTERED', p: { ok: 'true', token: '<32 hex characters>', protocol: '2', agent_protocol_min: '1', agent_protocol_max: '2', paired: 'true', connected: 'true' }, n: 'Sent to the claimed device id. A new token ends any earlier session. AGENT_CONNECTED becomes true.' },
-    { f: 'agent', t: 'ai', frame: 'SBOS_DRIVER_CONFIG', p: { sku: 'SBOS_AI_CORE', settings: { schema: 1, permission_mode: 'recommend', learning: { active: false } }, settings_version: '7' }, n: 'The last configuration System Studio published for this SKU.' },
+    { f: 'agent', t: 'ai', frame: 'SBOS_DRIVER_CONFIG', p: { sku: 'SBOS_AI_CORE', settings: { schema: 1, learning: { active: true }, exclusions: { rooms: [40], categories: [] }, permission_mode: 'recommend', collection: { system_events: true, flight_recorder_topics: true, agent_events: true, variables: [], max_events_per_minute: 60 } }, settings_version: '7' }, n: 'The last schema-1 document System Studio published for this SKU. Without one, learning and every collection source stay off.' },
     { f: 'ai', t: 'agent', frame: 'SBOS_DRIVER_CONFIG_ACK', p: { sku: 'SBOS_AI_CORE', applied: 'true', refused: '0', settings_version: '7' }, n: 'The whole document was valid, so it is applied. One bad field would refuse it all.' },
     { f: 'agent', t: 'fr', frame: 'SBOS_MODULE_DIRECTORY_CHANGED', p: { ...AUTH('flight_recorder', '388'), directory_version: '15' }, n: 'Pushed to live v2 modules 5 s after the first change of a burst.' },
   ] },
@@ -106,7 +108,7 @@ const COMM = [
     { f: 'ai', t: 'ai', frame: 'local: validate AI_ASK', p: { QUESTION: 'Why did the living room lights turn on at 2 AM?', ROOM: 'Living Room' }, n: 'Validated; request_id aic-<uuid> written to AI_LAST_REQUEST_ID; an ai_core.command envelope is recorded.' },
     { f: 'ai', t: 'agent', frame: 'SBOS_MODULE_CLOUD_REQUEST', p: { ...AUTH('ai_core', '412'), request_id: 'aic-3f1c', idempotency_key: 'aic-3f1c', op: 'ask', body: { command: 'AI_ASK', request_id: 'aic-3f1c', question: 'Why did the living room lights turn on at 2 AM?', room_id: 12, room_name: 'Living Room' }, deadline: '<now + 30 s>' }, n: 'op ask is in MODULE_CLOUD_OPS.ai_core.' },
     { f: 'agent', t: 'cloud', frame: 'POST /api/integrations/control4/modules/rpc', p: { module_id: 'ai_core', instance_id: '412', op: 'ask', request_id: 'aic-3f1c', idempotency_key: 'aic-3f1c', body: { '…': '…' } }, n: 'Authorization: Bearer <pairing token>. Tenant and property come from the token only.' },
-    { f: 'cloud', t: 'agent', frame: 'HTTP 200', p: { ok: true, result: { accepted: true, job_id: 'job-81c2' } }, n: 'In the committed code only status is handled; this accepted answer is what the in-development job ops return.' },
+    { f: 'cloud', t: 'agent', frame: 'HTTP 200', p: { ok: true, result: { accepted: true, job_id: 'job-81c2' } }, n: 'ask is a job op: the platform inserts an ai_core_jobs row and answers at once; the turn runs afterwards as a controller job. Until the route is deployed the Agent gets 404 instead and the driver sees cloud_refused.' },
     { f: 'agent', t: 'ai', frame: 'SBOS_MODULE_CLOUD_RESPONSE', p: { ...AUTH('ai_core', '412'), request_id: 'aic-3f1c', status: 'ok', http_status: '200', error_code: 'ok', result: { accepted: true, job_id: 'job-81c2' } }, n: 'AI Status: Working: 1 request(s) waiting for a result; AI_STATUS = working.' },
     { f: 'agent', t: 'ai', frame: 'SBOS_MODULE_COMMAND', p: { ...AUTH('ai_core', '412'), request_id: '<server uuid>', command: 'deliver_result', args: { response_id: 'resp-55', request_id: 'aic-3f1c', job_id: 'job-81c2', kind: 'answer', text: '…' }, expires_at: '<now + 10 min>' }, n: 'Later: the platform queues the result as a restricted operation.' },
     { f: 'ai', t: 'agent', frame: 'SBOS_MODULE_COMMAND_RESULT', p: { ...AUTH('ai_core', '412'), request_id: '<server uuid>', state: 'Completed' }, n: 'AI_LAST_RESPONSE and AI_LAST_RESPONSE_ID set; AI Response Ready fires.' },
@@ -155,7 +157,12 @@ function initComm() {
       svg += '<g class="' + cls + '" data-i="' + i + '" style="color:' + (i === pos ? 'var(--sw-orange)' : 'var(--sw-rule-strong)') + '">' + body + '</g>';
     });
     svg += '</svg>';
-    $('#commSvgHost').innerHTML = svg;
+    // Phone layout: a vertical step list with full-size text (the SVG is hidden below 640 px).
+    const list = '<ol class="seq-list" aria-label="Frames in ' + esc(s.title) + '">' + s.steps.map((st, i) => {
+      const from = LANES.find((l) => l.id === st.f).label, to = LANES.find((l) => l.id === st.t).label;
+      return '<li data-i="' + i + '" class="' + (i < pos ? 'past' : i === pos ? 'cur' : 'future') + (st.err ? ' err' : '') + '"' + (i === pos ? ' aria-current="step"' : '') + '><span class="hop">' + (i + 1) + '. ' + esc(from) + (st.f === st.t ? ' (local)' : ' → ' + esc(to)) + '</span><code class="frame">' + esc(st.frame) + '</code></li>';
+    }).join('') + '</ol>';
+    $('#commSvgHost').innerHTML = '<div class="seq-svg">' + svg + '</div>' + list;
     $('#commSummary').textContent = s.summary;
     $('#commPos').textContent = pos < 0 ? 'Not started · ' + s.steps.length + ' frames' : 'Frame ' + (pos + 1) + ' of ' + s.steps.length + (pos === s.steps.length - 1 ? ' · end of scenario' : '');
     $('#commPrev').disabled = pos < 0; $('#commNext').disabled = pos >= s.steps.length - 1;

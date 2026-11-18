@@ -20,21 +20,48 @@
 <h2 id="ch8-lighting">Lighting</h2>
 <p><code>actions_set_light</code> proposes one light level, <code>device_id</code> and <code>level</code> 0–100. The <code>lighting_level</code> detector learns a preferred level per device. A low verb aimed at a device the registry does not show as that verb's kind (for example <code>SET_LIGHT</code> on a lock, or an unknown type) is escalated to high risk.</p>
 
-<h2 id="ch8-approvals">Approval workflows</h2>
-<p>Every action is recorded in <code>ai_core_actions</code> and moves through a fixed lifecycle, enforced by code and again by a database trigger:</p>
-<pre class="code" data-lang="text"><code>proposed ─┬─ deny ─────────────────────────────────────→ denied
-          ├─ require_approval → pending_approval ─┬─ approve → approved
-          │                                       └─ deny / cancel / expire
-          └─ allow (low + matching consented rule) → approved
-approved ─── enqueue → queued ─── the queue's own outcome → completed | failed | expired | denied</code></pre>
+<h2 id="ch8-modes">Permission modes</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Mode (System Studio)</th><th scope="col">What the page says</th><th scope="col">Engine</th></tr></thead>
+<tbody>
+<tr><td><code>observe</code> (default)</td><td>AI Core reads and explains. It proposes nothing to the house.</td><td>every non-read class is denied (<code>observe_mode_no_actions</code>), so no action tool is even offered</td></tr>
+<tr><td><code>recommend</code></td><td>AI Core may propose actions; every one needs approval.</td><td>low → approval by the requester (the homeowner for an automation or a learned basis); high and external → the homeowner</td></tr>
+<tr><td><code>execute_low_risk</code></td><td>Only low-risk actions that match a pre-approved rule may run without approval. Locks, garage and security always need the homeowner.</td><td>low → allowed only on a matching active rule, otherwise as <code>recommend</code>; high and external as <code>recommend</code></td></tr>
+</tbody></table></div>
+
+<h2 id="ch8-approvals">The action lifecycle</h2>
+<p>Every action is recorded in <code>ai_core_actions</code> and moves through a fixed lifecycle, enforced in TypeScript (<code>actions/lifecycle.ts</code>) and again by a database trigger; a unit test pins the two equal.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">From</th><th scope="col">To</th></tr></thead>
+<tbody>
+<tr><td><code>proposed</code></td><td><code>pending_approval</code>, <code>approved</code> (only on a matching consented rule), <code>denied</code>, <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>pending_approval</code></td><td><code>approved</code>, <code>denied</code>, <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>approved</code></td><td><code>queued</code>, <code>denied</code>, <code>failed</code>, <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>queued</code></td><td><code>completed</code>, <code>failed</code>, <code>expired</code>, <code>denied</code> — <strong>only</strong> from the linked <code>control4_commands</code> row (the queue's acknowledgement, decline or expiry)</td></tr>
+<tr><td><code>completed</code>, <code>failed</code>, <code>expired</code>, <code>denied</code>, <code>cancelled</code></td><td>— (final)</td></tr>
+</tbody></table></div>
 <ul>
-  <li><strong>Who approves.</strong> Low-risk actions a person asked for are confirmed by that requester; staff may approve only those (<code>POST /api/monitoring/ai-core/actions/[id]</code>, needs <code>homecontrol:manage</code>). Lock, garage and security are the homeowner's alone (<code>POST /api/portal/ai-core/actions</code>).</li>
-  <li><strong>What was seen is what runs.</strong> An approval carries <code>args_hash</code>, the hash of the action as the approver saw it.</li>
-  <li><strong>Timing.</strong> A proposal waits 30 minutes for approval; the queue adds its own 1 hour after enqueue. At most 10 open actions per property; at most 6 proposals a minute and 40 an hour.</li>
-  <li><strong>Outcome.</strong> <code>completed</code> and <code>failed</code> come only from the linked <code>control4_commands</code> row (a real driver acknowledgement), never from AI Core. The platform can raise <strong>Approval Required</strong>, <strong>Action Completed</strong> and <strong>Action Failed</strong> in Composer.</li>
-  <li><strong>Pre-approved rules.</strong> In <code>execute_low_risk</code>, a low action runs without a per-action approval only when a rule covers it exactly: verb (<code>SET_LIGHT</code>, <code>SET_THERMOSTAT</code> or <code>ACTIVATE_SCENE</code> only), device or room scope, numeric bounds, allowed values, optional time window, not expired. Staff create rules (<code>POST /api/monitoring/ai-core/rules</code>); a rule is <strong>inactive until the homeowner consents</strong> in the portal (<code>POST /api/portal/ai-core/rules { decision: "consent", content_hash }</code>) and can be revoked at once.</li>
-  <li><strong>Programming changes</strong> are never executed. They become a programming hand-off that a person carries into Composer Studio under their own session (states <code>accepted</code>, <code>in_composer</code>, <code>completed</code>, <code>rejected</code>, <code>withdrawn</code>).</li>
+  <li><strong>Who approves.</strong> A low-risk action a person asked for is approved by that requester, or by staff with <code>homecontrol:manage</code> (<code>POST /api/monitoring/ai-core/actions/[id]</code>). An action with <code>required_approver</code> homeowner, or risk high, is the homeowner's alone (<code>POST /api/portal/ai-core/actions</code>); Studio says <em>Awaiting the homeowner. Lock, garage and security actions are the homeowner's alone to approve; staff cannot approve them here.</em></li>
+  <li><strong>What was seen is what runs.</strong> An approval carries <code>args_hash</code>, the hash of the action as the approver saw it; a mismatch answers 409 <code>approval_mismatch</code> (<em>This action changed since you saw it. Reload it and decide again.</em>).</li>
+  <li><strong>Timing and limits.</strong> A proposal waits 30 minutes for approval; the queue adds its own 1 hour after enqueue. At most 10 open actions per property, 6 proposals a minute and 40 an hour (owner decision 9).</li>
+  <li><strong>Outcome.</strong> <code>completed</code> and <code>failed</code> come only from the queue row (a real driver acknowledgement), never from AI Core. The platform can raise <strong>Approval Required</strong>, <strong>Action Completed</strong> and <strong>Action Failed</strong> in Composer, with the action id in <code>AI_LAST_CORRELATION_ID</code>.</li>
 </ul>
+
+<h2 id="ch8-two-step">Locks, garage doors and security: two confirmations</h2>
+<p>A lock, garage or security action (or any action escalated to high risk by its target class) needs <strong>two separate homeowner confirmations</strong>: first AI Core's approval in the portal, then the command queue's <strong>own</strong> Control4 approval, which collects any disarm code. AI Core never takes, answers or pre-fills that second step. The portal says so after the first approval: <em>Locks, garage doors and security ask again: after you approve here, the request appears in Home control requests (under Approvals), where you approve it a second time — and enter your security code if it disarms the alarm.</em> Whether two confirmations should stay is owner decision 9.</p>
+<figure class="shot"><img src="shot:portal-approvals" alt="Homeowner portal assistant, Approvals tab: an approved front door unlock waiting for its second approval in Home control requests, a pending lighting proposal with Approve and Decline, a history list, and two pre-approved rules — one off waiting for the homeowner's yes, one on with Revoke now." width="960" height="1100" loading="lazy" decoding="async"><figcaption>Homeowner portal — Your home assistant › Approvals after approving a lock, fixture preview with sample data (<code>screenshots/portal/fx-1280-22-lock-approved-second-step.png</code>).</figcaption></figure>
+
+<h2 id="ch8-rules">Pre-approved rules and homeowner consent</h2>
+<p>In <code>execute_low_risk</code>, a low action runs without a per-action approval only when an active rule covers it exactly: verb <code>SET_LIGHT</code>, <code>SET_THERMOSTAT</code> or <code>ACTIVATE_SCENE</code> only; a device or room scope; numeric bounds inside the queue's clamp; allowed values (thermostat modes); an optional time window with an IANA time zone; an expiry within 365 days.</p>
+<ol>
+  <li><strong>Staff create it</strong> in Studio › Recommendations › <em>Pre-approved rules</em> (<code>POST /api/monitoring/ai-core/rules</code>, needs <code>monitoring:manage</code> and <code>homecontrol:manage</code>): <em>Save rule (inactive until consent)</em> → <em>Saved — inactive until the homeowner consents</em>.</li>
+  <li><strong>The homeowner consents</strong> in the portal (<em>What the assistant may do without asking</em> › <em>Review and allow</em>), which sends <code>{ decision: "consent", content_hash }</code>; a hash that is not the stored rule's answers 409 <code>content_mismatch</code>, so the homeowner consents to exactly what they saw.</li>
+  <li><strong>Either side can revoke</strong> at once (<em>Revoke now</em> in the portal; <code>DELETE</code> in Studio). Revocation is final and never needs the licence.</li>
+</ol>
+<p>A rule never covers locks, garage doors or security, and a learned basis never makes anything automatic.</p>
+
+<h2 id="ch8-handoff">Programming changes: a hand-off carried by a person</h2>
+<p>AI Core never applies programming. A recommendation that needs a programming change becomes a <strong>programming hand-off</strong> (Studio › Recommendations › <em>Programming hand-offs</em>; <code>/api/monitoring/ai-core/programming</code>), created only from a recommendation in <code>reviewed</code>, <code>approved</code> or <code>implementing</code>. Its states: <code>proposed</code> → <code>accepted</code> (<em>Accept — I will carry this into Composer</em>) → <code>in_composer</code> (needs a Composer project or reference) → <code>completed</code>, or <code>rejected</code> / <code>withdrawn</code>. Moving it to accepted, in Composer or completed needs the person's <strong>own</strong> Composer Studio edit permission. The page states: <em>AI Core never edits Composer programming, never writes a blueprint and never records a checkpoint.</em> Composer Studio has no per-project programming field, so nothing can be accepted into a blueprint automatically (owner decision 10).</p>
 
 <h2 id="ch8-safety">Safety limitations</h2>
 <ul>
@@ -48,7 +75,7 @@ approved ─── enqueue → queued ─── the queue's own outcome → comp
 <h2 id="ch8-workflow">AI Workflow Simulator</h2>
 <div class="feature wide" id="workflow" data-feature="workflow">
   <header><h3>AI Workflow Simulator</h3><span class="label-sim">Simulation · sample data</span></header>
-  <p>Pick a question and step through what the orchestrator does: the tools offered, the real tool names the model requests, the permission engine's decision for each call (computed live by the same rule transcription the Permissions Explorer uses), approvals, and the evidence-checked answer. Event ids, devices and times are made up; no model was called.</p>
+  <p>Pick an example and step through what the orchestrator does: the tools offered to that persona (computed live from the per-persona tool lists in <code>orchestrator/server.ts</code> and <code>concierge/server.ts</code>, filtered as <code>orchestrator/turn.ts</code> <code>offeredTools</code> does), the real tool names the model requests, the permission engine's decision for each call (the same transcription the Permissions Explorer uses), approvals, and the evidence-checked answer. Event ids, devices, venues and times are made up; no model was called.</p>
   <div class="grid2">
     <div class="field"><label for="wfExample">Example</label><select id="wfExample"></select></div>
     <div class="field"><label for="wfMode">Property permission mode</label><select id="wfMode"><option value="observe">observe</option><option value="recommend" selected>recommend</option><option value="execute_low_risk">execute_low_risk</option></select></div>
@@ -62,98 +89,165 @@ approved ─── enqueue → queued ─── the queue's own outcome → comp
 <section class="chapter" id="ch9" aria-labelledby="ch9-title" data-title="Lifestyle Concierge" hidden>
 <p class="eyebrow">Chapter 9</p>
 <h1 id="ch9-title">Lifestyle Concierge</h1>
-<p class="lede">The concierge — restaurant reservations, calendar entries and the approvals around them — is <strong>in development and not available in this release</strong>. This chapter describes the design being built, so dealers know what to expect, and exactly what blocks each part. Nothing here can make a real booking today.</p>
+<p class="lede">The concierge lets a homeowner plan a restaurant reservation with the assistant and approve every step. As built, the <strong>only provider that can complete a request is a labelled SIMULATION sandbox</strong>, which staff switch on per property: nothing is ever booked at a real restaurant. Real vendors, calendars and Places discovery are each blocked on something outside engineering, and this chapter says what.</p>
 <div class="status" data-status="concierge"></div>
 <div class="status" data-status="vendor"></div>
 <div class="status" data-status="calendar"></div>
 
-<h2 id="ch9-status">What is being built</h2>
+<h2 id="ch9-status">What exists</h2>
 <ul>
-  <li>Concierge tools gated by the licence feature <code>AI_CONCIERGE</code>: <code>concierge_list_providers</code>, <code>concierge_list_services</code>, <code>concierge_suggest_reservation</code>, <code>concierge_search_places</code>, <code>concierge_search_availability</code>, <code>concierge_present_options</code>, <code>concierge_submit_booking</code>, <code>concierge_check_booking</code>, <code>concierge_calendar_list</code>, <code>concierge_calendar_add</code>, <code>concierge_offer_scene</code>. Only <code>concierge_submit_booking</code> and <code>concierge_calendar_add</code> are in the <code>external</code> risk class; the rest read or record suggestions.</li>
-  <li>The permission engine's <code>external</code> rule (Completed in simulation, 7.1): explicit homeowner confirmation always; denied in <code>observe</code>, for an automation, and on learned behaviour alone.</li>
-  <li>A provider registry whose only usable provider is the sandbox, named <em>SIMULATION — SmartBuildOS sandbox restaurants</em>, which staff turn on per property. Its bookings end as <code>simulated_confirmed</code>, never <code>confirmed</code>, and are never written to a real calendar.</li>
+  <li>Eleven concierge tools, offered only in a <strong>homeowner's</strong> portal conversation and gated by the licence feature <code>AI_CONCIERGE</code>: <code>concierge_list_providers</code>, <code>concierge_list_services</code>, <code>concierge_suggest_reservation</code>, <code>concierge_search_places</code>, <code>concierge_search_availability</code>, <code>concierge_present_options</code>, <code>concierge_submit_booking</code>, <code>concierge_check_booking</code>, <code>concierge_calendar_list</code>, <code>concierge_calendar_add</code>, <code>concierge_offer_scene</code>. Only <code>concierge_submit_booking</code> and <code>concierge_calendar_add</code> are in the <code>external</code> risk class; the rest read, or record something for the homeowner to act on. Approving the search, choosing an option, final confirmation and recovery choices have <strong>no tool</strong>: they exist only as the homeowner's own portal actions.</li>
+  <li>A request state machine enforced in code and again by a database trigger (below).</li>
+  <li>A provider registry that lists every vendor with its <strong>true</strong> status, an adapter only for the sandbox, and a database that admits only the sandbox as a provider.</li>
+  <li>Google Calendar and Microsoft Graph adapters with homeowner OAuth (PKCE, encrypted tokens), and Google Places search — built against documented wire shapes and never called live.</li>
+  <li>The portal's <strong>Concierge</strong> and <strong>Calendar</strong> areas in <em>Your home assistant</em>, and a read-only staff view with the sandbox switch.</li>
 </ul>
 
-<h2 id="ch9-reservations">Reservations</h2>
-<p>Every request follows a fixed state machine, enforced in code and again by a database trigger. Each step names who may take it; the homeowner's steps exist only in the portal route.</p>
-<pre class="code" data-lang="text"><code>suggested ──(homeowner approves the search)──→ search_approved
-search_approved ──(search + presentation)──→ options_presented
-options_presented ──(homeowner picks one)──→ option_selected
-option_selected ──(server builds the exact details)──→ details_presented
-details_presented ──(homeowner confirms THESE details, by hash)──→ final_confirmed
-final_confirmed ──(submission, idempotent)──→ submitted
-submitted ──(the provider's own getBooking)──→ confirmed | simulated_confirmed | failed
-failed ──(homeowner: retry | stop)──→ submitted | cancelled
-anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
-<p>A suggestion based on learned behaviour can never go further than a suggestion without the homeowner's approval. Real providers are adapter slots, each blocked as follows:</p>
+<h2 id="ch9-reservations">The request state machine</h2>
+<p>Each transition names who may take it (<code>concierge/lifecycle.ts</code>, <code>ai_core_concierge_transition_allowed</code>). Staff, automations and the controller can make <strong>no</strong> transition.</p>
 <div class="table-wrap"><table>
-<thead><tr><th scope="col">Service</th><th scope="col">Blocked on</th></tr></thead>
+<thead><tr><th scope="col">From</th><th scope="col">To (who)</th></tr></thead>
 <tbody>
-<tr><td>OpenTable</td><td>Partner approval and a formal agreement</td></tr>
-<tr><td>Yelp Reservations</td><td>Yelp partner enablement (partner-only, disabled by default)</td></tr>
-<tr><td>SevenRooms</td><td>Partnership / venue-provisioned credentials</td></tr>
-<tr><td>Resy</td><td>No sanctioned API; automated booking is enforced against</td></tr>
-<tr><td>Tock</td><td>No documented public booking-write API</td></tr>
-<tr><td>Reserve with Google</td><td>Not applicable: a provider-side programme, not a consumer booking API</td></tr>
+<tr><td><code>suggested</code></td><td><code>search_approved</code> (homeowner), <code>cancelled</code> (homeowner), <code>expired</code> (system)</td></tr>
+<tr><td><code>search_approved</code></td><td><code>options_presented</code> (model, homeowner), <code>failed</code> (system), <code>cancelled</code> (homeowner), <code>expired</code> (system)</td></tr>
+<tr><td><code>options_presented</code></td><td><code>option_selected</code> (homeowner), <code>search_approved</code> (homeowner), <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>option_selected</code></td><td><code>details_presented</code> (system), <code>options_presented</code> (homeowner), <code>failed</code> (system), <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>details_presented</code></td><td><code>final_confirmed</code> (homeowner, bound to the hash of exactly these details), <code>options_presented</code> (homeowner), <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>final_confirmed</code></td><td><code>submitted</code> (homeowner, model), <code>details_presented</code> (system), <code>cancelled</code>, <code>expired</code></td></tr>
+<tr><td><code>submitted</code></td><td><code>confirmed</code>, <code>simulated_confirmed</code>, <code>failed</code> (provider — only its own <code>getBooking</code>)</td></tr>
+<tr><td><code>confirmed</code>, <code>simulated_confirmed</code></td><td><code>cancelled</code> (homeowner; a real booking is cancelled at the provider first)</td></tr>
+<tr><td><code>failed</code></td><td><code>submitted</code> (homeowner), <code>cancelled</code> (homeowner), <code>expired</code> (system)</td></tr>
+<tr><td><code>cancelled</code>, <code>expired</code></td><td>— (final)</td></tr>
 </tbody></table></div>
-<p>Scraping or driving consumer booking sites with an agent is prohibited regardless.</p>
+<p>Step by step, as the homeowner sees it: the assistant (or the homeowner's <em>New reservation request</em> form) records a <strong>suggestion</strong>; the homeowner approves the search (<em>Search for availability? Nothing is searched until you say yes.</em>); availability is searched and up to 5 options presented (from ≤ 12 candidates); the homeowner picks one; the server builds the exact details; the homeowner gives <strong>final confirmation</strong> of those details (<em>Please check every line. Only these exact details will be sent.</em>); the request is submitted (idempotent; at most 3 submissions); the provider's own <code>getBooking</code> decides the outcome. A suggestion expires after 48 hours; at most 10 open requests per property. A suggestion based on learned behaviour never goes further than a suggestion without the homeowner.</p>
+<p><strong>The model cannot submit early.</strong> <code>concierge_submit_booking</code> takes <code>request_id</code> and <code>details_hash</code>; the engine answers <code>require_approval(homeowner)</code> for the external class, and the tool acts only on the homeowner's recorded final confirmation of exactly that hash. Otherwise it is refused 409 <code>not_confirmed</code> — <em>The homeowner has not given final confirmation for exactly these details.</em> — and the refusal is audited. The AI Workflow Simulator in Chapter 8 shows this.</p>
 
-<h2 id="ch9-calendar">Calendar</h2>
-<p>Google Calendar and Microsoft Graph adapters with homeowner OAuth are being built against the real APIs (9.3, In progress). The homeowner connects a calendar in the portal (<code>/api/portal/ai-core/calendar</code>, connect and callback per provider) and separately allows the assistant to <em>read</em> it; disconnecting deletes the stored tokens. Writing is only ever an offer (<code>concierge_calendar_add</code>) that the homeowner confirms in the portal. Real calendar use is blocked on OAuth client credentials; Google's calendar scope is a sensitive scope that needs Google verification before production. Restaurant discovery through Google Places (<code>concierge_search_places</code>, search only, no booking) needs an API key.</p>
+<h2 id="ch9-providers">The provider registry: who can book</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Provider</th><th scope="col">Status in the registry</th><th scope="col">Reason it gives</th></tr></thead>
+<tbody>
+<tr><td>OpenTable</td><td><code>requires_partner_agreement</code></td><td>Booking APIs only for approved integration partners; production use needs partner approval and a formal agreement.</td></tr>
+<tr><td>Yelp Reservations</td><td><code>requires_partner_agreement</code></td><td>Reserved for Yelp partners and disabled by default.</td></tr>
+<tr><td>SevenRooms</td><td><code>requires_partner_agreement</code></td><td>API access provisioned through a partnership, per venue.</td></tr>
+<tr><td>Resy</td><td><code>no_sanctioned_api</code></td><td>No public booking API; enforces against unsanctioned bots and autonomous agents.</td></tr>
+<tr><td>Tock</td><td><code>no_sanctioned_api</code></td><td>Public documentation describes the data model only; no booking-write API.</td></tr>
+<tr><td>Reserve with Google</td><td><code>not_applicable</code></td><td>Lets booking providers list inventory on Google; no API to book on a diner's behalf.</td></tr>
+<tr><td><button type="button" class="term" data-term="sandbox">SIMULATION — SmartBuildOS sandbox restaurants</button></td><td><code>simulated</code></td><td>A simulated inventory for demonstration and testing. Nothing is ever booked at a real restaurant. Off unless your integrator enables it for this home.</td></tr>
+</tbody></table></div>
+<p>No adapter exists for any real vendor, no tool takes a provider name, and the server — never the model — chooses the provider: the first usable one, which today is the sandbox when staff enabled it, else none (<em>No reservation provider is connected for this home…</em>). Scraping or driving consumer booking sites is prohibited regardless. Writing a real adapter needs a signed vendor agreement, the vendor's public API documentation and a migration (the database CHECK admits only <code>sandbox</code>).</p>
 
-<h2 id="ch9-approvals">Approvals</h2>
-<p>The homeowner approves the search, picks an option and gives final confirmation of the exact details (by <code>details_hash</code>) through <code>POST /api/portal/ai-core/concierge</code> actions (<code>create</code>, <code>approve_search</code>, <code>search</code>, <code>select_option</code>, <code>confirm</code>, <code>submit</code>, <code>check</code>, <code>recover</code>, <code>cancel</code>, <code>add_to_calendar</code>, <code>answer_scene_offer</code>). The model can submit only what the homeowner already confirmed. Staff have a read-only view and cannot move a request. The portal screens are not started (9.4).</p>
+<h2 id="ch9-sandbox">The SIMULATION sandbox</h2>
+<ul>
+  <li>Staff switch it on per property (<code>PATCH /api/monitoring/ai-core/concierge { sandbox_enabled }</code>, needs <code>monitoring:manage</code> and <code>homecontrol:manage</code>). Off by default.</li>
+  <li>Every venue name, option id, booking reference and confirmation reference begins with <code>SIMULATION</code> / <code>SIM-</code>; every object carries <code>simulated: true</code>; the portal marks each card, button and dialog <em>SIMULATION</em> (<em>Confirm the SIMULATION — nothing real is booked</em>).</li>
+  <li>Its bookings are recorded <code>simulated_confirmed</code>, never <code>confirmed</code> (the database refuses <code>confirmed</code> for a simulated request) and are <strong>never added to a calendar</strong> (<code>simulated_booking</code>).</li>
+  <li>Deterministic: availability depends only on venue, date, time and party size (party ≤ 8). One venue, <em>SIMULATION — Full House Grill (sandbox; always sold out at booking)</em>, always fails at submission so the recovery path can be shown.</li>
+</ul>
+<figure class="shot"><img src="shot:portal-final" alt="Portal dialog titled Confirm this SIMULATION: restaurant Trattoria Sandbox, date, time, party size 4, booking service SIMULATION SmartBuildOS sandbox restaurants, and buttons Confirm the SIMULATION nothing real is booked and Not yet go back." width="960" height="675" loading="lazy" decoding="async"><figcaption>Homeowner portal — final confirmation of a sandbox request, fixture preview with sample data (<code>screenshots/portal/fx-1280-05-final-confirmation.png</code>). “Trattoria Sandbox” is a fixture venue, not a real restaurant.</figcaption></figure>
+<figure class="shot"><img src="shot:portal-simconfirmed" alt="Portal Concierge tab: booking services list with only the SIMULATION sandbox enabled and every real vendor marked as needing a partner agreement or having no approved booking access; a reservation card marked SIMULATION sandbox booking with a SIM reference and a home scene offer; a second card sent but not yet confirmed." width="960" height="1300" loading="lazy" decoding="async"><figcaption>Homeowner portal — Your home assistant › Concierge with a simulated confirmation and a scene offer, fixture preview with sample data (<code>screenshots/portal/fx-1280-07-simulated-confirmed-scene-offer.png</code>).</figcaption></figure>
+
+<h2 id="ch9-approvals">Approvals and the portal actions</h2>
+<p>The homeowner's steps are actions on <code>POST /api/portal/ai-core/concierge</code> (30 a minute): <code>create {criteria}</code> (suggests and approves the search in one step), <code>approve_search</code>, <code>search</code>, <code>select_option</code>, <code>back_to_options</code>, <code>search_again</code>, <code>confirm {details_hash, submit?}</code>, <code>submit</code>, <code>check</code>, <code>recover</code>, <code>cancel</code>, <code>add_to_calendar</code>, <code>answer_scene_offer</code>. Criteria: party size 1–20, a date within 180 days, a time window, an IANA time zone, optional cuisine, area and a note that is not sent to the restaurant. The licence is not needed for the safe direction: cancel, declining a scene offer, and stopping a failed request. Staff have a read-only view and cannot move a request.</p>
 
 <h2 id="ch9-confirmation">Confirmation</h2>
-<p>Only the provider's own answer (<code>getBooking</code>) can make a request <code>confirmed</code>; a sandbox booking is <code>simulated_confirmed</code> and is labelled as a simulation (9.5, In progress).</p>
-
-<h2 id="ch9-external">External services</h2>
-<p><code>concierge_list_services</code> reports what each area (reservations, household services, entertainment, travel, events, shopping, guest preparation) can and cannot do. Today no real external service is integrated; only Google Places discovery and the two calendar APIs are built against real APIs, and each needs credentials that do not exist yet.</p>
+<p>Only the provider's own answer can make a request <code>confirmed</code>. A submission is never assumed: a created booking is verified with <code>getBooking</code> before it is settled; a timeout or unknown error is resolved by asking the provider; while it is unanswered the card reads <em>Sent … not yet confirmed</em> with <em>Check with the provider</em>. A sandbox request settles as <code>simulated_confirmed</code> with a <em>SIMULATION reference (not a real confirmation)</em>.</p>
 
 <h2 id="ch9-recovery">Failed-booking recovery</h2>
-<p>A failed submission waits for the homeowner: <em>retry</em> (submits again), <em>alternatives</em> (a new request; the failed one is stopped) or <em>stop</em>. This is in progress (9.5).</p>
+<p>A failed request waits for the homeowner, who chooses among the recovery options the failure allows (<code>concierge/service.ts</code> <code>recoveryFor</code>):</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Failure</th><th scope="col">Choices</th></tr></thead>
+<tbody>
+<tr><td>rate limited, timeout, unknown, unavailable</td><td><em>Try sending it again</em> (retry), <em>Look for other options</em> (alternatives), <em>Stop this request</em> (stop)</td></tr>
+<tr><td>sold out, not confirmed, validation</td><td>alternatives, stop</td></tr>
+</tbody></table></div>
+<p><strong>Retry</strong> submits the same confirmed details again (at most 3 submissions). <strong>Alternatives</strong> stops the failed request and starts a new one with the same criteria, its search already approved. <strong>Stop</strong> cancels it. The homeowner is notified (<em>Reservation not made</em>).</p>
+
+<h2 id="ch9-calendar">Calendar and Places</h2>
+<p>The homeowner connects Google Calendar or an Outlook (Microsoft) calendar in the portal's <strong>Calendar</strong> area (<code>/api/portal/ai-core/calendar</code>, connect and callback per provider). <em>Connecting lets the concierge add an event only when you say yes to that specific event. Reading your calendar is a separate yes.</em> Reading is a separate switch (<em>Let the assistant read my calendar</em>); writing is only ever an offer (<code>concierge_calendar_add</code>) that the homeowner confirms (<em>Yes, add this one event</em>), and only for a booking the provider confirmed. Disconnecting deletes the stored tokens; events already added stay. Google Places search (<code>concierge_search_places</code>) finds restaurants only; it cannot book.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Feature</th><th scope="col">Live when the platform has</th><th scope="col">Today</th></tr></thead>
+<tbody>
+<tr><td>Google Calendar</td><td><code>AI_CORE_CALENDAR_GOOGLE_CLIENT_ID</code>, <code>AI_CORE_CALENDAR_GOOGLE_CLIENT_SECRET</code> (and Google sensitive-scope verification for production)</td><td>not configured — <em>Calendar connections aren't available on this platform yet.</em></td></tr>
+<tr><td>Microsoft calendar</td><td><code>AI_CORE_CALENDAR_MICROSOFT_CLIENT_ID</code>, <code>AI_CORE_CALENDAR_MICROSOFT_CLIENT_SECRET</code>, <code>AI_CORE_CALENDAR_MICROSOFT_TENANT</code> (default <code>common</code>)</td><td>not configured</td></tr>
+<tr><td>OAuth callback origin</td><td><code>AI_CORE_CALENDAR_OAUTH_ORIGIN</code> (else <code>NEXT_PUBLIC_APP_URL</code>); tokens need <code>SMARTBUILDOS_SECRET_KEY</code></td><td>—</td></tr>
+<tr><td>Google Places</td><td><code>AI_CORE_GOOGLE_PLACES_API_KEY</code> (Places API (New))</td><td>not configured</td></tr>
+</tbody></table></div>
+
+<h2 id="ch9-external">What the service registry says</h2>
+<p><code>concierge_list_services</code> tells the model exactly what each area can do, so it cannot promise a booking, purchase or order no code can make. <em>Nothing in any concierge area buys, orders or books with a real third party.</em></p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Area</th><th scope="col">Supported today</th><th scope="col">Not available</th></tr></thead>
+<tbody>
+<tr><td>Restaurant reservations</td><td>Finding restaurants with Google Places (discovery only) when the platform has a Places key; the approve-every-step flow, but only with the SIMULATED sandbox; adding your own confirmed event to a connected calendar; offering a home scene as a proposal you approve</td><td>Real bookings with OpenTable, Yelp Reservations or SevenRooms; bookings with Resy, Tock or Reserve with Google</td></tr>
+<tr><td>Household services</td><td>Conversational planning help; calendar</td><td>Any third-party booking, ordering or purchase; hiring, scheduling or paying a provider</td></tr>
+<tr><td>Entertainment planning</td><td>Planning help; calendar; scene offer</td><td>Third-party booking; buying tickets or subscriptions</td></tr>
+<tr><td>Travel</td><td>Planning help; calendar; suggesting how to set the home while away (as proposals)</td><td>Third-party booking; flights, hotels or cars</td></tr>
+<tr><td>Event planning</td><td>Planning help; calendar; scene offer</td><td>Third-party booking; venues, caterers or vendors</td></tr>
+<tr><td>Shopping</td><td>Conversational help (lists, ideas)</td><td>Placing any order or making any purchase</td></tr>
+<tr><td>Guest preparation</td><td>Planning help; calendar; scene offer</td><td>Third-party booking; granting guests access (locks and security always need the homeowner's own approval)</td></tr>
+</tbody></table></div>
 </section>
 
 <!-- ═════════════════════════════ CHAPTER 10 ═════════════════════════════ -->
 <section class="chapter" id="ch10" aria-labelledby="ch10-title" data-title="System Studio" hidden>
 <p class="eyebrow">Chapter 10</p>
 <h1 id="ch10-title">System Studio — Intelligence</h1>
-<p class="lede">Staff see and manage AI Core in System Studio. The Intelligence pages are being built now; the API routes behind them are described here because they are what the pages call.</p>
+<p class="lede">Staff see and manage AI Core in System Studio, on the property's <strong>Intelligence</strong> destination: six pages, each with its own tabs. Every page reads stored records; only AI Conversations runs a model (the connectivity test on Provider &amp; settings only lists the provider's models). This chapter says what each page shows and what it honestly cannot. Screens are fixture-mode screenshots with sample data.</p>
 <div class="status" data-status="studio"></div>
 <div class="status" data-status="ninth"></div>
 
 <h2 id="ch10-nav">Navigation and permissions</h2>
-<p>In the work in progress, "Intelligence" is a <strong>ninth top-level destination</strong> (section id <code>intelligence</code>), shown only where the property's controller holds the <code>SBOS_AI_CORE</code> entitlement (Studio capability <code>ai-core</code>). Studio permissions: <code>intelligence.view</code> (from <code>monitoring:view</code>), <code>intelligence.manage</code> (<code>monitoring:manage</code>), <code>intelligence.raise-mode</code> (<code>monitoring:manage</code> and <code>homecontrol:manage</code>).</p>
+<p><strong>Intelligence</strong> is a <strong>ninth top-level destination</strong> (section id <code>intelligence</code>), shown only where the property's controller holds the <code>SBOS_AI_CORE</code> entitlement (Studio capability <code>ai-core</code>). Studio permissions: <code>intelligence.view</code> (from <code>monitoring:view</code>), <code>intelligence.manage</code> (<code>monitoring:manage</code>), <code>intelligence.raise-mode</code> (<code>monitoring:manage</code> and <code>homecontrol:manage</code>); household pages need <code>household.view</code> (<code>homecontrol:view</code>). Every page shows a fixture banner in fixture mode, a <em>Sample data</em> mark, and states for not entitled, permission denied, empty and error.</p>
 <div class="table-wrap"><table>
-<thead><tr><th scope="col">Page (section id)</th><th scope="col">Route it reads</th><th scope="col">State</th></tr></thead>
+<thead><tr><th scope="col">Page (section id)</th><th scope="col">Tabs</th><th scope="col">Needs</th><th scope="col">Routes</th></tr></thead>
 <tbody>
-<tr><td>AI Overview (<code>intelligence</code>, alias <code>ai-overview</code>)</td><td><code>GET /api/monitoring/ai-core/overview</code></td><td>In development</td></tr>
-<tr><td>Household Usage (<code>ai-usage</code>; needs the household grant)</td><td><code>GET /api/monitoring/ai-core/household-usage</code></td><td>In development</td></tr>
-<tr><td>Flight Recorder Intelligence (<code>ai-flight-recorder</code>)</td><td><code>GET /api/monitoring/ai-core/flight-recorder?view=search|incident</code></td><td>In development</td></tr>
-<tr><td>Provider and credential setup</td><td><code>/api/monitoring/ai-core/settings</code>, <code>/credentials</code>, <code>/credentials/test</code>, <code>/usage</code></td><td>Routes built; UI in development</td></tr>
-<tr><td>AI Service Intelligence</td><td><code>/api/monitoring/ai-core/service/findings</code>, <code>/driver-health</code>, <code>/playbook</code>, <code>/ticket</code></td><td>Routes built; page not started in the checklist (8.6)</td></tr>
-<tr><td>AI Recommendations, AI Conversations</td><td><code>/api/monitoring/ai-core/recommendations</code>, <code>/conversations</code></td><td>Routes built; pages not started in the checklist (8.5, 8.7)</td></tr>
-<tr><td>Concierge (staff view)</td><td><code>/api/monitoring/ai-core/concierge</code></td><td>In development (9.x); read-only, plus the sandbox switch</td></tr>
+<tr><td>Intelligence — AI Overview (<code>intelligence</code>, alias <code>ai-overview</code>)</td><td>Overview · Provider &amp; settings</td><td>intelligence.view</td><td><code>overview</code>, <code>settings</code>, <code>credentials</code>, <code>credentials/test</code>, <code>usage</code></td></tr>
+<tr><td>Household Usage (<code>ai-usage</code>)</td><td>Overview · Rooms · Lighting · Scenes · Entertainment · Climate · Shades · Automation · Trends</td><td>household.view</td><td><code>household-usage</code></td></tr>
+<tr><td>Flight Recorder Intelligence (<code>ai-flight-recorder</code>)</td><td>search, incident view</td><td>intelligence.view</td><td><code>flight-recorder?view=search|incident</code></td></tr>
+<tr><td>Recommendations (<code>ai-recommendations</code>)</td><td>Recommendations · Programming hand-offs · Actions &amp; approvals · Pre-approved rules · Pending memories</td><td>household.view; <code>AI_LEARNING</code>, <code>AI_ACTIONS</code></td><td><code>recommendations</code>, <code>programming</code>, <code>actions</code>, <code>rules</code>, <code>memories</code></td></tr>
+<tr><td>Service (<code>ai-service</code>)</td><td>Recurring problems · Predictive maintenance · Driver health · Network correlation</td><td>intelligence.view</td><td><code>service/findings</code>, <code>driver-health</code>, <code>playbook</code>, <code>ticket</code></td></tr>
+<tr><td>Conversations (<code>ai-conversations</code>)</td><td>thread list, conversation</td><td>intelligence.view; asking needs monitoring:manage</td><td><code>conversations</code>, <code>conversations/[id]/messages</code> (SSE)</td></tr>
 </tbody></table></div>
+<p>Routes are under <code>/api/monitoring/ai-core/</code>. A read-only staff concierge route (<code>concierge</code>, with the sandbox switch) exists without a page of its own.</p>
 
 <h2 id="ch10-overview">AI Overview</h2>
-<p>Aggregates existing sources only: the AI Core module registration and Agent check-in, provider and masked credential state, the last provider result, budget state, the System Intelligence health score as last written (or "not available"), device counts worded "reported offline" / "not reported offline", recent events, and month-to-date usage with "cost unknown" kept separate from zero. Learned patterns and recommendations also need the household grant and the <code>AI_LEARNING</code> feature.</p>
+<p>Cards for the <strong>AI connection</strong> (driver registered, version, last seen, protocol, Agent link), the <strong>AI provider</strong> (models, masked key and test state, fallback, permission mode, learning), <strong>AI health</strong> (last provider call, spend and requests against limits), the <strong>System health score</strong> as System Intelligence last wrote it, <strong>Monitored devices</strong> worded “reported offline” / “not reported offline” / status unknown, <strong>Learning</strong> (patterns, last analysis, recommendations, active investigations, jobs), <strong>Recent events</strong> with clock-suspect marks, and <strong>AI usage this month</strong> with known spend kept apart from requests whose cost is unknown.</p>
+<p><strong>What it cannot show:</strong> a health score System Intelligence never computed (<em>AI Core does not invent a score of its own</em>); a verified online state (“not reported offline” is not online); learned data without Home control view and the <code>AI_LEARNING</code> feature; the true bill when some costs are unknown (the known total is a floor).</p>
+<figure class="shot"><img src="shot:studio-overview" alt="System Studio Intelligence Overview tab with cards for AI connection, AI provider, AI health, system health score, monitored devices, learning, recent events and AI usage this month." width="960" height="1100" loading="lazy" decoding="async"><figcaption>System Studio — Intelligence › Overview, fixture mode with sample data (<code>screenshots/studio-a/mock-desktop-01-overview.png</code>).</figcaption></figure>
+
+<h2 id="ch10-settings">Provider &amp; settings</h2>
+<p>The second tab of the Intelligence page: provider keys, the AI Core settings, limits, permission mode, learning and exclusions, with a revision and a 409 on a conflicting save. Described in full in <a href="#ch3-studio">Chapter 3</a>; the month-to-date usage behind it is <code>GET /api/monitoring/ai-core/usage</code> (UTC month; unknown-cost requests counted separately, never as zero).</p>
 
 <h2 id="ch10-usage">Household Usage</h2>
-<p>Usage Analytics daily figures, recorded interactions (never occupancy), learned patterns grouped by room, lighting, scenes, entertainment, climate, shades, automation and trends, and each detector's last status including <code>insufficient_history</code>. Needs <code>monitoring:view</code> <strong>and</strong> <code>homecontrol:view</code>; patterns need <code>AI_LEARNING</code>.</p>
+<p>Usage Analytics daily figures, recorded interactions (<em>Counted from recorded interactions and state changes. Not occupancy, not people.</em>), measured occupancy kept apart (<em>Only where an occupancy or motion sensor was the source.</em>), and learned patterns by room, lighting, scenes, entertainment, climate, shades, automation and trends, with each detector's last status including <code>insufficient_history</code>.</p>
+<p><strong>What it cannot show:</strong> climate and shade usage counts (<em>No usage aggregate exists for climate…</em>, <em>…for shades: nothing counts shade movements per day.</em>); people; occupancy from device interactions; a trend for a 1-day range.</p>
+<figure class="shot"><img src="shot:studio-usage" alt="System Studio Household Usage page, Overview tab: an Interactions are not occupancy notice, a day that never reported, figure cards for media hours, light on-hours, keypad presses, learned patterns and occupancy findings, and a What the detectors could conclude table including Unused scenes: Not enough history yet." width="960" height="1000" loading="lazy" decoding="async"><figcaption>System Studio — Household Usage › Overview, fixture mode with sample data (<code>screenshots/studio-a/mock-desktop-20-usage-overview.png</code>).</figcaption></figure>
 
 <h2 id="ch10-fr">Flight Recorder Intelligence</h2>
-<p>Runs the deterministic read tools server-side — <code>flight_recorder_search_events</code>, <code>flight_recorder_analyze_incident</code>, <code>flight_recorder_correlate_events</code> — with no model and no write. Household modules are excluded unless the caller also has <code>homecontrol:view</code>.</p>
+<p>Runs the deterministic read tools server-side — <code>flight_recorder_search_events</code>, <code>devices_list</code>, <code>flight_recorder_analyze_incident</code>, <code>flight_recorder_correlate_events</code> — with no model and no write. Search by time, text, type, severity, device and room; open an event for its <strong>incident view</strong>: <em>What came before it, ranked</em> (<em>Ranked by strength of evidence, then closeness. Confirmed rests on a shared trace id; possible is a lead from timing, device or room — not a finding.</em>) and a device correlation timeline. The hypotheses (part of the same traced sequence; a command sent shortly before; a device offline before it; a restart; a cloud-connection change; a programming marker; a project change; something else in the same room), each confirmed only by a shared trace id. <em>Explain with AI</em> seeds a conversation with the selected events: a bounded question plus validated event ids, offered to the model only as references to look up — the evidence check still accepts only ids a tool returned in that turn (nothing is sent until Ask is pressed). Household modules are excluded without <code>homecontrol:view</code>; a bad filter answers 422 <code>invalid_filter</code>.</p>
+<p><strong>What it cannot show:</strong> a cause where nothing recorded points to one (<em>…that is not proof there was none</em>); events older than retention; a trustworthy time for clock-suspect events. A <em>What is missing or unreliable in these results</em> panel lists gaps, retention edges and suspect clocks.</p>
+<figure class="shot"><img src="shot:studio-fr" alt="System Studio Flight Recorder Intelligence: search filters, an events list, and a selected event with What came before it, ranked — one confirmed shared trace and several possible leads — and a device correlation timeline." width="960" height="1100" loading="lazy" decoding="async"><figcaption>System Studio — Flight Recorder Intelligence › incident view, fixture mode with sample data (<code>screenshots/studio-a/mock-desktop-42-fr-incident.png</code>).</figcaption></figure>
 
-<h2 id="ch10-settings">Settings, keys and usage</h2>
+<h2 id="ch10-recommendations">Recommendations, actions, rules, hand-offs and pending memories</h2>
 <ul>
-  <li><code>GET/PUT /api/monitoring/ai-core/settings</code> — provider, fallback provider, model overrides, effort, timeout, retries, limits, permission mode, learning, exclusions. A save carries <code>expected_version</code> and answers <strong>409</strong> when it is not the stored revision, so two technicians cannot overwrite each other blind. Unknown keys are refused, never dropped.</li>
-  <li><code>/credentials</code> and <code>/credentials/test</code> — Chapter 3.</li>
-  <li><code>GET /api/monitoring/ai-core/usage</code> — month-to-date (UTC) spend, request counts, limit state and per-provider/model breakdown.</li>
+  <li><strong>Recommendations</strong> — <em>Found by deterministic detectors over stored events. Recommendations never run anything.</em> Filter by kind, status, confidence and customer visibility; each shows its approver (the integrator or the homeowner), confidence, whether it needs a programming change and whether the homeowner can see it; the detail lists its evidence with <em>Open in Flight Recorder Intelligence</em>. Staff mark reviewed, record the integrator's approval, dismiss, or toggle visibility (<code>monitoring:manage</code>). A recommendation needing both parties (no detector produces one today) is approved only when the integrator and the homeowner have each approved it, and the page shows whose approval is awaited; staff can never approve on the homeowner's behalf. Evidence references are labelled with the store each points into: Flight Recorder rows link to Flight Recorder Intelligence, service evidence is labelled and never linked.</li>
+  <li><strong>Programming hand-offs</strong> — <a href="#ch8-handoff">Chapter 8</a>.</li>
+  <li><strong>Actions &amp; approvals</strong> — every AI-proposed action with its basis (<em>Asked for explicitly</em>, <em>From a recommendation</em>, <em>Learned pattern</em>), engine decision and required approver. Staff approve or decline only low actions a person asked for (<code>homecontrol:manage</code>); a lock, garage or security action reads <em>Awaiting the homeowner…</em>, and after the homeowner's approval <em>Queued — awaiting the homeowner's approval in Control4. Staff cannot approve it.</em></li>
+  <li><strong>Pre-approved rules</strong> — create and revoke rules; each is <em>Saved — inactive until the homeowner consents</em> (<a href="#ch8-rules">Chapter 8</a>).</li>
+  <li><strong>Pending memories</strong> — <em>Memories the AI model suggested during conversations. None is used for anything until a person accepts it.</em> Accept or reject (needs Monitoring manage and Home control view).</li>
 </ul>
+<p><strong>What it cannot show:</strong> evidence no longer held (<em>None of the referenced events is still in Flight Recorder history…</em>). The homeowner's half of an approval happens in the portal's Recommendations area, not here.</p>
+<figure class="shot"><img src="shot:studio-recs" alt="System Studio Recommendations page listing five sample recommendations with kind, status, confidence, approver and programming-change marks." width="960" height="940" loading="lazy" decoding="async"><figcaption>System Studio — Recommendations, fixture mode with sample data (<code>screenshots/studio-b/mock-desktop-01-rec-list.png</code>).</figcaption></figure>
 
-<h2 id="ch10-later">Pages not yet built</h2>
-<p>AI Recommendations, AI Service Intelligence and AI Conversations are Not started in the checklist (8.5–8.7), although their routes exist and page components are being written. Service Intelligence is deterministic: findings (recurring device failures, recurring incidents, driver module problems, rising failure trends), driver health, and a ticket draft that only a staff member's confirmation turns into a ticket (the AI tool <code>service_draft_ticket</code> never creates one). Browser verification of every Intelligence page in fixture mode is in progress (8.9).</p>
+<h2 id="ch10-service">AI Service Intelligence</h2>
+<p><em>Computed from stored monitoring data by fixed rules. The AI does not invent these findings; it can only explain them in a conversation.</em> Four tabs: <strong>Recurring problems</strong> (recurring device failures and incidents, with evidence, a generic troubleshooting playbook and the network around the finding), <strong>Predictive maintenance</strong> (rising failure trends, counts in past windows), <strong>Driver health</strong> (SmartBuildOS modules' own state) and <strong>Network correlation</strong> (UniFi alerts linked as confirmed same hardware or only possible). A <strong>service ticket</strong> is drafted from a finding and created only when a staff member with <code>tickets:create</code> confirms it (one open ticket per finding); the AI tool <code>service_draft_ticket</code> only drafts.</p>
+<p><strong>What it cannot show</strong> (the page lists it): the cause of a device going offline (the platform records that it went offline, not why); health of a driver that has not reported (shown as “not reported”, never healthy or unhealthy); third-party drivers' internal errors; a network cause without network data; a forecast (trends are counts in past windows).</p>
+<figure class="shot"><img src="shot:studio-service" alt="System Studio AI Service Intelligence, Recurring problems tab: findings list, a selected finding with evidence, troubleshooting playbook, network correlation, draft service ticket button and a What this cannot show panel." width="960" height="1100" loading="lazy" decoding="async"><figcaption>System Studio — Service › Recurring problems with a finding open, fixture mode with sample data (<code>screenshots/studio-b/mock-desktop-71-svc-finding-playbook-network.png</code>).</figcaption></figure>
+
+<h2 id="ch10-conversations">AI Conversations</h2>
+<p><em>Questions are answered from stored evidence. Every historical claim cites events a tool returned in the same turn; anything else is removed.</em> A thread list per system; a conversation shows each answer split into <strong>Confirmed</strong> (each rests on a stored event a tool returned and a confirmed link), <strong>Possible</strong> (<em>Leads from timing, device or room — not findings.</em>), <strong>Unknown</strong> and <strong>Suggested next steps</strong>, every cited event clickable into Flight Recorder Intelligence. <strong>How this answer was produced</strong> streams the turn live (Server-Sent Events): tools offered, each tool requested by its real name, the engine's decision, the evidence check. Asking needs <code>monitoring:manage</code> (a turn spends the property's AI budget); without <code>homecontrol:view</code> <em>Household tools are not offered to you</em>.</p>
+<p><strong>What it cannot show:</strong> a real model answer — no provider key exists, so a real turn ends <em>AI Core has no AI provider key for this property. Add one in System Studio.</em>; token streaming (the answer arrives whole); an answer without evidence (replaced by <em>I don't have evidence for that.</em>).</p>
+<figure class="shot"><img src="shot:studio-conv" alt="System Studio AI Conversations page: a sample answer with Confirmed, Possible, Unknown and Suggested next steps, and a How this answer was produced panel listing the turn's tool calls and engine decisions." width="960" height="1100" loading="lazy" decoding="async"><figcaption>System Studio — Conversations with a finished sample turn, fixture mode with sample data (<code>screenshots/studio-b/mock-desktop-47-conv-progress-final-answer.png</code>). The answer is a fixture, not a model's output.</figcaption></figure>
 <div class="status" data-status="conversations"></div>
 </section>
 
@@ -165,15 +259,27 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <div class="status" data-status="driver"></div>
 
 <h2 id="ch11-commands">Commands and programming parameters</h2>
-<p>Parameters arrive as strings. Every value is validated; an over-long text is <strong>refused, not cut</strong>. A refused command sends nothing and sets <strong>Last Error</strong>, <code>AI_LAST_ERROR</code> and <strong>AI Status</strong> (<em>refused locally (&lt;code&gt;)</em>). At most 10 commands a minute; the 11th is refused <code>rate_limited</code>. <code>ROOM</code> is a room <strong>name or id</strong>, resolved against the devices in the project. LIST labels normalise to codes (<em>Last 7 Days</em> → <code>last_7_days</code>). A command whose room is excluded in System Studio is refused <code>not_permitted</code>, except <code>AI_ASK</code> and <code>AI_SEND_NOTIFICATION</code>.</p>
+<p>Parameters arrive as strings. Every value is validated; <strong>typed text over its limit is refused, not cut</strong>. Lengths are counted in characters (Unicode code points), as the platform counts them. A refused command sends nothing and sets <strong>Last Error</strong>, <code>AI_LAST_ERROR</code> and <strong>AI Status</strong> (<em>refused locally (&lt;code&gt;)</em>). At most 10 commands a minute; the 11th is refused <code>rate_limited</code>. <code>ROOM</code> is a room <strong>name or id</strong> (a STRING, not a room selector), resolved against the devices in the project; a typed <code>ROOM</code> longer than 64 characters is refused (<em>… (use the room id)</em>). LIST labels normalise to codes (<em>Last 7 Days</em> → <code>last_7_days</code>); an empty optional LIST takes its default, an empty required one is refused <em>&lt;PARAM&gt;: is required</em>. A command whose room (or whose device's room) is excluded in System Studio is refused <code>not_permitted</code>, except <code>AI_ASK</code> and <code>AI_SEND_NOTIFICATION</code> (the cloud decides those).</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Required</th><th scope="col">Optional, with default</th></tr></thead>
+<tbody>
+<tr><td><code>QUESTION</code> (AI_ASK); <code>ROOM</code> (AI_ANALYZE_ROOM, AI_SUGGEST_SCENE); <code>NAME</code> (AI_RECORD_EVENT); <code>KEY</code>, <code>VALUE</code> (AI_SET_CONTEXT); <code>STATEMENT</code> (AI_LEARN_PREFERENCE); <code>OCCASION</code>; <code>TYPE</code> and <code>PERIOD</code> (AI_GENERATE_REPORT — no defaults); exactly one of <code>DEVICE</code> / <code>ROOM</code> (AI_START_DIAGNOSTIC; <code>DEVICE</code> <code>0</code>, Composer's empty selector, counts as none); <code>TITLE</code>, <code>MESSAGE</code> (AI_SEND_NOTIFICATION)</td><td><code>CATEGORY</code> → General (AI_RECORD_EVENT); <code>AUDIENCE</code> → Homeowner (AI_SEND_NOTIFICATION); <code>ROOM</code> (AI_ASK, AI_RECORD_EVENT, AI_LEARN_PREFERENCE) and <code>DETAIL</code> (AI_RECORD_EVENT) → none</td></tr>
+</tbody></table></div>
+<h3 id="ch11-text">Text sent to the cloud</h3>
+<p>The platform refuses the <strong>whole</strong> request (<code>invalid_args</code>) for one text field over its bound, or containing a character of its <code>UNPRINTABLE</code> set (U+0000–U+0008, U+000B–U+001F, U+007F–U+009F, U+2028, U+2029). So every text field is cleaned before it is sent (<code>aicore.commands.sanitise</code>): every C0 control (TAB and LF too), DEL, every C1 control, U+2028 and U+2029 becomes a space; a byte that is not well-formed UTF-8 is dropped; the ends are trimmed with the platform's whitespace set. Names Director supplies are then <strong>cut</strong> on a character boundary to the platform's bound — <code>room_name</code> 64, <code>device_name</code> 120 characters — and a name with nothing printable left is not sent. Typed text (<code>QUESTION</code>, <code>STATEMENT</code>, <code>VALUE</code>, <code>OCCASION</code>, <code>TITLE</code>, <code>MESSAGE</code>, <code>NAME</code>, <code>DETAIL</code>) is cleaned the same way and <strong>refused</strong> over its bound.</p>
+<p>The cloud body carries typed text whole; only the envelope's copy is bounded. Every payload string is cut to 512 <strong>bytes</strong> and every label to 120 bytes, <strong>between two UTF-8 characters</strong>, before the shared envelope sees it (the cut marks the envelope <code>partial</code>): an <code>AI_ASK</code> question of 500 three-byte characters is 1,500 bytes. The shared envelope library used by the other SmartBuildOS drivers still cuts at a byte and can split a character (KNOWN-ISSUES KI-1, open).</p>
+<h3 id="ch11-record">AI_RECORD_EVENT is a marker, not learning</h3>
+<p><code>AI_RECORD_EVENT</code> (<code>NAME</code> ≤ 120, <code>DETAIL</code> ≤ 400, <code>ROOM</code>, <code>CATEGORY</code>) makes no cloud call: it records an <code>ai_core.record</code> envelope on the durable event path (severity warning for Security and Safety). It is a dealer's explicit marker (architect's ruling, 18 November 2026): it is recorded <strong>whether learning is off, on or paused</strong>, but it still honours the exclusions — refused for an excluded room (<em>… is excluded by the AI Core configuration</em>) or category (<em>not recorded (excluded_category)</em>). The cloud's learning engine never learns from it.</p>
+<h3 id="ch11-context">AI_SET_CONTEXT</h3>
+<p>The context key is sent as <code>key</code> in the <code>set_context</code> cloud body (the platform validates <code>key</code>) and as <code>context_key</code> in the <code>ai_core.command</code> envelope, because the envelope's credential rules redact a field named <code>key</code>. The platform keeps one value per system and key and answers <em>completed</em> at once.</p>
 <div id="tblCommands"></div>
 <h3 id="ch11-answers">What happens after a cloud command</h3>
-<p>Validate → new <code>request_id</code> (<code>aic-&lt;uuid&gt;</code>, written to <code>AI_LAST_REQUEST_ID</code>) → <code>ai_core.command</code> envelope → cloud request with <code>idempotency_key</code> = request id → the Agent POSTs the platform route. The platform answers at once:</p>
+<p>Validate → new <code>request_id</code> (<code>aic-&lt;uuid&gt;</code>, written to <code>AI_LAST_REQUEST_ID</code>) → <code>ai_core.command</code> envelope (correlation id = request id) → cloud request with <code>idempotency_key</code> = request id → the Agent POSTs the platform route. Body: <code>{command, request_id, &lt;normalised args&gt;}</code> plus <code>room_id</code>/<code>room_name</code> or <code>device_id</code>/<code>device_name</code>; the body names are the platform's (<code>rpc/ops.ts</code> <code>OP_BODIES</code>, which refuses the whole request for an unknown key). <strong>Sync Now</strong>'s <code>status</code> body is <code>{request_id}</code> only — <code>status</code> takes no field of its own. The platform answers at once:</p>
 <div class="table-wrap"><table>
 <thead><tr><th scope="col">Answer</th><th scope="col">Meaning</th><th scope="col">Shown</th></tr></thead>
 <tbody>
 <tr><td><code>status=ok</code>, <code>result.accepted=true</code> with a <code>job_id</code></td><td>accepted as a job; it waits for <code>deliver_result</code> (≤ 20, 30 min)</td><td><strong>AI Status</strong> <em>Working: N request(s) waiting for a result</em>; <code>AI_STATUS</code> <code>working</code></td></tr>
-<tr><td><code>status=ok</code>, <code>result.accepted=true</code>, no <code>job_id</code></td><td><strong>completed</strong> now (<code>set_context</code>, <code>send_notification</code>, <code>learn_preference</code> when recorded); nothing is delivered later and <strong>AI Response Ready</strong> is not fired</td><td><strong>AI Status</strong> stays Ready</td></tr>
+<tr><td><code>status=ok</code>, <code>result.accepted=true</code>, no <code>job_id</code></td><td><strong>completed</strong> now (<code>set_context</code>, <code>send_notification</code>, <code>learn_preference</code>); nothing is delivered later and <strong>AI Response Ready</strong> is not fired</td><td><strong>AI Status</strong> stays Ready; counter <code>cloud_completed</code></td></tr>
 <tr><td><code>status=ok</code> without <code>accepted=true</code></td><td>not success (<code>cloud_refused</code>)</td><td><strong>Last Error</strong> <em>…answered without accepting…</em></td></tr>
 <tr><td><code>not_permitted</code>, <code>invalid_args</code>, <code>unsupported</code>, <code>payload_too_large</code>, <code>agent_not_paired</code>, <code>cloud_refused</code>, other</td><td>refused, not retried</td><td><strong>Last Error</strong> <em>refused by SmartBuildOS: &lt;code&gt;</em>; AI Status <em>— last request refused (&lt;code&gt;)</em></td></tr>
 <tr><td><code>rate_limited</code> (the platform's per-system limits on <code>send_notification</code> and <code>test_provider</code>, or the Agent's bucket; after 2 retries, same key)</td><td>refused: an answer, not silence</td><td><strong>Last Error</strong> <em>rate limited by SmartBuildOS (rate_limited); try again later</em></td></tr>
@@ -195,7 +301,7 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <p>Wire the events you care about to the Notification Agent for push or email: a driver cannot send push or email itself.</p>
 
 <h2 id="ch11-variables">Variables</h2>
-<p>Ids 4000–4010, order frozen. <code>AI_LAST_CORRELATION_ID</code> (4010) is an addition beyond the brief's ten, so programming and support can tie Approval Required, Action Completed and Action Failed to the action in System Studio. All except <code>AI_STATUS</code>, <code>AGENT_CONNECTED</code> and <code>LEARNING_ACTIVE</code> (recomputed at start) are persisted and repainted after a reload. <code>AI_STATUS</code> shows <code>starting</code> until the first state is computed.</p>
+<p>Ids 4000–4010, order frozen. <code>AI_LAST_CORRELATION_ID</code> (4010) is an addition beyond the brief's ten: it holds the <code>correlation_id</code> of the last <code>raise_event</code> — for Approval Required, Action Completed and Action Failed, the platform's action id — so programming and support can tie the event to the action in System Studio. An event without one sets it to empty, so it never names an earlier event's subject. Sizes are in <strong>bytes</strong>: <code>AI_LAST_RESPONSE</code> ≤ 1024 (a longer result keeps its first ≤ 1021 bytes, cut between two UTF-8 characters, followed by <code>...</code>), <code>AI_LAST_EVENT_DETAIL</code> ≤ 512, <strong>Last Error</strong> / <code>AI_LAST_ERROR</code> ≤ 240. <code>LEARNING_ACTIVE</code> is false until a valid configuration or <code>set_learning</code> switches learning on. All except <code>AI_STATUS</code>, <code>AGENT_CONNECTED</code> and <code>LEARNING_ACTIVE</code> (recomputed at start) are persisted and repainted after a reload. <code>AI_STATUS</code> shows <code>starting</code> until the first state is computed.</p>
 <div id="tblVariables"></div>
 
 <h2 id="ch11-conditionals">Conditionals</h2>
@@ -236,11 +342,12 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 
 <h2 id="ch12-credentials">Credential storage</h2>
 <ul>
-  <li>Provider keys are customer-supplied and entered only in System Studio. They are stored as secret-box ciphertext in <code>ai_core_provider_credentials</code>; answers carry only provider, <code>••••last4</code> and test status.</li>
+  <li>Provider keys are customer-supplied and entered only in System Studio (<a href="#ch3-studio">Provider &amp; settings</a>). They are stored as secret-box ciphertext in <code>ai_core_provider_credentials</code>; the key field is write-only and every answer carries only provider, scope, <code>••••last4</code> and test status (the PUT answer is <code>cache-control: no-store</code>). Key changes are audited (<code>credential.stored</code>, <code>credential.rotated</code>, <code>credential.store_refused</code>, <code>credential.deleted</code>, <code>credential.tested</code>).</li>
   <li>Keys never transit the controller. The driver refuses any configuration document containing a credential-shaped key or a display string that looks like a key.</li>
   <li>The provider layer removes key material from every string that leaves it; connectivity tests return an error kind, never the vendor message.</li>
   <li>The Agent's pairing token authenticates its cloud calls; module tokens never leave the controller.</li>
   <li>No AI tool can read a secret: the <code>credential</code> risk class has no tool and is refused by the engine.</li>
+  <li>Calendar OAuth tokens are stored encrypted (<code>ai_core_concierge_connections</code>), the OAuth state as a hash with an encrypted PKCE verifier; no route ever returns a token.</li>
 </ul>
 <div class="status" data-status="migrations"></div>
 
@@ -250,7 +357,7 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <thead><tr><th scope="col">Risk class</th><th scope="col">Examples</th><th scope="col">Rule</th></tr></thead>
 <tbody>
 <tr><td><code>read</code></td><td>history, registry, usage</td><td>allowed in every mode, subject to role and household gate</td></tr>
-<tr><td><code>low</code></td><td>lights, thermostat within bounds, scenes; notification requests</td><td><code>observe</code>: deny · <code>recommend</code>: approval · <code>execute_low_risk</code>: allow only on a matching pre-approved rule, else approval</td></tr>
+<tr><td><code>low</code></td><td>lights, thermostat within bounds, scenes</td><td><code>observe</code>: deny · <code>recommend</code>: approval · <code>execute_low_risk</code>: allow only on a matching pre-approved rule, else approval</td></tr>
 <tr><td><code>high</code></td><td>locks, garage, security, access control</td><td><code>observe</code>: deny · otherwise explicit homeowner approval per action; never on learned behaviour</td></tr>
 <tr><td><code>external</code></td><td>reservations, purchases, calendar writes</td><td><code>observe</code>: deny · otherwise explicit homeowner confirmation; never for an automation or on learned behaviour</td></tr>
 <tr><td><code>programming</code></td><td>persistent programming</td><td>never executed; a recommendation only</td></tr>
@@ -288,6 +395,8 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
   </div>
 </div>
 
+<p>The explorer below is checked against the engine as it is at platform commit <code>557fa8d54</code>: <code>observe</code> denies every non-read class (<code>observe_mode_no_actions</code>); a learned basis (anything that is not <code>explicit_request</code>, <code>recommendation</code> or <code>preapproved_rule</code>) is never enough for a <code>high</code> or <code>external</code> action (<code>learned_behaviour_insufficient</code>) and makes a <code>low</code> action need the homeowner; an automation may never take an external action; risk is only ever escalated by the target class, never lowered.</p>
+
 <h2 id="ch12-isolation">Property isolation</h2>
 <ul>
   <li>Tenant and property come from the session or the Agent's pairing token only; the controller route never reads them from a frame body.</li>
@@ -297,15 +406,21 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
   <li>Cross-property and cross-tenant isolation tests pass in simulation (7.5).</li>
 </ul>
 
+<h2 id="ch12-gates">Route gates</h2>
+<p>Every staff route checks, in order: the platform permission (<code>monitoring:view</code> or <code>manage</code>); the audit-mode would-deny flag; a uuid <code>property_id</code> in the caller's company (another company's looks like no property: 404); a linked Control4 system; the <code>SBOS_AI_CORE</code> entitlement (403 <code>not_entitled</code>, 503 when unreadable). Families add the household grant (<code>homecontrol:view</code>), <code>homecontrol:manage</code> for action writes, the <code>AI_LEARNING</code> / <code>AI_ACTIONS</code> / <code>AI_CONCIERGE</code> feature, and for conversations a property visible to the caller's <strong>own</strong> session. Portal routes resolve the client portal session, the property (must belong to the caller's client), the system, and the licence only for the directions that need it: the homeowner's learning controls and every "safe direction" (decline, revoke, cancel, dismiss, disconnect) never need the licence.</p>
+<h3 id="ch12-staff-ops">Four operations staff cannot send</h3>
+<p>Through the staff route <code>POST /api/monitoring/control4/commands</code>, staff may send <code>refresh_status</code> and <code>run_diagnostic</code> to AI Core; <code>deliver_result</code>, <code>raise_event</code>, <code>set_learning</code> and <code>apply_config</code> are refused with 403. Each is produced only from a record the platform owns (a job's result, an action, the settings), so a hand-made copy cannot fake an answer, an approval event, or switch learning on over a homeowner's pause.</p>
+
 <h2 id="ch12-approvals">Approval policies</h2>
 <p>See <a href="#ch8-approvals">Chapter 8</a>. In short: low actions — the requester (or the homeowner for automations and learned behaviour), unless a consented rule covers them in <code>execute_low_risk</code>; high and external — the homeowner, per action; programming — a person in Composer Studio.</p>
 
 <h2 id="ch12-audit">Audit</h2>
-<p><code>ai_core_audit_events</code> is append-only. The orchestrator writes <code>turn.started</code>, <code>provider.call</code>, <code>budget.refused</code>, <code>turn.round_limit</code> and <code>answer.invalid</code>; every tool call records its decision; credential changes are recorded (e.g. <code>credential.deleted</code>). The audit trail for every tool call and decision is Completed in simulation (7.7).</p>
+<p><code>ai_core_audit_events</code> is append-only (a trigger refuses UPDATE and DELETE except a foreign key nulling its pointer). The orchestrator writes <code>turn.started</code>, <code>provider.call</code>, <code>budget.refused</code>, <code>turn.round_limit</code> and <code>answer.invalid</code>; every tool call records its decision; credential changes are recorded (e.g. <code>credential.deleted</code>). The audit trail for every tool call and decision is Completed in simulation (7.7).</p>
 
 <h2 id="ch12-privacy">Privacy controls and prompt-injection defence</h2>
 <ul>
-  <li>Household activity needs <code>homecontrol:view</code> in addition to the route gate; learning can be paused, scoped and erased by the homeowner (Chapter 7).</li>
+  <li>Learning is off by default; household activity needs <code>homecontrol:view</code> in addition to the route gate; the homeowner can pause, exclude, correct, export and erase what was learned, and a pause reaches the controller and the cloud at once (Chapter 7).</li>
+  <li>No retention job exists for any <code>ai_core_*</code> table: rows stay until a route, a cascade or a company deletion removes them.</li>
   <li>The system prompt is a static constant that contains no tenant data; telemetry reaches the model only inside tool results marked <code>{"untrusted":true,"source":…,"data":…}</code>.</li>
   <li>The tool list is fixed before the first round and does not change because of anything a tool returns. A call the model was talked into by injected text is refused by the engine like any other. Prompt-injection tests with hostile device names, titles and calendar text pass in simulation (7.6).</li>
   <li>A historical answer with no surviving evidence is replaced in full by <em>I don't have evidence for that.</em></li>
@@ -318,6 +433,35 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <p class="eyebrow">Chapter 13</p>
 <h1 id="ch13-title">Troubleshooting</h1>
 <p class="lede">Start with the property that describes the symptom. The assistant asks what Composer shows and ends on the exact property or status text to check and what to do.</p>
+
+<h2 id="ch13-texts">Failure texts and where to look</h2>
+<p>Every text below is quoted from the source that writes it. Composer texts come from the driver (<code>INSTALLATION.md</code> §8, <code>DRIVER.md</code>); Studio and portal texts from the platform at commit <code>557fa8d54</code>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Where</th><th scope="col">Text</th><th scope="col">Meaning and what to do</th></tr></thead>
+<tbody>
+<tr><td>Composer › SmartBuildOS Connection Status</td><td>No SmartBuildOS Agent in this project</td><td>No <code>smartbuildos.c4z</code>, or it was renamed. Install the Agent from the Agents panel.</td></tr>
+<tr><td>Composer › SmartBuildOS Connection Status</td><td>SmartBuildOS Agent update required (module contract v2)</td><td>The Agent is protocol 1 (every release up to <code>20261116.035552</code>). Install an Agent built with contract v2.</td></tr>
+<tr><td>Composer › SmartBuildOS Connection Status</td><td>SmartBuildOS Agent not responding</td><td><code>agent_lost</code>: the 5-minute directory probe got no answer. Check the Agent; it recovers on the next answer.</td></tr>
+<tr><td>Composer › SmartBuildOS Connection Status</td><td>SmartBuildOS cloud unreachable</td><td>The Agent has no internet, or the last request failed after 2 retries. Check the uplink.</td></tr>
+<tr><td>Composer › Last Test Result</td><td>AI connection: refused (cloud_refused)</td><td>The platform route is not deployed (404). Owner: deploy the platform.</td></tr>
+<tr><td>Composer › Last Error</td><td>refused (unsupported)</td><td>The platform has no handler for that op. Platform work.</td></tr>
+<tr><td>Composer › Last Error</td><td>refused (not_permitted)</td><td>The platform refused: permission mode, licence features, homeowner settings. Check System Studio.</td></tr>
+<tr><td>Composer › Last Error</td><td>rate limited by SmartBuildOS (rate_limited); try again later</td><td>A per-system limit (<code>send_notification</code> 10/hour, <code>test_provider</code> 5/hour) or the Agent's bucket.</td></tr>
+<tr><td>Composer › Last Error</td><td>AI_LEARN_PREFERENCE refused: the licence does not include AI_LEARNING</td><td>The licence lacks <code>AI_LEARNING</code> (enforced). Add the feature, or do not use learning.</td></tr>
+<tr><td>Composer › Last Error</td><td>Configuration vN refused: &lt;path&gt;: &lt;reason&gt; (vM kept)</td><td>System Studio sent a document AI Core rejects whole. The previous version stays in force, except learning, which is off.</td></tr>
+<tr><td>Composer › Learning Status</td><td>Off (not switched on in System Studio) · Paused by System Studio… · Paused by configuration: vN refused · Stopped (not licensed)</td><td>The default; turned off or paused; the last document refused; the licence refused.</td></tr>
+<tr><td>Composer › Flight Recorder Link</td><td>Installed (no local history service; update the Flight Recorder)</td><td>An older Flight Recorder. Update it to the same build.</td></tr>
+<tr><td>Composer › License Status</td><td>Licensing Not Yet Enforced</td><td>The Agent holds no AI Core assertion (not issued yet, or one failed verification). Refresh entitlements; check the Agent's Lua output for <em>failed verification</em>.</td></tr>
+<tr><td>Composer › AI_LAST_ERROR</td><td>AI provider error: …</td><td>The provider failed for the platform (<code>raise_event ai_provider_error</code>). Check the key and limits in System Studio.</td></tr>
+<tr><td>Studio › Conversations / Composer result</td><td>AI Core has no AI provider key for this property. Add one in System Studio.</td><td><code>provider_not_configured</code>: no key for the property or the company.</td></tr>
+<tr><td>Studio › Conversations</td><td>This property's AI limit has been reached.</td><td><code>budget_exceeded</code>: a spend, token or request limit in Provider &amp; settings.</td></tr>
+<tr><td>Studio › Provider &amp; settings</td><td>Too many connection tests just now. Wait a minute and try again.</td><td>More than 6 connectivity tests a minute for the property.</td></tr>
+<tr><td>Studio › Provider &amp; settings</td><td>Your changes were not saved, so nothing of theirs was overwritten. …</td><td>409: someone saved a newer revision. Reload and redo the change.</td></tr>
+<tr><td>Studio › Provider &amp; settings</td><td>Refused: raising the permission mode needs Home control manage</td><td>403 <code>permission_denied</code>; audited <code>settings.refused</code>.</td></tr>
+<tr><td>Portal › Approvals</td><td>This action changed since you saw it. Reload it and decide again.</td><td>409 <code>approval_mismatch</code>: the <code>args_hash</code> is not the stored action's.</td></tr>
+<tr><td>Portal › Concierge</td><td>No booking service is connected for your home, so requests can't be made here yet.</td><td>The sandbox is off and no real vendor exists. Staff can enable the SIMULATION sandbox.</td></tr>
+<tr><td>Portal › Calendar</td><td>Calendar connections aren't available on this platform yet.</td><td><code>not_configured</code>: no OAuth client credentials (<a href="#ch9-calendar">Chapter 9</a>).</td></tr>
+</tbody></table></div>
 
 <div class="feature wide" id="troubleshoot" data-feature="troubleshoot">
   <header><h3>Troubleshooting Assistant</h3><span class="type">Decision trees</span></header>
@@ -334,7 +478,8 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <section class="chapter" id="ch14" aria-labelledby="ch14-title" data-title="Developer Reference" hidden>
 <p class="eyebrow">Chapter 14</p>
 <h1 id="ch14-title">Developer Reference</h1>
-<p class="lede">The wire contract, schemas and source map for engineers extending AI Core.</p>
+<p class="lede">The wire contract, schemas and source map for engineers extending AI Core. The platform's own developer reference — every staff, homeowner and controller route with its gate order, bodies, codes and limits — is <code>docs/ai-core/DEVELOPER-API.md</code> in the platform repo (<code>smartbuildos-ai-core</code>); this chapter does not duplicate it. The driver's configuration contract on the platform side is <code>docs/ai-core/DRIVER-CONTRACT.md</code>; every known issue on both sides is the driver repo's <code>docs/ai-core/KNOWN-ISSUES.md</code>.</p>
+<div class="status" data-status="devdocs"></div>
 
 <h2 id="ch14-architecture">Architecture and source map</h2>
 <div class="table-wrap"><table>
@@ -350,8 +495,13 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <tr><td>Tools, permission engine, evidence</td><td><code>src/lib/ai-core/{tools,authz,evidence}/</code></td></tr>
 <tr><td>Orchestrator</td><td><code>src/lib/ai-core/orchestrator/</code></td></tr>
 <tr><td>Learning</td><td><code>src/lib/ai-core/{memory,patterns,recommendations}/</code></td></tr>
+<tr><td>Concierge, calendar, Places</td><td><code>src/lib/ai-core/concierge/</code></td></tr>
+<tr><td>Service Intelligence</td><td><code>src/lib/ai-core/service/</code></td></tr>
+<tr><td>Settings → driver configuration document</td><td><code>src/lib/ai-core/settings/{settings,driver-config}.ts</code>; goldens <code>tests/unit/fixtures/ai-core-driver-config/*.json</code></td></tr>
+<tr><td>Studio UI</td><td><code>src/components/system-studio/intelligence/</code>; navigation <code>src/lib/system-studio/navigation.ts</code></td></tr>
+<tr><td>Portal UI</td><td><code>src/components/portal/ai-core/</code>; fixture preview <code>src/app/dev/preview/portal-ai-core/page.tsx</code></td></tr>
 <tr><td>Actions and programming hand-offs</td><td><code>src/lib/ai-core/{actions,programming}/</code></td></tr>
-<tr><td>Migrations</td><td><code>supabase/migrations/20261118120000_ai_core_foundation.sql</code>, <code>…120100_driver_catalog_ai_core.sql</code>, <code>…140000_ai_core_credentials_usage.sql</code>, <code>…150000_ai_core_learning.sql</code>, <code>…160000_ai_core_conversations.sql</code>, <code>…170000_ai_core_actions.sql</code>, <code>…180000_ai_core_concierge.sql</code>, <code>…190000_ai_core_integration.sql</code>; rollbacks in <code>docs/ai-core/</code>; none applied to production</td></tr>
+<tr><td>Migrations</td><td><code>supabase/migrations/20261118120000_ai_core_foundation.sql</code>, <code>…120100_driver_catalog_ai_core.sql</code>, <code>…140000_ai_core_credentials_usage.sql</code>, <code>…150000_ai_core_learning.sql</code>, <code>…160000_ai_core_conversations.sql</code>, <code>…170000_ai_core_actions.sql</code>, <code>…180000_ai_core_concierge.sql</code>, <code>…190000_ai_core_integration.sql</code>; order, prerequisites and rollbacks in <code>docs/ai-core/MIGRATIONS.md</code>; none applied to production. Rolling back <code>190000</code> deletes every memory whose source is <code>programming</code> or <code>model_proposed</code> (KI-34).</td></tr>
 </tbody></table></div>
 
 <h2 id="ch14-protocol">Protocol frames</h2>
@@ -390,7 +540,17 @@ anything open ──→ cancelled (homeowner) | expired (system)</code></pre>
 <p>AI Core's manifest is <code>{ "driver": "sbos.ai_core", "protocol": 2, "capabilities": [] }</code> in substance: it consumes, it serves nothing to other modules.</p>
 
 <h2 id="ch14-tools">Tool definitions</h2>
-<p>The tools the platform registry defines today, dumped from the registry code. Wire names are what the model sees; ids are internal. <code>recommendations.create</code> and <code>actions.propose</code>, listed in the architecture, do not exist as such: recommendations come from the deterministic detectors, and actions are one tool per queue verb. The concierge tools are in development (Chapter 9).</p>
+<p>The <span data-tool-count>34</span> tools the platform registry defines, dumped from the registry code (<code>src/dump-tools.mjs</code>; the consistency test compares this list with the live registry). Wire names are what the model sees; ids are internal. Every schema is a closed object. <code>recommendations.create</code> and <code>actions.propose</code>, listed in the architecture, do not exist as such: recommendations come from the deterministic detectors, and actions are one tool per queue verb. The model has no notification tool: <code>notifications.send</code> was removed (platform commit <code>c79f42d09</code>) because, being low risk with no verb and no proposal, it could never be allowed; notices come only from the platform's own services (and Composer's <code>AI_SEND_NOTIFICATION</code>).</p>
+<h3 id="ch14-offered">Which tools each persona is offered</h3>
+<p>A turn is offered every tool in its registry that the permission engine would not outright deny for that actor, mode, licence, household grant and gate (a <code>require_approval</code> tool is offered: calling it records a proposal); a controller job is offered <code>read</code> tools only (<code>orchestrator/turn.ts</code> <code>offeredTools</code>). The registries are composed in <code>orchestrator/server.ts</code> <code>aiCoreRegistry</code> and <code>concierge/server.ts</code> <code>portalConversationDeps</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Turn</th><th scope="col">Persona (system prompt)</th><th scope="col">Registry</th><th scope="col">Notes</th></tr></thead>
+<tbody>
+<tr><td>Staff conversation (Studio)</td><td><code>technician</code></td><td>read tools (Flight Recorder, devices, rooms, usage, health), <code>memory_search</code>, <code>memory_propose</code>, service tools, action tools</td><td><code>usage_summary</code> and memory tools need <code>homecontrol:view</code>; action tools need <code>homecontrol:manage</code>, otherwise they are denied and not offered</td></tr>
+<tr><td>Homeowner conversation (portal)</td><td><code>homeowner</code></td><td>the same, plus the 11 concierge tools</td><td>the service tools are offered (they are <code>read</code>) but refuse a non-staff actor in their handler: <em>Service intelligence tools are for technicians.</em></td></tr>
+<tr><td>Controller job (Composer cloud op), engine actor <code>automation</code></td><td><code>technician</code> for <code>analyze_system</code> and <code>start_diagnostic</code>, else <code>homeowner</code></td><td>read tools, <code>memory_search</code>, service tools — no <code>memory_propose</code>, no action or concierge tools</td><td>only <code>read</code> tools are offered; household tools need the property's learning on and not paused</td></tr>
+</tbody></table></div>
+<p>The AI Workflow Simulator (Chapter 8) computes these lists live, and the browser test compares them with the real <code>offeredTools</code> over the real registry.</p>
 <div id="tblTools"></div>
 
 <h2 id="ch14-api">API examples</h2>
@@ -410,14 +570,23 @@ Authorization: Bearer &lt;Agent pairing token&gt;
 <p>The route answers HTTP 200 for every business outcome. A non-2xx answer goes through the Agent's failure path (Connection Status repaint, Composer event <em>Sync Failed</em> on the Agent). A 2xx <code>ok:false</code> code passes through only if it is one of <code>not_permitted</code>, <code>invalid_args</code>, <code>unsupported</code>, <code>payload_too_large</code>, <code>rate_limited</code>, <code>agent_not_paired</code>; otherwise the module sees <code>cloud_refused</code>. HTTP 429 → <code>rate_limited</code>; other 4xx → <code>cloud_refused</code>; 5xx, transport failure or timeout → <code>cloud_unreachable</code>.</p>
 <h3>Settings save</h3>
 <pre class="code" data-lang="http"><code>PUT /api/monitoring/ai-core/settings
-{ "property_id": "&lt;uuid&gt;", "expected_version": 3,
-  "settings": { "provider": "anthropic", "effort": "high", "permission_mode": "recommend",
-                "learning": { "enabled": true }, "excluded_room_ids": [40] } }
+{ "property_id": "&lt;properties.id&gt;", "expected_version": 0,
+  "settings": { "provider": "anthropic", "effort": "high", "learning": { "enabled": true } } }
 
-409 when expected_version is not the stored revision</code></pre>
+200 { "ok": true, "settings": { … }, "driver_config": { … } }
+409 { "error": "Someone saved a newer revision since you loaded this one.", "current_version": 1, "current": { … } }</code></pre>
+<p>A save that changes learning or exclusions also queues <code>set_learning</code> / <code>apply_config</code> for the controller (<a href="#ch4-precedence">Chapter 4</a>). <code>excluded_room_ids</code>: ≤ 500 Director room ids.</p>
 <h3>Homeowner approves an action</h3>
 <pre class="code" data-lang="http"><code>POST /api/portal/ai-core/actions
-{ "property_id": "&lt;uuid&gt;", "action_id": "&lt;uuid&gt;", "decision": "approve", "args_hash": "&lt;hash shown with the action&gt;" }</code></pre>
+{ "property_id": "&lt;properties.id or legacy key&gt;", "action_id": "&lt;uuid&gt;", "decision": "approve", "args_hash": "&lt;sha256 shown with the action&gt;" }
+
+200 { "action": { "status": "queued", … }, "replayed": false }
+409 { "error": "This action changed since you saw it. Reload it and decide again.", "code": "approval_mismatch", "action": { … } }</code></pre>
+<h3>Homeowner gives final confirmation of a reservation</h3>
+<pre class="code" data-lang="http"><code>POST /api/portal/ai-core/concierge
+{ "property_id": "&lt;properties.id&gt;", "action": "confirm", "request_id": "&lt;uuid&gt;", "details_hash": "&lt;64 hex shown with the details&gt;" }
+
+200 { "request": { "status": "simulated_confirmed", "simulated": true, … } }   ← sandbox: a SIMULATION, never "confirmed"</code></pre>
 <h3>Module client (Lua, driver side)</h3>
 <pre class="code" data-lang="lua"><code>local client = require("sbos.moduleclient")
 client.request("flight_recorder", "events.device_history", { device_id = 214, limit = 25 },
@@ -425,6 +594,7 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
                function(answer)  -- answer = { status, error_code, result, cursor, from_module_id, … }
                end)</code></pre>
 <h3>Route index</h3>
+<p>Gates, bodies and every code for these routes: platform <code>docs/ai-core/DEVELOPER-API.md</code> §3–§5.</p>
 <div id="tblRoutes"></div>
 
 <h2 id="ch14-errors">Error codes</h2>
@@ -472,12 +642,26 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
 <section class="chapter" id="verification" aria-labelledby="verification-title" data-title="Verification status" hidden>
 <p class="eyebrow">Status</p>
 <h1 id="verification-title">Verification status</h1>
-<p class="lede">Every status callout used in this guide, from one data object. "Simulator-tested" means automated tests with a Control4 shim, a Director emulator, mocked HTTP or fakes. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider, or in production.</p>
+<p class="lede">What has and has not been verified, from <code>IMPLEMENTATION_CHECKLIST.md</code> as it read when this guide was refreshed (18 November 2026) and the platform branch at commit <code id="platformHead">557fa8d54</code>. "Simulated" means automated tests with a Control4 shim, a Director emulator, mocked HTTP, fakes or a throwaway local database. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider or vendor, or in production.</p>
+<h2 id="verification-sim">Verified in simulation</h2>
+<ul class="verify" id="verify-simulated"></ul>
+<h2 id="verification-browser">Browser-verified against fixtures and a local stack</h2>
+<ul class="verify" id="verify-browser"></ul>
+<h2 id="verification-never">Has never run</h2>
+<ul class="verify" id="verify-never"></ul>
+<h2 id="verification-owner">Blocked on the owner</h2>
+<p>Open owner decisions (none blocks current work). Decided by the architect, reversible: AI Core events count as household activity, and learning is off by default. Resolved: decision 8 (the homeowner approval screen and two-party approval are built).</p>
+<ul class="verify" id="verify-owner"></ul>
+<h2 id="verification-released">Nothing has been released</h2>
+<ul class="verify" id="verify-unreleased"></ul>
+<h2 id="verification-table">Every status callout in this guide</h2>
 <div class="table-wrap"><table class="status-table"><thead><tr><th scope="col">Area</th><th scope="col">Status</th><th scope="col">Detail</th><th scope="col">Used in</th></tr></thead><tbody id="statusRows"></tbody></table></div>
+<h2 id="verification-guide">This guide's own tests</h2>
+<p><code>test/run.sh</code> runs a consistency test (names, frames, error codes, vocabularies, tools, routes, statuses and stated facts against <code>driver.xml</code>, the protocol documents, the driver's Lua vocabularies and the live platform registry) and a browser test that exercises every control in Chromium from <code>file://</code>, compares the Permissions Explorer with the real engine and the Workflow Simulator's tool lists with the real <code>offeredTools</code>, checks the phone layouts at 360 px, and records zero network requests.</p>
 <h2 id="verification-sources">Sources and date</h2>
-<p>Written on 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (including uncommitted work in progress, marked as such), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources.</p>
+<p>Refreshed on 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (committed work at <code>557fa8d54</code> only; uncommitted work in progress there is not described), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources. Screenshots of System Studio and the portal are fixture-mode captures with sample data, never a customer's system.</p>
 <h2 id="verification-about">About this guide</h2>
-<p>This page is a single self-contained file. It makes no network requests (a Content-Security-Policy forbids them), and uses this browser's local storage only for the theme, checklist ticks, chapter progress and last chapter. All simulations and sample data are labelled.</p>
+<p>This page is a single self-contained file. It makes no network requests (a Content-Security-Policy forbids them; images are embedded as <code>data:</code> URIs), and uses this browser's local storage only for the theme, checklist ticks, chapter progress and last chapter. All simulations and sample data are labelled.</p>
 </section>
 
 </main>

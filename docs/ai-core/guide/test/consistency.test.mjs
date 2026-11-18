@@ -95,7 +95,11 @@ for (const n of ["AI_ASK", "AI_RECORD_EVENT", "AI_START_DIAGNOSTIC", "AI_LAST_RE
 // ── AI_* tokens: nothing invented ──
 const protocolTs = fs.existsSync(path.join(PLATFORM, "src/lib/ai-core/protocol.ts")) ? fs.readFileSync(path.join(PLATFORM, "src/lib/ai-core/protocol.ts"), "utf8") : "";
 const protocolConsts = [...protocolTs.matchAll(/export const (AI_[A-Z_]+)/g)].map((m) => m[1]);
-const allowedAi = new Set([...X.commands.map((c) => c.name), ...X.variables.map((v) => v.name), ...X.conditionals.map((c) => c.name), "AI_LEARNING", "AI_ACTIONS", "AI_CONCIERGE", ...protocolConsts]);
+// Platform environment variable names the concierge reads (concierge/**/*.ts string literals).
+const envNames = [];
+const conciergeDir = path.join(PLATFORM, "src/lib/ai-core/concierge");
+if (fs.existsSync(conciergeDir)) { const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (f.endsWith(".ts")) for (const m of fs.readFileSync(f, "utf8").matchAll(/\b(AI_CORE_[A-Z_]+)\b/g)) envNames.push(m[1]); } }; walk(conciergeDir); }
+const allowedAi = new Set([...X.commands.map((c) => c.name), ...X.variables.map((v) => v.name), ...X.conditionals.map((c) => c.name), "AI_LEARNING", "AI_ACTIONS", "AI_CONCIERGE", ...protocolConsts, ...envNames]);
 const aiTokens = [...new Set(html.match(/\bAI_[A-Z][A-Z_]*\b/g))];
 for (const t of aiTokens) ok(allowedAi.has(t), `AI_* token ${t} exists in driver.xml, the licence features or protocol.ts`);
 
@@ -132,24 +136,101 @@ sameSet(raisable, REF.events.filter((e) => e.id !== 9).map((e) => e.key), "raise
 for (const r of raisable) ok(prose.includes(r), `guide prose lists raise_event ${r}`);
 
 // ── platform tool registry ──
+let registryWires = null;
 if (fs.existsSync(path.join(PLATFORM, "src/lib/ai-core/tools/registry.ts"))) {
   const T = (f) => pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/tools", f)).href;
   const port = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : async () => ({})) });
-  const tools = [
-    ...(await import(T("flight-recorder.ts"))).FLIGHT_RECORDER_TOOLS,
-    ...(await import(T("context.ts"))).CONTEXT_TOOLS,
-    ...(await import(T("memory.ts"))).createMemoryTools(port),
-    ...(await import(T("service.ts"))).createServiceTools(port),
-    ...(await import(T("notifications.ts"))).createNotificationTools(port),
-    ...(await import(T("actions.ts"))).createActionTools(port, {}),
-    ...(await import(T("concierge.ts"))).createConciergeTools(port),
-  ];
+  // Built from the factories tools/index.ts exports, so a tool added or removed on the platform is caught.
+  const idx = await import(T("index.ts"));
+  const tools = [...idx.READ_TOOLS];
+  for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
   const key = (t) => [t.id, t.wireName ?? t.wire, t.risk, t.household, t.verb ?? null, t.feature ?? null, (t.schema ? t.schema.required ?? [] : t.required).join(",")].join("|");
   sameSet(tools.map(key), REF.tools.map(key), "tools (id|wire|risk|household|verb|feature|required) vs the platform registry");
   for (const t of tools) ok(prose.includes(t.wireName) || html.includes(t.wireName), `guide documents tool ${t.wireName}`);
+  registryWires = new Set(tools.map((t) => t.wireName));
+  const count = html.match(/<span data-tool-count>(\d+)<\/span>/);
+  ok(count && Number(count[1]) === tools.length, `the guide's stated tool count equals the registry (${count && count[1]} vs ${tools.length})`);
 } else {
   console.log("  (platform worktree not found: tool registry comparison skipped)");
 }
+
+// ── tool names in prose: nothing invented or removed ──
+if (registryWires) {
+  const NOT_TOOLS = new Set(["service_maintenance", "service_role", "service_role_only", "memory_id", "memory_key", "memory_search", "memory_propose", "actions_set_light"]);
+  const wireLike = /^(flight_recorder|devices|rooms|usage|health|memory|service|notifications|actions|concierge)_[a-z_]+$/;
+  const codeTokens = [...new Set([...prose.matchAll(/<code>([a-z_]+)<\/code>/g)].map((m) => m[1]))].filter((t) => wireLike.test(t));
+  const known = new Set([...registryWires, "service_maintenance", "service_role", "memory_id", "memory_key", "flight_recorder_events", "flight_recorder_available", "flight_recorder_not_installed", "flight_recorder_has_no_local_history_service", "flight_recorder_unknown_agent_cannot_discover", "flight_recorder_topics", "health_scores", "usage_events"]);
+  for (const t of codeTokens) ok(known.has(t), `tool-like name <code>${t}</code> in the guide is a real tool (or a known non-tool identifier)`);
+  void NOT_TOOLS;
+}
+
+// ── routes: the route index equals the platform's route files ──
+const ROUTE_ROOTS = ["src/app/api/monitoring/ai-core", "src/app/api/portal/ai-core", "src/app/api/integrations/control4/modules/rpc"];
+if (fs.existsSync(path.join(PLATFORM, ROUTE_ROOTS[0]))) {
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (e.name === "route.ts") files.push("/" + path.relative(path.join(PLATFORM, "src/app"), path.dirname(f))); } };
+  for (const r of ROUTE_ROOTS) walk(path.join(PLATFORM, r));
+  const guideRoutes = [];
+  for (const r of REF.routes) {
+    const m = r.path.match(/^(\S+)(?: \(\+ (.+)\))?$/);
+    guideRoutes.push(m[1]);
+    if (m[2]) for (const extra of m[2].split(",").map((x) => x.trim())) guideRoutes.push(m[1] + "/" + extra);
+  }
+  sameSet(files, guideRoutes, "route index vs the platform's route.ts files");
+  const routeTokens = [...new Set([...prose.matchAll(/\/api\/(?:monitoring|portal)\/ai-core\/[a-z\-/\[\]]+/g)].map((m) => m[0].replace(/\/$/, "")))];
+  for (const t of routeTokens) ok(files.includes(t), `route ${t} named in the guide exists on the platform`);
+}
+
+// ── stated facts ──
+const visible = (prose + " " + html.slice(html.indexOf("const STATUS"), html.indexOf("const VERIFY"))).replace(/<\/(td|th|li|p|h[1-4]|tr|dd|dt|figcaption|summary)>/g, " ¶ ").replace(/<[^>]+>/g, " ").replace(/', /g, " ¶ ").replace(/' \},?/g, " ¶ ").replace(/\b(source|area|title|text|tone): '/g, " ¶ $1: ").replace(/\s+/g, " ");
+ok(!/learning (?:is |stays )?(?:on|enabled|active) by default/i.test(visible), "the guide never says learning is on by default");
+ok(/Learning is off by default/i.test(visible) && visible.includes("Off (not switched on in System Studio)"), "the guide says learning is off by default, with the driver's exact text");
+ok(REF.variables.find((v) => v.name === "LEARNING_ACTIVE").default === "false", "LEARNING_ACTIVE defaults to false");
+ok(!/(?:real|live) (?:restaurant )?bookings? (?:is|are) (?:now )?available/i.test(visible), "the guide never calls real booking available");
+ok(!/\bunsupported\b[^.]{0,40}learn_preference|learn_preference[^.]{0,60}answers? (?:this op )?`?unsupported/i.test(visible.replace(/Absent → learn_preference answers `unsupported`/, "")), "learn_preference is not described as unsupported");
+ok(!/exclusions\.rooms<\/code> ≤ 256|≤ 256 ids/.test(html), "exclusions.rooms bound is 500, not 256");
+ok(html.includes("<code>exclusions.rooms</code> ≤ 500"), "exclusions.rooms ≤ 500 stated");
+ok(/set_learning<\/code><\/td><td><code>active<\/code>, <code>reason<\/code> \(≤ 120\), <code>config_version<\/code>/.test(html), "set_learning carries config_version");
+ok(/<code>superseded<\/code>/.test(html), "apply_config superseded by a newer document is stated");
+ok(visible.includes("the context key is sent as key") || /sent as <code>key<\/code> in the <code>set_context<\/code> cloud body/.test(html), "set_context body key is key");
+
+// KNOWN-ISSUES references exist.
+const ki = read("docs/ai-core/KNOWN-ISSUES.md");
+for (const m of new Set([...prose.matchAll(/\bKI-(\d+)\b/g)].map((x) => x[1]))) ok(new RegExp(`\\bKI-${m}\\b`).test(ki), `KI-${m} exists in KNOWN-ISSUES.md`);
+
+// ── checklist: statuses the guide claims ──
+const CHECKLIST = process.env.AI_CORE_CHECKLIST || path.join(path.resolve(repo, ".."), "ai-core-program/IMPLEMENTATION_CHECKLIST.md");
+if (fs.existsSync(CHECKLIST)) {
+  const cl = fs.readFileSync(CHECKLIST, "utf8");
+  const items = {};
+  for (const m of cl.matchAll(/^\|\s*(\d+\.\d+)\s*\|[^|]*\|(?:[^|]*\|)?\s*(Completed|Tested|In progress|Not started|Blocked|Implemented)/gm)) items[m[1]] = m[2];
+  ok(Object.keys(items).length > 80, `checklist parsed (${Object.keys(items).length} items)`);
+  const expand = (a, b) => { const [ma, na] = a.split(".").map(Number), [, nb] = b.split(".").map(Number); const out = []; for (let n = na; n <= nb; n++) out.push(ma + "." + n); return out; };
+  const refsIn = (t) => { const out = []; for (const m of t.matchAll(/\b(\d{1,2}\.\d{1,2})(?:\s*[–-]\s*(\d{1,2}\.\d{1,2}))?\b/g)) { if (m[2]) out.push(...expand(m[1], m[2])); else out.push(m[1]); } return out.filter((r) => items[r]); };
+  // (a) A sentence that calls items Completed (and names no other status) names only Completed items;
+  //     a sentence naming a Blocked / In progress / Not started item never calls it available or done.
+  const routeStates = REF.routes.map((r) => " ¶ " + r.state).join("");
+  const sentences = (visible + routeStates).split(/¶|;|(?<=\.)\s+(?=[A-Z(“"])/).map((x) => x.trim()).filter((x) => x && !/^source:/.test(x) && !/^(?:checklist )?[\d.,–\s-]+$/.test(x) && !/^checklist [\d.,–\s-]+$/.test(x));
+  for (const sen of sentences) {
+    const refs = [...new Set(refsIn(sen))];
+    if (!refs.length) continue;
+    const saysCompleted = /\bCompleted\b/.test(sen), namesOther = /\b(Tested|Blocked|blocked|In progress|in progress|Not started|not started|pending|In development)\b/.test(sen);
+    if (saysCompleted && !namesOther) for (const r of refs) ok(items[r] === "Completed", `the guide calls checklist ${r} Completed, but the checklist says ${items[r]}: “${sen.slice(0, 120)}”`);
+    for (const r of refs) if (items[r] !== "Completed" && items[r] !== "Tested") ok(!/\b(?:is|are|now) available\b/.test(sen) || /\bnot available\b/.test(sen), `the guide calls checklist ${r} (${items[r]}) available: “${sen.slice(0, 120)}”`);
+    for (const r of refs) if (items[r] === "Blocked") ok(/\b(Blocked|blocked|owner|never|not|no|needs|wait|waits|until)\b/.test(sen), `checklist ${r} is Blocked, but the sentence naming it does not say so: “${sen.slice(0, 120)}”`);
+  }
+  // (b) The Verification page lists match the checklist.
+  const verifyBlock = html.slice(html.indexOf("const VERIFY"), html.indexOf("/* Glossary"));
+  const listOf = (name) => { const i = verifyBlock.indexOf(name + ": ["); const j = verifyBlock.indexOf("\n  ],", i); return verifyBlock.slice(i, j); };
+  for (const r of refsIn(listOf("never"))) ok(items[r] === "Blocked", `Verification “never run” cites ${r}, which the checklist marks ${items[r]} (must be Blocked)`);
+  for (const r of refsIn(listOf("unreleased"))) ok(items[r] === "Blocked", `Verification “not released” cites ${r}, which the checklist marks ${items[r]} (must be Blocked)`);
+  for (const r of refsIn(listOf("simulated"))) ok(items[r] === "Completed" || items[r] === "Tested", `Verification “verified in simulation” cites ${r}, which the checklist marks ${items[r]}`);
+  const decisions = [...cl.slice(cl.indexOf("## Open owner decisions")).matchAll(/^(\d+)\. (.*)$/gm)].filter((m) => !/^\(Resolved/.test(m[2])).map((m) => Number(m[1])).filter((n) => n > 0);
+  const listedDecisions = [...listOf("owner").matchAll(/'decision (\d+)/g)].map((m) => Number(m[1]));
+  sameSet(decisions.map(String), listedDecisions.map(String), "open owner decisions on the Verification page vs the checklist");
+  // (c) Every Blocked LIVE/HW item is somewhere on the Verification page or in a STATUS entry.
+  for (const [r, st] of Object.entries(items)) if (st === "Blocked") ok(new RegExp(`\\b${r.replace(".", "\\.")}\\b`).test(verifyBlock + html.slice(html.indexOf("const STATUS"), html.indexOf("const VERIFY"))), `blocked checklist item ${r} appears on the Verification page or in STATUS`);
+} else console.log("  (checklist not found: status checks skipped)");
 
 console.log(`Consistency assertions: ${assertions}`);
 console.log(`Failures: ${failures.length}`);

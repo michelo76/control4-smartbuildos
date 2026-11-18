@@ -9,6 +9,8 @@
 // Env:  AI_CORE_PLATFORM   platform worktree (default ../smartbuildos-ai-core beside this repo)
 //       GUIDE_SCREENSHOTS  screenshot directory (default ai-core-program/screenshots/guide)
 //       GUIDE_NO_SCREENSHOTS=1 to skip screenshots
+//       GUIDE_STEP_TIMEOUT_MS  bound on each action, wait, evaluate and screenshot (default 20000)
+//       GUIDE_RUN_TIMEOUT_MS   watchdog for the whole run (default 12 min); a timeout fails naming the step
 // Playwright is used read-only from the platform worktree's node_modules.
 
 import path from "node:path";
@@ -29,15 +31,17 @@ const realEngine = await import(pathToFileURL(path.join(PLATFORM, "src/lib/ai-co
 const T = (f) => pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/tools", f)).href;
 // A port whose every method exists (never called here), so each factory declares all of its tools.
 const port = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : async () => ({})) });
-const registryTools = [
-  ...(await import(T("flight-recorder.ts"))).FLIGHT_RECORDER_TOOLS,
-  ...(await import(T("context.ts"))).CONTEXT_TOOLS,
-  ...(await import(T("memory.ts"))).createMemoryTools(port),
-  ...(await import(T("service.ts"))).createServiceTools(port),
-  ...(await import(T("notifications.ts"))).createNotificationTools(port),
-  ...(await import(T("actions.ts"))).createActionTools(port, {}),
-  ...(await import(T("concierge.ts"))).createConciergeTools(port),
-].map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature }));
+// Built from the factories tools/index.ts exports (a tool removed there disappears here too).
+const toolsIndex = await import(T("index.ts"));
+const FACTORIES = { memory: "createMemoryTools", service: "createServiceTools", notifications: "createNotificationTools", actions: "createActionTools", concierge: "createConciergeTools" };
+const build = (name) => (typeof toolsIndex[name] === "function" ? toolsIndex[name](port, {}) : []);
+const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build)];
+const registryTools = realTools.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature }));
+// The real offeredTools and registry builder, and the source of the per-persona composition.
+const realTurn = await import(pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/orchestrator/turn.ts")).href);
+const { createRegistry } = toolsIndex;
+const serverSrc = fs.readFileSync(path.join(PLATFORM, "src/lib/ai-core/orchestrator/server.ts"), "utf8");
+const conciergeServerSrc = fs.readFileSync(path.join(PLATFORM, "src/lib/ai-core/concierge/server.ts"), "utf8");
 
 // ── tiny harness ────────────────────────────────────────────────────────────
 let assertions = 0;
@@ -46,7 +50,21 @@ const controls = new Set();
 const ok = (cond, msg) => { assertions++; if (!cond) failures.push(msg); };
 const eq = (a, b, msg) => ok(Object.is(a, b) || JSON.stringify(a) === JSON.stringify(b), `${msg}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
 const ctl = (id) => controls.add(id);
-const section = (name) => console.log(`· ${name}`);
+// Nothing in this test may wait unbounded: every Playwright action/wait has a default
+// timeout, every page.evaluate is raced against one, and a watchdog ends the whole run.
+// Each failure names the step it was in.
+let step = "start";
+const STEP_MS = Number(process.env.GUIDE_STEP_TIMEOUT_MS || 20000);
+const RUN_MS = Number(process.env.GUIDE_RUN_TIMEOUT_MS || 12 * 60 * 1000);
+const bounded = (promise, ms, what) => {
+  let timer;
+  const limit = new Promise((_r, reject) => { timer = setTimeout(() => reject(new Error(`TIMEOUT after ${ms} ms: ${what} (step: ${step})`)), ms); });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+};
+const watchdog = setTimeout(() => { console.error(`\nHUNG: the run exceeded ${RUN_MS} ms; last step: ${step}`); process.exit(2); }, RUN_MS);
+watchdog.unref();
+process.on("unhandledRejection", (e) => { console.error(`\nFAILED in step “${step}”: ${e && e.stack || e}`); process.exit(3); });
+const section = (name) => { step = name; console.log(`· ${name}`); };
 const shots = [];
 
 const browser = await chromium.launch();
@@ -61,7 +79,10 @@ async function newPage(opts = {}) {
     external.push(u);
     return route.abort();
   });
+  context.setDefaultTimeout(STEP_MS);
+  context.setDefaultNavigationTimeout(STEP_MS);
   const page = await context.newPage();
+  for (const k of ["evaluate", "$eval", "$$eval"]) { const f = page[k].bind(page); page[k] = (...a) => bounded(f(...a), STEP_MS, `page.${k}`); }
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") consoleProblems.push(`${m.type()}: ${m.text()}`); });
   page.on("pageerror", (e) => consoleProblems.push(`pageerror: ${e.message}`));
   page.on("dialog", (d) => d.accept());
@@ -71,19 +92,34 @@ async function newPage(opts = {}) {
 }
 // Hash navigation is asynchronous (hashchange): wait until the guide has routed.
 const settle = async (page, hash) => { await page.waitForFunction((h) => location.hash === h, hash); await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); };
-const go = async (page, hash) => { await page.evaluate((h) => { location.hash = h; }, hash); await settle(page, hash); await page.waitForTimeout(20); };
+const go = async (page, hash) => { step = step.split(" › ")[0] + " › go " + hash; await page.evaluate((h) => { location.hash = h; }, hash); await settle(page, hash); await page.waitForTimeout(20); };
+// Decodes every image of the visible chapter without scrolling. The guide's images are
+// loading="lazy": decode() on a lazy image below the fold waits for a load that never
+// starts (that is what hung the refresh run at #ch10-overview), so each is switched to
+// eager first and each decode is bounded. Returns one entry per image.
+const decodeVisible = (page) => page.evaluate(async () => {
+  const out = [];
+  for (const i of document.querySelectorAll(".chapter:not([hidden]) img")) {
+    i.loading = "eager";
+    const r = await Promise.race([i.decode().then(() => "ok", () => "error"), new Promise((res) => setTimeout(() => res("timeout"), 5000))]);
+    out.push({ r, ok: r === "ok" && i.complete && i.naturalWidth > 0, w: i.naturalWidth, attr: Number(i.getAttribute("width")) });
+  }
+  return out;
+});
 const visibleChapter = (page) => page.evaluate(() => [...document.querySelectorAll(".chapter")].find((c) => !c.hidden)?.id);
 const shot = async (page, name, full = false) => {
   if (process.env.GUIDE_NO_SCREENSHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
   const file = path.join(SHOTS, name + ".png");
-  await page.screenshot({ path: file, fullPage: full });
+  step = step.split(" › ")[0] + " › screenshot " + name;
+  await bounded(page.screenshot({ path: file, fullPage: full, timeout: STEP_MS }), STEP_MS + 2000, `screenshot ${name}`);
   shots.push(file);
 };
 const shotEl = async (page, sel, name) => {
   if (process.env.GUIDE_NO_SCREENSHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
   const file = path.join(SHOTS, name + ".png");
+  step = step.split(" › ")[0] + " › element screenshot " + name;
   await page.locator(sel).first().scrollIntoViewIfNeeded();
   // Element captures stitch scrolled frames; keep the sticky header out of them.
   await page.addStyleTag({ content: ".topbar, .progress { position: static !important; }" }).catch(() => {});
@@ -355,7 +391,7 @@ section("installation wizard");
   await next(); ok((await err()).includes("Run both"), "wizard: tests required");
   await page.click("#wzTestAgent"); await next(); ok((await err()).includes("Run both"), "wizard: both tests required");
   await page.click("#wzTestAi"); ctl("wizard:test-agent"); ctl("wizard:test-ai");
-  ok((await page.textContent("#wzTests")).includes("unsupported"), "wizard: AI test states today's unsupported answer");
+  ok((await page.textContent("#wzTests")).includes("refused (cloud_refused)") && (await page.textContent("#wzTests")).includes("test accepted"), "wizard: AI test states the accepted answer and today's cloud_refused until deployment");
   await next(); ok((await step()).includes("Summary"), "wizard: summary reached");
   ok((await page.textContent("#wizBody")).includes("recommend"), "wizard: summary reflects choices");
   eq(await page.isDisabled("#wizNext"), true, "wizard: Next disabled on summary");
@@ -428,7 +464,6 @@ section("workflow simulator");
   const expectAction = {
     kitchen: { observe: ["deny", "observe_mode_no_actions"], recommend: ["require_approval", "low_risk_needs_approval"], execute_low_risk: ["allow", "preapproved_rule_matched"] },
     unlock: { observe: ["deny", "observe_mode_no_actions"], recommend: ["require_approval", "high_risk_needs_homeowner"], execute_low_risk: ["require_approval", "high_risk_needs_homeowner"] },
-    learned: { observe: ["deny", "observe_mode_no_actions"], recommend: ["require_approval", "low_risk_needs_approval"], execute_low_risk: ["require_approval", "low_risk_needs_approval"] },
   };
   for (const id of await page.evaluate(() => window.AICoreGuide.WF)) {
     for (const mode of ["observe", "recommend", "execute_low_risk"]) {
@@ -441,15 +476,61 @@ section("workflow simulator");
       if (expectAction[id]) { const [d, r] = expectAction[id][mode]; ok(decisions.length > 0 && decisions[decisions.length - 1] === d + " " + r, `workflow ${id}/${mode}: action decision ${d} ${r} (got ${decisions[decisions.length - 1]})`); }
       if (id === "lights2am" || id === "offline") ok(decisions.every((x) => x.startsWith("allow read_allowed")), `workflow ${id}/${mode}: reads allowed in every mode`);
       if (id === "lights2am") { const verified = await page.$eval("#wfSteps > li:last-child", (l) => l.textContent); ok(!verified.includes("99999") && verified.includes("tr-88"), "workflow: evidence post-check dropped the uncited claim"); }
-      if (id === "booking") { const t = await page.textContent("#wfSteps"); ok(t.includes("SIMULATION") && t.includes("no real table can be reserved"), "workflow: booking answer says only a simulation exists"); }
+      if (id === "booking") {
+        const texts = await page.$$eval("#wfSteps > li", (l) => l.map((x) => x.textContent));
+        ok(texts.length >= 12 && texts.every((t) => t.includes("SIMULATION")), `workflow booking/${mode}: every step (${texts.length}) is labelled SIMULATION`);
+        const states = await page.$$eval("#wfSteps [data-state]", (c) => c.map((x) => x.dataset.state));
+        eq(states, ["suggested", "search_approved", "options_presented", "details_presented", "submitted", "simulated_confirmed"], `workflow booking/${mode}: suggest → approve search → options → select → final confirmation → simulated confirmation`);
+        ok(!states.includes("confirmed"), `workflow booking/${mode}: never reaches confirmed`);
+        const early = texts.find((t) => t.includes("before the homeowner’s final confirmation")) || "";
+        if (mode === "observe") ok(early.includes("deny") && early.includes("observe_mode_no_actions") && !early.includes("not_confirmed"), "workflow booking/observe: the early submit is refused by the engine");
+        else ok(early.includes("require_approval") && early.includes("external_needs_homeowner") && (await page.$$eval('#wfSteps [data-refusal="not_confirmed"]', (c) => c.length)) === 1, `workflow booking/${mode}: the early submit is refused not_confirmed`);
+        ok(texts[texts.length - 1].includes("no table is reserved at a real restaurant"), `workflow booking/${mode}: the answer says nothing real was booked`);
+      }
       await page.click("#wfPrev"); eq(await page.$$eval("#wfSteps > li.future", (l) => l.length), 1, `workflow ${id}/${mode}: Previous hides a step`);
       await page.click("#wfReset"); eq(await page.$$eval("#wfSteps > li:not(.future)", (l) => l.length), 1, `workflow ${id}/${mode}: Reset`);
       await page.click("#wfAll"); eq(await page.$$eval("#wfSteps > li.future", (l) => l.length), 0, `workflow ${id}/${mode}: Show all`);
       ctl(`workflow:${id}:${mode}`);
     }
   }
+  // Tools offered per persona = the real offeredTools over the real per-persona registry.
+  const body = (src, fn) => { const i = src.indexOf("export function " + fn); const j = src.indexOf("\n}\n", i); return src.slice(i, j); };
+  const reg = body(serverSrc, "aiCoreRegistry");
+  ok(reg.length > 100, "found aiCoreRegistry in orchestrator/server.ts");
+  const fams = { read: /\.\.\.READ_TOOLS/.test(reg), memory_search: /createMemoryTools\(/.test(reg), memory_propose: /\.\.\.\(actions \? \{ propose:/.test(reg), service: /createServiceTools\(/.test(reg), notifications: /createNotificationTools\(/.test(reg), actions: /\.\.\.\(actions \? createActionTools\(/.test(reg) };
+  const homeownerAddsConcierge = /createRegistry\(\[\.\.\.aiCoreRegistry\(db, [^\n]*conversationId \}\)\.tools, \.\.\.tools\]\)/.test(conciergeServerSrc) && /createConciergeTools\(/.test(body(conciergeServerSrc, "portalConversationDeps"));
+  const person = Object.keys(fams).filter((k) => fams[k]);
+  const controllerFams = person.filter((k) => k !== "memory_propose" && k !== "actions");
+  const G = await page.evaluate(() => ({ P: window.AICoreGuide.PERSONA_REGISTRY, CTX: window.AICoreGuide.WF_CTX }));
+  eq(G.P.staff.slice().sort(), person.slice().sort(), "simulator: staff registry families = orchestrator/server.ts aiCoreRegistry (person's conversation)");
+  eq(G.P.homeowner.slice().sort(), [...person, ...(homeownerAddsConcierge ? ["concierge"] : [])].sort(), "simulator: homeowner registry = aiCoreRegistry + concierge (concierge/server.ts portalConversationDeps)");
+  eq(G.P.controller.slice().sort(), controllerFams.slice().sort(), "simulator: controller registry = aiCoreRegistry without a conversation (no propose, no actions)");
+  const famOf = (id) => id === "memory.search" ? "memory_search" : id === "memory.propose" ? "memory_propose" : ["flight_recorder", "devices", "rooms", "usage", "health"].includes(id.split(".")[0]) ? "read" : id.split(".")[0];
+  let offeredCompared = 0;
+  for (const ex of G.CTX) for (const mode of ["observe", "recommend", "execute_low_risk"]) {
+    const famList = G.P[ex.actor];
+    const registry = createRegistry(realTools.filter((t) => famList.includes(famOf(t.id))));
+    const actor = ex.actor === "staff" ? { kind: "staff", userId: "u", grants: { monitoringView: true, homecontrolView: !!ex.grants.hv, homecontrolManage: !!ex.grants.hm } } : ex.actor === "homeowner" ? { kind: "homeowner", userId: "h", clientId: "c", propertyIds: ["p1"] } : { kind: "controller", controllerId: "c1", jobId: "j1" };
+    const learningOn = !!(ex.learning && ex.learning.on), paused = !!(ex.learning && ex.learning.paused);
+    const want = realTurn.offeredTools(registry, { actor, propertyId: "p1", permissionMode: mode, entitlementFeatures: ex.features, controllerCapabilities: ex.caps, gate: { wouldDeny: false }, householdConsent: learningOn && !paused, learningPaused: paused, now: new Date("2026-11-18T12:00:00Z") }).map((t) => t.wireName);
+    const got = await page.evaluate(({ id, mode }) => window.AICoreGuide.offeredFor(id, mode), { id: ex.id, mode });
+    eq(got, want, `simulator ${ex.id}/${mode}: tools offered = real offeredTools`);
+    offeredCompared++;
+    // and the page shows exactly that list
+    await page.selectOption("#wfExample", ex.id); await page.selectOption("#wfMode", mode); await page.click("#wfAll");
+    eq((await page.getAttribute("#wfSteps [data-offered]", "data-offered")).split(" ").filter(Boolean), want, `simulator ${ex.id}/${mode}: the Tools offered step lists them`);
+    if (ex.actor === "homeowner") ok(!want.some((w) => w.startsWith("actions_") && mode === "observe"), `simulator ${ex.id}/observe: no action tool offered to a homeowner in observe`);
+    if (ex.actor === "controller") ok(want.every((w) => registryTools.find((t) => t.wire === w).risk === "read"), `simulator ${ex.id}/${mode}: a controller job is offered read tools only`);
+    if (ex.actor !== "homeowner") ok(!want.some((w) => w.startsWith("concierge_")), `simulator ${ex.id}/${mode}: concierge tools only for a homeowner`);
+  }
+  console.log(`  persona tool lists compared: ${offeredCompared}`);
+  ctl("workflow:offered");
+  await page.selectOption("#wfExample", "booking"); await page.selectOption("#wfMode", "recommend"); await page.click("#wfAll");
+  await shotEl(page, "#workflow", "feature-workflow-persona-homeowner-light");
+  await page.selectOption("#wfExample", "offline"); await page.selectOption("#wfMode", "recommend"); await page.click("#wfAll");
+  await shotEl(page, "#workflow", "feature-workflow-persona-technician-light");
   await page.selectOption("#wfExample", "lights2am"); await page.selectOption("#wfMode", "recommend"); await page.click("#wfAll");
-  await shotEl(page, "#workflow", "feature-workflow-light");
+  await shotEl(page, "#workflow", "feature-workflow-persona-controller-light");
   await context.close();
 }
 
@@ -562,6 +643,73 @@ section("troubleshooting assistant");
   ok(leaves >= 40, `troubleshooting leaves reached: ${leaves}`);
   await page.click('#tsTopics button[data-t="agent"]'); await page.locator("#tsNode .opts button").nth(3).click();
   await shotEl(page, "#troubleshoot", "feature-troubleshooting-light");
+  await context.close();
+}
+
+// ═════════ 12b. Phone layouts of the two diagrams; embedded images ═════════
+section("diagram phone layouts and images");
+for (const scheme of ["light", "dark"]) {
+  const { page, context } = await newPage({ viewport: { width: 360, height: 780 }, colorScheme: scheme, hash: "#ch6-explorer" });
+  eq(await page.$eval("#commSvgHost .seq-svg", (e) => getComputedStyle(e).display), "none", `360px ${scheme}: the sequence SVG is replaced`);
+  for (const s of await page.evaluate(() => window.AICoreGuide.COMM)) {
+    await page.selectOption("#commScenario", s.id);
+    for (let i = 0; i < s.n; i++) await page.click("#commNext");
+    const r = await page.evaluate(() => {
+      const list = document.querySelector("#commSvgHost .seq-list");
+      const items = [...list.querySelectorAll("li")];
+      const fonts = [...list.querySelectorAll(".hop, .frame")].map((e) => parseFloat(getComputedStyle(e).fontSize));
+      const clipped = [...list.querySelectorAll("li, .hop, .frame")].filter((e) => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > window.innerWidth).length;
+      return { visible: getComputedStyle(list).display !== "none" && list.getBoundingClientRect().height > 0, n: items.length, minFont: Math.min(...fonts), clipped, cur: items.filter((li) => li.classList.contains("cur")).length, names: items.every((li) => li.querySelector(".frame").textContent.length > 0 && /→|local/.test(li.querySelector(".hop").textContent)) };
+    });
+    ok(r.visible && r.n === s.n, `360px ${scheme} ${s.id}: vertical step list shows all ${s.n} frames (${r.n})`);
+    ok(r.minFont >= 12, `360px ${scheme} ${s.id}: step-list text at least 12 px (min ${r.minFont})`);
+    eq(r.clipped, 0, `360px ${scheme} ${s.id}: no clipped step-list text`);
+    eq(r.cur, 1, `360px ${scheme} ${s.id}: the current frame is marked`);
+    ok(r.names, `360px ${scheme} ${s.id}: every step shows from → to and the frame name`);
+    ctl(`comm-mobile:${s.id}`);
+  }
+  await page.selectOption("#commScenario", "cloud"); await page.click("#commNext"); await page.click("#commNext"); await page.click("#commNext");
+  await shotEl(page, "#commExplorer", `mobile-feature-communication-steps-${scheme}`);
+  await go(page, "#ch1-architecture");
+  eq(await page.$eval("#archSvgHost .arch-svg", (e) => getComputedStyle(e).display), "none", `360px ${scheme}: the architecture SVG is replaced`);
+  const a = await page.evaluate(() => {
+    const list = document.querySelector("#archSvgHost .arch-list");
+    const fonts = [...list.querySelectorAll("h4, .lbl, .sub")].map((e) => parseFloat(getComputedStyle(e).fontSize));
+    const clipped = [...list.querySelectorAll(".arch-chip, .lbl, .sub")].filter((e) => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > window.innerWidth).length;
+    return { layers: list.querySelectorAll(".arch-layer").length, chips: list.querySelectorAll(".arch-chip").length, subsShown: [...list.querySelectorAll(".sub")].every((e) => getComputedStyle(e).display !== "none"), minFont: Math.min(...fonts), clipped };
+  });
+  eq(a.layers, 3, `360px ${scheme}: architecture shown as three stacked layers`);
+  eq(a.chips, (await page.evaluate(() => window.AICoreGuide.ARCH)).length, `360px ${scheme}: every component listed`);
+  ok(a.subsShown && a.minFont >= 12, `360px ${scheme}: architecture list text at least 12 px with sub-labels (min ${a.minFont})`);
+  eq(a.clipped, 0, `360px ${scheme}: no clipped architecture text`);
+  await page.locator('#archSvgHost .arch-chip[data-id="authz"]').click();
+  eq(await page.getAttribute("#archPanel h4", "data-node"), "authz", `360px ${scheme}: a layer button selects its component`);
+  ctl(`arch-mobile:${scheme}`);
+  await shotEl(page, "#archExplorer", `mobile-feature-architecture-layers-${scheme}`);
+  await context.close();
+}
+{
+  // Desktop keeps the diagrams.
+  const { page, context } = await newPage({ hash: "#ch6-explorer" });
+  ok(await page.$eval("#commSvgHost .seq-svg", (e) => getComputedStyle(e).display !== "none") && await page.$eval("#commSvgHost .seq-list", (e) => getComputedStyle(e).display === "none"), "1280px: the sequence diagram is shown, the step list hidden");
+  await go(page, "#ch1-architecture");
+  ok(await page.$eval("#archSvgHost .arch-svg", (e) => getComputedStyle(e).display !== "none"), "1280px: the architecture diagram is shown");
+  // Embedded screenshots: data: URIs only, every one decodes, every caption says what it is.
+  const imgs = await page.evaluate(() => [...document.querySelectorAll("img")].map((i) => ({ src: i.getAttribute("src").slice(0, 23), cap: (i.closest("figure")?.querySelector("figcaption")?.textContent) || "", alt: i.alt })));
+  ok(imgs.length >= 8, `guide embeds screenshots (${imgs.length})`);
+  for (const im of imgs) {
+    ok(im.src.startsWith("data:image/webp;base64,"), `image is a data: URI (${im.src})`);
+    ok(/fixture/i.test(im.cap) && /sample data/i.test(im.cap), `caption says fixture and sample data: “${im.cap.slice(0, 60)}”`);
+    ok(im.alt.length > 20, "image has a descriptive alt text");
+  }
+  for (const ch of CHAPTERS) {
+    await go(page, "#" + ch);
+    const res = await decodeVisible(page);
+    for (const r of res) { ok(r.ok, `${ch}: embedded image decodes (${r.r})`); eq(r.w, r.attr, `${ch}: image width attribute is its real width`); }
+    ctl(`images:${ch}`);
+  }
+  const size = fs.statSync(GUIDE).size;
+  ok(size < 3 * 1024 * 1024, `guide file under 3 MB (${size} bytes)`);
   await context.close();
 }
 
@@ -741,20 +889,25 @@ if (!process.env.GUIDE_NO_SCREENSHOTS) {
       await go(d.page, hash);
       if (name === "architecture") await d.page.click('#archSvgHost .node[data-id="authz"]');
       if (name === "communication") { await d.page.selectOption("#commScenario", "request"); await d.page.click("#commNext"); await d.page.click("#commNext"); await d.page.click("#commNext"); }
-      if (name === "workflow") await d.page.click("#wfAll");
+      if (name === "workflow") { await d.page.selectOption("#wfExample", "booking"); await d.page.click("#wfAll"); }
       if (name === "telemetry") await d.page.locator("#teleList button").nth(3).click();
       if (name === "troubleshooting") { await d.page.click('#tsTopics button[data-t="comm"]'); await d.page.locator("#tsNode .opts button").nth(1).click(); }
       if (name === "reference") await d.page.locator("#refTable .rowbtn").first().click();
       await shotEl(d.page, sel, `feature-${name}-${scheme}`);
     }
+    for (const [hash, name] of [["#ch3-studio", "ch3-studio"], ["#ch7-portal", "ch7-portal"], ["#ch9-sandbox", "ch9-sandbox"], ["#ch10-overview", "ch10-overview"], ["#verification", "verification-full"]]) { await go(d.page, hash); for (const r of await decodeVisible(d.page)) ok(r.ok, `${hash}: image decodes before its screenshot (${r.r})`); await shot(d.page, `desktop-${scheme}-${name}`, name === "verification-full"); }
     await go(d.page, "#ch1"); await d.page.fill("#searchInput", "Approval Required"); await d.page.waitForSelector("#searchResults:not([hidden])"); await shot(d.page, `desktop-${scheme}-search`);
     await d.page.fill("#searchInput", ""); await go(d.page, "#ch1"); await d.page.locator(".term").first().hover(); await shot(d.page, `desktop-${scheme}-glossary`);
     await d.context.close();
     const m = await newPage({ colorScheme: scheme, viewport: { width: 360, height: 780 } });
     for (const ch of CHAPTERS) { await go(m.page, "#" + ch); await shot(m.page, `mobile-${scheme}-${ch}`); }
+    for (const [hash, name] of [["#ch7-portal", "ch7-portal"], ["#ch9-sandbox", "ch9-sandbox"], ["#ch2-read", "ch2-read"]]) { await go(m.page, hash); for (const r of await decodeVisible(m.page)) ok(r.ok, `${hash}: image decodes before its mobile screenshot (${r.r})`); await shot(m.page, `mobile-${scheme}-${name}`); }
     await m.page.click("#menuBtn"); await m.page.waitForTimeout(350); await shot(m.page, `mobile-${scheme}-drawer`); await m.page.keyboard.press("Escape");
     for (const [hash, sel, name] of [["#ch1-architecture", "#archExplorer", "architecture"], ["#ch2-wizard", "#wizard", "wizard"], ["#ch6-explorer", "#commExplorer", "communication"], ["#ch8-workflow", "#workflow", "workflow"], ["#ch5-telemetry", "#telemetry", "telemetry"], ["#ch12-permissions", "#permissions", "permissions"], ["#ch13", "#troubleshoot", "troubleshooting"], ["#ch11-reference", "#reference", "reference"], ["#ch11-examples", "#examples", "examples"], ["#ch2-checklist", "#checklist", "checklist"]]) {
-      await go(m.page, hash); await shotEl(m.page, sel, `mobile-feature-${name}-${scheme}`);
+      await go(m.page, hash);
+      if (name === "communication") { await m.page.selectOption("#commScenario", "request"); await m.page.click("#commNext"); await m.page.click("#commNext"); }
+      if (name === "workflow") { await m.page.selectOption("#wfExample", "booking"); await m.page.click("#wfAll"); }
+      await shotEl(m.page, sel, `mobile-feature-${name}-${scheme}`);
     }
     await m.context.close();
   }

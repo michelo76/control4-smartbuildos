@@ -1,11 +1,12 @@
 #!/bin/sh
 # Rebuilds ../SmartBuildOS_AI_Core_Interactive_Guide.html from these parts.
-# tool-registry.json is regenerated from the platform worktree with dump-tools.mjs.
+# tool-registry.json is regenerated from the platform worktree with dump-tools.mjs;
+# shots/*.webp from the real UI screenshots with make-shots.sh (both checked in).
 set -e
 cd "$(dirname "$0")"
 OUT=../SmartBuildOS_AI_Core_Interactive_Guide.html
 {
-  cat p1.html p2.html p3.html
+  cat p1.html p2.html p3.html | node inline-shots.mjs
   printf '<script type="application/json" id="ref-data">'
   node refdata.mjs
   printf '</script>\n<script>\n'

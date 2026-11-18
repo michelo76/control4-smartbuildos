@@ -250,6 +250,45 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 4px; color: var(--sw-ink
 .seq .msg .local { fill: none; stroke: var(--sw-rule-strong); stroke-width: 1.5; }
 .seq .msg.cur .local { stroke: var(--sw-orange); stroke-width: 3; }
 .frame-detail pre.code { margin-top: 8px; }
+.frame-detail h4 { overflow-wrap: anywhere; }
+.seq-list { display: none; list-style: none; padding: 0; margin: 8px 0; }
+.seq-list li { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--sw-rule); border-left-width: 4px; border-radius: 8px; margin: 0 0 6px; background: var(--sw-surface); min-width: 0; }
+.seq-list .hop { font-size: .9rem; font-weight: 600; color: var(--sw-ink-2); }
+.seq-list .frame { font-size: .92rem; overflow-wrap: anywhere; white-space: normal; background: none; padding: 0; color: var(--sw-ink); }
+.seq-list li.future { opacity: .6; }
+.seq-list li.past { border-left-color: var(--sw-ink-2); }
+.seq-list li.cur { border-left-color: var(--sw-orange); background: var(--sw-orange-soft); }
+.seq-list li.cur .frame { color: var(--sw-orange-ink); font-weight: 700; }
+.seq-list li.err.cur .frame, .seq-list li.err.past .frame { color: var(--sw-red); }
+.arch-list { display: grid; gap: 10px; margin-top: 10px; }
+.arch-layer h4 { margin: 0 0 6px; font-size: .78rem; letter-spacing: .08em; color: var(--sw-muted); }
+.arch-layer-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.arch-chip .sub { display: none; }
+figure.shot { margin: 16px 0 20px; }
+figure.shot img { display: block; width: 100%; max-width: 960px; height: auto; border: 1px solid var(--sw-rule-strong); border-radius: 8px; background: #fff; }
+figure.shot figcaption { font-size: .86rem; color: var(--sw-muted); margin-top: 6px; }
+.status > div { min-width: 0; }
+.frame-detail h4 { overflow-wrap: anywhere; }
+.status p, .status small, ul.verify li, figure.shot figcaption, td code { overflow-wrap: anywhere; }
+ul.verify { padding-left: 20px; }
+ul.verify li { margin: 4px 0; }
+.tool-list code { display: inline-block; margin: 0 4px 4px 0; }
+.wf-steps .label-sim { margin-right: 6px; }
+@media (max-width: 640px) {
+  .seq-svg { display: none; }
+  .seq-list { display: block; }
+  .arch-svg { display: none; }
+  .arch-layer-items { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .arch-chip { display: grid; text-align: left; border-radius: 8px; padding: 8px 10px; }
+  .arch-chip .lbl { font-size: .95rem; font-weight: 600; }
+  .arch-chip .sub { display: block; font-size: .82rem; color: var(--sw-muted); overflow-wrap: anywhere; }
+  .steps-table thead { display: none; }
+  .steps-table tr { display: block; border-bottom: 1px solid var(--sw-rule); padding: 6px 0; }
+  .steps-table td { display: block; border: 0; padding: 3px 12px; }
+  .steps-table td::before { content: attr(data-label); display: block; font-size: .78rem; font-weight: 700; color: var(--sw-muted); }
+  .steps-table td:first-child { font-weight: 700; }
+  .steps-table td:first-child::before { content: none; }
+}
 
 /* Workflow */
 .wf-steps { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; }

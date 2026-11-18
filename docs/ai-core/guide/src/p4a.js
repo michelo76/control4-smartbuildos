@@ -2,18 +2,20 @@
 /* ══════════════════════════════════════════════════════════════════════
    STATUS — the single place every status callout in this guide comes from.
    A later pass updates statuses here only. tone: sim | dev | block | ok.
-   Sources: ai-core-program/IMPLEMENTATION_CHECKLIST.md (2026-11-18),
-   docs/ai-core/DRIVER.md §13–14, platform git state on 2026-11-18.
+   Sources: ai-core-program/IMPLEMENTATION_CHECKLIST.md (last updated
+   2026-11-18), driver docs/ai-core/{DRIVER,INSTALLATION,KNOWN-ISSUES}.md,
+   platform branch codex/ai-core at commit 557fa8d54 (committed work only).
    ══════════════════════════════════════════════════════════════════════ */
+const PLATFORM_HEAD = '557fa8d54';
 const STATUS = {
-  driver: { area: 'AI Core driver (Composer surface, collection, buffer, operations)', tone: 'sim',
+  driver: { area: 'AI Core driver (Composer surface, collection, buffer, operations, licence states)', tone: 'sim',
     title: 'Built and simulator-tested; not yet run on a physical controller',
-    text: 'Checklist 3.1–3.10 are Completed in simulation (the conductor reran the driver suite: 149 test files, 10,175 checks, 0 failed; emulator 77/77; a .c4z was built). Licence states (3.11) are Tested, with end-to-end licensing still In progress. 3.12 (the driver runs in Composer on a real controller) is Blocked: no controller.',
-    source: 'DRIVER.md §13–14; checklist Phase 3' },
+    text: 'Checklist 3.1–3.11 are Completed in simulation (the conductor reran the suite: 155 test files, 10,445 checks; emulator 105/105; a .c4z was built). This refresh pass ran `make test` again: 156 files, 10,727 checks, 0 failed. 3.12 (the driver runs in Composer on a real controller) is Blocked: no controller.',
+    source: 'DRIVER.md §13–14; KNOWN-ISSUES.md; checklist Phase 3' },
   protocol: { area: 'Module contract v2 and the Agent bus', tone: 'sim',
     title: 'Built and emulator-verified; not yet run on a physical controller',
-    text: 'Completed in simulation (checklist 2.2–2.10; the conductor reran 137 test files, 9,516 checks, 0 failed, emulator 23/23). Measuring frame sizes, ordering and restart on a real controller is Blocked (2.17).',
-    source: 'MODULE-CONTRACT-V2.md §16–17; checklist Phase 2' },
+    text: 'Completed in simulation (checklist 2.2–2.10; the conductor reran 137 test files, 9,516 checks, 0 failed, emulator 23/23). Measuring frame sizes, ordering and restart on a real controller is Blocked (2.17). No released Agent speaks v2 yet: the latest Agent release, 20261116.035552, is protocol 1 only.',
+    source: 'MODULE-CONTRACT-V2.md; INSTALLATION.md §1; checklist Phase 2' },
   frLocal: { area: 'Flight Recorder local history over contract v2', tone: 'sim',
     title: 'Built and emulator-tested; not yet run on a physical controller',
     text: 'The Flight Recorder serves its local ring over contract v2, and AI Core discovers it, subscribes and degrades when it is absent: checklist 4.1–4.2 Completed in simulation. Emulator only.',
@@ -24,24 +26,24 @@ const STATUS = {
     source: 'checklist 4.3–4.6' },
   frRetention: { area: 'Flight Recorder retention', tone: 'block',
     title: 'Owner decision — retention is not scheduled',
-    text: 'The retention function exists but its schedule is commented out. Enabling it deletes Flight Recorder events older than 30 days once applied, so it waits for the owner (checklist 4.7).',
+    text: 'The retention function exists but its schedule is commented out. Enabling it deletes Flight Recorder events older than 30 days once applied, so it waits for the owner (checklist 4.7, owner decision 4).',
     source: 'PRIVACY-RETENTION-LIMITS.md; checklist 4.7' },
   providers: { area: 'AI provider adapters, key vault, settings, budgets', tone: 'sim',
     title: 'Built and tested with mocked HTTP; no live provider call',
-    text: 'Completed in simulation (checklist 5.1–5.9: 103 provider tests and 41 vault/settings/budget/audit tests). Real calls to Anthropic and OpenAI are Blocked until a customer API key is supplied (5.11, 5.12).',
+    text: 'Completed in simulation (checklist 5.1–5.9: 103 provider tests and 41 vault/settings/budget/audit tests). A real call to Anthropic or OpenAI is Blocked until an API key is supplied (5.11, 5.12): every adapter has only been tested against wire fixtures written from vendor documentation.',
     source: 'providers/README.md; checklist Phase 5' },
   rpc: { area: 'Controller RPC route and cloud ops', tone: 'sim',
     title: 'Built and tested in simulation; the route is not deployed',
-    text: 'Checklist 2.12 is Completed in simulation: business outcomes are HTTP 200 `{ok}`, a bad token 401, an outage 5xx. ask, analyze_room, analyze_system, suggest_scene, generate_report, start_diagnostic and test_provider answer with a job; set_context and send_notification complete at once; learn_preference completes when the memory library is wired, else answers `unsupported`. The route is not deployed: until it is, the Agent gets 404 and the driver sees `cloud_refused`.',
-    source: 'rpc/ops.ts; DRIVER.md §3; MODULE-CONTRACT-V2.md §16; checklist 2.12' },
+    text: 'Checklist 2.12 is Completed in simulation: business outcomes are HTTP 200 `{ok}`, a bad token 401, an outage 5xx. ask, analyze_room, analyze_system, suggest_scene, generate_report, start_diagnostic and test_provider answer with a job; set_context, send_notification and learn_preference complete at once (`job_id: null`); status answers its own object. The route is not deployed: until it is, the Agent gets 404 and the driver sees `cloud_refused` (KNOWN-ISSUES KI-15).',
+    source: 'rpc/ops.ts; DRIVER.md §3; checklist 2.12' },
   learning: { area: 'Household learning (memory, detectors, recommendations, homeowner controls)', tone: 'sim',
-    title: 'Built and tested in simulation; analysis is not scheduled',
-    text: 'Completed in simulation (checklist 6.1–6.6; 60 learning tests; the migration ran only on a throwaway local Postgres). Analysis runs on demand; scheduling it is an owner decision (6.7). Today only an explicit licence row grants AI_LEARNING (open owner decision 7).',
+    title: 'Built and tested in simulation; off by default; analysis is not scheduled',
+    text: 'Completed in simulation (checklist 6.1–6.6; 60 learning tests; the migration ran only on a throwaway local Postgres). Learning is off until switched on in System Studio. Analysis runs on demand; scheduling it is an owner decision (6.7). Today only an explicit licence row grants AI_LEARNING (owner decision 7).',
     source: 'memory/README.md; checklist Phase 6' },
-  portalUi: { area: 'Homeowner portal screens', tone: 'dev',
-    title: 'In development — portal screens not built',
-    text: 'The portal API routes for learning, memories, actions and rules are committed. The portal screens for the concierge conversation, approvals and learned-preference review are Not started (9.4); a homeowner approval screen for recommendations is an open owner decision.',
-    source: 'checklist 9.4; open owner decision 8' },
+  portalUi: { area: 'Homeowner portal screens ("Your home assistant")', tone: 'sim',
+    title: 'Built and browser-verified against fixtures and a local stack; not deployed',
+    text: 'Checklist 9.4 is Completed: concierge, approvals, what my home has learned, recommendations and calendar were browser-verified at 360, 768 and 1280 px in fixture mode and against a local stack (158 screenshots; the conductor reran 23 tests). Dark mode was not screenshotted and erase was not executed live. A committed browser smoke spec of the fixture-mode preview pages (npm run test:e2e:ai-core) passed 12/12 (10.2). Not deployed.',
+    source: 'checklist 9.4; platform src/components/portal/ai-core' },
   orchestrator: { area: 'Orchestrator (conversation loop)', tone: 'sim',
     title: 'Built and tested in simulation; no live model call',
     text: 'The bounded turn loop (static prompts, fixed tool list, budget before every call, structured answer, evidence post-check) is Completed in simulation (checklist 5.10: 81 orchestrator/conversation/RPC/job tests; injection fixtures pass). No call has been made to a real model (5.11, 5.12 blocked on a key).',
@@ -50,42 +52,100 @@ const STATUS = {
     title: 'Built and tested in simulation; no device has been changed',
     text: 'Checklist 7.1–7.8 are Completed in simulation (the conductor reran 1,139 action/rule/programming/authz tests; the migration ran on a local Postgres, worker-reported). An approved action physically changing a device is Blocked: no controller (7.9).',
     source: 'actions/*.ts; checklist Phase 7' },
-  studio: { area: 'System Studio Intelligence pages', tone: 'dev',
-    title: 'In development — not in this release',
-    text: 'Navigation, AI Overview, Household Usage, Flight Recorder Intelligence and the provider/credential UI are In progress (8.1–8.4, 8.8, 8.9); Recommendations, Service Intelligence and Conversations pages are Not started in the checklist (8.5–8.7), although their API routes and some page components already exist on the platform branch or in uncommitted work.',
-    source: 'checklist Phase 8; platform working tree' },
+  studio: { area: 'System Studio Intelligence pages', tone: 'sim',
+    title: 'Built and browser-verified against fixtures and a local stack; no live provider answer',
+    text: 'Checklist 8.1–8.9 are Completed: the six pages plus the setup, approvals, rules and hand-off screens were exercised in a browser in fixture mode and against a local stack (60 + 118 screenshots; one captured a loading state). Real model answers have not been shown live (no provider key). Not deployed.',
+    source: 'checklist Phase 8' },
   ninth: { area: 'Ninth Studio destination', tone: 'block',
     title: 'Owner sign-off pending',
-    text: 'Intelligence as a ninth top-level System Studio destination contradicts the eight destinations of REBUILD-SPEC §6 and waits for owner sign-off (8.10). Nesting it is a one-field change.',
+    text: 'Intelligence is built as a ninth top-level System Studio destination, as the brief specified; it waits for owner sign-off (8.10, owner decision 1). Nesting it is a one-field change.',
     source: 'ARCHITECTURE D13; checklist 8.10' },
-  conversations: { area: 'AI Conversations', tone: 'dev',
-    title: 'In development — not in this release',
-    text: 'Staff and homeowner conversation routes (with a Server-Sent Events progress stream) are on the platform branch; the Studio page is Not started (8.7) and the homeowner portal screen is Not started (9.4).',
+  conversations: { area: 'AI Conversations', tone: 'sim',
+    title: 'Built; no real model answer has been shown',
+    text: 'The Studio AI Conversations page (Server-Sent Events progress, role-gated) and the homeowner conversation in the portal are browser-verified in fixture mode and against a local stack (8.7, 9.4). Without a provider key a turn ends `provider_not_configured`: no real model answer has been produced.',
     source: 'conversations routes; checklist 8.7, 9.4' },
-  concierge: { area: 'Lifestyle concierge', tone: 'dev',
-    title: 'In development — not in this release',
-    text: 'The reservation provider interface and booking state machine (9.1), the labelled sandbox provider (9.2), the Google and Microsoft calendar adapters (9.3) and failed-booking recovery (9.5) are In progress; the portal concierge screens are Not started (9.4). Only the SIMULATED sandbox provider can complete a booking, and only as simulated_confirmed.',
+  concierge: { area: 'Lifestyle concierge (request flow, sandbox, recovery)', tone: 'sim',
+    title: 'Built and tested in simulation — only a labelled SIMULATION sandbox can complete a request',
+    text: 'The provider interface and booking state machine (9.1), the sandbox provider labelled as a simulation everywhere (9.2) and failed-booking recovery (9.5) are Completed in simulation (56 concierge tests; the database admits only the sandbox provider). A missing function grant that broke every transition in a real database was found in the portal browser pass and fixed; a behavioural QA script acting as the application role covers it (worker-reported). The calendar adapters are Tested against documented wire fixtures (9.3). A sandbox booking ends simulated_confirmed, never confirmed.',
     source: 'checklist Phase 9' },
-  vendor: { area: 'Restaurant booking', tone: 'block',
+  vendor: { area: 'Restaurant booking with a real vendor', tone: 'block',
     title: 'Requires a vendor partner agreement — not available',
-    text: 'Real booking is Blocked (9.6): OpenTable, Yelp Reservations and SevenRooms need a partner agreement each; Resy and Tock have no sanctioned API.',
-    source: 'ARCHITECTURE §8; analysis 05 Part 6; checklist 9.6' },
-  calendar: { area: 'Calendar read/write', tone: 'block',
-    title: 'Requires OAuth client credentials — not available',
-    text: 'Real calendar read/write is Blocked (9.7) on OAuth client credentials for Google Calendar and Microsoft Graph; Google also needs sensitive-scope verification before production.',
-    source: 'ARCHITECTURE §8; checklist 9.7' },
-  licensing: { area: 'Licensing end to end', tone: 'dev',
-    title: 'In development — not in this release',
-    text: 'Driver licence states, grace and features are Tested (3.11). Licence activation, controller binding, grace, renewal, transfer and updates end to end are In progress (10.1). Catalogue price and plan inclusion are owner decisions.',
-    source: 'checklist 3.11, 10.1' },
-  packaging: { area: 'Packaging and store publication', tone: 'block',
-    title: 'Not released or published',
-    text: 'A .c4z has been built from the worktree in simulation runs, but packaging for release is In progress (10.8). Store publication is Blocked on the owner (10.12).',
-    source: 'checklist 10.8, 10.12' },
+    text: 'Real booking is Blocked (9.6): OpenTable, Yelp Reservations and SevenRooms need a partner agreement each; Resy and Tock have no sanctioned booking API; Reserve with Google cannot book on a diner’s behalf. No vendor adapter code exists.',
+    source: 'concierge/providers/registry.ts; checklist 9.6' },
+  calendar: { area: 'Calendar read/write and restaurant discovery', tone: 'block',
+    title: 'Requires OAuth client credentials and a Places key — never called live',
+    text: 'Real calendar read/write is Blocked (9.7) on OAuth client credentials (AI_CORE_CALENDAR_GOOGLE_CLIENT_ID / _SECRET, AI_CORE_CALENDAR_MICROSOFT_CLIENT_ID / _SECRET); Google’s calendar scopes also need sensitive-scope verification before production. Google Places discovery needs AI_CORE_GOOGLE_PLACES_API_KEY. Without them each answers not_configured.',
+    source: 'concierge/server.ts; checklist 9.7; KNOWN-ISSUES.md' },
+  licensing: { area: 'Licensing end to end', tone: 'sim',
+    title: 'Tested end to end in the emulator; three stated gaps',
+    text: 'Licence activation, controller binding, grace, renewal, transfer and updates are Completed in simulation with real HMAC signatures and a virtual clock (checklist 3.11, 10.1). Gaps: no driver-side transfer workflow (a platform staff action); the platform never issues CONTROLLER_MISMATCH for AI Core; a tampered assertion is dropped and the driver keeps running (owner decision 11). Price and plan inclusion are owner decisions (2, 13).',
+    source: 'checklist 3.11, 10.1; KNOWN-ISSUES KI-24, KI-25' },
+  packaging: { area: 'Packaging, branches and store publication', tone: 'block',
+    title: 'Built locally; nothing released',
+    text: 'A .c4z was built from the worktree (version 20261118.080130; packaging test 17/17; checklist 10.8). Nothing is released: the branches are not pushed and no pull request is open (10.10), and nothing is published to the store (10.12) — both wait for the owner.',
+    source: 'checklist 10.8, 10.10, 10.12; RELEASE.md' },
   migrations: { area: 'Database migrations', tone: 'block',
     title: 'Not applied to production',
-    text: 'AI Core migrations were run only on throwaway local databases. Applying them to production is the owner’s step (10.11).',
-    source: 'checklist 2.16, 10.11' },
+    text: 'The eight AI Core migrations were run only on a throwaway local Postgres (applied, rolled back and re-applied). Applying them to production is the owner’s step (10.11).',
+    source: 'platform docs/ai-core/MIGRATIONS.md; checklist 2.16, 10.11' },
+  devdocs: { area: 'Developer API documentation and test matrix', tone: 'sim',
+    title: 'Written and cross-checked by script',
+    text: 'Checklist 10.5 is Completed: the platform repo\u2019s docs/ai-core/DEVELOPER-API.md, OPERATIONS.md, README.md, DRIVER-CONTRACT.md and MIGRATIONS.md are synced to platform commit 0481f3f98 and cross-checked by script (by the worker, not line by line by the conductor). The test matrix is Completed (10.2): the driver repo\u2019s and the platform\u2019s docs/ai-core/TEST-MATRIX.md. Chapter 14 links to them by repository path.',
+    source: 'checklist 10.2, 10.5; platform commit 557fa8d54' },
+};
+
+/* What the Verification status page lists, from the checklist as it read when
+   this guide was refreshed. Each entry: [text, checklist reference]. */
+const VERIFY = {
+  simulated: [
+    ['Driver: Composer surface, collection, buffer, restricted operations, licence states (unit tests under a C4 shim + Director emulator)', '3.1–3.11'],
+    ['Module contract v2 and the Agent bus (emulator)', '2.2–2.10'],
+    ['Flight Recorder local history over contract v2 (emulator)', '4.1–4.2'],
+    ['Cloud history tools and the evidence post-check (fakes)', '4.3–4.6'],
+    ['Provider adapters, vault, settings, budgets (mocked HTTP)', '5.1–5.9'],
+    ['Orchestrator turn loop (fakes; injection fixtures)', '5.10'],
+    ['Household learning and homeowner controls', '6.1–6.6'],
+    ['Permission engine, actions, rules, hand-offs, isolation, audit', '7.1–7.8'],
+    ['Concierge: request state machine, labelled SIMULATION sandbox and failed-booking recovery', '9.1, 9.2, 9.5'],
+    ['Calendar adapters and OAuth against documented wire fixtures (Tested)', '9.3'],
+    ['Licensing end to end with real signatures and a virtual clock', '10.1'],
+    ['Migrations applied, rolled back and re-applied on a local Postgres', '2.16'],
+  ],
+  browser: [
+    ['System Studio Intelligence: AI Overview, Household Usage, Flight Recorder Intelligence, Recommendations, Service, Conversations, Provider & settings, approvals, rules, hand-offs, pending memories — fixture mode and a local stack', '8.1–8.9'],
+    ['Homeowner portal "Your home assistant" at 360, 768 and 1280 px — fixture preview and a local stack (dark mode not screenshotted; erase not executed live)', '9.4'],
+    ['Committed browser smoke spec of the fixture-mode Studio and portal preview pages (npm run test:e2e:ai-core, 12/12)', '10.2'],
+    ['This guide: every control in Chromium (see the test counts below)', '10.3, 10.4'],
+  ],
+  never: [
+    ['A live AI provider call (Anthropic or OpenAI)', '5.11, 5.12'],
+    ['A physical Control4 controller running the driver, contract v2 or an approved action', '2.17, 3.12, 7.9'],
+    ['Any vendor booking', '9.6'],
+    ['A real calendar read or write, or a real Google Places search', '9.7'],
+    ['The controller route deployed (until then: 404 → cloud_refused)', 'KI-15'],
+  ],
+  owner: [
+    ['Intelligence as a ninth top-level Studio destination, or nested', 'decision 1, 8.10'],
+    ['Catalogue price and plan inclusion for SBOS_AI_CORE and its features', 'decision 2'],
+    ['One-click import of existing plaintext company AI keys into the vault', 'decision 3'],
+    ['Enabling Flight Recorder retention (deletes events older than 30 days)', 'decision 4, 4.7'],
+    ['Store category for AI Core (currently Utility)', 'decision 5'],
+    ['Default daily request limit (500) and burst (20/min); UTC vs property-local month; unknown-cost rows in rollups', 'decision 6'],
+    ['Who schedules household analysis; thresholds without a §N row; re-raising a dismissed recommendation; whether the subscription grants AI_LEARNING', 'decision 7, 6.7'],
+    ['Email for AI Core notices; two homeowner confirmations for high-risk actions; action limits (30 min, 6/min, 40/hour, 10 open)', 'decision 9'],
+    ['Composer Studio has no per-project programming field, so a programming recommendation cannot be accepted into a blueprint automatically', 'decision 10'],
+    ['Licensing policy: a tampered assertion is dropped and the driver keeps running', 'decision 11'],
+    ['Pre-existing release gaps: no store mapping for the Flight Recorder; release.yml only on v* tags; Agent main chunk at 198 of 200 locals', 'decision 12'],
+    ['Whether SBOS_AI_CORE is included in a subscription plan or sold only by explicit licence (the platform now licenses it by explicit entitlement only, the architect\u2019s interim ruling)', 'decision 13'],
+    ['Staff route scope: most staff routes scope technicians by company only; conversations, jobs and concierge also check property visibility — tighten all, or leave', 'decision 14'],
+    ['Erase semantics: “erase everything learned” deletes every recommendation, approved ones included; deleting one memory keeps approved, implementing and implemented ones', 'decision 15'],
+  ],
+  unreleased: [
+    ['Branches not pushed; no pull request', '10.10'],
+    ['Nothing published to the Driver Store; no GitHub release', '10.12'],
+    ['Migrations not applied to production', '10.11'],
+    ['Platform not deployed (the controller route answers 404)', 'KI-15'],
+  ],
 };
 
 /* Glossary for contextual definitions (hover, focus or tap a dotted term). */
@@ -103,6 +163,8 @@ const GLOSSARY = {
   idempotency: ['Idempotency key', 'A key kept the same across retries of one request, so the Agent replays the stored answer instead of routing the request twice.'],
   risk: ['Risk class', 'Declared once per tool in the registry: read, low, high, external or programming. The permission engine reads it from the registry, never from the model.'],
   mode: ['Permission mode', 'Per-property setting in System Studio: observe (default; no actions at all), recommend (actions need approval), execute_low_risk (low-risk actions may run under a homeowner-consented rule).'],
+  sandbox: ['SIMULATION sandbox', 'The only reservation provider with code: a made-up restaurant inventory (every name begins SIMULATION), off unless staff enable it for a property. Its bookings end simulated_confirmed, never confirmed; nothing is booked at a real restaurant.'],
+  precedence: ['Configuration precedence', 'The configuration document is the source of truth on the controller. set_learning only previews a document version so a pause takes effect at once; a late or repeated operation can never undo a newer document.'],
 };
 
 /* ── small helpers ────────────────────────────────────────────────────── */
@@ -150,6 +212,12 @@ function renderStatuses() {
     const where = [...(used[k] || [])].map((id) => '<a href="#' + id + '">' + esc($('#' + id).dataset.title) + '</a>').join(', ') || '—';
     return '<tr data-key="' + k + '"><td>' + esc(s.area) + '</td><td><span class="status" data-tone="' + s.tone + '" style="display:inline-block;margin:0;padding:2px 8px">' + esc(TONE_WORD[s.tone]) + '</span><br><b>' + esc(s.title) + '</b></td><td>' + codeify(s.text) + '<br><small>Source: ' + esc(s.source) + '</small></td><td>' + where + '</td></tr>';
   }).join('');
+  Object.entries(VERIFY).forEach(([k, list]) => {
+    const host = document.getElementById('verify-' + k);
+    if (host) host.innerHTML = list.map(([t, ref]) => '<li data-ref="' + esc(ref) + '">' + codeify(t) + ' <small>(' + esc(ref) + ')</small></li>').join('');
+  });
+  const head = document.getElementById('platformHead');
+  if (head) head.textContent = PLATFORM_HEAD;
 }
 
 /* ── generated reference tables (Chapter 11, 14) ──────────────────────── */
