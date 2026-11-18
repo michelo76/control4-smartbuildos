@@ -9021,6 +9021,29 @@ local function statusForSku(sku)
   return answer
 end
 
+--- Every installed instance of one inventoried SKU: device ids, ascending.
+--- The inventory keeps the SET of instances per SKU (`devices`, string keys
+--- for persistence) so that removing one instance of a driver never drops
+--- the SKU for an instance that remains. An entry saved before instances
+--- were tracked has only `device_id`, which is read as its one instance.
+--- A global, not a local: this chunk is at Lua's 200-local limit.
+function SbosInventoryInstances(entry)
+  local ids, seen = {}, {}
+  local function add(raw)
+    local id = tonumber(raw)
+    if id ~= nil and not seen[id] then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+  for raw in pairs(type(entry) == "table" and type(entry.devices) == "table" and entry.devices or {}) do
+    add(raw)
+  end
+  add(type(entry) == "table" and entry.device_id or nil)
+  table.sort(ids)
+  return ids
+end
+
 --- #4: installed vs licensed SmartBuildOS drivers in this project. "Installed"
 --- is every driver registered with this Agent; "licensed" is those whose
 --- current entitlement answer is an authorized status. Best-effort display,
@@ -9095,8 +9118,7 @@ end
 local function pushEntitlements()
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   for sku, entry in pairs(inventory) do
-    local device = tonumber(entry.device_id)
-    if device ~= nil then
+    for _, device in ipairs(SbosInventoryInstances(entry)) do
       answerEntitlement(device, sku)
     end
   end
@@ -9127,12 +9149,31 @@ function refreshEntitlements(reason)
   end
   local changed = false
   for sku, entry in pairs(inventory) do
-    local id = tonumber(entry.device_id)
-    if next(known) and not known[id] then
+    -- Prune instances no longer in the project; the SKU stays while ANY
+    -- instance remains (it used to keep one device id, the last to
+    -- register, so removing that one dropped the SKU for the others).
+    local all = SbosInventoryInstances(entry)
+    local remaining, devices, current = {}, {}, nil
+    for _, id in ipairs(all) do
+      if not next(known) or known[id] then
+        remaining[#remaining + 1] = id
+        devices[tostring(id)] = true
+        if id == tonumber(entry.device_id) then
+          current = id
+        end
+      end
+    end
+    if #remaining == 0 then
       inventory[sku] = nil
       changed = true
     else
-      installed[#installed + 1] = { sku = sku, version = tostring(entry.version or ""), device_id = id }
+      if #remaining ~= #all or type(entry.devices) ~= "table" then
+        changed = true
+      end
+      entry.devices = devices
+      entry.device_id = current or remaining[#remaining]
+      installed[#installed + 1] =
+        { sku = sku, version = tostring(entry.version or ""), device_id = entry.device_id }
     end
   end
   if changed then
@@ -9257,17 +9298,14 @@ end
 local function pushChangedEntitlements()
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   for sku, entry in pairs(inventory) do
-    local device = tonumber(entry.device_id)
     local status = statusForSku(sku).status
-    if device ~= nil and status ~= gAnswered[sku] then
-      log:info(
-        "Licence status for %s is %s, last told %s; telling device %s",
-        sku,
-        status,
-        tostring(gAnswered[sku]),
-        device
-      )
-      answerEntitlement(device, sku)
+    if status ~= gAnswered[sku] then
+      -- answerEntitlement records gAnswered[sku]: decide once, tell every instance.
+      local told = tostring(gAnswered[sku])
+      for _, device in ipairs(SbosInventoryInstances(entry)) do
+        log:info("Licence status for %s is %s, last told %s; telling device %s", sku, status, told, device)
+        answerEntitlement(device, sku)
+      end
     end
   end
 end
@@ -9303,6 +9341,13 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   local newInstallation = inventory[sku] == nil
   local entry = inventory[sku] or { registered_at = now }
   entry.version = tostring(tParams.version or "")
+  -- One SKU, possibly several instances: keep them all (see SbosInventoryInstances).
+  local devices = {}
+  for _, id in ipairs(SbosInventoryInstances(entry)) do
+    devices[tostring(id)] = true
+  end
+  devices[tostring(requester)] = true
+  entry.devices = devices
   entry.device_id = requester
   entry.last_seen = now
   inventory[sku] = entry
@@ -9600,7 +9645,13 @@ function EC.PRINT_SBOS_DRIVERS()
   local count = 0
   for sku, entry in pairs(inventory) do
     count = count + 1
-    log:print("  %s v%s (device %s, last seen %s)", sku, entry.version, tostring(entry.device_id), entry.last_seen)
+    log:print(
+      "  %s v%s (device(s) %s, last seen %s)",
+      sku,
+      entry.version,
+      table.concat(SbosInventoryInstances(entry), ", "),
+      entry.last_seen
+    )
   end
   log:print("%d SmartBuildOS driver(s) registered with this Agent", count)
 end
