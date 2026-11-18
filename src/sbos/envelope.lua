@@ -72,6 +72,8 @@ M.PREFIXES = {
   agent = { "agent." },
   -- VenueFlow: a new live version, and remote configuration (docs/smartbuildos-venueflow).
   venueflow = { "venueflow." },
+  -- SmartBuildOS AI Core (ai-core-program ARCHITECTURE §3): its own events only.
+  ai_core = { "ai_core." },
   -- Reserved, not implemented (extension contracts, PROTOCOL.md §8):
   guardian = { "health." },
   commissioning_inspector = { "test." },

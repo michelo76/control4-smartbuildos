@@ -87,6 +87,9 @@ Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
 SeqBlock = require("sbos.seqblock")
 Envelope = require("sbos.envelope")
+-- Module contract v2 (discovery, pub/sub, request/response, cloud relay):
+-- docs/protocol/MODULE-CONTRACT-V2.md. Global for the same reason.
+ModuleBus = require("sbos.modulebus")
 SlProtocol = require("systemlink.protocol")
 -- Send Push Notification: the message variables are the Notification
 -- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
@@ -1121,7 +1124,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
     end
 
     if onDelivered then
-      pcall(onDelivered)
+      pcall(onDelivered, response)
     end
 
     if onOk then
@@ -1146,7 +1149,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       -- connection it was reporting on no longer exists.
       log:info("%s failed after unpairing; ignored: %s", description, tostring(err and (err.error or err.code) or err))
       if onFailed then
-        pcall(onFailed, "unpaired")
+        pcall(onFailed, "unpaired", httpStatus(err))
       end
       return
     end
@@ -1189,7 +1192,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       }, "sync failure report")
     end
     if onFailed then
-      pcall(onFailed, reason)
+      pcall(onFailed, reason, code)
     end
   end)
 end
@@ -2457,6 +2460,9 @@ function driverCapabilities()
     -- module commands (MODULE_COMMAND) and on-request variable discovery.
     "modules_v1",
     "flight_recorder_v1",
+    -- Module contract v2: discovery, local pub/sub, module requests and the
+    -- closed-vocabulary cloud relay (POST modules/rpc).
+    "modules_v2",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -3158,6 +3164,8 @@ local function sendHeartbeat()
       -- drops with sequence ranges, upload failures, last ack, limits).
       modules = ModulesHeartbeatBlock(),
       event_pipeline = gEvents and gEvents:health() or nil,
+      -- Contract v2 bus totals (requests, refused, timeouts, published, dropped, cloud calls).
+      module_bus = gBus and gBus:health() or nil,
       module_protocol = { min = Modules.PROTOCOL_MIN, max = Modules.PROTOCOL_MAX },
       -- The server may ignore this additive object until its status reader is
       -- deployed. That is intentional forward compatibility: absence is an
@@ -3778,17 +3786,34 @@ MODULE_COMMANDS = {
   -- "Remote Management" property allows them, so the instance check above
   -- refuses them otherwise. None of these routes video or runs a scene.
   venueflow = { snapshot = true, save_draft = true, publish = true, rollback = true, refresh_status = true },
+  -- SmartBuildOS AI Core (ARCHITECTURE §5). Configuration, results and a
+  -- closed list of Composer events only; none of these controls equipment
+  -- (AI-originated device actions use the ordinary command queue).
+  ai_core = {
+    apply_config = true,
+    refresh_status = true,
+    deliver_result = true,
+    raise_event = true,
+    set_learning = true,
+    run_diagnostic = true,
+  },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100
 MODULE_SNAPSHOT_MAX_BYTES = 256 * 1024
 
-function ModuleToken()
+--- The v1 generator, kept as the fallback when Director has no UUID API.
+function ModuleTokenV1()
   local parts = {}
   for i = 1, 4 do
     parts[i] = string.format("%08x", math.random(0, 0x7fffffff))
   end
   return table.concat(parts)
+end
+
+--- Registration tokens: C4:UUID("RANDOM") (122 random bits) when available.
+function ModuleToken()
+  return Modules.token(C4, ModuleTokenV1)
 end
 
 function ModulesInit()
@@ -3809,7 +3834,93 @@ function ModulesInit()
     log:warn("Event journal was unreadable or partly unreadable; the queue started with what could be recovered")
   end
   gAgentEventSeq = SeqBlock.new(persist, AGENT_EVENT_SEQ_KEY)
+  gBus = ModuleBus.new({
+    registry = gModules,
+    now = os.time,
+    send = ModuleSend,
+    cloudPost = ModuleBusCloudPost,
+    setTimer = SetTimer,
+    cancelTimer = CancelTimer,
+    agent = function()
+      return { version = tostring(AgentVersion() or ""), paired = isPaired(), connected = gConnected == true }
+    end,
+  })
   log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
+end
+
+--- The cloud relay's one road out: POST /api/integrations/control4/modules/rpc
+--- through this Agent's own authenticated send() (pairing token, system
+--- identity, clock note, failure reporting). The body is the bus's fixed
+--- shape; the op vocabulary was checked against MODULE_CLOUD_OPS already.
+function ModuleBusCloudPost(body, done)
+  local finished = false
+  local function finish(res)
+    if not finished then
+      finished = true
+      done(res)
+    end
+  end
+  send(
+    ModuleBus.Policy.CLOUD_PATH,
+    body,
+    string.format("module rpc %s.%s", tostring(body.module_id), tostring(body.op)),
+    nil,
+    function(response)
+      local decoded = response and response.body
+      if type(decoded) == "string" then
+        local okD, value = pcall(function()
+          return JSON:decode(decoded)
+        end)
+        decoded = okD and value or nil
+      end
+      finish({ ok = true, http_status = tonumber(response and response.code) or 200, body = decoded })
+    end,
+    function(reason, code)
+      finish({ ok = false, http_status = tonumber(code), reason = reason })
+    end
+  )
+end
+
+--- Authenticates a contract v2 frame and hands it to the bus. Frames
+--- without the sender's registration token are ignored (no answer at all).
+function ModuleBusDispatch(method, tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  if entry == nil then
+    gBus.totals.ignored = gBus.totals.ignored + 1
+    log:debug("module v2 frame ignored: %s", tostring(why))
+    return
+  end
+  gModules:touch(entry, {})
+  local ok, err = pcall(gBus[method], gBus, entry, tParams)
+  if not ok then
+    log:error("module bus %s failed: %s", method, tostring(err))
+  end
+end
+
+function EC.SBOS_MODULE_DISCOVER(tParams)
+  ModuleBusDispatch("discover", tParams)
+end
+
+function EC.SBOS_MODULE_SUBSCRIBE(tParams)
+  ModuleBusDispatch("subscribe", tParams)
+end
+
+function EC.SBOS_MODULE_UNSUBSCRIBE(tParams)
+  ModuleBusDispatch("unsubscribe", tParams)
+end
+
+function EC.SBOS_MODULE_REQUEST(tParams)
+  ModuleBusDispatch("request", tParams)
+end
+
+function EC.SBOS_MODULE_RESPONSE(tParams)
+  ModuleBusDispatch("response", tParams)
+end
+
+function EC.SBOS_MODULE_CLOUD_REQUEST(tParams)
+  ModuleBusDispatch("cloudRequest", tParams)
 end
 
 --- Monotonic sequence for the Agent's own pipeline events (sbos.seqblock: a
@@ -3877,6 +3988,13 @@ function ModulesHeartbeatBlock()
   if #block == 0 then
     return nil
   end
+  if gBus ~= nil then
+    -- What the Agent measured on the bus for each instance (requests,
+    -- refusals, answers served, events published / dropped to it).
+    for _, row in ipairs(block) do
+      row.bus = gBus:moduleCounters(row.module_id, row.instance_id)
+    end
+  end
   return block
 end
 
@@ -3941,7 +4059,12 @@ function EC.SBOS_MODULE_REGISTER(tParams)
   tParams = tParams or {}
   local ok, reply, entry = gModules:register(tParams)
   for k, v in pairs(ModuleAgentState()) do
-    reply[k] = v
+    -- `protocol` in the agent state is the Agent's MAXIMUM; the reply's is
+    -- the NEGOTIATED version, which must survive the merge (a v1 module told
+    -- "2" would believe it may speak v2).
+    if k ~= "protocol" then
+      reply[k] = v
+    end
   end
   reply.agent_protocol_min = tostring(Modules.PROTOCOL_MIN)
   reply.agent_protocol_max = tostring(Modules.PROTOCOL_MAX)
@@ -3959,6 +4082,7 @@ function EC.SBOS_MODULE_REGISTER(tParams)
     for _, sku in ipairs(entry.entitlements or {}) do
       pcall(ResendDriverConfig, sku, entry.instance_id)
     end
+    pcall(gBus.onRegistered, gBus, entry)
   else
     log:warn(
       "module registration refused: %s@%s (%s)",
@@ -4005,6 +4129,7 @@ function EC.SBOS_MODULE_UNREGISTER(tParams)
   end
   gModules:remove(entry.module_id, entry.instance_id)
   ModulesPersist()
+  pcall(gBus.onRemoved, gBus, entry)
   log:info("module unregistered: %s@%s", entry.module_id, tostring(entry.instance_id))
 end
 
@@ -4085,6 +4210,8 @@ function EC.SBOS_MODULE_EVENTS(tParams)
         local okP, whyP = gEvents:push(env)
         if okP then
           accepted = accepted + 1
+          -- Contract v2 fan-out: only what the Agent accepted.
+          pcall(gBus.offer, gBus, env, entry)
         else
           rejected = rejected + 1
           reason = whyP
@@ -6568,6 +6695,9 @@ function OnDriverDestroyed()
   end
   CancelTimer(EVENTS_TIMER)
   CancelTimer(EVENTS_FAST_TIMER)
+  if gBus ~= nil then
+    pcall(gBus.stop, gBus)
+  end
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)

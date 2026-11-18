@@ -26,12 +26,21 @@
 --- Display status (derived here, shown in Composer and Studio):
 ---   ready | waiting_for_agent | unpaired | degraded | unlicensed | incompatible
 ---
+--- Contract v2 (docs/protocol/MODULE-CONTRACT-V2.md) adds one optional
+--- registration param, `manifest` (JSON): the module's typed capabilities
+--- (request capabilities and topic offers). It is parsed and bounded here,
+--- stored on the entry only when the negotiated protocol is 2 or more, and
+--- served to other modules by discovery. The v1 csv params are unchanged.
+---
 --- Pure: injected clock and token source; the Agent persists serialize().
+
+local Policy = require("sbos.modulepolicy")
+JSON = JSON or require("JSON")
 
 local M = {}
 
-M.PROTOCOL_MIN = 1
-M.PROTOCOL_MAX = 1
+M.PROTOCOL_MIN = Policy.PROTOCOL_MIN
+M.PROTOCOL_MAX = Policy.PROTOCOL_MAX
 M.LIMITS = { modules = 16, csv_items = 32, detail = 200, stale_seconds = 15 * 60 }
 M.STATUS = {
   ready = "ready",
@@ -65,6 +74,97 @@ end
 
 function M.validModuleId(id)
   return type(id) == "string" and id:match("^[a-z][a-z0-9_]*$") ~= nil and #id >= 3 and #id <= 48
+end
+
+--- Registration token source. A v4 UUID from Director (`C4:UUID("RANDOM")`,
+--- OS 3.3.0+; 122 random bits) when it answers with one, else `fallback`
+--- (the v1 math.random generator). Always 32 lowercase hex characters.
+--- @param c4 table|nil the C4 object (nil in pure tests)
+--- @param fallback fun():string
+function M.token(c4, fallback)
+  if c4 ~= nil then
+    local ok, uuid = pcall(function()
+      return c4:UUID("RANDOM")
+    end)
+    if ok and type(uuid) == "string" then
+      local hex = uuid:gsub("%-", ""):lower()
+      if #hex == 32 and hex:match("^[0-9a-f]+$") then
+        return hex
+      end
+    end
+  end
+  return fallback()
+end
+
+--- Parses and bounds a v2 capability manifest (the raw JSON string).
+--- @return table|nil manifest, string|nil reason
+function M.parseManifest(raw)
+  if raw == nil or raw == "" then
+    return nil, nil
+  end
+  if type(raw) ~= "string" then
+    return nil, "invalid_manifest"
+  end
+  if #raw > Policy.LIMITS.manifest_bytes then
+    return nil, "manifest_too_large"
+  end
+  local ok, doc = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not ok or type(doc) ~= "table" then
+    return nil, "invalid_manifest"
+  end
+  local out = {
+    driver = type(doc.driver) == "string" and doc.driver:sub(1, 64) or "",
+    version = doc.version ~= nil and tostring(doc.version):sub(1, 32) or "",
+    protocol = tonumber(doc.protocol),
+    capabilities = {},
+  }
+  local caps = doc.capabilities
+  if caps ~= nil and type(caps) ~= "table" then
+    return nil, "invalid_manifest"
+  end
+  for _, c in ipairs(caps or {}) do
+    if #out.capabilities >= Policy.LIMITS.manifest_capabilities then
+      return nil, "too_many_capabilities"
+    end
+    if type(c) ~= "table" or not Policy.validCapability(c.id) then
+      return nil, "invalid_capability"
+    end
+    local kind = c.kind == nil and "request" or c.kind
+    if kind ~= "request" and kind ~= "topic" then
+      return nil, "invalid_capability"
+    end
+    local cap = { id = c.id, version = math.floor(tonumber(c.version) or 1), kind = kind }
+    if kind == "topic" then
+      if type(c.topics) ~= "table" or #c.topics == 0 or #c.topics > Policy.LIMITS.capability_topics then
+        return nil, "invalid_capability"
+      end
+      cap.topics = {}
+      for _, t in ipairs(c.topics) do
+        if not Policy.validTopic(t) then
+          return nil, "invalid_capability"
+        end
+        cap.topics[#cap.topics + 1] = t
+      end
+    end
+    out.capabilities[#out.capabilities + 1] = cap
+  end
+  return out
+end
+
+--- The request capability `id` in an entry's manifest, or nil.
+function M.findCapability(entry, id, kind)
+  local manifest = entry and entry.manifest
+  if type(manifest) ~= "table" then
+    return nil
+  end
+  for _, c in ipairs(manifest.capabilities or {}) do
+    if c.id == id and (kind == nil or c.kind == kind) then
+      return c
+    end
+  end
+  return nil
 end
 
 --- @param opts table { now = fun():number, newToken = fun():string }
@@ -181,6 +281,16 @@ function Registry:register(params)
   entry.status = tostring(params.status or "")
   entry.detail = tostring(params.detail or ""):sub(1, M.LIMITS.detail)
   entry.singleton = singleton
+  entry.manifest = nil
+  entry.manifest_error = nil
+  if hi >= Policy.V2 then
+    local manifest, why = M.parseManifest(params.manifest)
+    entry.manifest = manifest
+    entry.manifest_error = why
+    if why ~= nil then
+      reply.manifest_error = why
+    end
+  end
   entry.token = self.newToken()
   entry.last_seen = now
   entry.registrations = (tonumber(entry.registrations) or 0) + 1
@@ -333,6 +443,8 @@ function Registry:heartbeatBlock(agent)
       last_seen = e.last_seen,
       registrations = e.registrations,
       counters = e.counters,
+      manifest = e.manifest,
+      manifest_error = e.manifest_error,
     }
   end
   return out

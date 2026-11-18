@@ -87,14 +87,14 @@ check("stale pruned", #r:prune() == 1 and r:count() == 1)
 print("[4] validation")
 check("bad module id", select(2, newR():register(reg({ module_id = "Flight-Recorder" }))).reason == "invalid_module_id")
 check("bad instance", select(2, newR():register(reg({ instance_id = "abc" }))).reason == "invalid_instance_id")
-local okP, replyP = newR():register(reg({ protocol_min = "2", protocol_max = "3" }))
+local okP, replyP = newR():register(reg({ protocol_min = "3", protocol_max = "4" }))
 check(
   "incompatible protocol tells the Agent's range",
-  okP == false and replyP.reason == "incompatible_protocol" and replyP.agent_protocol_max == "1"
+  okP == false and replyP.reason == "incompatible_protocol" and replyP.agent_protocol_max == "2"
 )
 check(
   "overlap negotiates the highest common",
-  select(2, newR():register(reg({ protocol_min = "1", protocol_max = "5" }))).protocol == "1"
+  select(2, newR():register(reg({ protocol_min = "1", protocol_max = "5" }))).protocol == "2"
 )
 
 print("[5] display status")
