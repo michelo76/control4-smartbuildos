@@ -64,6 +64,7 @@ character.
 | `AI_GENERATE_REPORT`   | `TYPE` (required: System Health, Usage, Energy, Security, Comfort, Device Reliability), `PERIOD` (required: Today, Last 24 Hours, Last 7 Days, Last 30 Days)                                                                             | Asks for a report                                                                                                                                                      |
 | `AI_START_DIAGNOSTIC`  | `DEVICE` or `ROOM` (exactly one of them)                                                                                                                                                                                                 | Starts a diagnostic, with the Flight Recorder's recent local events for that device or room                                                                            |
 | `AI_SEND_NOTIFICATION` | `TITLE` (required, up to 80), `MESSAGE` (required, up to 400), `AUDIENCE` (optional, default Homeowner: Homeowner, Integrator, All)                                                                                                      | Sends a notification through SmartBuildOS; recipients are decided there                                                                                                |
+| `AI_RUN_HOUSEHOLD_ANALYSIS` | — | **Run Household Analysis**: asks SmartBuildOS to run the household analysis now. Needs the `AI_LEARNING` licence feature; at most one accepted run an hour. See below |
 
 SmartBuildOS answers each request at once: *accepted* (the result follows as
 **AI Response Ready**), *done* (`AI_SET_CONTEXT`, `AI_SEND_NOTIFICATION` and a
@@ -72,6 +73,34 @@ Status** stays *Ready*), or a refusal such as *not permitted*, *unsupported* or
 *rate limited*. A refusal is shown as it is in **Last Error** and **AI Status**;
 it is never reported as success. A command on a room excluded in System Studio
 is refused (except `AI_ASK` and `AI_SEND_NOTIFICATION`).
+
+### Run Household Analysis (`AI_RUN_HOUSEHOLD_ANALYSIS`)
+
+Asks SmartBuildOS to run the household analysis — the learning that finds
+patterns and recommendations in this home's recorded activity. It is not
+`AI_ANALYZE_SYSTEM` (an AI health review whose text comes back as **AI Response
+Ready**). SmartBuildOS can also run the analysis on a schedule the dealer
+chooses in System Studio; this command runs it when your programming says so.
+
+- The normal answer is *accepted (queued)*: SmartBuildOS took the request and
+  runs the analysis afterwards. **The driver is never told when the run
+  finishes**; the result appears in System Studio. No **AI Response Ready**
+  fires and **AI Status** stays *Ready*. *Completed* is shown only when
+  SmartBuildOS says the run already finished; any other acceptance is shown as
+  plain *accepted*.
+- Without the `AI_LEARNING` licence feature it is refused on the controller
+  (**Last Error** says so) and nothing is sent.
+- At most one **accepted** run an hour from this controller, and one request
+  waiting at a time; a press inside that is refused on the controller with
+  *refused locally (rate_limited)*, so programming that fires it in a loop
+  sends nothing. A refused, offline or timed-out attempt does not use up the
+  hour. SmartBuildOS has its own limit of one accepted run an hour per home.
+- A refusal from SmartBuildOS is shown with its reason, for example *refused
+  (learning_not_allowed)* (learning is off or paused for this home),
+  *refused (not_licensed)*, *refused (already_running)* or *refused
+  (rate_limited)* with the time to wait.
+- *the SmartBuildOS Agent refused it (not_permitted)*: the Agent is older than
+  this command; update the SmartBuildOS Agent.
 
 ### Events
 
@@ -208,6 +237,8 @@ Agent is back.
 | SmartBuildOS Agent not paired         | Pair the Agent                                                                                                                             |
 | SmartBuildOS cloud unreachable        | Check the internet connection; requests are not retried forever                                                                            |
 | Last request refused (not_permitted)  | SmartBuildOS refused it (permission mode, licence features, homeowner settings)                                                            |
+| Run Household Analysis: refused locally (rate_limited) | One accepted run an hour, one at a time: **Last Error** says when the next is allowed |
+| Run Household Analysis: update the SmartBuildOS Agent | The Agent does not relay this command yet: update it |
 | Learning off / Learning paused        | Learning is off until switched on in System Studio, or it was turned off there, or the last configuration was refused (see **Last Error**) |
 
 ## What is not claimed

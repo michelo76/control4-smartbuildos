@@ -109,6 +109,7 @@ bytes by the envelope) are cut between characters too.
 | `AI_GENERATE_REPORT` | `TYPE` LIST (System Health, Usage, Energy, Security, Comfort, Device Reliability), **required**; `PERIOD` LIST (Today, Last 24 Hours, Last 7 Days, Last 30 Days), **required** — no defaults | `generate_report` | `BASE` |
 | `AI_START_DIAGNOSTIC` | `DEVICE` DEVICE_SELECTOR **or** `ROOM` STRING (exactly one; `DEVICE` `0`, Composer's empty selector, counts as none) | `start_diagnostic` (after the local diagnostic, §8) | `BASE` |
 | `AI_SEND_NOTIFICATION` | `TITLE` STRING ≤ 80, required; `MESSAGE` STRING ≤ 400, required; `AUDIENCE` LIST (Homeowner, Integrator, All), optional, default Homeowner | `send_notification` (recipients decided by the platform) | `BASE` |
+| `AI_RUN_HOUSEHOLD_ANALYSIS` ("Run Household Analysis") | — | `analyze_household` — runs the household analysis (patterns, memories, recommendations); answered once, never by `deliver_result` (below) | `AI_LEARNING` |
 
 Room exclusions: a command whose room (or whose device's room) is excluded by
 configuration is refused `not_permitted`, except `AI_ASK` and
@@ -145,6 +146,60 @@ completed when the platform's memory library is wired, else `unsupported`;
 successful sync. `Test AI Connection` shows `test accepted (job …); result
 follows as AI Response Ready` for a job, `answered by SmartBuildOS (no result
 follows)` without one, and `refused (<code>)` for a refusal.
+
+### Run Household Analysis (`AI_RUN_HOUSEHOLD_ANALYSIS` → `analyze_household`)
+
+The programming action that runs the household analysis (the platform's
+pattern detectors, memories and recommendations) when the dealer's
+programming says so; the platform can also run it on a schedule the dealer
+chooses in System Studio. It is **not** `AI_ANALYZE_SYSTEM`, whose op
+`analyze_system` is an AI health review answered by `deliver_result`.
+
+Wire (module contract v2, existing `SBOS_MODULE_CLOUD_REQUEST` frame; no new
+frame): op `analyze_household`, body exactly `{command:
+"AI_RUN_HOUSEHOLD_ANALYSIS", request_id}`, `idempotency_key = request_id`.
+The request is recorded first as an `ai_core.command` envelope (evidence
+`requested`). The op is in the Agent's `MODULE_CLOUD_OPS.ai_core`
+(`src/sbos/modulepolicy.lua`) and the driver's `vocab.CLOUD_OPS`.
+
+Before anything is sent (in this order; each refusal sends nothing and is
+shown as `refused locally (<code>)` with the reason in Last Error):
+
+1. licence: `AI_LEARNING` (the same gate as every command: refused under a
+   definitive denial, or when an enforced authorised licence lacks the
+   feature; uncertain states fail open) → `not_permitted`;
+2. one request in flight at a time (an unanswered one stops blocking after
+   3 min; the module client gives up well before) → `rate_limited`;
+3. one **accepted** run per 60 minutes from this controller
+   (`household_accepted_at`, persisted: a restart does not reset it; a clock
+   that moved backwards does not block) → `rate_limited`, Last Error names
+   when the next is allowed. Only an accepted answer starts the hour: a local
+   refusal, a cloud refusal, offline or a timeout leave it untouched;
+4. the shared 10-a-minute bucket and the Agent-protocol check, as every
+   command.
+
+Whether learning is allowed is **not** checked on the controller: the
+platform's settings are the source of truth and the controller's copy can
+lag (KI-7); the platform answers `learning_not_allowed`.
+
+The answer (`aicore.commands.interpretHousehold`). No job is ever held, no
+`AI Response Ready` fires, `AI_STATUS` stays `ready`:
+
+| Answer | Shown (`last_cloud_result`, AI Status, Last Error / `AI_LAST_ERROR`) |
+| --- | --- |
+| `ok`, `{accepted: true, state: "queued", job_id}` — **the normal case**: the gates are decided before the answer and the analysis runs after it | `AI_RUN_HOUSEHOLD_ANALYSIS: accepted (queued)`; counter `cloud_accepted`; starts the hour. The driver is **never told when the run finishes**; the result appears in System Studio |
+| `ok`, `{accepted: true, state: "completed"}` | `…: completed`; counter `cloud_completed`; starts the hour |
+| `ok`, `accepted: true`, `state` missing or unknown | plain `…: accepted` — never `completed`; starts the hour |
+| `ok` without `accepted: true` | `refused (cloud_refused)` |
+| `error`, `result.reason` = `rate_limited` (error_code `rate_limited`, `result.retry_after_seconds`), `learning_not_allowed`, `not_licensed`, `already_running`, `not_permitted` (error_code `not_permitted`), `invalid_args` (error_code `invalid_args`), or a reason added later | `refused (<reason>)`; Last Error `refused by SmartBuildOS (<reason>)` (+ `; SmartBuildOS allows the next run in about N minute(s)` with `retry_after_seconds`). A reason that is not a lower-case code is ignored and `error_code` is shown |
+| `error`, `not_permitted` with **no** `result.reason` | the Agent refused the op itself (its policy lacks `analyze_household`; the platform always names its reason for this op): Last Error `the SmartBuildOS Agent refused it (not_permitted): update the SmartBuildOS Agent …` |
+| `error`, another code without a reason | `refused (<code>)` |
+| `cloud_unreachable`, `deadline_exceeded`, `target_unavailable`, `incompatible_protocol` | as every command (table above) |
+
+The typed reason travels in `result.reason` because the Agent passes only
+its `CLOUD_PASSTHROUGH` codes through `error_code` (anything else becomes
+`cloud_refused`) but relays `result` on an `ok:false` answer
+(`modulebus.cloudAnswer`; tested in `test/test_sbos_modulebus.lua` [9]).
 
 ## 4. Composer events
 
@@ -500,9 +555,10 @@ body carries it whole; only the envelope's copy is cut.
   with enforcement on). A missing feature refuses only when enforcement is
   on **and** the status is authorised (the feature list is then definitive).
   Grace, trial, legacy, cloud-validation-required and no-answer states fail
-  open. Features gated on the controller: `BASE` (every command,
-  `run_diagnostic`, Test AI Connection) and `AI_LEARNING`
-  (`AI_LEARN_PREFERENCE`, `set_learning` on, `learning.active` in the
+  open. Features gated on the controller: `BASE` (every command but
+  `AI_LEARN_PREFERENCE` and `AI_RUN_HOUSEHOLD_ANALYSIS`, `run_diagnostic`,
+  Test AI Connection) and `AI_LEARNING` (`AI_LEARN_PREFERENCE`,
+  `AI_RUN_HOUSEHOLD_ANALYSIS`, `set_learning` on, `learning.active` in the
   configuration). `AI_ACTIONS` and `AI_CONCIERGE` gate nothing here: the
   driver has no action or concierge path; the platform enforces them.
   An assertion the Agent cannot verify is dropped and the SKU answers
@@ -515,7 +571,7 @@ body carries it whole; only the envelope's copy is cut.
   detail 400, value 120, occasion 120, title 80, message 400, room name 64,
   device name 120; (bytes) result text 4000, `AI_LAST_RESPONSE` 1024 (`...`
   included), event detail 512, error 240; 10 commands a
-  minute; 20 pending jobs for 30 min; cloud body 16 KB, request args 16 KB,
+  minute; one accepted `AI_RUN_HOUSEHOLD_ANALYSIS` an hour and one in flight; 20 pending jobs for 30 min; cloud body 16 KB, request args 16 KB,
   result 24 KB (contract v2).
 
 ## 13. Verification
@@ -524,6 +580,7 @@ body carries it whole; only the envelope's copy is cut.
 | --- | --- |
 | Driver under the shim with a scripted Agent (19 sections) | `test/test_aicore_driver.lua` (+ `test/aicore_harness.lua`) |
 | `raise_event` `correlation_id`; every cloud answer shape per op (job, completed, unsupported, rate limited, status) | `test/test_aicore_cloud_answers.lua` |
+| `AI_RUN_HOUSEHOLD_ANALYSIS`: licence, wire body, queued / completed / plain accepted, every refusal reason, the Agent's own `not_permitted`, offline, timeout, the in-flight and hourly guards (a refusal never uses up the hour), across a restart | `test/test_aicore_household_analysis.lua` [1]–[6]; answer mapping `test/test_aicore_commands.lua` [8]; the Agent relays `result.reason` `test/test_sbos_modulebus.lua` [9] |
 | Names agree across XML, code, Agent tables, policy, docs | `test/test_aicore_surface.lua` |
 | Per module | `test/test_aicore_{commands,config,operations,buffer,collector,state,diagnostic}.lua` |
 | Learning off by default; absent / invalid / explicit-on / explicit-off configuration; non-learning features with learning off; Director names bounded end to end; `set_learning` / document precedence; `AI_RECORD_EVENT` with learning off, paused, on; envelope text cut between characters | `test/test_aicore_learning_default.lua` [1]–[11] |

@@ -103,6 +103,8 @@ local gJobOrder = {}
 local gAgentLost = false
 local gCloudUnreachable = false
 local gLicenceHalted = false
+--- AI_RUN_HOUSEHOLD_ANALYSIS in flight (request id, sent at); one at a time.
+local gHousehold = { inflight = nil, inflight_at = nil }
 local gPrev = { code = nil, connected = nil }
 local gCounters = {
   commands = 0,
@@ -141,6 +143,7 @@ local gLast = {
   test = "none",
   pending_approvals = 0,
   recommendation_count = 0,
+  household_accepted_at = nil, -- last ACCEPTED AI_RUN_HOUSEHOLD_ANALYSIS (os.time)
 }
 
 -- ─── Small helpers ─────────────────────────────────────────────────────────
@@ -694,7 +697,12 @@ discoverFlightRecorder = function(why)
         if gFr.subscribed then
           client.unsubscribe(FR_SUBSCRIPTION)
         end
-        gFr = { state = state, instance_id = found and found.instance_id, capabilities = caps, subscribed = false }
+        gFr = {
+          state = state,
+          instance_id = found and found.instance_id,
+          capabilities = caps,
+          subscribed = false,
+        }
         log:info("Flight Recorder: %s", state)
       end
       applyCollection()
@@ -769,10 +777,56 @@ local function refuseLocally(name, code, message)
   refresh("refused")
 end
 
-local function onCloudAnswer(name, requestId, answer)
-  local r = Commands.interpret(answer)
-  gLast.cloud_result = name .. ": " .. r.outcome .. (r.code ~= "ok" and (" (" .. r.code .. ")") or "")
-  if r.outcome == "accepted" then
+--- Why AI_RUN_HOUSEHOLD_ANALYSIS may not go now (nil = it may): one in
+--- flight at a time, and one ACCEPTED run per household_interval_seconds.
+--- Only an accepted answer starts the interval: a refused, unreachable or
+--- locally refused attempt leaves it untouched.
+local function householdBlocks()
+  local t = now()
+  if gHousehold.inflight ~= nil then
+    if t - (gHousehold.inflight_at or t) < V.LIMITS.household_inflight_seconds then
+      return "a household analysis request is already waiting for SmartBuildOS"
+    end
+    gHousehold.inflight, gHousehold.inflight_at = nil, nil -- never answered: stop blocking
+  end
+  local at = gLast.household_accepted_at
+  if at ~= nil and t >= at and t - at < V.LIMITS.household_interval_seconds then
+    return string.format(
+      "one household analysis an hour from this controller; the last was accepted at %s, the next is allowed after %s",
+      stamp(at),
+      stamp(at + V.LIMITS.household_interval_seconds)
+    )
+  end
+  return nil
+end
+
+local function onCloudAnswer(name, requestId, answer, household)
+  local r
+  if household then
+    if gHousehold.inflight == requestId then
+      gHousehold.inflight, gHousehold.inflight_at = nil, nil
+    end
+    r = Commands.interpretHousehold(answer)
+  else
+    r = Commands.interpret(answer)
+  end
+  gLast.cloud_result = name .. ": " .. (r.text or (r.outcome .. (r.code ~= "ok" and (" (" .. r.code .. ")") or "")))
+  if household and (r.outcome == "queued" or r.outcome == "completed" or r.outcome == "accepted") then
+    -- The cloud never sends deliver_result for this op: no job is held, no
+    -- AI Response Ready fires, and "queued" is never shown as finished.
+    if r.outcome == "completed" then
+      gCounters.cloud_completed = gCounters.cloud_completed + 1
+    else
+      gCounters.cloud_accepted = gCounters.cloud_accepted + 1
+    end
+    gLast.household_accepted_at = now()
+    gCloudUnreachable = false
+    gLast.refusal = nil
+    gLast.sync_at = now()
+    if gLast.error_kind == "cloud" then
+      setError("")
+    end
+  elseif r.outcome == "accepted" then
     gCounters.cloud_accepted = gCounters.cloud_accepted + 1
     gCloudUnreachable = false
     gLast.refusal = nil
@@ -806,8 +860,13 @@ local function onCloudAnswer(name, requestId, answer)
 end
 
 local function cloud(cmd, requestId, extra)
+  local household = Commands.SPECS[cmd.name].household == true
+  if household then
+    -- set before the call: the module client may answer synchronously
+    gHousehold.inflight, gHousehold.inflight_at = requestId, now()
+  end
   client.cloudRequest(cmd.op, Commands.body(cmd, requestId, extra), { idempotency_key = requestId }, function(answer)
-    onCloudAnswer(cmd.name, requestId, answer)
+    onCloudAnswer(cmd.name, requestId, answer, household)
   end)
 end
 
@@ -848,6 +907,13 @@ local function runCommand(name, params)
   if block ~= nil then
     refuseLocally(name, "not_permitted", block)
     return
+  end
+  if spec.household then
+    local busy = householdBlocks()
+    if busy ~= nil then
+      refuseLocally(name, "rate_limited", busy)
+      return
+    end
   end
   if not gBucket.take() then
     refuseLocally(name, "rate_limited", "more than " .. V.LIMITS.commands_per_minute .. " AI commands a minute")
@@ -1246,6 +1312,7 @@ local function restore()
       test = "string",
       pending_approvals = "number",
       recommendation_count = "number",
+      household_accepted_at = "number",
     }
     for k, want in pairs(types) do
       if type(last[k]) == want then

@@ -123,6 +123,7 @@ M.CLOUD_OPS = {
     set_context = true,
     status = true,
     test_provider = true,
+    analyze_household = true,
   },
 }
 

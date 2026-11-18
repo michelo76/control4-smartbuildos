@@ -177,6 +177,12 @@
           <param><name>AUDIENCE</name><type>LIST</type><items><item>Homeowner</item><item>Integrator</item><item>All</item></items></param>
         </params>
       </command>
+      <command>
+        <name>AI_RUN_HOUSEHOLD_ANALYSIS</name>
+        <description>Run Household Analysis: ask SmartBuildOS to analyse this home's recorded activity now (needs AI_LEARNING; at most one an hour; the result appears in System Studio, not here)</description>
+        <params>
+        </params>
+      </command>
     </commands>
     <properties>
       <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>

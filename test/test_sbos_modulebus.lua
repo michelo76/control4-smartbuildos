@@ -234,6 +234,7 @@ do
       and ops.set_context
       and ops.status
       and ops.test_provider
+      and ops.analyze_household
       and not ops.proxy
   )
   check(
@@ -836,6 +837,42 @@ do
     return { ok = true, http_status = 200, body = { ok = false, error_code = "something_else" } }
   end
   check("200 {ok:false} with an unknown code → cloud_refused", cloud().params.error_code == "cloud_refused")
+  -- analyze_household (AI_RUN_HOUSEHOLD_ANALYSIS): the cloud's typed reason
+  -- travels in result.reason and the relay carries `result` on an ok:false
+  -- answer; an Agent whose policy lacks the op refuses it itself, with no result.
+  cloudAnswer = function()
+    return {
+      ok = true,
+      http_status = 200,
+      body = { ok = false, error_code = "not_permitted", result = { reason = "learning_not_allowed" } },
+    }
+  end
+  n = #posts
+  local hh = cloud({ op = "analyze_household", body = '{"command":"AI_RUN_HOUSEHOLD_ANALYSIS","request_id":"aic-1"}' })
+  check(
+    "analyze_household is relayed (in MODULE_CLOUD_OPS.ai_core), posted once",
+    #posts == n + 1 and posts[#posts].op == "analyze_household"
+  )
+  check(
+    "a 200 {ok:false, error_code, result:{reason}} keeps error_code AND relays result.reason",
+    hh.params.error_code == "not_permitted"
+      and hh.params.http_status == "200"
+      and JSON:decode(hh.params.result).reason == "learning_not_allowed",
+    hh.params.result
+  )
+  local savedOps = bus.cloudOps
+  bus.cloudOps = { ai_core = { ask = true } } -- an Agent built before the op existed
+  n = #posts
+  local old = cloud({ op = "analyze_household", body = "{}" })
+  bus.cloudOps = savedOps
+  check(
+    "an Agent without the op refuses it itself: not_permitted, result null, no http_status, nothing posted",
+    old.params.error_code == "not_permitted"
+      and old.params.result == "null"
+      and old.params.http_status == ""
+      and #posts == n,
+    old.params.result
+  )
   paired = false
   n = #posts
   check(

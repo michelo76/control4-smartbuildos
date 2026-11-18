@@ -12,9 +12,14 @@
 --- Every input is validated against a closed list or a length bound and
 --- REFUSED when it does not fit (a question cut in half is a different
 --- question). Nothing here runs anything on the house: the result of a
---- command is an event for the Agent's durable queue and, for nine of the
---- ten, one call of a cloud op from MODULE_CLOUD_OPS.ai_core. AI_RECORD_EVENT
+--- command is an event for the Agent's durable queue and, for ten of the
+--- eleven, one call of a cloud op from MODULE_CLOUD_OPS.ai_core. AI_RECORD_EVENT
 --- has no cloud op; it is recorded through the durable event path.
+---
+--- AI_RUN_HOUSEHOLD_ANALYSIS ("Run Household Analysis") asks the cloud to run
+--- the household analysis (op analyze_household). It is not AI_ANALYZE_SYSTEM
+--- (an AI health review whose text comes back as deliver_result): the cloud
+--- answers it once (interpretHousehold) and never delivers a result for it.
 
 local V = require("aicore.vocab")
 
@@ -29,7 +34,7 @@ local function enum(list, required, default, as)
   return { kind = "enum", list = list, required = required, default = default, as = as }
 end
 
---- The ten commands (driver.xml <commands> carries the same names/params).
+--- The eleven commands (driver.xml <commands> carries the same names/params).
 M.SPECS = {
   AI_ASK = {
     op = "ask",
@@ -87,6 +92,15 @@ M.SPECS = {
     one_of = { "DEVICE", "ROOM" },
     order = { "DEVICE", "ROOM" },
   },
+  AI_RUN_HOUSEHOLD_ANALYSIS = {
+    op = "analyze_household",
+    feature = "AI_LEARNING",
+    -- Whether learning is allowed is the cloud's to say (learning_not_allowed):
+    -- its settings are the source of truth and the controller's copy can lag.
+    household = true,
+    params = {},
+    order = {},
+  },
   AI_SEND_NOTIFICATION = {
     op = "send_notification",
     feature = "BASE",
@@ -110,6 +124,7 @@ M.NAMES = {
   "AI_GENERATE_REPORT",
   "AI_START_DIAGNOSTIC",
   "AI_SEND_NOTIFICATION",
+  "AI_RUN_HOUSEHOLD_ANALYSIS",
 }
 
 --- Composer LIST labels ("Last 7 days") and wire codes ("last_7_days") both
@@ -571,9 +586,78 @@ function M.interpret(answer)
   if code == "rate_limited" then
     -- The platform's per-system limits (send_notification, test_provider)
     -- and the Agent's own bucket both answer this: an answer, not silence.
-    return { outcome = "refused", code = code, message = "rate limited by SmartBuildOS (rate_limited); try again later" }
+    return {
+      outcome = "refused",
+      code = code,
+      message = "rate limited by SmartBuildOS (rate_limited); try again later",
+    }
   end
   return { outcome = "refused", code = code, message = "refused by SmartBuildOS: " .. code }
+end
+
+--- What the cloud's answer to analyze_household (AI_RUN_HOUSEHOLD_ANALYSIS)
+--- means. The cloud never sends deliver_result for it, so nothing ever
+--- waits. outcome:
+---   queued      {accepted: true, state: "queued"}: the cloud took it; the run
+---               happens after the answer and the driver is never told when
+---               it finishes (the result appears in System Studio)
+---   completed   {accepted: true, state: "completed"}
+---   accepted    {accepted: true} with no or an unknown state — never shown
+---               as completed
+---   refused     the cloud's typed reason travels in result.reason
+---               (rate_limited, learning_not_allowed, not_licensed,
+---               already_running, not_permitted, invalid_args, or one added
+---               later — shown as it is); without a reason, error_code is
+---               shown. not_permitted WITHOUT a reason is the Agent itself
+---               refusing an op it does not relay (agent_outdated): the cloud
+---               always names its own reason for this op.
+---   unreachable / unavailable   as interpret()
+function M.interpretHousehold(answer)
+  answer = answer or {}
+  local r = type(answer.result) == "table" and answer.result or {}
+  if answer.status == "ok" then
+    if r.accepted ~= true then
+      return {
+        outcome = "refused",
+        code = "cloud_refused",
+        message = "the platform answered without accepting the request",
+      }
+    end
+    if r.state == "queued" then
+      return { outcome = "queued", code = "ok", text = "accepted (queued)" }
+    elseif r.state == "completed" then
+      return { outcome = "completed", code = "ok", text = "completed" }
+    end
+    return { outcome = "accepted", code = "ok", text = "accepted" }
+  end
+  local base = M.interpret(answer)
+  if base.outcome == "unreachable" or base.outcome == "unavailable" then
+    return base
+  end
+  local code = tostring(answer.error_code or "internal_error")
+  local reason = r.reason
+  if type(reason) == "string" and #reason <= 48 and reason:match("^[a-z][a-z0-9_]*$") then
+    local wait = tonumber(r.retry_after_seconds)
+    local after = ""
+    if wait ~= nil and wait > 0 then
+      after = string.format("; SmartBuildOS allows the next run in about %d minute(s)", math.ceil(wait / 60))
+    end
+    return {
+      outcome = "refused",
+      code = reason,
+      message = "refused by SmartBuildOS (" .. reason .. ")" .. after,
+    }
+  end
+  if code == "not_permitted" then
+    return {
+      outcome = "refused",
+      code = code,
+      agent_outdated = true,
+      message = "the SmartBuildOS Agent refused it (not_permitted): update the SmartBuildOS Agent"
+        .. " to a build that relays analyze_household",
+    }
+  end
+  return { outcome = "refused", code = code, message = base.message }
 end
 
 --- A token bucket over Composer commands: programming in a loop must not

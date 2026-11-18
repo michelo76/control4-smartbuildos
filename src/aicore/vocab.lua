@@ -70,6 +70,7 @@ M.CLOUD_OPS = {
   set_context = true,
   status = true,
   test_provider = true,
+  analyze_household = true,
 }
 
 --- Event categories (AI_RECORD_EVENT, exclusions, collected events).
@@ -151,6 +152,13 @@ M.LIMITS = {
   commands_per_minute = 10, -- local token bucket over Composer commands
   pending_jobs = 20,
   job_ttl_seconds = 30 * 60,
+  -- AI_RUN_HOUSEHOLD_ANALYSIS: at most one ACCEPTED run an hour from this
+  -- controller (the cloud's own limit is one an hour per property), and one
+  -- in flight at a time; an in-flight request that never got an answer stops
+  -- blocking after household_inflight_seconds (the module client gives up
+  -- well before: 30 s timeout, two retries).
+  household_interval_seconds = 60 * 60,
+  household_inflight_seconds = 3 * 60,
 }
 
 return M

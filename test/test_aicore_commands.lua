@@ -43,12 +43,13 @@ local valid = {
   AI_GENERATE_REPORT = { TYPE = "Energy", PERIOD = "Today" },
   AI_START_DIAGNOSTIC = { DEVICE = "12" },
   AI_SEND_NOTIFICATION = { TITLE = "Hi", MESSAGE = "There" },
+  AI_RUN_HOUSEHOLD_ANALYSIS = {},
 }
 for _, name in ipairs(C.NAMES) do
   local cmd, why = C.build(name, valid[name], ctx)
   check(name .. " builds", cmd ~= nil, why and why.message)
 end
-check("ten commands", #C.NAMES == 10)
+check("eleven commands", #C.NAMES == 11)
 local ask = C.build("AI_ASK", valid.AI_ASK, ctx)
 check("room by name, case-insensitive → id + name", ask.args.room_id == 3 and ask.args.room_name == "Kitchen")
 check("room by id", C.build("AI_ANALYZE_ROOM", { ROOM = "7" }, ctx).args.room_id == 7)
@@ -513,6 +514,93 @@ check("neither → refused", refusal("AI_GENERATE_REPORT", {}) ~= nil)
 check(
   "the spec says so (what DRIVER.md documents)",
   C.SPECS.AI_GENERATE_REPORT.params.TYPE.required == true and C.SPECS.AI_GENERATE_REPORT.params.PERIOD.required == true
+)
+
+print("[8] AI_RUN_HOUSEHOLD_ANALYSIS (op analyze_household) and what its answer means")
+local hh = C.build("AI_RUN_HOUSEHOLD_ANALYSIS", { IGNORED = "x" }, { learningActive = false })
+check("builds with no params, even with learning paused locally (the cloud decides)", hh ~= nil)
+check(
+  "op analyze_household, feature AI_LEARNING, not AI_ANALYZE_SYSTEM's op",
+  hh.op == "analyze_household"
+    and C.SPECS.AI_RUN_HOUSEHOLD_ANALYSIS.feature == "AI_LEARNING"
+    and C.SPECS.AI_ANALYZE_SYSTEM.op == "analyze_system"
+    and C.SPECS.AI_ANALYZE_SYSTEM.feature == "BASE"
+)
+local hb = C.body(hh, "aic-9")
+local hbKeys = {}
+for k in pairs(hb) do
+  hbKeys[#hbKeys + 1] = k
+end
+table.sort(hbKeys)
+check(
+  "body is exactly {command, request_id}",
+  table.concat(hbKeys, ",") == "command,request_id"
+    and hb.command == "AI_RUN_HOUSEHOLD_ANALYSIS"
+    and hb.request_id == "aic-9",
+  table.concat(hbKeys, ",")
+)
+local function okAns(result)
+  return { status = "ok", error_code = "ok", result = result }
+end
+local function errAns(code, result)
+  return { status = "error", error_code = code, result = result }
+end
+local IH = C.interpretHousehold
+local q = IH(okAns({ accepted = true, state = "queued", job_id = "j-1" }))
+check(
+  "state queued → queued, 'accepted (queued)', no job id kept",
+  q.outcome == "queued" and q.text == "accepted (queued)" and q.job_id == nil
+)
+local done = IH(okAns({ accepted = true, state = "completed" }))
+check("state completed → completed", done.outcome == "completed" and done.text == "completed")
+local plain = IH(okAns({ accepted = true, job_id = "j-2" }))
+check("no state → plain 'accepted', never completed", plain.outcome == "accepted" and plain.text == "accepted")
+local odd = IH(okAns({ accepted = true, state = "finished" }))
+check("unknown state → plain 'accepted'", odd.outcome == "accepted" and odd.text == "accepted")
+check("ok without accepted → refused (cloud_refused)", IH(okAns({ accepted = false })).code == "cloud_refused")
+for _, case in ipairs({
+  { "rate_limited", "rate_limited" },
+  { "not_permitted", "learning_not_allowed" },
+  { "not_permitted", "not_licensed" },
+  { "not_permitted", "already_running" },
+  { "not_permitted", "not_permitted" },
+  { "invalid_args", "invalid_args" },
+  { "not_permitted", "some_future_reason" },
+}) do
+  local r = IH(errAns(case[1], { reason = case[2] }))
+  check(
+    "refused, reason " .. case[2] .. " (error_code " .. case[1] .. ") → shown as the reason",
+    r.outcome == "refused"
+      and r.code == case[2]
+      and r.message:find("(" .. case[2] .. ")", 1, true) ~= nil
+      and not r.agent_outdated,
+    r.message
+  )
+end
+local rl = IH(errAns("rate_limited", { reason = "rate_limited", retry_after_seconds = 3000 }))
+check("retry_after_seconds → 'about 50 minute(s)'", rl.message:find("about 50 minute", 1, true) ~= nil, rl.message)
+local agentOld = IH(errAns("not_permitted", nil))
+check(
+  "not_permitted WITHOUT a reason → the Agent refused it: update the Agent",
+  agentOld.outcome == "refused"
+    and agentOld.agent_outdated == true
+    and agentOld.message:find("update the SmartBuildOS Agent", 1, true) ~= nil,
+  agentOld.message
+)
+check(
+  "not_permitted with an empty result table → also the Agent",
+  IH(errAns("not_permitted", {})).agent_outdated == true
+)
+check(
+  "a malformed reason is not shown; error_code is",
+  IH(errAns("invalid_args", { reason = "Bad Reason!" })).code == "invalid_args"
+)
+check("another code without a reason → refused (that code)", IH(errAns("cloud_refused", nil)).code == "cloud_refused")
+check(
+  "unreachable / timeout / old Agent: as every other op",
+  IH(errAns("cloud_unreachable")).outcome == "unreachable"
+    and IH(errAns("deadline_exceeded")).outcome == "unreachable"
+    and IH(errAns("incompatible_protocol")).outcome == "unavailable"
 )
 
 print(string.format("\n%d passed, %d failed", pass, fail))
