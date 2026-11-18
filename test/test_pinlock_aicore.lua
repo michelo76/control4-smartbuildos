@@ -419,8 +419,16 @@ local function http(method, pathAndQuery, bodyTable)
   return tonumber(status), ok and decoded or payload, payload
 end
 
-local OWNER_PIN, OWNER2_PIN, STAFF_PIN, VENDOR_PIN, GUEST_PIN = "7391", "6158", "4826", "5183", "6290" -- test values
-local WRONG = { "3047", "8265", "9152", "2739", "4618", "5927" }
+-- Test values. Eight digits, not four: the leak scans below search the whole
+-- persisted store and every frame, which also hold salts, digests and
+-- challenge ids in hex. The shim's fake C4:HMAC repeats one 8-hex word eight
+-- times, and PIN Lock seeds math.random from os.clock (so salts differ run to
+-- run): a 4-digit PIN turned up inside another code's digest about one run in
+-- thirty. An 8-digit decimal needle cannot plausibly occur in that hex, and
+-- math.random is pinned below so the run is the same every time.
+local OWNER_PIN, OWNER2_PIN, STAFF_PIN, VENDOR_PIN, GUEST_PIN =
+  "73915826", "61583947", "48261937", "51836429", "62907318"
+local WRONG = { "30471865", "82651904", "91527360", "27394185", "46183072", "59273618" }
 local PROPOSAL = "3f2b8c1e-5d4a-4e8b-9c7d-1a2b3c4d5e6f"
 local SESSION = string.rep("ab", 16)
 local nonceSeq = 0
@@ -452,6 +460,12 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 io.write("[1] PIN Lock joins the bus as pin_lock\n")
 registerModule(mods.ai, { { id = "ai_core.report", version = 1, kind = "request" } })
+-- PIN Lock seeds math.random from the clock at late init; pin it so salts,
+-- digests and challenge ids are the same on every run (see the PINs above).
+local realRandomseed = math.randomseed
+math.randomseed = function()
+  realRandomseed(20261118)
+end
 dofile("drivers/smartbuildos-pin-lock/driver.lua")
 OnDriverInit()
 OnPropertyChanged("Log Level") -- Trace: handler debug on
@@ -825,13 +839,17 @@ local secrets = { OWNER_PIN, OWNER2_PIN, STAFF_PIN, VENDOR_PIN, GUEST_PIN }
 for _, w in ipairs(WRONG) do
   secrets[#secrets + 1] = w
 end
-local function scan(label, text, needles)
+local function hitsIn(text, needles)
   local hits = {}
   for _, needle in ipairs(needles) do
     if text:find(needle, 1, true) then
       hits[#hits + 1] = needle:sub(1, 1) .. "..."
     end
   end
+  return hits
+end
+local function scan(label, text, needles)
+  local hits = hitsIn(text, needles)
   check(label, #hits == 0, table.concat(hits, ","))
 end
 local logText = table.concat(captured, "\n")
@@ -870,7 +888,16 @@ for _, s in ipairs(serverSent) do
   end
 end
 scan("no PIN echoed in any relay reply", table.concat(replies, "\n"), secrets)
-scan("no plaintext PIN in the persisted store", JSON:encode(persisted), secrets)
+local storeText = JSON:encode(persisted)
+check(
+  "the persisted store holds the codes (salted digests), so the scan reads real data",
+  storeText:find("Owner Two", 1, true) ~= nil and storeText:find('"hash":"', 1, true) ~= nil
+)
+scan("no plaintext PIN in the persisted store", storeText, secrets)
+-- Positive control: the same scan over a copy of the store with one code's
+-- digest replaced by its plaintext PIN (what a real leak would look like).
+local leaked = storeText:gsub('"hash":"[0-9a-f]+"', '"hash":"' .. OWNER_PIN .. '"', 1)
+check("positive control: a plaintext PIN in the store is caught", #hitsIn(leaked, secrets) == 1)
 
 print = realPrint
 print(string.format("\n%d passed, %d failed", pass, fail))
