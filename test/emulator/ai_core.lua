@@ -437,6 +437,117 @@ check(
 )
 S.rpc.answer = nil
 
+print("[4a] Run Household Analysis (AI_RUN_HOUSEHOLD_ANALYSIS → analyze_household) through the real Agent")
+local HH = "AI_RUN_HOUSEHOLD_ANALYSIS"
+local function hhCalls()
+  local out = {}
+  for _, call in ipairs(S.rpc.calls) do
+    if call.op == "analyze_household" then
+      out[#out + 1] = call
+    end
+  end
+  return out
+end
+local function hhPress(wait)
+  d:advance(7000) -- under the local 10/min command budget
+  local n = #hhCalls()
+  d:executeCommand(aic, HH, {})
+  d:advance(wait or 12000) -- past the module client's retries of a retryable code
+  return #hhCalls() - n
+end
+-- Refusals first: none of them may use up the hour.
+for _, case in ipairs({
+  { "not_permitted", { reason = "learning_not_allowed" } },
+  { "not_permitted", { reason = "not_licensed" } },
+  { "not_permitted", { reason = "already_running" } },
+  { "invalid_args", { reason = "invalid_args" } },
+  { "rate_limited", { reason = "rate_limited", retry_after_seconds = 2400 } },
+}) do
+  S.rpc.answer = function(body)
+    if body.op == "analyze_household" then
+      return { ok = false, error_code = case[1], result = case[2] }
+    end
+    return nil
+  end
+  local sent = hhPress()
+  local reason = case[2].reason
+  check(
+    "refusal " .. reason .. ": POSTed (the earlier refusals used nothing up); the real Agent relays result.reason",
+    sent >= 1 and tostring(aic.Properties["AI Status"]):find("refused (" .. reason .. ")", 1, true) ~= nil,
+    tostring(sent) .. " / " .. tostring(aic.Properties["AI Status"])
+  )
+end
+check(
+  "rate_limited: Last Error says when SmartBuildOS allows the next run",
+  tostring(aic.Properties["Last Error"]):find("about 40 minute", 1, true) ~= nil,
+  aic.Properties["Last Error"]
+)
+S.rpc.down = true
+check("offline: it tried", hhPress(15000) >= 1)
+check(
+  "offline: unreachable, said so",
+  tostring(diagnostics(d, aic).last_cloud_result):find(HH .. ": unreachable", 1, true) ~= nil,
+  diagnostics(d, aic).last_cloud_result
+)
+S.rpc.down = false
+-- The Agent's own refusal: an Agent whose policy lacks the op (read from
+-- the REAL Agent's loaded policy table, restored right after).
+local agentOps = agent.env.package
+  and agent.env.package.loaded
+  and agent.env.package.loaded["sbos.modulepolicy"]
+  and agent.env.package.loaded["sbos.modulepolicy"].CLOUD_OPS.ai_core
+if agentOps ~= nil then
+  agentOps.analyze_household = nil
+  local sent = hhPress()
+  agentOps.analyze_household = true
+  check(
+    "an Agent without the op refuses it itself: nothing POSTed; AI Core says update the Agent",
+    sent == 0 and tostring(aic.Properties["Last Error"]):find("update the SmartBuildOS Agent", 1, true) ~= nil,
+    aic.Properties["Last Error"]
+  )
+else
+  print("  NOTE  the Agent's policy table is not reachable from here; the Agent's own refusal is unit-tested")
+end
+S.rpc.answer = function(body)
+  if body.op == "analyze_household" then
+    return { ok = true, result = { accepted = true, state = "queued", job_id = "hh-emu-1" } }
+  end
+  return nil
+end
+local ready4a = firedCount(d, aic, 1)
+check("licensed (AI_LEARNING in the signed licence): one POST", hhPress() == 1)
+local hc = hhCalls()[#hhCalls()]
+local hkeys = {}
+for k in pairs(hc.body) do
+  hkeys[#hkeys + 1] = k
+end
+table.sort(hkeys)
+check(
+  "op analyze_household as ai_core; body exactly {command, request_id}; idempotency key = request id",
+  hc.module_id == "ai_core"
+    and table.concat(hkeys, ",") == "command,request_id"
+    and hc.body.command == HH
+    and hc.idempotency_key == hc.body.request_id,
+  table.concat(hkeys, ",")
+)
+check(
+  "accepted (queued) shown; no AI Response Ready",
+  diagnostics(d, aic).last_cloud_result == HH .. ": accepted (queued)" and firedCount(d, aic, 1) == ready4a,
+  diagnostics(d, aic).last_cloud_result
+)
+local nLoop = #hhCalls()
+for _ = 1, 25 do
+  d:executeCommand(aic, HH, {})
+end
+d:advance(5000)
+check("25 presses in a loop within the hour: no POST", #hhCalls() == nLoop, #hhCalls() - nLoop)
+check(
+  "…AI Status: refused locally (rate_limited)",
+  tostring(aic.Properties["AI Status"]):find("refused locally (rate_limited)", 1, true) ~= nil,
+  aic.Properties["AI Status"]
+)
+S.rpc.answer = nil
+
 print("[5] deliver_result and raise_event through the Agent's MODULE_COMMAND")
 local resp0 = firedCount(d, aic, 1)
 local job = S.rpc.calls[1]
@@ -832,6 +943,23 @@ check(
   var(aic, "AI_STATUS") == "ready" or var(aic, "AI_STATUS") == "working",
   var(aic, "AI_STATUS")
 )
+S.cloud.catalog.SBOS_AI_CORE.features = { "BASE" }
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_SUBSCRIPTION"
+d:executeCommand(agent, "REFRESH_ENTITLEMENTS", {})
+d:advance(40000)
+n = #S.rpc.calls
+d:advance(61000)
+d:executeCommand(aic, "AI_RUN_HOUSEHOLD_ANALYSIS", {})
+d:advance(3000)
+check(
+  "enforced licence without AI_LEARNING: Run Household Analysis refused locally, nothing sent",
+  #S.rpc.calls == n and tostring(aic.Properties["Last Error"]):find("does not include AI_LEARNING", 1, true) ~= nil,
+  aic.Properties["Last Error"]
+)
+S.cloud.catalog.SBOS_AI_CORE.features = { "BASE", "AI_LEARNING" }
+S.cloud.catalog.SBOS_AI_CORE.status = "AUTHORIZED_GRACE"
+d:executeCommand(agent, "REFRESH_ENTITLEMENTS", {})
+d:advance(40000)
 
 -- ── licensing end to end, real Agent + real signatures (EMULATOR ONLY) ──────
 local digest = require("director.digest")
