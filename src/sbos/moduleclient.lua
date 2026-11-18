@@ -25,6 +25,7 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local Envelope = require("sbos.envelope")
+local SeqBlock = require("sbos.seqblock")
 JSON = JSON or require("JSON")
 
 local M = {}
@@ -42,7 +43,6 @@ local REGISTER_TIMER = "SbosModuleRegister"
 local STATUS_TIMER = "SbosModuleStatus"
 local TICK_TIMER = "SbosModuleTick"
 local SEQ_KEY = "sbos_module_seq"
-local SEQ_STRIDE = 25
 
 local state
 
@@ -93,16 +93,13 @@ local function authParams(extra)
   return p
 end
 
---- Persisted, monotonic sequence (stride-persisted like the telemetry queue:
---- a reload may skip up to 25 numbers, never repeat one).
+--- Persisted, monotonic sequence (sbos.seqblock: a reload may skip numbers,
+--- never repeat one, because a repeated event id is dropped as a duplicate).
 function M.nextSequence()
-  if state.seq == 0 then
-    state.seq = tonumber(persist:get(SEQ_KEY, 0)) or 0
+  if state.nextSeq == nil then
+    state.nextSeq = SeqBlock.new(persist, SEQ_KEY)
   end
-  state.seq = state.seq + 1
-  if state.seq % SEQ_STRIDE == 1 then
-    persist:set(SEQ_KEY, state.seq + SEQ_STRIDE)
-  end
+  state.seq = state.nextSeq()
   return state.seq
 end
 

@@ -85,6 +85,7 @@ local Rooms = require("telemetry.rooms")
 -- is at Lua's 200-local ceiling.
 Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
+SeqBlock = require("sbos.seqblock")
 Envelope = require("sbos.envelope")
 SlProtocol = require("systemlink.protocol")
 -- Send Push Notification: the message variables are the Notification
@@ -378,7 +379,7 @@ gEventDedup = SlProtocol.newDedup(2048)
 gCommandDedup = SlProtocol.newDedup(256)
 gModuleCommands = {}
 gModuleCommandsOrder = {}
-gAgentEventSeq = 0
+gAgentEventSeq = nil -- sbos.seqblock counter, built in ModulesInit
 --- System Studio Agent Contract v1 runtime state. Restored during late init so
 --- a malformed persisted document cannot prevent the normal connector startup.
 local gAgentConfig = select(1, AgentContract.validateConfig({}))
@@ -3807,17 +3808,17 @@ function ModulesInit()
   if gEvents.stats.journal_recovered then
     log:warn("Event journal was unreadable or partly unreadable; the queue started with what could be recovered")
   end
-  gAgentEventSeq = tointeger(persist:get(AGENT_EVENT_SEQ_KEY, 0)) or 0
+  gAgentEventSeq = SeqBlock.new(persist, AGENT_EVENT_SEQ_KEY)
   log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
 end
 
---- Monotonic sequence for the Agent's own pipeline events (stride-persisted).
+--- Monotonic sequence for the Agent's own pipeline events (sbos.seqblock: a
+--- reload may skip numbers, never repeat one). The boot id in the event id
+--- does not change on a driver update or Director reload, so a repeat here
+--- would be dropped as a duplicate just like a module's.
 function AgentEventSequence()
-  gAgentEventSeq = gAgentEventSeq + 1
-  if gAgentEventSeq % 25 == 1 then
-    persist:set(AGENT_EVENT_SEQ_KEY, gAgentEventSeq + 25)
-  end
-  return gAgentEventSeq
+  ModulesInit()
+  return gAgentEventSeq()
 end
 
 function ModulesPersist()
