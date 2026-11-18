@@ -309,7 +309,8 @@ end
 local AI_ID = 601
 local V1_ID = 701
 PROJECT[AI_ID] = { deviceName = "SmartBuildOS AI Core", roomName = "Rack", driverFileName = "smartbuildos-ai-core.c4z" }
-PROJECT[V1_ID] = { deviceName = "Usage Analytics", roomName = "Rack", driverFileName = "smartbuildos-usage-analytics.c4z" }
+PROJECT[V1_ID] =
+  { deviceName = "Usage Analytics", roomName = "Rack", driverFileName = "smartbuildos-usage-analytics.c4z" }
 
 local FR_MANIFEST = JSON:encode({
   driver = "sbos.flight_recorder",
@@ -365,9 +366,16 @@ print("[2] registration matrix + tokens")
 local fr = register(MODULE_ID, "flight_recorder", { manifest = FR_MANIFEST })
 check("v2 module negotiates 2", fr.ok == "true" and fr.protocol == "2", fr.protocol)
 check("the reply still carries the Agent's range", fr.agent_protocol_min == "1" and fr.agent_protocol_max == "2")
-check("token falls back to the v1 generator when C4:UUID is not a UUID (shim)", #fr.token == 32 and fr.token:match("^%x+$") ~= nil)
+check(
+  "token falls back to the v1 generator when C4:UUID is not a UUID (shim)",
+  #fr.token == 32 and fr.token:match("^%x+$") ~= nil
+)
 local v1 = register(V1_ID, "usage_analytics", { protocol_max = "1", manifest = FR_MANIFEST })
-check("v1 module gets protocol 1, not the Agent's max (negotiated survives the agent-state merge)", v1.protocol == "1", v1.protocol)
+check(
+  "v1 module gets protocol 1, not the Agent's max (negotiated survives the agent-state merge)",
+  v1.protocol == "1",
+  v1.protocol
+)
 check("a v1 registration stores no manifest", gModules:find("usage_analytics", tostring(V1_ID)).manifest == nil)
 local realUUID = C4.UUID
 function C4:UUID(kind)
@@ -377,7 +385,7 @@ function C4:UUID(kind)
   return nil
 end
 local ai = register(AI_ID, "ai_core", { manifest = '{"driver":"sbos.ai_core","capabilities":[]}' })
-check("token from C4:UUID(\"RANDOM\") when Director has it", ai.token == "0f8fad5bd9cb469fa16570867728950e", ai.token)
+check('token from C4:UUID("RANDOM") when Director has it', ai.token == "0f8fad5bd9cb469fa16570867728950e", ai.token)
 C4.UUID = realUUID
 check(
   "manifest stored for the v2 module",
@@ -395,7 +403,9 @@ EC.SBOS_MODULE_REQUEST(auth(AI_ID, "ai_core", "", {
   deadline = tostring(os.time() + 10),
 }))
 EC.SBOS_MODULE_SUBSCRIBE(auth(AI_ID, "ai_core", fr.token, { subscription_id = "s0", topics = '["capture."]' }))
-EC.SBOS_MODULE_CLOUD_REQUEST(auth(AI_ID, "ai_core", nil, { request_id = "c0", op = "ask", body = "{}", deadline = tostring(os.time() + 10) }))
+EC.SBOS_MODULE_CLOUD_REQUEST(
+  auth(AI_ID, "ai_core", nil, { request_id = "c0", op = "ask", body = "{}", deadline = tostring(os.time() + 10) })
+)
 check("no frame of any kind sent back", #sent == 0, #sent)
 check("nothing posted to the cloud", #requestsTo("modules/rpc") == 0)
 check("ignored frames counted", gBus:health().ignored >= 4)
@@ -413,23 +423,36 @@ EC.SBOS_MODULE_REQUEST(auth(AI_ID, "ai_core", ai.token, {
   from_instance_id = tostring(MODULE_ID),
 }))
 local fwd = lastSent("SBOS_MODULE_REQUEST")
-check("ack Routed to the requester", lastSent("SBOS_MODULE_REQUEST_ACK").device == AI_ID and lastSent("SBOS_MODULE_REQUEST_ACK").params.state == "Routed")
+check(
+  "ack Routed to the requester",
+  lastSent("SBOS_MODULE_REQUEST_ACK").device == AI_ID and lastSent("SBOS_MODULE_REQUEST_ACK").params.state == "Routed"
+)
 check(
   "forwarded to the Flight Recorder's device with ITS token and the Agent-stamped sender",
-  fwd and fwd.device == MODULE_ID and fwd.params.token == fr.token and fwd.params.from_module_id == "ai_core"
+  fwd
+    and fwd.device == MODULE_ID
+    and fwd.params.token == fr.token
+    and fwd.params.from_module_id == "ai_core"
     and fwd.params.from_instance_id == tostring(AI_ID)
 )
-EC.SBOS_MODULE_RESPONSE(auth(MODULE_ID, "flight_recorder", fr.token, { request_id = "r1", status = "ok", result = '{"events":[]}' }))
+EC.SBOS_MODULE_RESPONSE(
+  auth(MODULE_ID, "flight_recorder", fr.token, { request_id = "r1", status = "ok", result = '{"events":[]}' })
+)
 local resp = lastSent("SBOS_MODULE_RESPONSE")
 check(
   "response relayed to the requester's device",
-  resp and resp.device == AI_ID and resp.params.status == "ok" and resp.params.token == ai.token
+  resp
+    and resp.device == AI_ID
+    and resp.params.status == "ok"
+    and resp.params.token == ai.token
     and resp.params.from_module_id == "flight_recorder"
 )
 
 print("[5] fan-out of envelopes the Agent accepted")
 sent = {}
-EC.SBOS_MODULE_SUBSCRIBE(auth(AI_ID, "ai_core", ai.token, { subscription_id = "fr", topics = '["capture.","observation."]' }))
+EC.SBOS_MODULE_SUBSCRIBE(
+  auth(AI_ID, "ai_core", ai.token, { subscription_id = "fr", topics = '["capture.","observation."]' })
+)
 check("subscribed", lastSent("SBOS_MODULE_SUBSCRIBED").params.ok == "true")
 local function frEnvelope(n, over)
   local e = {
@@ -477,7 +500,10 @@ check(
   table.concat(delivered, ",")
 )
 check("published with the subscriber's token", pubs[1] and pubs[1].params.token == ai.token)
-check("the envelope carries the Agent-stamped installation id", pubs[1] and JSON:decode(pubs[1].params.events)[1].installation_id == store["system_id"])
+check(
+  "the envelope carries the Agent-stamped installation id",
+  pubs[1] and JSON:decode(pubs[1].params.events)[1].installation_id == store["system_id"]
+)
 
 print("[6] cloud relay through send()")
 requests = {}
@@ -495,19 +521,28 @@ EC.SBOS_MODULE_CLOUD_REQUEST(auth(AI_ID, "ai_core", ai.token, {
 local post = requestsTo("modules/rpc")[1]
 check(
   "POST /api/integrations/control4/modules/rpc with the pairing token",
-  post ~= nil and post.url == "https://app.smartbuildos.io/api/integrations/control4/modules/rpc"
+  post ~= nil
+    and post.url == "https://app.smartbuildos.io/api/integrations/control4/modules/rpc"
     and post.headers.Authorization == "Bearer " .. store["device_token"]
 )
 check(
   "body {module_id, instance_id, op, request_id, idempotency_key, body} (+ send()'s identity)",
-  post and post.data.module_id == "ai_core" and post.data.instance_id == tostring(AI_ID) and post.data.op == "ask"
-    and post.data.request_id == "c1" and post.data.idempotency_key == "ck1"
-    and post.data.body.question == "is the den light on" and post.data.system ~= nil
+  post
+    and post.data.module_id == "ai_core"
+    and post.data.instance_id == tostring(AI_ID)
+    and post.data.op == "ask"
+    and post.data.request_id == "c1"
+    and post.data.idempotency_key == "ck1"
+    and post.data.body.question == "is the den light on"
+    and post.data.system ~= nil
 )
 local cr = lastSent("SBOS_MODULE_CLOUD_RESPONSE")
 check(
   "CLOUD_RESPONSE ok with the HTTP status and result",
-  cr and cr.device == AI_ID and cr.params.status == "ok" and cr.params.http_status == "202"
+  cr
+    and cr.device == AI_ID
+    and cr.params.status == "ok"
+    and cr.params.http_status == "202"
     and JSON:decode(cr.params.result).job_id == "job-1"
 )
 responders["modules/rpc"] = function()
@@ -519,7 +554,10 @@ EC.SBOS_MODULE_CLOUD_REQUEST(auth(AI_ID, "ai_core", ai.token, {
   body = "{}",
   deadline = tostring(os.time() + 20),
 }))
-check("transport failure → cloud_unreachable", lastSent("SBOS_MODULE_CLOUD_RESPONSE").params.error_code == "cloud_unreachable")
+check(
+  "transport failure → cloud_unreachable",
+  lastSent("SBOS_MODULE_CLOUD_RESPONSE").params.error_code == "cloud_unreachable"
+)
 responders["modules/rpc"] = function()
   return { ok = false, code = 403, body = "forbidden" }
 end
@@ -560,12 +598,21 @@ do
   end
   check(
     "module_bus counts requests, published, cloud calls",
-    hb.module_bus.requests >= 1 and hb.module_bus.published == 1 and hb.module_bus.cloud_requests == 4
-      and hb.module_bus.timeouts == 0 and hb.module_bus.dropped == 0
+    hb.module_bus.requests >= 1
+      and hb.module_bus.published == 1
+      and hb.module_bus.cloud_requests == 4
+      and hb.module_bus.timeouts == 0
+      and hb.module_bus.dropped == 0
   )
-  check("per-module bus counters on the module row", aiRow and aiRow.bus and aiRow.bus.requests == 1 and aiRow.bus.published == 1)
+  check(
+    "per-module bus counters on the module row",
+    aiRow and aiRow.bus and aiRow.bus.requests == 1 and aiRow.bus.published == 1
+  )
   check("manifest on the module row", aiRow and aiRow.manifest and aiRow.manifest.driver == "sbos.ai_core")
-  check("no token anywhere in the heartbeat", JSON:encode(hb):find(ai.token, 1, true) == nil and JSON:encode(hb):find(fr.token, 1, true) == nil)
+  check(
+    "no token anywhere in the heartbeat",
+    JSON:encode(hb):find(ai.token, 1, true) == nil and JSON:encode(hb):find(fr.token, 1, true) == nil
+  )
 end
 
 print("[8] MODULE_COMMANDS.ai_core through the existing gateway")
@@ -576,8 +623,21 @@ do
       body = {
         ok = true,
         commands = {
-          { id = "a1", command = "MODULE_COMMAND", payload = { module_id = "ai_core", command = "deliver_result", request_id = "ai-1", args = { job_id = "job-1" } } },
-          { id = "a2", command = "MODULE_COMMAND", payload = { module_id = "ai_core", command = "unlock_door", request_id = "ai-2" } },
+          {
+            id = "a1",
+            command = "MODULE_COMMAND",
+            payload = {
+              module_id = "ai_core",
+              command = "deliver_result",
+              request_id = "ai-1",
+              args = { job_id = "job-1" },
+            },
+          },
+          {
+            id = "a2",
+            command = "MODULE_COMMAND",
+            payload = { module_id = "ai_core", command = "unlock_door", request_id = "ai-2" },
+          },
         },
       },
     }
@@ -593,13 +653,24 @@ do
   responders["heartbeat"] = nil
   local acks = requestsTo("commands")
   acks = acks[#acks] and acks[#acks].data.acks or {}
-  check("deliver_result accepted and forwarded to ai_core", acks[1] and acks[1].ok == true and lastSent("SBOS_MODULE_COMMAND").device == AI_ID)
-  check("an operation outside MODULE_COMMANDS.ai_core is refused", acks[2] and acks[2].ok == false and acks[2].error:find("unlock_door") ~= nil)
+  check(
+    "deliver_result accepted and forwarded to ai_core",
+    acks[1] and acks[1].ok == true and lastSent("SBOS_MODULE_COMMAND").device == AI_ID
+  )
+  check(
+    "an operation outside MODULE_COMMANDS.ai_core is refused",
+    acks[2] and acks[2].ok == false and acks[2].error:find("unlock_door") ~= nil
+  )
   local vocab = MODULE_COMMANDS.ai_core
   check(
     "MODULE_COMMANDS.ai_core is exactly the six restricted operations",
-    vocab.apply_config and vocab.refresh_status and vocab.deliver_result and vocab.raise_event and vocab.set_learning
-      and vocab.run_diagnostic and (function()
+    vocab.apply_config
+      and vocab.refresh_status
+      and vocab.deliver_result
+      and vocab.raise_event
+      and vocab.set_learning
+      and vocab.run_diagnostic
+      and (function()
         local n = 0
         for _ in pairs(vocab) do
           n = n + 1
@@ -629,7 +700,9 @@ do
   check("the pre-restart token no longer authenticates", #sent == 0)
   EC.SBOS_MODULE_SUBSCRIBE(auth(AI_ID, "ai_core", ai.token, { subscription_id = "fr", topics = '["capture."]' }))
   sent = {}
-  EC.SBOS_MODULE_EVENTS(auth(MODULE_ID, "flight_recorder", fr.token, { batch_id = "b9", events = JSON:encode({ frEnvelope(50) }) }))
+  EC.SBOS_MODULE_EVENTS(
+    auth(MODULE_ID, "flight_recorder", fr.token, { batch_id = "b9", events = JSON:encode({ frEnvelope(50) }) })
+  )
   advance(1500)
   check("fan-out works again after re-subscribe", #sentOf("SBOS_MODULE_PUBLISH", AI_ID) == 1)
 end

@@ -251,7 +251,11 @@ function Bus:onRemoved(entry)
   local key = instKey(entry.module_id, entry.instance_id)
   self.stale[key] = nil
   for id, route in pairs(self.routes) do
-    if route.kind == "request" and route.to_module == entry.module_id and route.to_instance == tostring(entry.instance_id) then
+    if
+      route.kind == "request"
+      and route.to_module == entry.module_id
+      and route.to_instance == tostring(entry.instance_id)
+    then
       self:dropRoute(id)
       self:idemDrop(route.key, id)
       local requester = self.registry:find(route.from_module, route.from_instance)

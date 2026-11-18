@@ -175,7 +175,9 @@ local manifest = reg and JSON:decode(reg.params.manifest) or {}
 check("protocol 1..2 offered", reg.params.protocol_min == "1" and reg.params.protocol_max == "2")
 check(
   "manifest param: driver, version, protocol 2, capabilities",
-  manifest.driver == "sbos.ai_core" and manifest.version == "20261118.1" and manifest.protocol == 2
+  manifest.driver == "sbos.ai_core"
+    and manifest.version == "20261118.1"
+    and manifest.protocol == 2
     and type(manifest.capabilities) == "table"
 )
 check("v1 csv params unchanged", reg.params.entitlements == "SBOS_AI_CORE" and reg.params.event_types == "ai_core.")
@@ -199,7 +201,10 @@ toAgent = {}
 EC.SBOS_MODULE_AGENT_HELLO({ agent_version = "x" })
 check("hello → re-register", #frames("SBOS_MODULE_REGISTER") == 1)
 local sub = lastFrame("SBOS_MODULE_SUBSCRIBE")
-check("…then the subscription is re-sent with the NEW token", sub ~= nil and sub.params.token ~= oldToken and sub.params.token == agent.lastReply.token)
+check(
+  "…then the subscription is re-sent with the NEW token",
+  sub ~= nil and sub.params.token ~= oldToken and sub.params.token == agent.lastReply.token
+)
 check("…and granted by the new Agent", agent.bus:health().subscriptions == 1)
 check("onAgentState saw the hello", states[#states] == "hello" or states[#states - 1] == "hello")
 
@@ -210,15 +215,24 @@ setup()
 toAgent = {}
 client.register()
 check("registered at protocol 1 (v1 services kept)", client.isRegistered() and client.protocol() == 1)
-check("agent_update_required reported", client.agentUpdateRequired() == true and client.displayStatus() == "agent_update_required")
+check(
+  "agent_update_required reported",
+  client.agentUpdateRequired() == true and client.displayStatus() == "agent_update_required"
+)
 check("onAgentState told agent_update_required", states[#states] == "agent_update_required")
 check("lastError says so", client.lastError():find("agent_update_required") ~= nil)
 local answer
 client.request("flight_recorder", "events.query", {}, {}, function(a)
   answer = a
 end)
-check("request → incompatible_protocol, nothing sent", answer and answer.error_code == "incompatible_protocol" and #frames("SBOS_MODULE_REQUEST") == 0)
-check("subscribe kept but not sent", client.subscribe("fr", { "capture." }, function() end) and #frames("SBOS_MODULE_SUBSCRIBE") == 0)
+check(
+  "request → incompatible_protocol, nothing sent",
+  answer and answer.error_code == "incompatible_protocol" and #frames("SBOS_MODULE_REQUEST") == 0
+)
+check(
+  "subscribe kept but not sent",
+  client.subscribe("fr", { "capture." }, function() end) and #frames("SBOS_MODULE_SUBSCRIBE") == 0
+)
 local env = client.event({ event_type = "ai_core.status", evidence_source = "derived", payload = { ok = true } })
 client.sendEvents({ env })
 client.flush()
@@ -236,7 +250,10 @@ states = {}
 setup({ protocol_min = 2 })
 client.register()
 check("refused incompatible_protocol", not client.isRegistered() and agent.lastReply.reason == "incompatible_protocol")
-check("agent_update_required reported", client.agentUpdateRequired() == true and client.displayStatus() == "agent_update_required")
+check(
+  "agent_update_required reported",
+  client.agentUpdateRequired() == true and client.displayStatus() == "agent_update_required"
+)
 
 client.stop()
 check("stop cancels the client's timers", timers.SbosModuleStatus == nil and timers.SbosModuleTick == nil)

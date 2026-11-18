@@ -113,7 +113,8 @@ local function newAgent(protocolMax)
     end,
     cloudPost = function(body, done)
       posts[#posts + 1] = body
-      local answer = table.remove(cloudAnswers, 1) or { ok = true, http_status = 200, body = { ok = true, result = {} } }
+      local answer = table.remove(cloudAnswers, 1)
+        or { ok = true, http_status = 200, body = { ok = true, result = {} } }
       queue[#queue + 1] = function()
         done(answer)
       end
@@ -317,7 +318,10 @@ do
   got = call("flight_recorder", "events.timeline", {})
   -- the manifest advertises events.timeline but the driver has no handler
   advance(1)
-  check("target without a handler answers capability_not_found, final", got() and got().error_code == "capability_not_found" and got().attempts == 1)
+  check(
+    "target without a handler answers capability_not_found, final",
+    got() and got().error_code == "capability_not_found" and got().attempts == 1
+  )
 
   -- unknown_target (Flight Recorder not registered at all) is final
   agent.registry:remove("flight_recorder", "501")
@@ -325,7 +329,10 @@ do
   trafficToAgent = {}
   got = call("flight_recorder", "events.query", {})
   advance(10)
-  check("unknown_target: final, one attempt", got() and got().error_code == "unknown_target" and countTo("SBOS_MODULE_REQUEST") == 1)
+  check(
+    "unknown_target: final, one attempt",
+    got() and got().error_code == "unknown_target" and countTo("SBOS_MODULE_REQUEST") == 1
+  )
   -- target_unavailable (registered, but only at protocol 1): retried 2 s then 5 s
   register(fr, nil, "1")
   trafficToAgent = {}
@@ -342,7 +349,11 @@ do
   local a = got()
   check(
     "retry 2 at +5 s, then final target_unavailable after 3 attempts",
-    countTo("SBOS_MODULE_REQUEST") == 3 and a and a.error_code == "target_unavailable" and a.attempts == 3 and T.now - t0 == 7,
+    countTo("SBOS_MODULE_REQUEST") == 3
+      and a
+      and a.error_code == "target_unavailable"
+      and a.attempts == 3
+      and T.now - t0 == 7,
     a and a.error_code
   )
   local keys, rids = {}, {}
@@ -377,7 +388,10 @@ do
   check("retried with the same key after the first deadline: re-routed by the Agent", silent == 2)
   advance(3 + 5 + 3)
   local a = got()
-  check("final deadline_exceeded after 3 attempts", a and a.error_code == "deadline_exceeded" and a.attempts == 3 and silent == 3)
+  check(
+    "final deadline_exceeded after 3 attempts",
+    a and a.error_code == "deadline_exceeded" and a.attempts == 3 and silent == 3
+  )
   check("timeouts counted", ai.rpc.counters.timeouts == 3)
   fr.rpc:onRequest("events.timeline", nil)
 end
@@ -396,7 +410,10 @@ do
   local got = call("flight_recorder", "events.timeline", {}, { idempotency_key = "same-key" })
   advance(2)
   local a = got()
-  check("rate_limited from the target is retried, then ok", a and a.status == "ok" and a.attempts == 2 and a.result.attempt == 2)
+  check(
+    "rate_limited from the target is retried, then ok",
+    a and a.status == "ok" and a.attempts == 2 and a.result.attempt == 2
+  )
   got = call("flight_recorder", "events.timeline", {}, { idempotency_key = "same-key" })
   advance(1)
   a = got()
@@ -435,13 +452,19 @@ do
   forged.request_id = "forged-1"
   forged.token = "not-the-token"
   fr.deliver("SBOS_MODULE_REQUEST", forged)
-  check("a REQUEST without this module's token is ignored", queryCalls == before + 1 and fr.rpc.counters.ignored_frames >= 1)
+  check(
+    "a REQUEST without this module's token is ignored",
+    queryCalls == before + 1 and fr.rpc.counters.ignored_frames >= 1
+  )
   fr.rpc:onRequest("events.timeline", function() end) -- never answers
   local got = call("flight_recorder", "events.timeline", {}, { timeout = 5, retries = 0 })
   local pending = next(ai.rpc.calls)
   check("(a call is pending)", got() == nil and pending ~= nil)
   ai.deliver("SBOS_MODULE_RESPONSE", { token = "forged", request_id = pending, status = "ok", result = '{"fake":1}' })
-  ai.deliver("SBOS_MODULE_REQUEST_ACK", { token = "forged", request_id = pending, state = "Refused", error_code = "not_permitted" })
+  ai.deliver(
+    "SBOS_MODULE_REQUEST_ACK",
+    { token = "forged", request_id = pending, state = "Refused", error_code = "not_permitted" }
+  )
   check("a forged RESPONSE / ACK does not complete the caller's request", got() == nil)
   ai.deliver("SBOS_MODULE_RESPONSE", { token = ai.token, request_id = pending, status = "ok", result = '{"real":1}' })
   check("the same frame with the right token does", got() and got().status == "ok" and got().result.real == 1)
@@ -451,12 +474,18 @@ print("[6] local limits: oversize never leaves the driver")
 do
   trafficToAgent = {}
   local got = call("flight_recorder", "events.query", { blob = string.rep("x", 17 * 1024) })
-  check("args > 16 KB → payload_too_large locally", got() and got().error_code == "payload_too_large" and #trafficToAgent == 0)
+  check(
+    "args > 16 KB → payload_too_large locally",
+    got() and got().error_code == "payload_too_large" and #trafficToAgent == 0
+  )
   local cloudA
   ai.rpc:cloudRequest("ask", { blob = string.rep("x", 17 * 1024) }, {}, function(a)
     cloudA = a
   end)
-  check("cloud body > 16 KB → payload_too_large locally", cloudA and cloudA.error_code == "payload_too_large" and #trafficToAgent == 0)
+  check(
+    "cloud body > 16 KB → payload_too_large locally",
+    cloudA and cloudA.error_code == "payload_too_large" and #trafficToAgent == 0
+  )
   got = call("flight_recorder", "Bad Capability", {})
   check("malformed capability → invalid_args locally", got() and got().error_code == "invalid_args")
   fr.rpc:onRequest("events.timeline", function(_, respond)
@@ -482,7 +511,11 @@ do
   pump()
   check(
     "discover returns the directory filtered by capability",
-    code == "ok" and dir and #dir.modules == 1 and dir.modules[1].module_id == "flight_recorder" and dir.agent.protocol_max == 2
+    code == "ok"
+      and dir
+      and #dir.modules == 1
+      and dir.modules[1].module_id == "flight_recorder"
+      and dir.agent.protocol_max == 2
   )
   ai.changed = {}
   local venue = newModule("venueflow", 701)
@@ -505,7 +538,10 @@ do
   local okBad, why = ai.rpc:subscribe("x", {}, function() end)
   check("an empty topic list refused locally", okBad == false and why == "invalid_args")
   local entry = agent.registry:find("flight_recorder", "501")
-  agent.bus:offer({ event_id = "e1", event_type = "capture.device", module_id = "flight_recorder", payload = {} }, entry)
+  agent.bus:offer(
+    { event_id = "e1", event_type = "capture.device", module_id = "flight_recorder", payload = {} },
+    entry
+  )
   advance(1)
   check("published envelope delivered to onEvents", #got == 1 and got[1].event_id == "e1" and dropped == 0)
   check("received counted", ai.rpc.counters.published_received == 1)
@@ -522,7 +558,10 @@ do
   fr.rpc:onAgentHello()
   ai.rpc:onAgentHello()
   advance(4)
-  check("the in-flight request fails target_unavailable at its deadline", got() and got().error_code == "target_unavailable")
+  check(
+    "the in-flight request fails target_unavailable at its deadline",
+    got() and got().error_code == "target_unavailable"
+  )
   trafficToAgent = {}
   register(fr, FR_MANIFEST)
   register(ai, '{"capabilities":[]}')
@@ -563,8 +602,13 @@ do
   advance(2)
   check(
     "retried with the same key, then ok",
-    a and a.status == "ok" and a.result.job_id == "j9" and a.attempts == 2 and #posts == 2
-      and posts[1].idempotency_key == "ask-1" and posts[2].idempotency_key == "ask-1"
+    a
+      and a.status == "ok"
+      and a.result.job_id == "j9"
+      and a.attempts == 2
+      and #posts == 2
+      and posts[1].idempotency_key == "ask-1"
+      and posts[2].idempotency_key == "ask-1"
       and posts[1].request_id ~= posts[2].request_id
   )
   cloudAnswers = { { ok = false, http_status = 403 } }
@@ -580,7 +624,10 @@ do
     a = x
   end)
   pump()
-  check("an op outside MODULE_CLOUD_OPS → not_permitted, final", a and a.error_code == "not_permitted" and a.attempts == 1)
+  check(
+    "an op outside MODULE_CLOUD_OPS → not_permitted, final",
+    a and a.error_code == "not_permitted" and a.attempts == 1
+  )
 end
 
 print("[11] a v2 client against a v1-only Agent degrades, never crashes")
@@ -588,19 +635,28 @@ do
   newAgent(1)
   local old = newModule("ai_core", 602)
   local okR, entry = pcall(register, old, '{"capabilities":[]}', "2")
-  check("registration still succeeds, negotiated to 1 (v1 services)", okR and entry.protocol == 1 and old.rpc.protocol == 1)
+  check(
+    "registration still succeeds, negotiated to 1 (v1 services)",
+    okR and entry.protocol == 1 and old.rpc.protocol == 1
+  )
   check("the v1 Agent stored no manifest", entry.manifest == nil)
   local a
   old.rpc:request("flight_recorder", "events.query", {}, {}, function(x)
     a = x
   end)
-  check("request → incompatible_protocol, at once, no frame", a and a.error_code == "incompatible_protocol" and a.attempts == 1)
+  check(
+    "request → incompatible_protocol, at once, no frame",
+    a and a.error_code == "incompatible_protocol" and a.attempts == 1
+  )
   local dcode
   old.rpc:discover(nil, function(_, c)
     dcode = c
   end)
   check("discover → incompatible_protocol", dcode == "incompatible_protocol")
-  check("subscribe is kept as desired state but not sent", old.rpc:subscribe("s", { "capture." }, function() end) == true and old.rpc.subs.s.state == "pending")
+  check(
+    "subscribe is kept as desired state but not sent",
+    old.rpc:subscribe("s", { "capture." }, function() end) == true and old.rpc.subs.s.state == "pending"
+  )
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

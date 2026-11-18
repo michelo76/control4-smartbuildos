@@ -95,7 +95,11 @@ function EC.PROBE_INFO()
 end
 
 function EC.PROBE_EMIT(p)
-  local env = client.event({ event_type = p.TYPE or "capture.device", evidence_source = "observed", payload = { n = tonumber(p.N) or 0 } })
+  local env = client.event({
+    event_type = p.TYPE or "capture.device",
+    evidence_source = "observed",
+    payload = { n = tonumber(p.N) or 0 },
+  })
   client.sendEvents({ env })
   client.flush()
 end

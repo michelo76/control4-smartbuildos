@@ -146,7 +146,8 @@ end
 
 local function setup()
   local registry, bus = fresh()
-  local _, _, fr = register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
+  local _, _, fr =
+    register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
   local _, _, ai = register(registry, bus, { module_id = "ai_core", instance_id = "601", manifest = AI_MANIFEST })
   sent = {}
   return registry, bus, fr, ai
@@ -205,17 +206,35 @@ do
   local r = Policy.RETRYABLE
   check(
     "retryable = deadline_exceeded, target_unavailable, rate_limited, cloud_unreachable only",
-    r.deadline_exceeded and r.target_unavailable and r.rate_limited and r.cloud_unreachable
-      and not r.not_permitted and not r.invalid_args and not r.capability_not_found and not r.cloud_refused
+    r.deadline_exceeded
+      and r.target_unavailable
+      and r.rate_limited
+      and r.cloud_unreachable
+      and not r.not_permitted
+      and not r.invalid_args
+      and not r.capability_not_found
+      and not r.cloud_refused
   )
-  check("retry delays 2 s then 5 s", Policy.RETRY_DELAYS[1] == 2 and Policy.RETRY_DELAYS[2] == 5 and #Policy.RETRY_DELAYS == 2)
+  check(
+    "retry delays 2 s then 5 s",
+    Policy.RETRY_DELAYS[1] == 2 and Policy.RETRY_DELAYS[2] == 5 and #Policy.RETRY_DELAYS == 2
+  )
   check("protocol 1..2", Policy.PROTOCOL_MIN == 1 and Policy.PROTOCOL_MAX == 2 and Modules.PROTOCOL_MAX == 2)
   local ops = Policy.CLOUD_OPS.ai_core
   check(
     "MODULE_CLOUD_OPS.ai_core is the closed list of ARCHITECTURE §5",
-    ops.ask and ops.analyze_room and ops.analyze_system and ops.learn_preference and ops.suggest_scene
-      and ops.generate_report and ops.start_diagnostic and ops.send_notification and ops.set_context
-      and ops.status and ops.test_provider and not ops.proxy
+    ops.ask
+      and ops.analyze_room
+      and ops.analyze_system
+      and ops.learn_preference
+      and ops.suggest_scene
+      and ops.generate_report
+      and ops.start_diagnostic
+      and ops.send_notification
+      and ops.set_context
+      and ops.status
+      and ops.test_provider
+      and not ops.proxy
   )
   check(
     "ai_core may call Flight Recorder's events.* capabilities",
@@ -238,10 +257,12 @@ end
 print("[2] registration: v1/v2 matrix, manifest stored, tokens")
 do
   local registry, bus = fresh()
-  local ok1, r1, e1 = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", max = "1", manifest = FR_MANIFEST })
+  local ok1, r1, e1 =
+    register(registry, bus, { module_id = "usage_analytics", instance_id = "701", max = "1", manifest = FR_MANIFEST })
   check("v1 module (1..1) negotiates 1 with the v2 Agent", ok1 and r1.protocol == "1")
   check("a v1 registration stores no manifest even if one is sent", e1.manifest == nil)
-  local ok2, r2, e2 = register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
+  local ok2, r2, e2 =
+    register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
   check("v2 module (1..2) negotiates 2", ok2 and r2.protocol == "2")
   check(
     "manifest stored, bounded and typed",
@@ -251,9 +272,14 @@ do
       and Modules.findCapability(e2, "events.query", "request") ~= nil
       and Modules.findCapability(e2, "events.subscribe", "topic").topics[2] == "observation."
   )
-  local ok3, r3 = register(registry, bus, { module_id = "ai_core", instance_id = "601", min = "2", max = "2", manifest = "{" })
-  check("v2-only module (2..2) registers, bad manifest reported, not fatal", ok3 and r3.manifest_error == "invalid_manifest")
-  local ok4, r4 = registry:register({ module_id = "home_state", instance_id = "801", protocol_min = "3", protocol_max = "3" })
+  local ok3, r3 =
+    register(registry, bus, { module_id = "ai_core", instance_id = "601", min = "2", max = "2", manifest = "{" })
+  check(
+    "v2-only module (2..2) registers, bad manifest reported, not fatal",
+    ok3 and r3.manifest_error == "invalid_manifest"
+  )
+  local ok4, r4 =
+    registry:register({ module_id = "home_state", instance_id = "801", protocol_min = "3", protocol_max = "3" })
   check(
     "v3-only module refused with the Agent's range",
     not ok4 and r4.reason == "incompatible_protocol" and r4.agent_protocol_max == "2"
@@ -262,7 +288,8 @@ do
   check("manifest over 2 KB refused", select(2, Modules.parseManifest(big)) == "manifest_too_large")
   check(
     "a topic capability without topics refused",
-    select(2, Modules.parseManifest('{"capabilities":[{"id":"events.subscribe","kind":"topic"}]}')) == "invalid_capability"
+    select(2, Modules.parseManifest('{"capabilities":[{"id":"events.subscribe","kind":"topic"}]}'))
+      == "invalid_capability"
   )
   check(
     "an unknown capability kind refused",
@@ -273,24 +300,18 @@ do
       return kind == "RANDOM" and "6F9619FF-8B86-D011-B42D-00CF4FC964FF" or nil
     end,
   }
-  check(
-    "token from C4:UUID(\"RANDOM\"): 32 lowercase hex",
-    Modules.token(uuidC4, function()
-      return "fallback"
-    end) == "6f9619ff8b86d011b42d00cf4fc964ff"
-  )
-  check(
-    "token falls back to the v1 generator when UUID is absent or not a UUID",
-    Modules.token({
-      UUID = function()
-        return "RANDOM-1-2"
-      end,
-    }, function()
-      return "fallback"
-    end) == "fallback" and Modules.token(nil, function()
-      return "fallback"
-    end) == "fallback"
-  )
+  check('token from C4:UUID("RANDOM"): 32 lowercase hex', Modules.token(uuidC4, function()
+    return "fallback"
+  end) == "6f9619ff8b86d011b42d00cf4fc964ff")
+  check("token falls back to the v1 generator when UUID is absent or not a UUID", Modules.token({
+    UUID = function()
+      return "RANDOM-1-2"
+    end,
+  }, function()
+    return "fallback"
+  end) == "fallback" and Modules.token(nil, function()
+    return "fallback"
+  end) == "fallback")
 end
 
 print("[3] discovery: directory, filter, register/unregister/stale, debounced change push")
@@ -300,11 +321,18 @@ do
   local d = last("SBOS_MODULE_DIRECTORY", 601)
   local mods = d and JSON:decode(d.params.modules) or {}
   local agent = d and JSON:decode(d.params.agent) or {}
-  check("answer goes to the requester with its token", d ~= nil and d.params.token == ai.token and d.params.error_code == "ok")
+  check(
+    "answer goes to the requester with its token",
+    d ~= nil and d.params.token == ai.token and d.params.error_code == "ok"
+  )
   check(
     "directory lists both modules with manifests, never tokens",
-    #mods == 2 and mods[1].module_id == "ai_core" and mods[2].module_id == "flight_recorder"
-      and #mods[2].capabilities == 3 and mods[2].token == nil and d.params.modules:find(fr.token, 1, true) == nil
+    #mods == 2
+      and mods[1].module_id == "ai_core"
+      and mods[2].module_id == "flight_recorder"
+      and #mods[2].capabilities == 3
+      and mods[2].token == nil
+      and d.params.modules:find(fr.token, 1, true) == nil
   )
   check(
     "agent block: version, protocol range, paired, connected",
@@ -372,7 +400,10 @@ do
 
   local _, _, v1 = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", max = "1" })
   bus:discover(v1, { request_id = "d7" })
-  check("a v1-negotiated module gets incompatible_protocol", last("SBOS_MODULE_DIRECTORY", 701).params.error_code == "incompatible_protocol")
+  check(
+    "a v1-negotiated module gets incompatible_protocol",
+    last("SBOS_MODULE_DIRECTORY", 701).params.error_code == "incompatible_protocol"
+  )
 end
 
 print("[4] pub/sub: policy, fan-out of accepted envelopes, bounded buffer")
@@ -391,13 +422,18 @@ do
   local s = last("SBOS_MODULE_SUBSCRIBED", 601)
   local granted = JSON:decode(s.params.granted)
   local refused = JSON:decode(s.params.refused)
-  check("partial grant: allowed topics granted, others refused", s.params.ok == "true" and #granted == 2 and refused[1] == "usage.")
+  check(
+    "partial grant: allowed topics granted, others refused",
+    s.params.ok == "true" and #granted == 2 and refused[1] == "usage."
+  )
   check("partial grant reason is not_permitted", s.params.reason == "not_permitted")
-  local _, _, usage = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = AI_MANIFEST })
+  local _, _, usage =
+    register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = AI_MANIFEST })
   bus:subscribe(usage, { subscription_id = "u1", topics = '["capture."]' })
   check(
     "subscription refused by policy",
-    last("SBOS_MODULE_SUBSCRIBED", 701).params.ok == "false" and last("SBOS_MODULE_SUBSCRIBED", 701).params.reason == "not_permitted"
+    last("SBOS_MODULE_SUBSCRIBED", 701).params.ok == "false"
+      and last("SBOS_MODULE_SUBSCRIBED", 701).params.reason == "not_permitted"
   )
   local many = {}
   for i = 1, 17 do
@@ -419,8 +455,13 @@ do
   local events = pub and JSON:decode(pub.params.events) or {}
   check(
     "fan-out of matching envelopes only, to the subscriber, with its token",
-    pub ~= nil and #events == 2 and events[1].payload.n == 1 and events[2].payload.n == 2
-      and pub.params.token == ai.token and pub.params.subscription_id == "s1" and pub.params.dropped == "0"
+    pub ~= nil
+      and #events == 2
+      and events[1].payload.n == 1
+      and events[2].payload.n == 2
+      and pub.params.token == ai.token
+      and pub.params.subscription_id == "s1"
+      and pub.params.dropped == "0"
   )
   check("never echoed to the emitting instance", #of("SBOS_MODULE_PUBLISH", 501) == 0)
 
@@ -463,11 +504,15 @@ print("[4b] fan-out is never echoed to the emitting instance")
 do
   local registry, bus = fresh()
   bus.topicPolicy = { ["capture."] = { flight_recorder = true, ai_core = true } }
-  local _, _, fr = register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
+  local _, _, fr =
+    register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
   local _, _, ai = register(registry, bus, { module_id = "ai_core", instance_id = "601", manifest = AI_MANIFEST })
   bus:subscribe(fr, { subscription_id = "self", topics = '["capture."]' })
   bus:subscribe(ai, { subscription_id = "other", topics = '["capture."]' })
-  check("both subscribed", last("SBOS_MODULE_SUBSCRIBED", 501).params.ok == "true" and last("SBOS_MODULE_SUBSCRIBED", 601).params.ok == "true")
+  check(
+    "both subscribed",
+    last("SBOS_MODULE_SUBSCRIBED", 501).params.ok == "true" and last("SBOS_MODULE_SUBSCRIBED", 601).params.ok == "true"
+  )
   sent = {}
   bus:offer({ event_id = "x:1", event_type = "capture.device", module_id = "flight_recorder", payload = {} }, fr)
   advance(1)
@@ -484,7 +529,10 @@ do
   check("ack Routed to the requester", ack and ack.params.state == "Routed" and ack.params.error_code == "ok")
   check(
     "forwarded to the target with ITS token",
-    fwd and fwd.params.token == fr.token and fwd.params.module_id == "flight_recorder" and fwd.params.instance_id == "501"
+    fwd
+      and fwd.params.token == fr.token
+      and fwd.params.module_id == "flight_recorder"
+      and fwd.params.instance_id == "501"
   )
   check(
     "sender stamped by the Agent: forged from_* in the frame is not forwarded",
@@ -493,8 +541,11 @@ do
   )
   check(
     "request fields carried verbatim",
-    fwd.params.request_id == p.request_id and fwd.params.idempotency_key == p.idempotency_key
-      and fwd.params.capability == "events.query" and fwd.params.args == '{"limit":5}' and fwd.params.deadline == p.deadline
+    fwd.params.request_id == p.request_id
+      and fwd.params.idempotency_key == p.idempotency_key
+      and fwd.params.capability == "events.query"
+      and fwd.params.args == '{"limit":5}'
+      and fwd.params.deadline == p.deadline
   )
   bus:response(ai, { request_id = p.request_id, status = "ok", result = '{"fake":true}' })
   check("a response from another module is ignored", #of("SBOS_MODULE_RESPONSE") == 0)
@@ -509,12 +560,22 @@ do
     "a response from another INSTANCE of the target module is ignored",
     twin.token ~= nil and #of("SBOS_MODULE_RESPONSE") == 0
   )
-  bus:response(fr, { request_id = p.request_id, status = "ok", result = '{"events":[1,2]}', cursor = "c2", from_module_id = "usage_analytics" })
+  bus:response(fr, {
+    request_id = p.request_id,
+    status = "ok",
+    result = '{"events":[1,2]}',
+    cursor = "c2",
+    from_module_id = "usage_analytics",
+  })
   local resp = last("SBOS_MODULE_RESPONSE", 601)
   check(
     "response relayed to the requester with the responder stamped",
-    resp and resp.params.status == "ok" and resp.params.result == '{"events":[1,2]}' and resp.params.cursor == "c2"
-      and resp.params.from_module_id == "flight_recorder" and resp.params.from_instance_id == "501"
+    resp
+      and resp.params.status == "ok"
+      and resp.params.result == '{"events":[1,2]}'
+      and resp.params.cursor == "c2"
+      and resp.params.from_module_id == "flight_recorder"
+      and resp.params.from_instance_id == "501"
       and resp.params.token == ai.token
   )
   bus:response(fr, { request_id = p.request_id, status = "ok", result = "{}" })
@@ -528,8 +589,11 @@ do
   local replay = last("SBOS_MODULE_RESPONSE", 601)
   check(
     "duplicate key returns the stored answer under the new request id",
-    replay and replay.params.request_id == "r-again" and replay.params.result == '{"events":[1,2]}'
-      and replay.params.replayed == "true" and last("SBOS_MODULE_REQUEST_ACK").params.error_code == "duplicate_request"
+    replay
+      and replay.params.request_id == "r-again"
+      and replay.params.result == '{"events":[1,2]}'
+      and replay.params.replayed == "true"
+      and last("SBOS_MODULE_REQUEST_ACK").params.error_code == "duplicate_request"
   )
   check("replay counted", bus:health().replayed == 1)
 
@@ -544,7 +608,10 @@ do
       and #of("SBOS_MODULE_REQUEST", 501) == 1
   )
   req(bus, ai, { request_id = q.request_id, idempotency_key = "other" })
-  check("a reused request_id is refused duplicate_request", last("SBOS_MODULE_REQUEST_ACK").params.error_code == "duplicate_request")
+  check(
+    "a reused request_id is refused duplicate_request",
+    last("SBOS_MODULE_REQUEST_ACK").params.error_code == "duplicate_request"
+  )
 
   -- an error answer from the target that is retryable is not stored
   bus:response(fr, { request_id = q.request_id, status = "error", error_code = "rate_limited" })
@@ -556,8 +623,14 @@ do
 
   -- result too large
   local big = req(bus, ai)
-  bus:response(fr, { request_id = big.request_id, status = "ok", result = JSON:encode({ s = string.rep("x", 25 * 1024) }) })
-  check("result over 24 KB → payload_too_large", last("SBOS_MODULE_RESPONSE", 601).params.error_code == "payload_too_large")
+  bus:response(
+    fr,
+    { request_id = big.request_id, status = "ok", result = JSON:encode({ s = string.rep("x", 25 * 1024) }) }
+  )
+  check(
+    "result over 24 KB → payload_too_large",
+    last("SBOS_MODULE_RESPONSE", 601).params.error_code == "payload_too_large"
+  )
 end
 
 print("[6] request refusals")
@@ -569,7 +642,8 @@ do
     local a = last("SBOS_MODULE_REQUEST_ACK")
     return a and a.params.state == "Refused" and a.params.error_code, #of("SBOS_MODULE_REQUEST", 501)
   end
-  local _, _, usage = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = FR_MANIFEST })
+  local _, _, usage =
+    register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = FR_MANIFEST })
   local code, forwarded = refusal({}, usage)
   check("refused by policy (requester not listed)", code == "not_permitted" and forwarded == 0, code)
   check("unlisted capability → not_permitted", refusal({ capability = "events.delete" }) == "not_permitted")
@@ -580,8 +654,14 @@ do
     "a module advertising a capability it is not the sanctioned provider of → capability_not_found",
     wrong == "capability_not_found" and leaked == 0 and #of("SBOS_MODULE_REQUEST", 701) == 0
   )
-  check("capability not in the target's manifest", refusal({ capability = "events.device_history" }) == "capability_not_found")
-  check("oversize args (> 16 KB)", refusal({ args = JSON:encode({ s = string.rep("y", 17 * 1024) }) }) == "payload_too_large")
+  check(
+    "capability not in the target's manifest",
+    refusal({ capability = "events.device_history" }) == "capability_not_found"
+  )
+  check(
+    "oversize args (> 16 KB)",
+    refusal({ args = JSON:encode({ s = string.rep("y", 17 * 1024) }) }) == "payload_too_large"
+  )
   check("args not a JSON object", refusal({ args = "[[" }) == "invalid_args")
   check("deadline already passed", refusal({ deadline = tostring(T.now - 1) }) == "deadline_exceeded")
   check("deadline beyond now + 60", refusal({ deadline = tostring(T.now + 61) }) == "invalid_args")
@@ -629,7 +709,8 @@ do
   end
   check(
     "target unregistering fails ALL its in-flight requests with target_unavailable",
-    answered[r.request_id] == "target_unavailable" and answered["r-retry2"] == "target_unavailable"
+    answered[r.request_id] == "target_unavailable"
+      and answered["r-retry2"] == "target_unavailable"
       and bus:health().inflight == 0
   )
 end
@@ -649,7 +730,10 @@ do
   sent = {}
   req(bus, ai, { idempotency_key = "rl-after" })
   check("refilled at 30/min", last("SBOS_MODULE_REQUEST_ACK").params.error_code == "ok")
-  check("rate limiting counted", bus:health().rate_limited == 2 and bus:moduleCounters("ai_core", "601").rate_limited == 2)
+  check(
+    "rate limiting counted",
+    bus:health().rate_limited == 2 and bus:moduleCounters("ai_core", "601").rate_limited == 2
+  )
 end
 
 print("[9] cloud relay")
@@ -678,7 +762,10 @@ do
   local post = posts[#posts]
   check(
     "success: CLOUD_RESPONSE ok with the result",
-    a and a.params.status == "ok" and a.params.http_status == "200" and JSON:decode(a.params.result).job_id == "j1"
+    a
+      and a.params.status == "ok"
+      and a.params.http_status == "200"
+      and JSON:decode(a.params.result).job_id == "j1"
       and a.params.token == ai.token
   )
   local keys = {}
@@ -689,8 +776,11 @@ do
   check(
     "POST body is exactly {module_id, instance_id, op, request_id, idempotency_key, body}",
     table.concat(keys, ",") == "body,idempotency_key,instance_id,module_id,op,request_id"
-      and post.module_id == "ai_core" and post.instance_id == "601" and post.op == "ask"
-      and post.request_id == p.request_id and post.idempotency_key == p.idempotency_key
+      and post.module_id == "ai_core"
+      and post.instance_id == "601"
+      and post.op == "ask"
+      and post.request_id == p.request_id
+      and post.idempotency_key == p.idempotency_key
       and post.body.question == "why is the den cold",
     table.concat(keys, ",")
   )
@@ -698,17 +788,30 @@ do
   local again = cloud({ idempotency_key = p.idempotency_key })
   check("duplicate key: stored answer, no second POST", #posts == n and again.params.status == "ok")
   local refusedOp = cloud({ op = "run_lua" })
-  check("op outside MODULE_CLOUD_OPS → not_permitted, nothing posted", refusedOp.params.error_code == "not_permitted" and #posts == n)
-  local _, _, usage = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = AI_MANIFEST })
-  check("a module with no cloud ops → not_permitted", cloud({}, usage).params.error_code == "not_permitted" and #posts == n)
-  check("body over 16 KB → payload_too_large", cloud({ body = JSON:encode({ s = string.rep("z", 17 * 1024) }) }).params.error_code == "payload_too_large")
+  check(
+    "op outside MODULE_CLOUD_OPS → not_permitted, nothing posted",
+    refusedOp.params.error_code == "not_permitted" and #posts == n
+  )
+  local _, _, usage =
+    register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = AI_MANIFEST })
+  check(
+    "a module with no cloud ops → not_permitted",
+    cloud({}, usage).params.error_code == "not_permitted" and #posts == n
+  )
+  check(
+    "body over 16 KB → payload_too_large",
+    cloud({ body = JSON:encode({ s = string.rep("z", 17 * 1024) }) }).params.error_code == "payload_too_large"
+  )
   check("body not a JSON object → invalid_args", cloud({ body = "nope" }).params.error_code == "invalid_args")
 
   cloudAnswer = function()
     return { ok = false, reason = "timeout" }
   end
   local u, up = cloud()
-  check("transport failure → cloud_unreachable", u.params.error_code == "cloud_unreachable" and u.params.http_status == "")
+  check(
+    "transport failure → cloud_unreachable",
+    u.params.error_code == "cloud_unreachable" and u.params.http_status == ""
+  )
   n = #posts
   cloud({ idempotency_key = up.idempotency_key })
   check("cloud_unreachable is not stored: the retry posts again", #posts == n + 1)
@@ -735,7 +838,10 @@ do
   check("200 {ok:false} with an unknown code → cloud_refused", cloud().params.error_code == "cloud_refused")
   paired = false
   n = #posts
-  check("Agent not paired → agent_not_paired, nothing posted", cloud().params.error_code == "agent_not_paired" and #posts == n)
+  check(
+    "Agent not paired → agent_not_paired, nothing posted",
+    cloud().params.error_code == "agent_not_paired" and #posts == n
+  )
   paired = true
 
   -- cloud rate limit: 20/min burst 10 (fresh bus so the bucket is full)
@@ -762,7 +868,10 @@ do
   sent = {}
   done({ ok = true, http_status = 202, body = { accepted = true } })
   local late = last("SBOS_MODULE_CLOUD_RESPONSE", 601)
-  check("a held cloud answer is delivered with the CURRENT token", late and late.params.token == ai3.token and late.params.http_status == "202")
+  check(
+    "a held cloud answer is delivered with the CURRENT token",
+    late and late.params.token == ai3.token and late.params.http_status == "202"
+  )
   check("cloud counters", bus:health().cloud_requests >= 12 and bus:health().cloud_ok >= 11)
   cloudAnswer = nil
 end
@@ -776,9 +885,16 @@ do
     bus:subscribe(ai, { subscription_id = "sub" .. i, topics = '["capture."]' })
     results[i] = last("SBOS_MODULE_SUBSCRIBED", 601).params.reason
   end
-  check("8 subscriptions per instance, the 9th refused invalid_args", results[8] == "ok" and results[9] == "invalid_args", results[9])
+  check(
+    "8 subscriptions per instance, the 9th refused invalid_args",
+    results[8] == "ok" and results[9] == "invalid_args",
+    results[9]
+  )
   bus:subscribe(ai, { subscription_id = "sub3", topics = '["capture.x"]' })
-  check("re-subscribing an existing id is a replacement, not a new one", last("SBOS_MODULE_SUBSCRIBED", 601).params.reason == "ok")
+  check(
+    "re-subscribing an existing id is a replacement, not a new one",
+    last("SBOS_MODULE_SUBSCRIBED", 601).params.reason == "ok"
+  )
 
   for i = 1, 300 do
     bus:idemPut("key" .. i, { state = "done", answer = {} })
@@ -797,7 +913,11 @@ do
     codes[i] = last("SBOS_MODULE_REQUEST_ACK").params.error_code
   end
   Policy.RATES.request = saved
-  check("128 routes in flight at most; the 129th is refused rate_limited", codes[128] == "ok" and codes[129] == "rate_limited", codes[129])
+  check(
+    "128 routes in flight at most; the 129th is refused rate_limited",
+    codes[128] == "ok" and codes[129] == "rate_limited",
+    codes[129]
+  )
 end
 
 print("[10] health block")
@@ -806,11 +926,21 @@ do
   local h = bus:health()
   check(
     "bus counters: requests, refused, timeouts, published, dropped (+ cloud, inflight, subscriptions)",
-    h.requests == 0 and h.refused == 0 and h.timeouts == 0 and h.published == 0 and h.dropped == 0
-      and h.cloud_requests == 0 and h.inflight == 0 and h.subscriptions == 0 and h.directory_version >= 2
+    h.requests == 0
+      and h.refused == 0
+      and h.timeouts == 0
+      and h.published == 0
+      and h.dropped == 0
+      and h.cloud_requests == 0
+      and h.inflight == 0
+      and h.subscriptions == 0
+      and h.directory_version >= 2
   )
   bus:stop()
-  check("stop cancels the bus timers", T.timers[ModuleBus.TICK_TIMER] == nil and T.timers[ModuleBus.DIRECTORY_TIMER] == nil)
+  check(
+    "stop cancels the bus timers",
+    T.timers[ModuleBus.TICK_TIMER] == nil and T.timers[ModuleBus.DIRECTORY_TIMER] == nil
+  )
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
