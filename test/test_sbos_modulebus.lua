@@ -134,7 +134,7 @@ local function register(registry, bus, p)
     driver_version = "1",
     protocol_min = p.min or "1",
     protocol_max = p.max or "2",
-    singleton = "true",
+    singleton = p.singleton or "true",
     manifest = p.manifest,
   }
   local ok, reply, entry = registry:register(params)
@@ -318,10 +318,18 @@ do
 
   -- debounced change push
   sent = {}
+  advance(10) -- let setup()'s own change push go out first
+  sent = {}
   register(registry, bus, { module_id = "usage_analytics", instance_id = "701", max = "1" })
+  advance(3)
   register(registry, bus, { module_id = "venueflow", instance_id = "702", max = "2" })
   check("nothing pushed before the debounce", #of("SBOS_MODULE_DIRECTORY_CHANGED") == 0)
-  advance(5)
+  advance(2)
+  check(
+    "pushed 5 s after the FIRST change: a stream of changes cannot postpone it",
+    #of("SBOS_MODULE_DIRECTORY_CHANGED") > 0
+  )
+  advance(3)
   local pushes = of("SBOS_MODULE_DIRECTORY_CHANGED")
   check(
     "one push per live v2 module after 5 s (v1 modules get none)",
@@ -451,9 +459,25 @@ do
   check("re-registration drops the old session's subscriptions", #of("SBOS_MODULE_PUBLISH") == 0)
 end
 
+print("[4b] fan-out is never echoed to the emitting instance")
+do
+  local registry, bus = fresh()
+  bus.topicPolicy = { ["capture."] = { flight_recorder = true, ai_core = true } }
+  local _, _, fr = register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
+  local _, _, ai = register(registry, bus, { module_id = "ai_core", instance_id = "601", manifest = AI_MANIFEST })
+  bus:subscribe(fr, { subscription_id = "self", topics = '["capture."]' })
+  bus:subscribe(ai, { subscription_id = "other", topics = '["capture."]' })
+  check("both subscribed", last("SBOS_MODULE_SUBSCRIBED", 501).params.ok == "true" and last("SBOS_MODULE_SUBSCRIBED", 601).params.ok == "true")
+  sent = {}
+  bus:offer({ event_id = "x:1", event_type = "capture.device", module_id = "flight_recorder", payload = {} }, fr)
+  advance(1)
+  check("the other subscriber receives it", #of("SBOS_MODULE_PUBLISH", 601) == 1)
+  check("the emitting instance does not, though subscribed", #of("SBOS_MODULE_PUBLISH", 501) == 0)
+end
+
 print("[5] request/response: routed, stamped, answered")
 do
-  local _, bus, fr, ai = setup()
+  local registry, bus, fr, ai = setup()
   local p = req(bus, ai, { from_module_id = "flight_recorder", from_instance_id = "501", token = "forged" })
   local ack = last("SBOS_MODULE_REQUEST_ACK", 601)
   local fwd = last("SBOS_MODULE_REQUEST", 501)
@@ -473,7 +497,18 @@ do
       and fwd.params.capability == "events.query" and fwd.params.args == '{"limit":5}' and fwd.params.deadline == p.deadline
   )
   bus:response(ai, { request_id = p.request_id, status = "ok", result = '{"fake":true}' })
-  check("a response from an instance the request was NOT routed to is ignored", #of("SBOS_MODULE_RESPONSE") == 0)
+  check("a response from another module is ignored", #of("SBOS_MODULE_RESPONSE") == 0)
+  local _, _, twin = register(registry, bus, {
+    module_id = "flight_recorder",
+    instance_id = "502",
+    manifest = FR_MANIFEST,
+    singleton = "false",
+  })
+  bus:response(twin, { request_id = p.request_id, status = "ok", result = '{"fake":true}' })
+  check(
+    "a response from another INSTANCE of the target module is ignored",
+    twin.token ~= nil and #of("SBOS_MODULE_RESPONSE") == 0
+  )
   bus:response(fr, { request_id = p.request_id, status = "ok", result = '{"events":[1,2]}', cursor = "c2", from_module_id = "usage_analytics" })
   local resp = last("SBOS_MODULE_RESPONSE", 601)
   check(
@@ -534,13 +569,17 @@ do
     local a = last("SBOS_MODULE_REQUEST_ACK")
     return a and a.params.state == "Refused" and a.params.error_code, #of("SBOS_MODULE_REQUEST", 501)
   end
-  local _, _, usage = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = AI_MANIFEST })
+  local _, _, usage = register(registry, bus, { module_id = "usage_analytics", instance_id = "701", manifest = FR_MANIFEST })
   local code, forwarded = refusal({}, usage)
   check("refused by policy (requester not listed)", code == "not_permitted" and forwarded == 0, code)
   check("unlisted capability → not_permitted", refusal({ capability = "events.delete" }) == "not_permitted")
   check("unknown target", refusal({ to = "guardian" }) == "unknown_target")
   check("unknown target instance", refusal({ to_instance = "999" }) == "unknown_target")
-  check("wrong provider for the capability → capability_not_found", refusal({ to = "usage_analytics" }) == "capability_not_found")
+  local wrong, leaked = refusal({ to = "usage_analytics" })
+  check(
+    "a module advertising a capability it is not the sanctioned provider of → capability_not_found",
+    wrong == "capability_not_found" and leaked == 0 and #of("SBOS_MODULE_REQUEST", 701) == 0
+  )
   check("capability not in the target's manifest", refusal({ capability = "events.device_history" }) == "capability_not_found")
   check("oversize args (> 16 KB)", refusal({ args = JSON:encode({ s = string.rep("y", 17 * 1024) }) }) == "payload_too_large")
   check("args not a JSON object", refusal({ args = "[[" }) == "invalid_args")
@@ -726,6 +765,39 @@ do
   check("a held cloud answer is delivered with the CURRENT token", late and late.params.token == ai3.token and late.params.http_status == "202")
   check("cloud counters", bus:health().cloud_requests >= 12 and bus:health().cloud_ok >= 11)
   cloudAnswer = nil
+end
+
+print("[9b] memory bounds: subscriptions per instance, idempotency ring, in-flight routes")
+do
+  local _, bus, _, ai = setup()
+  bus.topicPolicy = { ["capture."] = { ai_core = true } }
+  local results = {}
+  for i = 1, 9 do
+    bus:subscribe(ai, { subscription_id = "sub" .. i, topics = '["capture."]' })
+    results[i] = last("SBOS_MODULE_SUBSCRIBED", 601).params.reason
+  end
+  check("8 subscriptions per instance, the 9th refused invalid_args", results[8] == "ok" and results[9] == "invalid_args", results[9])
+  bus:subscribe(ai, { subscription_id = "sub3", topics = '["capture.x"]' })
+  check("re-subscribing an existing id is a replacement, not a new one", last("SBOS_MODULE_SUBSCRIBED", 601).params.reason == "ok")
+
+  for i = 1, 300 do
+    bus:idemPut("key" .. i, { state = "done", answer = {} })
+  end
+  check(
+    "idempotency ring holds 256, oldest evicted",
+    #bus.idem.order == 256 and bus.idem.map.key44 == nil and bus.idem.map.key45 ~= nil and bus.idem.map.key300 ~= nil
+  )
+
+  local saved = Policy.RATES.request
+  Policy.RATES.request = { per_minute = 6000, burst = 1000 }
+  local codes = {}
+  for i = 1, 129 do
+    sent = {}
+    req(bus, ai, { idempotency_key = "cap-" .. i })
+    codes[i] = last("SBOS_MODULE_REQUEST_ACK").params.error_code
+  end
+  Policy.RATES.request = saved
+  check("128 routes in flight at most; the 129th is refused rate_limited", codes[128] == "ok" and codes[129] == "rate_limited", codes[129])
 end
 
 print("[10] health block")
