@@ -9172,8 +9172,7 @@ function refreshEntitlements(reason)
       end
       entry.devices = devices
       entry.device_id = current or remaining[#remaining]
-      installed[#installed + 1] =
-        { sku = sku, version = tostring(entry.version or ""), device_id = entry.device_id }
+      installed[#installed + 1] = { sku = sku, version = tostring(entry.version or ""), device_id = entry.device_id }
     end
   end
   if changed then

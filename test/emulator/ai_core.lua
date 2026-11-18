@@ -444,7 +444,11 @@ check(
   state == "Completed" and firedCount(d, aic, 6) == a0 + 1,
   state
 )
-check("AI_LAST_CORRELATION_ID = the action id", var(aic, "AI_LAST_CORRELATION_ID") == ACTION, var(aic, "AI_LAST_CORRELATION_ID"))
+check(
+  "AI_LAST_CORRELATION_ID = the action id",
+  var(aic, "AI_LAST_CORRELATION_ID") == ACTION,
+  var(aic, "AI_LAST_CORRELATION_ID")
+)
 d:advance(40000)
 local raised = cloudEnvelopes(S, "ai_core.event")
 check(

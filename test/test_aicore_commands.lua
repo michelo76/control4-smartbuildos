@@ -198,7 +198,9 @@ end
 r = C.interpret({ status = "error", error_code = "rate_limited" })
 check(
   "rate_limited → refused (an answer), says rate limited, not 'no answer'",
-  r.outcome == "refused" and r.code == "rate_limited" and r.message:find("rate limited") ~= nil
+  r.outcome == "refused"
+    and r.code == "rate_limited"
+    and r.message:find("rate limited") ~= nil
     and r.message:find("no answer") == nil
 )
 check(

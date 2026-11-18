@@ -425,7 +425,10 @@ local svcArgs = svcFn:match("validateRaiseEventArgs%((%b{})%)")
 if svcArgs then
   table.insert(sources.raise_event, { "actions/service.ts raiseEvent()", objectKeys(svcArgs) })
 end
-check("the platform's key lists are readable", #(argKeysTs.deliver_result or {}) > 0 and #raiseKeysTs > 0 and #deliverKeys > 0 and #raiseKeys > 0)
+check(
+  "the platform's key lists are readable",
+  #(argKeysTs.deliver_result or {}) > 0 and #raiseKeysTs > 0 and #deliverKeys > 0 and #raiseKeys > 0
+)
 for _, op in ipairs(V.OPERATIONS) do
   local platformKeys = {}
   for _, src in ipairs(sources[op]) do
@@ -439,7 +442,11 @@ for _, op in ipairs(V.OPERATIONS) do
     check(
       op .. ": the driver accepts every key of " .. src[1],
       #refused == 0,
-      "refused by operations.lua: {" .. table.concat(refused, ",") .. "} — every such " .. op .. " ends Failed on the controller"
+      "refused by operations.lua: {"
+        .. table.concat(refused, ",")
+        .. "} — every such "
+        .. op
+        .. " ends Failed on the controller"
     )
   end
   local extra = minus(Operations.argKeys(op), keys(platformKeys))
@@ -520,7 +527,10 @@ for _, e in ipairs(entries(anyLiteral(opsTs, "OP_BODIES"))) do
   end
   bodies[e.name] = spec
 end
-check("OP_BODIES and COMMON are readable", bodies.ask ~= nil and common.request_id ~= nil and bodies.ask.question ~= nil)
+check(
+  "OP_BODIES and COMMON are readable",
+  bodies.ask ~= nil and common.request_id ~= nil and bodies.ask.question ~= nil
+)
 local handled = set(strings(literal(opsTs, "AI_CORE_JOB_OPS")))
 for name in opsTs:gmatch("handlers%.([%w_]+) = async") do
   handled[name] = true
@@ -618,7 +628,12 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
         .. " (shown as a refusal on the controller; tested in test_aicore_cloud_answers.lua [2])"
     )
   elseif spec == nil then
-    note(op .. ": the platform validates no body for it (OP_BODIES has no entry); the driver sends {" .. table.concat(keys(d.full), ",") .. "}")
+    note(
+      op
+        .. ": the platform validates no body for it (OP_BODIES has no entry); the driver sends {"
+        .. table.concat(keys(d.full), ",")
+        .. "}"
+    )
   else
     local unknown = minus(keys(d.full), keys(spec))
     check(
@@ -652,12 +667,21 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
             end
           end
         end
-        check(op .. "." .. field .. ": the same closed list (" .. f.list .. ")", same(driverList, tsList), show(driverList, tsList))
+        check(
+          op .. "." .. field .. ": the same closed list (" .. f.list .. ")",
+          same(driverList, tsList),
+          show(driverList, tsList)
+        )
       elseif f.kind == "text" and d.full[field] ~= nil and field ~= "command" then
         local bound = d.max[field]
         if bound == nil then
           note(
-            op .. "." .. field .. ": the driver sends a name Director supplies, not bounded by the driver; the platform refuses over " .. tostring(f.max) .. " characters"
+            op
+              .. "."
+              .. field
+              .. ": the driver sends a name Director supplies, not bounded by the driver; the platform refuses over "
+              .. tostring(f.max)
+              .. " characters"
           )
         else
           check(
@@ -680,7 +704,11 @@ table.sort(syncNull)
 check("ops.ts has synchronous answers ({..., job_id: null}) to compare", #syncNull > 0)
 for _, op in ipairs(syncNull) do
   local r = Commands.interpret({ status = "ok", result = require("JSON"):decode('{"accepted":true,"job_id":null}') })
-  check(op .. ": {accepted: true, job_id: null} → the driver reads it as completed (no pending job)", r.outcome == "completed", r.outcome)
+  check(
+    op .. ": {accepted: true, job_id: null} → the driver reads it as completed (no pending job)",
+    r.outcome == "completed",
+    r.outcome
+  )
 end
 local jobFn = opsTs:match("function jobOp.-\n}") or ""
 check(

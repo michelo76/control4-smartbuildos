@@ -163,7 +163,8 @@ function M.parse(command, args)
     end
     if args.correlation_id ~= nil then
       if not validCorrelation(args.correlation_id) then
-        return nil, "correlation_id must be text of 1.." .. M.CORRELATION_MAX .. " characters without control characters"
+        return nil,
+          "correlation_id must be text of 1.." .. M.CORRELATION_MAX .. " characters without control characters"
       end
       op.correlation_id = args.correlation_id
     end

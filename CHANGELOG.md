@@ -273,23 +273,23 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
-- **AI Core: four contract mismatches with the platform, found in
-  integration.** (1) `raise_event` accepts an optional `correlation_id`
-  (1–96 characters, no control characters) — the platform's actions service
-  sends one with every approval/action event, and the driver refused the whole
-  operation; it is carried into a new `ai_core.event` envelope and the new
-  variable `AI_LAST_CORRELATION_ID` (4010). Every other unknown key is still
-  refused. (2) A cloud answer `{accepted: true, job_id: null}` (`set_context`,
-  `send_notification`, a recorded `learn_preference`) is a completed request:
-  no pending job, no `working`, no AI Response Ready (counter
-  `cloud_completed`); `rate_limited` is shown as a refusal, not as "no answer";
-  the `set_context` body names the context key `key`, as the platform
-  validates it. (3) The Agent's licence inventory keeps every instance of a
-  SKU: removing a second instance of a driver no longer drops the SKU for the
-  one that remains, and every instance is told its licence. (4) The cross-repo
-  parity test compares every restricted-operation argument the platform sends
-  with `operations.lua` and every cloud body the driver sends with the
-  platform's `rpc/ops.ts`. Simulation only (unit tests and the emulator).
+- **AI Core: four contract mismatches with the platform, found in integration.**
+  (1) `raise_event` accepts an optional `correlation_id` (1–96 characters, no
+  control characters) — the platform's actions service sends one with every
+  approval/action event, and the driver refused the whole operation; it is
+  carried into a new `ai_core.event` envelope and the new variable
+  `AI_LAST_CORRELATION_ID` (4010). Every other unknown key is still refused. (2)
+  A cloud answer `{accepted: true, job_id: null}` (`set_context`,
+  `send_notification`, a recorded `learn_preference`) is a completed request: no
+  pending job, no `working`, no AI Response Ready (counter `cloud_completed`);
+  `rate_limited` is shown as a refusal, not as "no answer"; the `set_context`
+  body names the context key `key`, as the platform validates it. (3) The
+  Agent's licence inventory keeps every instance of a SKU: removing a second
+  instance of a driver no longer drops the SKU for the one that remains, and
+  every instance is told its licence. (4) The cross-repo parity test compares
+  every restricted-operation argument the platform sends with `operations.lua`
+  and every cloud body the driver sends with the platform's `rpc/ops.ts`.
+  Simulation only (unit tests and the emulator).
 
 - **Agent: Director system events after pairing at run time.** The Agent
   registered for system events only in a start-up that found it already paired,

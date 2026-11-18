@@ -83,7 +83,10 @@ check(
 
 local fired8 = H.firedCount(8)
 local s2 = H.operation("raise_event", { event = "action_failed", detail = "Garage door did not report closed" })
-check("an event WITHOUT correlation_id → Completed, Action Failed fired", H.finalState(s2) == "Completed" and H.firedCount(8) == fired8 + 1)
+check(
+  "an event WITHOUT correlation_id → Completed, Action Failed fired",
+  H.finalState(s2) == "Completed" and H.firedCount(8) == fired8 + 1
+)
 check(
   "AI_LAST_CORRELATION_ID cleared: it never names an earlier event's subject",
   H.vars.AI_LAST_CORRELATION_ID == "",
@@ -101,7 +104,9 @@ local fired = #H.fired
 local s3 = H.operation("raise_event", { event = "action_completed", correlation_id = string.rep("c", 97) })
 check(
   "a correlation_id over 96 characters → Failed, named, nothing fired",
-  H.finalState(s3) == "Failed" and tostring(select(2, H.finalState(s3))):find("correlation_id") ~= nil and #H.fired == fired,
+  H.finalState(s3) == "Failed"
+    and tostring(select(2, H.finalState(s3))):find("correlation_id") ~= nil
+    and #H.fired == fired,
   select(2, H.finalState(s3))
 )
 local s4 = H.operation("raise_event", { event = "action_completed", correlation_id = "a\nb" })
@@ -129,7 +134,12 @@ A.cloud = function(op)
   if a ~= nil then
     return a
   end
-  return { status = "ok", http_status = "200", error_code = "ok", raw_result = '{"accepted":true,"job_id":"job-' .. op .. '"}' }
+  return {
+    status = "ok",
+    http_status = "200",
+    error_code = "ok",
+    raw_result = '{"accepted":true,"job_id":"job-' .. op .. '"}',
+  }
 end
 local function run(name, params)
   H.advance(7000) -- inside the local budget (10 a minute)
@@ -171,7 +181,11 @@ answers.send_notification = {
   raw_result = '{"accepted":true,"sent":{"audience":"homeowner","homeowner":{"recipients":2}},"job_id":null}',
 }
 run("AI_SEND_NOTIFICATION", { TITLE = "Garage", MESSAGE = "Left open", AUDIENCE = "Homeowner" })
-check("send_notification {accepted, job_id: null} → ready, not working", H.vars.AI_STATUS == "ready", H.vars.AI_STATUS)
+check(
+  "send_notification {accepted, job_id: null} → ready, not working",
+  H.vars.AI_STATUS == "ready",
+  H.vars.AI_STATUS
+)
 check(
   "last cloud result: completed",
   counters().last_cloud_result == "AI_SEND_NOTIFICATION: completed",
@@ -260,7 +274,8 @@ check(
   prop("Last Test Result") == "AI connection: refused (rate_limited)" and H.vars.AI_STATUS == "ready",
   prop("Last Test Result")
 )
-answers.test_provider = { status = "ok", http_status = "200", error_code = "ok", raw_result = '{"accepted":true,"job_id":null}' }
+answers.test_provider =
+  { status = "ok", http_status = "200", error_code = "ok", raw_result = '{"accepted":true,"job_id":null}' }
 EC.TEST_AI_CONNECTION()
 H.advance(2500)
 check(
@@ -283,7 +298,9 @@ EC.SYNC_NOW()
 H.advance(2500)
 check(
   "status answered (no `accepted` in its shape) → synchronised, no Sync Now error, nothing pending",
-  H.vars.AI_STATUS == "ready" and prop("Last Synchronization") ~= syncBefore and prop("Last Error"):find("Sync Now") == nil,
+  H.vars.AI_STATUS == "ready"
+    and prop("Last Synchronization") ~= syncBefore
+    and prop("Last Error"):find("Sync Now") == nil,
   prop("Last Error")
 )
 answers.status = { status = "error", http_status = "200", error_code = "not_permitted", result = { reason = "x" } }

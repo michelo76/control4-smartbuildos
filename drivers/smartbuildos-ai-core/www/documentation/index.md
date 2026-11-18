@@ -63,9 +63,8 @@ SmartBuildOS answers each request at once: *accepted* (the result follows as
 recorded `AI_LEARN_PREFERENCE` complete at once: nothing follows and **AI
 Status** stays *Ready*), or a refusal such as *not permitted*, *unsupported* or
 *rate limited*. A refusal is shown as it is in **Last Error** and **AI Status**;
-it is never reported as success. A command on
-a room excluded in System Studio is refused (except `AI_ASK` and
-`AI_SEND_NOTIFICATION`).
+it is never reported as success. A command on a room excluded in System Studio
+is refused (except `AI_ASK` and `AI_SEND_NOTIFICATION`).
 
 ### Events
 
