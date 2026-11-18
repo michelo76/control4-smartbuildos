@@ -1,0 +1,27 @@
+<devicedata>
+  <name>SmartBuildOS v2 Probe (test fixture)</name>
+  <version>1</version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>Contract v2 Probe</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Test fixture. Never shipped.</copyright>
+  <created>11/18/2026 12:00 PM</created>
+  <modified>11/18/2026 12:00 PM</modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <properties>
+      <property><name>Role</name><type>LIST</type><items><item>consumer</item><item>provider</item></items><default>consumer</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>
