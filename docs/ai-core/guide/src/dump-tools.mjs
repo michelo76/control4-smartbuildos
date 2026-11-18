@@ -9,5 +9,5 @@ const list = [...idx.READ_TOOLS];
 for (const [name, args] of [['createMemoryTools', [port]], ['createServiceTools', [port]], ['createNotificationTools', [port]], ['createActionTools', [port, {}]], ['createConciergeTools', [port]]]) {
   if (typeof idx[name] === 'function') list.push(...idx[name](...args));
 }
-const out = list.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, feature: t.feature, verb: t.verb, description: t.description, schema: t.schema }));
+const out = list.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, feature: t.feature, verb: t.verb, audience: t.audience ?? 'everyone', description: t.description, schema: t.schema }));
 console.log(JSON.stringify(out, null, 1));

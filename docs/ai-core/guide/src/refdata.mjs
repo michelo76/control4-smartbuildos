@@ -137,7 +137,7 @@ const errorCodes = [
 const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic"];
 const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider"];
 const tools = toolsRaw.map((t) => ({
-  id: t.id, wire: t.wire, risk: t.risk, household: t.household, feature: t.feature ?? null, verb: t.verb ?? null, description: t.description,
+  id: t.id, wire: t.wire, risk: t.risk, household: t.household, feature: t.feature ?? null, verb: t.verb ?? null, audience: t.audience ?? "everyone", description: t.description,
   required: t.schema.required ?? [],
   props: Object.entries(t.schema.properties).map(([k, v]) => {
     const parts = [];

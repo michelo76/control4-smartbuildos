@@ -36,7 +36,7 @@ const toolsIndex = await import(T("index.ts"));
 const FACTORIES = { memory: "createMemoryTools", service: "createServiceTools", notifications: "createNotificationTools", actions: "createActionTools", concierge: "createConciergeTools" };
 const build = (name) => (typeof toolsIndex[name] === "function" ? toolsIndex[name](port, {}) : []);
 const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build)];
-const registryTools = realTools.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature }));
+const registryTools = realTools.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature, audience: t.audience }));
 // The real offeredTools and registry builder, and the source of the per-persona composition.
 const realTurn = await import(pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/orchestrator/turn.ts")).href);
 const { createRegistry } = toolsIndex;
@@ -534,6 +534,11 @@ section("workflow simulator");
     if (ex.actor === "homeowner") ok(!want.some((w) => w.startsWith("actions_") && mode === "observe"), `simulator ${ex.id}/observe: no action tool offered to a homeowner in observe`);
     if (ex.actor === "controller") ok(want.every((w) => registryTools.find((t) => t.wire === w).risk === "read"), `simulator ${ex.id}/${mode}: a controller job is offered read tools only`);
     if (ex.actor !== "homeowner") ok(!want.some((w) => w.startsWith("concierge_")), `simulator ${ex.id}/${mode}: concierge tools only for a homeowner`);
+    // Least privilege: a staff-only tool is never offered to a homeowner or a controller, in the page or by the real engine.
+    const staffOnly = registryTools.filter((t) => t.audience === "staff").map((t) => t.wire);
+    ok(staffOnly.length > 0, "the real registry declares staff-only tools (the check is not passing against nothing)");
+    if (ex.actor !== "staff") ok(!want.some((w) => staffOnly.includes(w)) && !got.some((w) => staffOnly.includes(w)), `simulator ${ex.id}/${mode}: no staff-only tool offered to a ${ex.actor}`);
+    if (ex.actor === "staff" && ex.features.includes("BASE")) ok(staffOnly.every((w) => want.includes(w)), `simulator ${ex.id}/${mode}: staff are offered every staff-only tool`);
   }
   console.log(`  persona tool lists compared: ${offeredCompared}`);
   ctl("workflow:offered");
@@ -738,7 +743,7 @@ const OPS_INFO = { };
     if (key === "class:programming") return { id: "class.programming", risk: "programming", household: false };
     if (key === "class:credential") return { id: "class.credential", risk: "credential", household: false };
     const t = registryTools.find((x) => x.wire === key);
-    return { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}) };
+    return { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}), ...(t.audience ? { audience: t.audience } : {}) };
   };
   const values = { SET_LIGHT: { level: 30 }, SET_THERMOSTAT: { setpoint_f: 70 }, ACTIVATE_SCENE: {}, LOCK_DEVICE: { state: "unlocked" }, GARAGE_DEVICE: { state: "open" }, SECURITY_PARTITION: { state: "disarm" } };
   const now = new Date("2026-11-18T12:00:00Z");

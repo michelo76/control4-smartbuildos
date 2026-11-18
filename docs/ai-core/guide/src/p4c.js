@@ -85,6 +85,7 @@ const AUTHZ = (() => {
     }
     return true;
   }
+  const TOOL_AUDIENCES = ['everyone', 'staff', 'homeowner'];
   function authorize(input) {
     const { tool, actor, gate } = input;
     if (!tool || typeof tool.id !== 'string' || typeof tool.risk !== 'string') return deny('unknown_tool');
@@ -94,6 +95,9 @@ const AUTHZ = (() => {
     if (!gate || typeof gate.wouldDeny !== 'boolean') return deny('missing_gate');
     if (gate.wouldDeny) return deny('gate_would_deny');
     if (!isActor(actor)) return deny('unknown_actor');
+    const audience = tool.audience === undefined ? 'everyone' : tool.audience;
+    if (!TOOL_AUDIENCES.includes(audience)) return deny('unknown_audience');
+    if (audience !== 'everyone' && actor.kind !== audience) return deny('audience_not_permitted');
     if (actor.kind === 'staff' && actor.grants.monitoringView !== true) return deny('role_not_permitted');
     if (actor.kind === 'homeowner' && (!input.propertyId || !actor.propertyIds.includes(input.propertyId))) return deny('property_not_permitted');
     if (tool.household && !householdAllowedFor(actor, gate, input.learning)) return deny('household_not_permitted');
@@ -153,6 +157,8 @@ const REASON_TEXT = {
   unknown_verb: 'The queue verb is not recognised.',
   learned_behaviour_insufficient: 'Learned behaviour alone never authorizes high-risk or external actions.',
   automation_external_forbidden: 'An automation may never take an external action.',
+  audience_not_permitted: 'This tool exists for another kind of actor: the service tools are staff-only and the concierge tools homeowner-only, so it is never offered and never runs.',
+  unknown_audience: 'The tool declares an audience the engine does not recognise.',
 };
 
 /* Operations offered in the explorer: the registry's real tools, plus the
@@ -167,7 +173,7 @@ const SAMPLE_TARGET = {
 };
 const DEVICE_TYPES = ['dimmer', 'thermostat', 'scene', 'door_lock', 'garage_door', 'security_partition', 'intercom', 'media_player', ''];
 function explorerOperations() {
-  const ops = REF.tools.map((t) => ({ key: t.wire, label: t.wire + ' (' + t.risk + ')', tool: { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}) }, kind: t.verb ? 'device' : t.wire === 'notifications_send' ? 'audience' : 'none' }));
+  const ops = REF.tools.map((t) => ({ key: t.wire, label: t.wire + ' (' + t.risk + (t.audience && t.audience !== 'everyone' ? ', ' + t.audience + '-only' : '') + ')', tool: { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}), ...(t.audience && t.audience !== 'everyone' ? { audience: t.audience } : {}) }, kind: t.verb ? 'device' : t.wire === 'notifications_send' ? 'audience' : 'none' }));
   ops.push({ key: 'class:external', label: 'external class — e.g. a reservation (no tool exists yet)', tool: { id: 'class.external', risk: 'external', household: false }, kind: 'none' });
   ops.push({ key: 'class:programming', label: 'programming class — a persistent programming change (no tool exists)', tool: { id: 'class.programming', risk: 'programming', household: false }, kind: 'none' });
   ops.push({ key: 'class:credential', label: 'credential class — reading a secret (no tool can exist)', tool: { id: 'class.credential', risk: 'credential', household: false }, kind: 'none' });
@@ -254,8 +260,11 @@ function initPermissions() {
      createConciergeTools to that registry;
    * orchestrator/turn.ts offeredTools: a controller turn keeps read tools
      only; every other tool is offered unless authorizeToolCall (target null,
-     no rules, basis explicit_request) answers deny; the controller is the
-     engine actor automation with household consent = learning on, not paused.
+     no rules, basis explicit_request) answers deny — which it does for a tool
+     whose declared audience (tools/types.ts ToolSpec.audience) is another
+     actor kind: the service tools are staff-only, the concierge tools
+     homeowner-only; the controller is the engine actor automation with
+     household consent = learning on, not paused.
    The browser test compares these lists with the real offeredTools over the
    real registry. ══════════════════════════════════════════════════════════ */
 function toolFamily(id) {
@@ -281,7 +290,7 @@ function offeredFor(ex, mode) {
   const fams = PERSONA_REGISTRY[ex.actor];
   return REF.tools.filter((t) => fams.includes(toolFamily(t.id))).filter((t) => {
     if (ex.actor === 'controller' && t.risk !== 'read') return false;
-    const tool = { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}) };
+    const tool = { id: t.id, risk: t.risk, household: t.household, ...(t.verb ? { verb: t.verb } : {}), ...(t.feature ? { feature: t.feature } : {}), ...(t.audience && t.audience !== 'everyone' ? { audience: t.audience } : {}) };
     const d = AUTHZ.authorize({ actor: wfActor(ex), permissionMode: mode, tool, target: null, propertyId: 'p1', controllerCapabilities: ex.caps.slice(), entitlementFeatures: ex.features.slice(), preapprovedRules: [], learning: { basis: 'explicit_request', paused: !!(ex.learning && ex.learning.paused) }, gate: { wouldDeny: false }, now: FIXED_NOW });
     return d.decision !== 'deny';
   }).map((t) => t.wire);
@@ -364,7 +373,7 @@ const decisionHtml = (d) => 'Permission engine: <span class="decision" data-d="'
 function offeredStep(ex, mode) {
   const offered = offeredFor(ex, mode);
   const fams = PERSONA_REGISTRY[ex.actor];
-  return { kind: 'Tools offered', html: '<p data-offered="' + esc(offered.join(' ')) + '">Persona <code>' + esc(PERSONA_OF[ex.actor]) + '</code>. Its registry holds the families ' + fams.map((f) => '<code>' + f + '</code>').join(', ') + '; the orchestrator offers ' + offered.length + ' of the ' + REF.tools.filter((t) => fams.includes(toolFamily(t.id))).length + ' — every one the engine would not refuse for this actor, mode and licence' + (ex.actor === 'controller' ? ', read tools only' : '') + ':</p><p class="tool-list">' + offered.map((o) => '<code>' + o + '</code>').join(' ') + '</p>' + (ex.actor === 'homeowner' && offered.some((o) => o.startsWith('service_')) ? '<p><small>The service tools are offered (they are read tools) but refuse a non-staff actor in their handler: “Service intelligence tools are for technicians.”</small></p>' : '') + '<p><small>Source: <code>orchestrator/server.ts</code> aiCoreRegistry, <code>concierge/server.ts</code> portalConversationDeps, <code>orchestrator/turn.ts</code> offeredTools (platform commit ' + PLATFORM_HEAD + ').</small></p>' };
+  return { kind: 'Tools offered', html: '<p data-offered="' + esc(offered.join(' ')) + '">Persona <code>' + esc(PERSONA_OF[ex.actor]) + '</code>. Its registry holds the families ' + fams.map((f) => '<code>' + f + '</code>').join(', ') + '; the orchestrator offers ' + offered.length + ' of the ' + REF.tools.filter((t) => fams.includes(toolFamily(t.id))).length + ' — every one the engine would not refuse for this actor, mode and licence' + (ex.actor === 'controller' ? ', read tools only' : '') + ':</p><p class="tool-list">' + offered.map((o) => '<code>' + o + '</code>').join(' ') + '</p>' + (ex.actor !== 'staff' && fams.includes('service') ? '<p><small>The service tools are in this registry but are staff-only (<code>audience: "staff"</code>): the engine denies them to a ' + (ex.actor === 'controller' ? 'controller job' : 'homeowner') + ' (<code>audience_not_permitted</code>), so they are not offered, and a call by name is refused before the handler runs.</small></p>' : '') + '<p><small>Source: <code>orchestrator/server.ts</code> aiCoreRegistry, <code>concierge/server.ts</code> portalConversationDeps, <code>orchestrator/turn.ts</code> offeredTools (platform commit ' + PLATFORM_HEAD + ').</small></p>' };
 }
 function bookingSteps(ex, mode) {
   const steps = [];

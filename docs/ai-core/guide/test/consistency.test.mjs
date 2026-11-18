@@ -144,8 +144,8 @@ if (fs.existsSync(path.join(PLATFORM, "src/lib/ai-core/tools/registry.ts"))) {
   const idx = await import(T("index.ts"));
   const tools = [...idx.READ_TOOLS];
   for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
-  const key = (t) => [t.id, t.wireName ?? t.wire, t.risk, t.household, t.verb ?? null, t.feature ?? null, (t.schema ? t.schema.required ?? [] : t.required).join(",")].join("|");
-  sameSet(tools.map(key), REF.tools.map(key), "tools (id|wire|risk|household|verb|feature|required) vs the platform registry");
+  const key = (t) => [t.id, t.wireName ?? t.wire, t.risk, t.household, t.verb ?? null, t.feature ?? null, t.audience ?? "everyone", (t.schema ? t.schema.required ?? [] : t.required).join(",")].join("|");
+  sameSet(tools.map(key), REF.tools.map(key), "tools (id|wire|risk|household|verb|feature|audience|required) vs the platform registry");
   for (const t of tools) ok(prose.includes(t.wireName) || html.includes(t.wireName), `guide documents tool ${t.wireName}`);
   registryWires = new Set(tools.map((t) => t.wireName));
   const count = html.match(/<span data-tool-count>(\d+)<\/span>/);
@@ -228,6 +228,33 @@ if (fs.existsSync(CHECKLIST)) {
   const decisions = [...cl.slice(cl.indexOf("## Open owner decisions")).matchAll(/^(\d+)\. (.*)$/gm)].filter((m) => !/^\(Resolved/.test(m[2])).map((m) => Number(m[1])).filter((n) => n > 0);
   const listedDecisions = [...listOf("owner").matchAll(/'decision (\d+)/g)].map((m) => Number(m[1]));
   sameSet(decisions.map(String), listedDecisions.map(String), "open owner decisions on the Verification page vs the checklist");
+  // (d) Every STATUS callout's label agrees with the checklist items it cites
+  //     (its title, text and source). The tone is the visible label ("Simulated
+  //     only", "In development", "Blocked", "Verified"); a title may not call an
+  //     area Completed / Verified / Done unless every item it cites is done.
+  const statusSrc = html.slice(html.indexOf("const STATUS = {"), html.indexOf("const VERIFY"));
+  const STATUS = Function('"use strict"; return (' + statusSrc.slice(statusSrc.indexOf("{"), statusSrc.lastIndexOf("};") + 1) + ");")();
+  const DONE = new Set(["Completed", "Tested"]), OPEN = new Set(["In progress", "Implemented", "Not started"]);
+  const phaseRefs = (t) => [...t.matchAll(/\bchecklist Phase (\d+)\b/g)].flatMap((m) => Object.keys(items).filter((r) => r.split(".")[0] === m[1]));
+  let statusChecked = 0;
+  for (const [key, s] of Object.entries(STATUS)) {
+    const refs = [...new Set([...refsIn(s.title + " " + s.text + " " + s.source), ...phaseRefs(s.source + " " + s.text)])];
+    if (!refs.length) continue;
+    statusChecked++;
+    const st = refs.map((r) => items[r]);
+    const has = (set) => st.some((x) => set.has(x));
+    const list = refs.map((r) => r + " " + items[r]).join(", ");
+    ok(["sim", "dev", "block", "ok"].includes(s.tone), `STATUS ${key}: tone ${s.tone} is one of sim, dev, block, ok`);
+    if (s.tone === "block") ok(st.includes("Blocked"), `STATUS ${key} is labelled Blocked, but none of the items it cites is Blocked (${list})`);
+    if (s.tone === "dev") ok(has(OPEN), `STATUS ${key} is labelled In development, but every item it cites is finished or blocked (${list})`);
+    if (s.tone === "sim") ok(has(DONE) && !has(OPEN), `STATUS ${key} is labelled Simulated only, which needs a Completed/Tested item and none In progress / Implemented / Not started (${list})`);
+    if (s.tone === "ok") ok(st.every((x) => x === "Completed"), `STATUS ${key} is labelled Verified, but not every item it cites is Completed (${list})`);
+    const claimsDone = /\b(Completed|Verified|Done|Finished|Released|Shipped)\b/.test(s.title) && !/\b(not|never|no)\s+(yet\s+)?(Completed|Verified|Done|Finished|Released|Shipped)\b/i.test(s.title);
+    if (claimsDone) ok(st.every((x) => DONE.has(x)) && s.tone !== "dev" && s.tone !== "block", `STATUS ${key}: the title “${s.title}” claims it is done, but the items it cites are ${list} and its label is ${s.tone}`);
+    if (has(OPEN)) ok(s.tone === "dev" || s.tone === "block", `STATUS ${key} cites unfinished items (${list}) but is labelled ${s.tone}`);
+  }
+  ok(statusChecked === Object.keys(STATUS).length, `STATUS callouts checked against the checklist: ${statusChecked} of ${Object.keys(STATUS).length} (each must cite its checklist items)`);
+  for (const r of refsIn(listOf("browser"))) ok(items[r] === "Completed" || items[r] === "Tested", `Verification “browser-verified” cites ${r}, which the checklist marks ${items[r]}`);
   // (c) Every Blocked LIVE/HW item is somewhere on the Verification page or in a STATUS entry.
   for (const [r, st] of Object.entries(items)) if (st === "Blocked") ok(new RegExp(`\\b${r.replace(".", "\\.")}\\b`).test(verifyBlock + html.slice(html.indexOf("const STATUS"), html.indexOf("const VERIFY"))), `blocked checklist item ${r} appears on the Verification page or in STATUS`);
 } else console.log("  (checklist not found: status checks skipped)");
