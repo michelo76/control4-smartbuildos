@@ -246,7 +246,7 @@ Refused`:
 | `deadline` > now + 60 | `invalid_args` |
 | `request_id` already routed | `duplicate_request` |
 | capability not in `MODULE_REQUEST_POLICY`, or requester not listed (and the row is not the `ANY` wildcard) | `not_permitted` |
-| same `(requester module, idempotency_key)` answered before | **replayed** (below) |
+| same `(requester module, requester instance, idempotency_key)` answered before | **replayed** (below) |
 | same key still in flight and before its deadline | `duplicate_request` |
 | no registered module `to` (or no such `to_instance`) | `unknown_target` |
 | `to` is not the policy's provider for the capability | `capability_not_found` |
@@ -267,13 +267,16 @@ to the closed vocabulary (`internal_error` for anything else), replaces a
 responder stamped.
 
 **Idempotency.** The Agent keeps a ring of 256 `(requester module,
-idempotency_key)` → terminal answer. A repeat gets `REQUEST_ACK state =
+requester instance, idempotency_key)` → terminal answer. A repeat gets `REQUEST_ACK state =
 Routed, error_code = duplicate_request` followed by the stored `RESPONSE`
 under the new `request_id` with `replayed = "true"`; it is not routed again.
 A target's answer with a retryable code is not stored (so the retry is
 routed). A key whose previous attempt is past its deadline is routed again
 (the old attempt is abandoned and counted as a timeout). The ring is keyed by
-the requester's module id, so one module's key never answers another's.
+the requester's module id AND instance id, so one module's key never
+answers another's, and two instances of one module (`singleton = false`)
+never share a key: one instance's stored answer is never replayed to the
+other, and one instance's in-flight key never refuses the other's.
 Targets dedup on the Agent-stamped sender (`from_module_id`,
 `from_instance_id`) together with `request_id`: a duplicated frame from the
 same sender gets the stored answer again and the handler does not run twice
@@ -304,7 +307,7 @@ Checks (answered as `CLOUD_RESPONSE status = error`): `invalid_frame` (id),
 key malformed), `not_permitted` (op not in `MODULE_CLOUD_OPS[module_id]`),
 `payload_too_large` (body > 16 KB), `invalid_args` (body not a JSON object),
 deadline rules as §7, `duplicate_request`, `agent_not_paired`, then the
-idempotency ring (key `cloud|module|key`; stored answers replayed, in-flight
+idempotency ring (key `cloud|module|instance|key`, per instance as in §7; stored answers replayed, in-flight
 duplicates refused) and the 128-route cap.
 
 The Agent then POSTs through its own `send()` (pairing token as
@@ -319,6 +322,9 @@ POST {API URL}/api/integrations/control4/modules/rpc
 `module_id` / `instance_id` are the authenticated sender, never a module's
 claim. The platform derives tenant and property from the token only, and the
 route is unique on `(system_id, module_id, idempotency_key)`.
+The Agent's ring is per instance but that platform key is per module, so a
+module's instances must not reuse each other's keys for cloud ops; keys the
+client mints (`modulerpc.newId`, a Director UUID) never collide in practice.
 
 **Platform answer contract** (what the route must return):
 

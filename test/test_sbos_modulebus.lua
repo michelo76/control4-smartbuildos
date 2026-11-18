@@ -957,6 +957,64 @@ do
   )
 end
 
+print("[9c] idempotency is per requester INSTANCE: two instances of one module never share a key")
+do
+  local registry, bus = fresh()
+  register(registry, bus, { module_id = "flight_recorder", instance_id = "501", manifest = FR_MANIFEST })
+  local _, _, a1 =
+    register(registry, bus, { module_id = "ai_core", instance_id = "601", manifest = AI_MANIFEST, singleton = "false" })
+  local _, _, a2 =
+    register(registry, bus, { module_id = "ai_core", instance_id = "602", manifest = AI_MANIFEST, singleton = "false" })
+  check("(two instances of one module registered)", a1 ~= nil and a2 ~= nil and a1.token ~= a2.token)
+  sent = {}
+  local p1 = req(bus, a1, { request_id = "i-1", idempotency_key = "shared-key" })
+  bus:response(registry:find("flight_recorder", "501"), { request_id = p1.request_id, status = "ok", result = '{"who":1}' })
+  sent = {}
+  req(bus, a2, { request_id = "i-2", idempotency_key = "shared-key" })
+  check(
+    "instance 602 reusing 601's key is routed, not answered from 601's stored answer",
+    #of("SBOS_MODULE_REQUEST", 501) == 1
+      and last("SBOS_MODULE_REQUEST_ACK", 602).params.error_code == "ok"
+      and #of("SBOS_MODULE_RESPONSE", 602) == 0
+  )
+  check("…and nothing was replayed", bus:health().replayed == 0)
+  sent = {}
+  req(bus, a1, { request_id = "i-3", idempotency_key = "shared-key" })
+  check(
+    "601 repeating its own key still gets its own stored answer",
+    #of("SBOS_MODULE_REQUEST", 501) == 0 and last("SBOS_MODULE_RESPONSE", 601).params.result == '{"who":1}'
+  )
+  -- while 602's request is in flight, 601 is not refused duplicate_request
+  -- for it, nor 602 for 601's
+  cloudAnswer = function(body)
+    return { ok = true, http_status = 200, body = { ok = true, result = { from = body.instance_id } } }
+  end
+  local function cloud(who, id)
+    sent = {}
+    bus:cloudRequest(who, {
+      request_id = id,
+      idempotency_key = "cloud-shared",
+      op = "ask",
+      body = '{"question":"q"}',
+      deadline = tostring(T.now + 20),
+    })
+    return last("SBOS_MODULE_CLOUD_RESPONSE")
+  end
+  local nPosts = #posts
+  local c1 = cloud(a1, "ci-1")
+  local c2 = cloud(a2, "ci-2")
+  check(
+    "cloud relay: the same key from two instances posts twice, each answered its own",
+    #posts == nPosts + 2
+      and JSON:decode(c1.params.result).from == "601"
+      and JSON:decode(c2.params.result).from == "602",
+    #posts - nPosts
+  )
+  local c3 = cloud(a1, "ci-3")
+  check("…and an instance's own repeat is replayed, not posted", #posts == nPosts + 2 and JSON:decode(c3.params.result).from == "601")
+  cloudAnswer = nil
+end
+
 print("[10] health block")
 do
   local _, bus = setup()

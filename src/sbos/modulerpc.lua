@@ -60,7 +60,7 @@ end
 local idCounter = 0
 --- A request / subscription id: a v4 UUID from Director when available,
 --- else time + counter + math.random (unique per driver, which is all the
---- Agent's per-module idempotency ring needs).
+--- Agent's per-instance idempotency ring needs).
 function M.newId(c4)
   if c4 ~= nil then
     local ok, uuid = pcall(function()

@@ -614,7 +614,9 @@ function Bus:request(entry, p)
   if rule == nil or not Policy.requesterAllowed(rule, entry.module_id) then
     return refuse("not_permitted")
   end
-  local idemKey = "req|" .. entry.module_id .. "|" .. key
+  -- Keyed by the requester's module AND instance: two instances of one
+  -- module never share an idempotency key (one never replays the other's).
+  local idemKey = "req|" .. entry.module_id .. "|" .. tostring(entry.instance_id) .. "|" .. key
   local rec = self:idemGet(idemKey)
   if rec ~= nil and rec.state == "done" then
     -- The stored terminal answer, without routing again.
@@ -849,7 +851,8 @@ function Bus:cloudRequest(entry, p)
   if self.agentInfo().paired ~= true then
     return refuse("agent_not_paired")
   end
-  local idemKey = "cloud|" .. entry.module_id .. "|" .. key
+  -- Module AND instance, as for module requests.
+  local idemKey = "cloud|" .. entry.module_id .. "|" .. tostring(entry.instance_id) .. "|" .. key
   local rec = self:idemGet(idemKey)
   if rec ~= nil and rec.state == "done" then
     self.totals.replayed = self.totals.replayed + 1
