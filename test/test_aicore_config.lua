@@ -171,6 +171,14 @@ check(
     d.collection.token = "x"
   end, "token")
 )
+local withKey = copy(good)
+withKey.provider.api_key = "sk-ant-0123456789"
+local _, keyRefusals = Config.validate(withKey)
+local said = false
+for _, r in ipairs(keyRefusals or {}) do
+  said = said or (r.path == "provider.api_key" and r.reason:find("keys stay in System Studio") ~= nil)
+end
+check("the refusal says why: a key never belongs on the controller (not just 'unknown key')", said)
 check(
   "a key-shaped credential status",
   refused(function(d)

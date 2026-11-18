@@ -737,13 +737,15 @@ check(
   prop("SmartBuildOS Connection Status"):find("update required") ~= nil
 )
 H.advance(61000)
+local cmdEnvBefore = #H.envelopes("ai_core.command")
 EC.AI_ASK({ QUESTION = "anything?" })
 H.advance(20000)
 check(
   "AI_ASK refused locally (incompatible_protocol)",
-  H.vars.AI_LAST_ERROR:find("updated") ~= nil,
+  H.vars.AI_LAST_ERROR:find("refused") ~= nil and H.vars.AI_LAST_ERROR:find("updated") ~= nil,
   H.vars.AI_LAST_ERROR
 )
+check("no ai_core.command recorded for a request that cannot be sent", #H.envelopes("ai_core.command") == cmdEnvBefore)
 check(
   "nothing v2 sent to a v1 Agent",
   #H.sentOf("SBOS_MODULE_CLOUD_REQUEST") + #H.sentOf("SBOS_MODULE_DISCOVER") + #H.sentOf("SBOS_MODULE_SUBSCRIBE")
