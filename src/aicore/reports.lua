@@ -26,6 +26,11 @@
 ---              (drop-oldest, counted). takeBatch() builds one
 ---              `driver_reports` body (<= 64 items, <= the 16 KB cloud body)
 ---              at most 3 times a rolling minute, one in flight at a time.
+---              A describe counts as uploaded only when the cloud ACCEPTED
+---              the batch that carried it: after a refusal, a timeout or an
+---              unreachable cloud it waits again (unless a newer one
+---              replaced it), and the next batch backs off (60 s doubling
+---              to 10 min, reset by a delivered batch).
 ---
 --- Nothing here interprets report text, runs anything a report names, or
 --- turns a declaration into an instruction.
@@ -49,6 +54,12 @@ M.LIMITS = {
   batch_bytes = 16 * 1024, -- the cloud body (modulepolicy cloud_body_bytes)
   batches_per_minute = 3,
   batch_interval_seconds = 20, -- the driver's flush timer
+  -- After a batch that did not land (refused, timed out, unreachable) the
+  -- next one waits backoff_base_seconds, doubling per consecutive failure up
+  -- to backoff_max_seconds; a delivered batch resets it. Against a cloud
+  -- that keeps refusing, the steady state is one batch every 10 minutes.
+  backoff_base_seconds = 60,
+  backoff_max_seconds = 600,
   describe_same_hash_seconds = 600,
   -- text, in code points (the platform counts code points)
   name = 64,
@@ -523,6 +534,8 @@ function M.new(opts)
     dropped = 0, -- since the last delivered batch (driver_reports `dropped`)
     sends = {}, -- epoch of each batch sent, last minute
     inflight = nil,
+    failures = 0, -- consecutive batches that did not land
+    backoffUntil = nil, -- no batch before this epoch
     ops = 0, -- driver operations in flight
     recentActions = {}, -- ai_action_id → true
     recentOrder = {},
@@ -708,6 +721,9 @@ function Hub:due()
     return false
   end
   local now = self.now()
+  if self.backoffUntil ~= nil and now < self.backoffUntil then
+    return false
+  end
   local keep = {}
   for _, at in ipairs(self.sends) do
     if now - at < 60 then
@@ -804,12 +820,35 @@ function Hub:takeBatch(requestId)
   return body
 end
 
+--- Puts a taken describe or state back unless something newer replaced it;
+--- an evicted instance's item is dropped and counted.
+local function putBack(self, t)
+  local m = self.mods[t.key]
+  if m == nil then
+    self.dropped = self.dropped + 1
+    bump(self, "items_dropped")
+  elseif m[t.slot] == nil then
+    m[t.slot] = t.item
+  end
+end
+
+--- One more batch that did not land: the next waits longer.
+local function backOff(self)
+  self.failures = self.failures + 1
+  local wait = M.LIMITS.backoff_base_seconds * 2 ^ math.min(self.failures - 1, 10)
+  self.backoffUntil = self.now() + math.min(wait, M.LIMITS.backoff_max_seconds)
+end
+
 --- The outcome of the batch in flight:
----   "delivered" the cloud took it (the dropped count it carried is settled)
+---   "delivered" the cloud took it (the dropped count it carried is settled;
+---               the backoff is reset)
 ---   "retry"     it never got there (unreachable / timeout / rate limit):
 ---               describe and state go back unless something newer replaced
 ---               them; events go back to the front of the ring (bounded)
----   "refused"   the cloud said no: the items are dropped and counted
+---   "refused"   the cloud said no: describes go back (a describe is
+---               uploaded only when the cloud accepted it, KI-51); state,
+---               events and diagnostics are dropped and counted
+--- After "retry" or "refused" the next batch backs off.
 function Hub:settle(outcome)
   local f = self.inflight
   self.inflight = nil
@@ -820,20 +859,18 @@ function Hub:settle(outcome)
     bump(self, "batches_delivered")
     bump(self, "items_delivered", #f.taken)
     self.dropped = math.max(0, self.dropped - f.dropped)
+    self.failures, self.backoffUntil = 0, nil
     return
   end
+  backOff(self)
   if outcome == "retry" then
     bump(self, "batches_retried")
     local back = {}
     for _, t in ipairs(f.taken) do
-      local m = self.mods[t.key]
       if t.ring then
         back[#back + 1] = { key = t.key, item = t.item }
-      elseif m ~= nil and m[t.slot] == nil then
-        m[t.slot] = t.item
-      elseif m == nil then
-        self.dropped = self.dropped + 1
-        bump(self, "items_dropped")
+      else
+        putBack(self, t)
       end
     end
     for i = #back, 1, -1 do
@@ -848,8 +885,16 @@ function Hub:settle(outcome)
     return
   end
   bump(self, "batches_refused")
-  bump(self, "items_dropped", #f.taken)
-  self.dropped = self.dropped + #f.taken
+  local lost = 0
+  for _, t in ipairs(f.taken) do
+    if t.slot == "pendingDescribe" then
+      putBack(self, t)
+    else
+      lost = lost + 1
+    end
+  end
+  bump(self, "items_dropped", lost)
+  self.dropped = self.dropped + lost
 end
 
 --- Cloud answer → settle outcome. Codes after which the SAME batch may go

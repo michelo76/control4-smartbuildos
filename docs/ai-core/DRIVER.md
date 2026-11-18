@@ -364,8 +364,18 @@ cloud bucket (20 a minute, burst 10). An answered batch is delivered; one
 that never arrived (`cloud_unreachable`, `deadline_exceeded`,
 `target_unavailable`, `rate_limited`, `agent_not_paired`) goes again later
 (the module client already retried it twice); any other answer (today the
-platform answers `unsupported`: no handler until P3) drops it, counted.
-Nothing is uploaded while the licence blocks `BASE`.
+platform answers `unsupported`: no handler until P3) is a refusal: its
+states, events and diagnostics are dropped, counted. **A describe counts as
+uploaded only when the cloud accepted the batch that carried it**: after a
+refusal, a timeout or an unreachable cloud it waits again for the next batch
+(latest per instance: a newer describe that arrived meanwhile replaces it).
+After any batch that did not land the next one backs off: 60 s, doubling per
+consecutive failure up to 10 minutes; a delivered batch resets it. Against a
+cloud that keeps refusing, the steady state is one batch every 10 minutes
+(6 an hour), each carrying the waiting describes plus whatever states,
+events and diagnostics are waiting, which are then dropped and counted (the
+ring keeps the newest 200 meanwhile). Nothing is uploaded while the licence
+blocks `BASE`.
 
 **`run_driver_query` / `invoke_driver_action`.** AI Core reads the target's
 directory row at that moment: it must exist (`unknown_target`), be live and

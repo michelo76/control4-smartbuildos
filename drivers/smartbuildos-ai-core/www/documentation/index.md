@@ -218,7 +218,9 @@ Other SmartBuildOS drivers in the project report to AI Core what they are,
 their current state, events and faults (their own **AI Core** property shows
 whether that works). AI Core checks every report, keeps a small picture per
 driver in memory and sends the reports to SmartBuildOS in batches, at most
-three a minute. Report text is treated as data and never as an instruction.
+three a minute. When SmartBuildOS does not take a batch, AI Core keeps each
+driver's description for the next one and waits longer between tries, up to
+ten minutes. Report text is treated as data and never as an instruction.
 Tested in the emulator only; not yet on a controller.
 
 ## What it collects

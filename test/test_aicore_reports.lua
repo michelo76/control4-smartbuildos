@@ -317,6 +317,96 @@ do
   check("unsupported / invalid_args → refused", Reports.outcome({ status = "error", error_code = "unsupported" }) == "refused" and Reports.outcome({ status = "error", error_code = "invalid_args" }) == "refused")
 end
 
+-- ── [3a] ────────────────────────────────────────────────────────────────────
+print("[3a] a describe is uploaded only when the cloud accepted it (KI-51); backoff")
+do
+  clock = EPOCH + 50000
+  local hub = Reports.new({ now = now })
+  hub:receive("atmosphere", "321", describe(), CTX)
+  hub:receive("atmosphere", "321", state(), CTX)
+  hub:receive("atmosphere", "321", event({ text = "one" }), CTX)
+  local b = hub:takeBatch("aic-r1")
+  check("(the batch carries describe, state and an event)", b and #b.reports == 3 and b.reports[1].kind == "describe")
+  hub:settle("refused")
+  local m = hub:picture("atmosphere", "321")
+  check(
+    "refused: the describe waits again; state and event are dropped and counted",
+    m.pendingDescribe ~= nil and m.pendingState == nil and #hub.ring == 0 and hub.dropped == 2 and hub.counters.items_dropped == 2,
+    hub.dropped
+  )
+  check("…and pendingCount says so", hub:pendingCount() == 1)
+  check("refused: no batch before the backoff (60 s)", hub:takeBatch("aic-r2") == nil)
+  clock = clock + 59
+  check("…still none at 59 s", hub:takeBatch("aic-r2") == nil)
+  clock = clock + 1
+  local again = hub:takeBatch("aic-r2")
+  check(
+    "at 60 s the next batch carries the same describe again, and the drop count",
+    again and again.reports[1].kind == "describe" and again.reports[1].hash == HASH and again.dropped == 2,
+    again and #again.reports
+  )
+  hub:settle("retry")
+  check("a timeout or unreachable cloud keeps it too", m.pendingDescribe ~= nil)
+  clock = clock + 119
+  check("the second failure in a row waits 120 s", hub:takeBatch("aic-r3") == nil)
+  clock = clock + 1
+  check("…then goes", hub:takeBatch("aic-r3") ~= nil)
+  -- a newer describe arrives while one is in flight: the newer one wins
+  clock = clock + 601
+  hub:receive("atmosphere", "321", describe({ hash = "fedcba9876543210", summary = "Newer." }), CTX)
+  hub:settle("refused")
+  check(
+    "a newer describe that arrived meanwhile is kept, not the refused older one",
+    m.pendingDescribe ~= nil and m.pendingDescribe.hash == "fedcba9876543210"
+  )
+  check("AI Core still holds the describe hash (no need_describe while it waits)", hub:receive("atmosphere", "321", state(), CTX).need_describe == nil)
+  clock = clock + 600
+  hub:takeBatch("aic-r4")
+  hub:settle("delivered")
+  check("delivered: nothing waits, the drop count is settled", hub:pendingCount() == 0 and m.pendingDescribe == nil and hub.dropped == 0)
+  hub:receive("atmosphere", "321", event({ text = "two" }), CTX)
+  check("delivered resets the backoff: the next batch may go at once", hub:takeBatch("aic-r5") ~= nil)
+  hub:settle("delivered")
+
+  -- Steady state against a cloud that refuses every batch (today's platform
+  -- answers driver_reports `unsupported`), with the driver's 20 s timer.
+  clock = EPOCH + 100000
+  local refuser = Reports.new({ now = now })
+  refuser:receive("atmosphere", "321", describe(), CTX)
+  local times, withDescribe = {}, 0
+  local start = clock
+  for _ = 1, 3 * 180 do -- three hours of 20 s ticks
+    clock = clock + 20
+    local x = refuser:takeBatch("aic-s" .. #times)
+    if x then
+      times[#times + 1] = clock - start
+      if x.reports[1] and x.reports[1].kind == "describe" then
+        withDescribe = withDescribe + 1
+      end
+      refuser:receive("atmosphere", "321", event({ text = "tick" }), CTX)
+      refuser:settle(Reports.outcome({ status = "error", error_code = "unsupported" }))
+    end
+  end
+  local lastHour = 0
+  for _, t in ipairs(times) do
+    if t > 2 * 3600 then
+      lastHour = lastHour + 1
+    end
+  end
+  local gaps = {}
+  for i = 2, math.min(#times, 8) do
+    gaps[#gaps + 1] = times[i] - times[i - 1]
+  end
+  check(
+    "a refusing cloud: gaps 60, 120, 240, 480, then every 600 s",
+    table.concat(gaps, ",") == "60,120,240,480,600,600,600",
+    table.concat(gaps, ",")
+  )
+  check("…6 batches an hour in the steady state", lastHour == 6, lastHour)
+  check("…every one of them still carries the describe", withDescribe == #times, withDescribe .. "/" .. #times)
+  check("…and the describe is never lost", refuser:picture("atmosphere", "321").pendingDescribe ~= nil)
+end
+
 -- ── [4] the driver ──────────────────────────────────────────────────────────
 print("[4] the driver: manifest, identity, answers, batches, restart")
 local A = H.agent
