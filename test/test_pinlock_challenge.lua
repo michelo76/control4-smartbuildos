@@ -139,6 +139,14 @@ r = s:verify(c.id, OWNER_PIN, ownerCheck, function()
 end)
 check("gate closed (feature off) → {ok=false} without a PIN check", r.ok == false and #checked == before)
 check("...and that challenge redeems not_verified", s:redeem(AI, redeemArgs(c)).reason == "not_verified")
+for _, role in ipairs({ "guest", "vendor", "staff" }) do
+  c = s:issue(AI, approval())
+  r = s:verify(c.id, OWNER_PIN, function()
+    return { ok = true, role = role, slot = 3 } -- an engine that let a non-owner through
+  end, open)
+  check("a non-owner '" .. role .. "' success from the engine is still refused", r.ok == false)
+  check("...and redeems not_verified", s:redeem(AI, redeemArgs(c)).reason == "not_verified")
+end
 
 print("[4] 60 s expiry")
 s = newStore()
