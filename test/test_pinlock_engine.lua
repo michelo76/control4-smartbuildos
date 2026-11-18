@@ -693,6 +693,124 @@ do
   clock.t = BASE
 end
 
+print("[16] AI Core verification: owner PINs only, one lockout with the page")
+do
+  clock.t = BASE
+  local v = newEngine({ maxFails = 3, lockSeconds = 300 })
+  check("no owner PIN yet: hasOwnerPin false", v:hasOwnerPin() == false)
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  -- The dealer's widest configuration for every other role: every guarded
+  -- action, no hours, no dates, no use limit.
+  v:addCode({ name = "Staff Sam", role = "staff", pin = STAFF_PIN, actions = { 1, 2, 3 } })
+  v:addCode({ name = "Vendor Vic", role = "vendor", pin = VENDOR_PIN, actions = { 1, 2, 3 } })
+  v:addCode({ name = "Guest Gia", role = "guest", pin = GUEST_PIN, actions = { 1, 2, 3 } })
+  check("an active owner code with a PIN: hasOwnerPin true", v:hasOwnerPin() == true)
+
+  local r = v:verifyOwnerPin(OWNER_PIN)
+  check("owner PIN verified, role owner, slot 1", r.ok == true and r.role == "owner" and r.slot == 1)
+  local leak = false
+  for k, val in pairs(r) do
+    if tostring(val):find("Marta", 1, true) or tostring(val):find(OWNER_PIN, 1, true) or k == "code" then
+      leak = true
+    end
+  end
+  check("the result carries no code name and no PIN", not leak)
+  check(
+    "verification emits 'verified', never 'granted' (no guarded action fires)",
+    count("verified") == 1 and count("granted") == 0
+  )
+  check("the recent entry for it carries no code name", v.recent[1].result == "verified" and v.recent[1].code == nil)
+
+  for _, case in ipairs({ { "staff", STAFF_PIN }, { "vendor", VENDOR_PIN }, { "guest", GUEST_PIN } }) do
+    local fresh = newEngine({ maxFails = 10 })
+    fresh:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+    fresh:addCode({ name = "Other", role = case[1], pin = case[2], actions = { 1, 2, 3 } })
+    local out = fresh:tryPin("page", 1, case[2])
+    check(case[1] .. " code may fire every guarded action on the page (the dealer allowed it)", out.ok == true)
+    out = fresh:verifyOwnerPin(case[2])
+    check(case[1] .. " PIN refused for AI Core verification", out.ok == false and out.reason == "not_owner")
+    check(case[1] .. " refusal names no code", out.code == nil and count("verified") == 0)
+  end
+
+  -- One lockout: AI attempts lock the page.
+  v = newEngine({ maxFails = 3, lockSeconds = 300 })
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  v:verifyOwnerPin("3047")
+  v:verifyOwnerPin("8265")
+  r = v:verifyOwnerPin("9152")
+  check("third wrong AI attempt locks", r.locked == true and r.retry_in == 300)
+  local pageLocked = v:lockState("page")
+  check("...and the lock is the PAGE's", pageLocked == true)
+  r = v:tryPin("page", 1, OWNER_PIN)
+  check("the page refuses even the owner PIN while AI attempts hold the lock", r.ok == false and r.locked == true)
+  check(
+    "lockSummary shows the shared bucket once (no separate ai_core row)",
+    v:lockSummary().ai_core == nil and v:lockSummary().page.locked == true
+  )
+  check(
+    "the locked_out event names the page",
+    (function()
+      for _, ev in ipairs(emitted) do
+        if ev.kind == "locked_out" then
+          return ev.f.entry == "page"
+        end
+      end
+      return false
+    end)()
+  )
+
+  -- ...and page attempts lock AI verification.
+  v = newEngine({ maxFails = 3, lockSeconds = 300 })
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  v:tryPin("page", 1, "3047")
+  v:tryPin("page", 1, "8265")
+  v:tryPin("page", 1, "9152")
+  r = v:verifyOwnerPin(OWNER_PIN)
+  check("page failures lock AI verification (owner PIN refused while locked)", r.ok == false and r.locked == true)
+  -- Mixed: two page failures + one AI failure = the third failure of ONE bucket.
+  v = newEngine({ maxFails = 3, lockSeconds = 300 })
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  v:tryPin("page", 1, "3047")
+  v:tryPin("page", 1, "8265")
+  r = v:verifyOwnerPin("9152")
+  check("page and AI failures add up in one count", r.locked == true)
+  -- A success does not forgive earlier guesses (as on the page).
+  v = newEngine({ maxFails = 3, lockSeconds = 300 })
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  v:verifyOwnerPin("3047")
+  v:verifyOwnerPin("8265")
+  v:verifyOwnerPin(OWNER_PIN)
+  r = v:tryPin("page", 1, "9152")
+  check("a verified owner PIN does not reset the shared failure count", r.locked == true)
+  check(
+    "clearLockouts('ai_core') clears the page bucket",
+    v:clearLockouts("ai_core") == true and v:lockState("page") == false
+  )
+  -- The shared lock survives persistence, under the page.
+  v:verifyOwnerPin("3047")
+  v:verifyOwnerPin("8265")
+  v:verifyOwnerPin("9152")
+  local doc = v:serialize()
+  check("serialised under page only", doc.locks.page ~= nil and doc.locks.ai_core == nil)
+  local back = newEngine({ maxFails = 3, lockSeconds = 300 })
+  back:restore(doc)
+  check("restored lock still refuses AI verification", back:verifyOwnerPin(OWNER_PIN).locked == true)
+
+  -- Validity still applies to owner codes; restriction does not stop owners.
+  clock.t = BASE
+  v = newEngine()
+  v:addCode({ name = "Owner Marta", role = "owner", pin = OWNER_PIN })
+  v:addCode({ name = "Owner Two", role = "owner", pin = STAFF_PIN })
+  v:setEnabled("Owner Two", false)
+  check("a disabled owner code is refused", v:verifyOwnerPin(STAFF_PIN).ok == false)
+  v:setRestricted(true)
+  check(
+    "licence restriction: an owner PIN still verifies (the driver gates AI use separately)",
+    v:verifyOwnerPin(OWNER_PIN).ok == true
+  )
+  check("malformed PIN refused", v:verifyOwnerPin("12ab").ok == false and v:verifyOwnerPin(nil).ok == false)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
