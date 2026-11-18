@@ -170,12 +170,13 @@ c = s:issue(AI, approval())
 s:verify(c.id, OWNER_PIN, ownerCheck, open)
 r = s:redeem(AI, redeemArgs(c))
 check(
-  "verified → {verified, verified_at (ISO UTC), role, slot}",
+  "verified → {verified, verified_at (whole epoch seconds), role}; no slot",
   r.verified == true
-    and type(r.verified_at) == "string"
-    and r.verified_at:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$") ~= nil
+    and type(r.verified_at) == "number"
+    and r.verified_at == math.floor(r.verified_at)
+    and r.verified_at > 1700000000
     and r.role == "owner"
-    and r.slot == 2
+    and r.slot == nil
 )
 local keys = {}
 for k in pairs(r) do
@@ -183,8 +184,8 @@ for k in pairs(r) do
 end
 table.sort(keys)
 check(
-  "redeem result keys are exactly role, slot, verified, verified_at",
-  table.concat(keys, ",") == "role,slot,verified,verified_at"
+  "redeem result keys are exactly role, verified, verified_at",
+  table.concat(keys, ",") == "role,verified,verified_at"
 )
 r = s:redeem(AI, redeemArgs(c))
 check("replay of the same redeem → unknown (consumed)", r.verified == false and r.reason == "unknown")
@@ -233,12 +234,17 @@ everything[#everything + 1] = JSON:encode(s:verify(c.id, OWNER_PIN, function()
   -- even an engine result that carried a name is not copied
   return { ok = true, role = "owner", slot = 1, code = "Owner Marta" }
 end, open))
+local verifiedStore = JSON:encode(s.open) -- verified, not yet redeemed
 everything[#everything + 1] = JSON:encode(s:redeem(AI, redeemArgs(c)))
 local blob = table.concat(everything, "\n")
 check("no PIN in any answer", blob:find(OWNER_PIN, 1, true) == nil)
 check("no code name in any answer", blob:find("Marta", 1, true) == nil)
 local stored = JSON:encode(s.open)
 check("the store holds no PIN", stored:find(OWNER_PIN, 1, true) == nil)
+check(
+  "a verified challenge holds the role but no slot (the engine's slot is not copied)",
+  verifiedStore:find('"role":"owner"', 1, true) ~= nil and verifiedStore:find("slot", 1, true) == nil
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

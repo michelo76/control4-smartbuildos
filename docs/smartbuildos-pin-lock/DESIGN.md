@@ -142,13 +142,26 @@ instance its own directory view lists as **verified** (identity binding).
 | --- | --- | --- | --- |
 | `pinlock.availability` | `{}` | `{ready, reason, retry_in?}`; reason `ready \| starting \| off \| unlicensed \| no_owner_pin \| relay_unavailable \| locked` | `invalid_args`, `not_permitted` |
 | `pinlock.challenge` | `{purpose: "approval" \| "chat_view", subject, nonce}`; subject = the proposal uuid (approval) or a 32-hex page session id (chat_view); nonce = 32 lowercase hex, minted by AI Core | `{challenge_id (32 hex), expires_in: 60, verify_url: "http://<controller>:47831/verify"}` | `invalid_args`; `unsupported` + `{reason}` (not ready, reasons as above); `rate_limited` + `{reason: "busy"}` (8 open); `not_permitted` |
-| `pinlock.redeem` | `{challenge_id, nonce, purpose, subject}` | `{verified: true, verified_at (ISO-8601 UTC), role: "owner", slot}` or `{verified: false, reason: not_verified \| expired \| locked \| wrong_subject \| unknown}` | `invalid_args`, `not_permitted` |
+| `pinlock.redeem` | `{challenge_id, nonce, purpose, subject}` | `{verified: true, verified_at (whole epoch seconds), role: "owner"}` or `{verified: false, reason: not_verified \| expired \| locked \| wrong_subject \| unknown}` | `invalid_args`, `not_permitted` |
 
-`slot` is the verified code's 1-based position in the code list at that
-moment: it tells two owner codes apart for an audit line, it is not a stable
-identity (a revoke shifts it). **The code name is never returned, recorded
-for this path or sent anywhere** (owner ruling): no field of any answer, no
-recent-list entry, no event, no recorder marker carries it.
+A verified redeem carries exactly these three keys (spec rulings 21 and 22).
+There is no `slot`: a code's position in the list shifts when a code is
+revoked, so it identifies nothing reliably, and the cloud records only
+"approved at the touchscreen with an owner PIN". `verified_at` is the moment
+`/verify` accepted the PIN, as whole epoch seconds from the controller's
+clock (every timestamp on the AI Core wire is epoch seconds; the controller's
+clock may be skewed, which the cloud tolerates within a bounded window).
+**Nothing that identifies which owner code was typed leaves PIN Lock on this
+path, and the code name is never returned, recorded for this path or sent
+anywhere** (owner ruling): no field of any answer, no recent-list entry, no
+event, no recorder marker carries it. The challenge store keeps only the
+role from the engine's result; the engine's local slot is not copied.
+
+**De-duplication is per sender.** The bus client remembers its answers keyed
+by the Agent-stamped sender (`from_module_id` + `from_instance_id`) together
+with `request_id`. A frame from any other sender that reuses the request id
+of a stored "verified" redeem is a new request: it reaches the requester
+check (`not_permitted`), never the stored answer.
 
 **`POST /verify`** `{challenge_id, pin}` (exactly these two string keys; no
 page token: the challenge authenticates it). Answers, rebuilt by the router

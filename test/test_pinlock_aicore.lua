@@ -571,24 +571,34 @@ local vst, _, vraw = verify(c.result.challenge_id, OWNER_PIN)
 check('/verify with the owner PIN, no page token → 200 {"ok":true}', vst == 200 and vraw == '{"ok":true}', vraw)
 r = redeem(c.result.challenge_id, bound)
 check(
-  "redeem → verified, role owner, slot, verified_at; nothing else",
+  "redeem → verified, role owner, verified_at in whole epoch seconds; no slot, no name",
   r.status == "ok"
     and r.result.verified == true
     and r.result.role == "owner"
-    and r.result.slot == 1
-    and type(r.result.verified_at) == "string"
+    and r.result.slot == nil
+    and r.result.verified_at == math.floor(PIN_LOCK_NOW())
+    and r.raw:find('"verified_at":' .. math.floor(PIN_LOCK_NOW()) .. "[,}]") ~= nil
     and r.raw:find("Marta", 1, true) == nil,
   r.raw
 )
-local n = 0
-for _ in pairs(r.result) do
-  n = n + 1
+local keys = {}
+for k in pairs(r.result) do
+  keys[#keys + 1] = k
 end
-check("redeem answer has exactly 4 keys", n == 4, r.raw)
+table.sort(keys)
+check(
+  "redeem answer keys are exactly role, verified, verified_at",
+  table.concat(keys, ",") == "role,verified,verified_at",
+  r.raw
+)
 c, bound = challenge("chat_view", SESSION)
 verify(c.result.challenge_id, OWNER2_PIN)
 r = redeem(c.result.challenge_id, bound)
-check("a second owner code verifies a chat unlock (slot 2)", r.result.verified == true and r.result.slot == 2, r.raw)
+check(
+  "a second owner code verifies a chat unlock, and the answer cannot tell which code",
+  r.result.verified == true and r.result.role == "owner" and r.result.slot == nil and r.raw:find("slot", 1, true) == nil,
+  r.raw
+)
 
 io.write("[5] single use\n")
 r = redeem(c.result.challenge_id, bound)
@@ -880,6 +890,10 @@ scan(
   "no code name in any bus answer PIN Lock sent",
   table.concat(toAi, "\n"),
   { "Marta", "Owner Two", "Staff Sam", "Vendor Vic", "Guest Gia" }
+)
+check(
+  "no slot in any bus answer PIN Lock sent (which owner code is never said)",
+  #toAi > 0 and table.concat(toAi, "\n"):find("slot", 1, true) == nil
 )
 local replies = {}
 for _, s in ipairs(serverSent) do

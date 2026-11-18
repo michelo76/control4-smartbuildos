@@ -20,8 +20,11 @@
 ---     still consumes it), so an approval grant can never be redeemed as a
 ---     chat unlock or the reverse.
 ---
---- The store never holds a PIN, and it never holds or returns a code NAME:
---- the engine's verification result gives it the role and slot only.
+--- The store never holds a PIN, and it never holds or returns a code NAME
+--- or slot: from the engine's verification result it keeps the role only.
+--- A verified redeem answers exactly { verified = true, verified_at = <whole
+--- epoch seconds>, role = "owner" } (spec rulings 21 and 22): nothing that
+--- identifies which owner code was typed leaves PIN Lock.
 
 local M = {}
 
@@ -63,10 +66,6 @@ local function subjectOk(purpose, subject)
   return #subject == 36 and subject:match(pattern) ~= nil
 end
 M.subjectOk = subjectOk
-
-local function iso(t)
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(t))
-end
 
 local Store = {}
 Store.__index = Store
@@ -182,8 +181,7 @@ function Store:verify(id, pin, check, gate)
   if res.ok == true and res.role == "owner" then
     c.state = "verified"
     c.role = res.role
-    c.slot = tonumber(res.slot)
-    c.verified_at = self:now()
+    c.verified_at = math.floor(self:now())
     return { ok = true }
   end
   if res.locked == true then
@@ -226,7 +224,7 @@ function Store:redeem(requester, args)
   if c.state ~= "verified" then
     return { verified = false, reason = "not_verified" }
   end
-  return { verified = true, verified_at = iso(c.verified_at), role = c.role, slot = c.slot }
+  return { verified = true, verified_at = c.verified_at, role = c.role }
 end
 
 return M
