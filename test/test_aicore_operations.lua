@@ -88,6 +88,42 @@ check(
   O.parse("raise_event", { event = "action_failed", detail = "a\0b\7c" }).detail == "ab c"
 )
 
+print("[3b] raise_event correlation_id: optional, bounded, the only added key")
+-- src/lib/ai-core/actions/service.ts raiseEvent() sends it with every
+-- approval/action event; refusing it ended each of them Failed.
+local withCorr = O.parse("raise_event", { event = "approval_required", detail = "x", correlation_id = "act-7f3a" })
+check("accepted, carried as op.correlation_id", withCorr ~= nil and withCorr.correlation_id == "act-7f3a")
+local uuid = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+check(
+  "a platform action uuid is accepted unchanged",
+  (O.parse("raise_event", { event = "action_completed", correlation_id = uuid }) or {}).correlation_id == uuid
+)
+check("absent → no correlation_id", O.parse("raise_event", { event = "pattern_detected" }).correlation_id == nil)
+check(
+  "96 characters accepted (the envelope bound)",
+  O.parse("raise_event", { event = "action_failed", correlation_id = string.rep("c", 96) }) ~= nil
+)
+check("97 refused", refused("raise_event", { event = "action_failed", correlation_id = string.rep("c", 97) }))
+check("empty refused", refused("raise_event", { event = "action_failed", correlation_id = "" }))
+check("not text refused", refused("raise_event", { event = "action_failed", correlation_id = 7 }))
+check("a control character refused", refused("raise_event", { event = "action_failed", correlation_id = "a\nb" }))
+check("DEL refused", refused("raise_event", { event = "action_failed", correlation_id = "a\127b" }))
+check(
+  "every OTHER unknown key is still refused, with correlation_id present",
+  refused("raise_event", { event = "action_failed", correlation_id = "c-1", action_id = "x" })
+)
+check(
+  "correlation_id is accepted by raise_event only",
+  refused("deliver_result", { response_id = "r", text = "t", correlation_id = "c-1" })
+    and refused("set_learning", { active = true, correlation_id = "c-1" })
+)
+local keys = table.concat(O.argKeys("raise_event"), ",")
+check(
+  "argKeys(raise_event) = correlation_id,detail,event,pending_approvals,recommendation_count",
+  keys == "correlation_id,detail,event,pending_approvals,recommendation_count",
+  keys
+)
+
 print("[4] AI_LAST_RESPONSE bound")
 local short, cut = O.boundResponse("ok")
 check("short text kept", short == "ok" and cut == false)

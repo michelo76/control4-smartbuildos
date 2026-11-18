@@ -228,8 +228,9 @@ for _, c in ipairs(A.cloudCalls) do
   end
 end
 check(
-  "closed context key normalised",
-  ctxCall.body.context_key == "guests_present" and ctxCall.body.value == "yes, until Sunday"
+  "closed context key normalised, sent as `key` (rpc/ops.ts OP_BODIES.set_context)",
+  ctxCall.body.key == "guests_present" and ctxCall.body.context_key == nil and ctxCall.body.value == "yes, until Sunday",
+  JSON:encode(ctxCall.body)
 )
 local rep = A.cloudCalls[#A.cloudCalls - 1]
 check("report type and period normalised", rep.body.type == "device_reliability" and rep.body.period == "last_7_days")

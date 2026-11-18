@@ -18,6 +18,7 @@ end
 
 local C = require("aicore.commands")
 local V = require("aicore.vocab")
+local JSON = require("JSON")
 
 local ctx = {
   rooms = function()
@@ -68,8 +69,15 @@ check(
     and C.build("AI_RECORD_EVENT", { NAME = "x" }, ctx).args.category == "general"
 )
 check(
-  "context key travels as context_key (never `key`)",
+  "context key travels as context_key in the envelope (never `key`)",
   C.build("AI_SET_CONTEXT", valid.AI_SET_CONTEXT, ctx).args.context_key == "quiet_hours"
+    and C.envelope(C.build("AI_SET_CONTEXT", valid.AI_SET_CONTEXT, ctx), "aic-1").payload.args.context_key
+      == "quiet_hours"
+)
+local ctxBody = C.body(C.build("AI_SET_CONTEXT", valid.AI_SET_CONTEXT, ctx), "aic-1")
+check(
+  "…and as `key` in the cloud body (rpc/ops.ts OP_BODIES.set_context: key, value)",
+  ctxBody.key == "quiet_hours" and ctxBody.context_key == nil and ctxBody.value ~= nil
 )
 
 print("[2] refusals")
@@ -152,6 +160,18 @@ check(
 print("[4] what the cloud's quick answer means")
 local r = C.interpret({ status = "ok", result = { accepted = true, job_id = "j1" } })
 check("accepted + job id", r.outcome == "accepted" and r.job_id == "j1")
+r = C.interpret({ status = "ok", result = { accepted = true, job_id = 42 } })
+check("accepted + numeric job id", r.outcome == "accepted" and r.job_id == "42")
+-- set_context / send_notification: {accepted: true, job_id: null} (JSON null
+-- decodes to nil) — done now, nothing will be delivered later.
+r = C.interpret({ status = "ok", result = { accepted = true, applied = true, key = "vacation" } })
+check("accepted with job_id null/absent → completed, no job", r.outcome == "completed" and r.job_id == nil)
+r = C.interpret({ status = "ok", result = JSON:decode('{"accepted":true,"job_id":null,"sent":{}}') })
+check("the platform's literal {accepted:true, job_id:null} → completed", r.outcome == "completed" and r.job_id == nil)
+for _, odd in ipairs({ "", {}, true }) do
+  r = C.interpret({ status = "ok", result = { accepted = true, job_id = odd } })
+  check("job_id " .. type(odd) .. " (" .. tostring(odd) .. ") names no job → completed", r.outcome == "completed")
+end
 r = C.interpret({ status = "ok", result = { accepted = false } })
 check("ok without accepted is NOT success", r.outcome == "refused" and r.code == "cloud_refused")
 r = C.interpret({ status = "ok", result = "garbage" })
@@ -170,9 +190,17 @@ for _, code in ipairs({
     r.outcome == "refused" and r.code == code and r.message:find(code) ~= nil
   )
 end
-for _, code in ipairs({ "cloud_unreachable", "deadline_exceeded", "target_unavailable", "rate_limited" }) do
+for _, code in ipairs({ "cloud_unreachable", "deadline_exceeded", "target_unavailable" }) do
   check(code .. " → unreachable", C.interpret({ status = "error", error_code = code }).outcome == "unreachable")
 end
+-- send_notification / test_provider answer rate_limited per system: that is
+-- SmartBuildOS answering, not silence.
+r = C.interpret({ status = "error", error_code = "rate_limited" })
+check(
+  "rate_limited → refused (an answer), says rate limited, not 'no answer'",
+  r.outcome == "refused" and r.code == "rate_limited" and r.message:find("rate limited") ~= nil
+    and r.message:find("no answer") == nil
+)
 check(
   "incompatible_protocol → unavailable",
   C.interpret({ status = "error", error_code = "incompatible_protocol" }).outcome == "unavailable"

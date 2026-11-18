@@ -9,8 +9,10 @@
                is validated and bounded, recorded as an ai_core.* envelope
                for the Agent's durable queue and (all but AI_RECORD_EVENT)
                sent as ONE cloud op through the Agent's module contract v2
-               relay. The cloud answers at once (accepted + job id, or a
-               refusal shown as it is); the result arrives later.
+               relay. The cloud answers at once: accepted with a job id
+               (the result arrives later as deliver_result), completed with
+               no job (set_context, send_notification: nothing follows), or
+               a refusal shown as it is.
     RESULTS    six restricted operations from the platform (apply_config,
                refresh_status, deliver_result, raise_event, set_learning,
                run_diagnostic). None controls equipment, runs code or names
@@ -105,6 +107,7 @@ local gCounters = {
   commands = 0,
   refused_local = 0,
   cloud_accepted = 0,
+  cloud_completed = 0,
   cloud_refused = 0,
   cloud_unreachable = 0,
   events_recorded = 0,
@@ -128,6 +131,7 @@ local gLast = {
   response = "",
   request_id = "",
   event_detail = "",
+  event_correlation_id = "",
   error = "",
   error_kind = nil,
   refusal = nil,
@@ -733,7 +737,17 @@ local function onCloudAnswer(name, requestId, answer)
     gCloudUnreachable = false
     gLast.refusal = nil
     gLast.sync_at = now()
-    addJob(r.job_id or requestId, name, requestId)
+    addJob(r.job_id, name, requestId)
+    if gLast.error_kind == "cloud" then
+      setError("")
+    end
+  elseif r.outcome == "completed" then
+    -- Done now (set_context, send_notification): no job, nothing to wait
+    -- for, and no AI Response Ready — no result will ever be delivered.
+    gCounters.cloud_completed = gCounters.cloud_completed + 1
+    gCloudUnreachable = false
+    gLast.refusal = nil
+    gLast.sync_at = now()
     if gLast.error_kind == "cloud" then
       setError("")
     end
@@ -910,8 +924,14 @@ function OPS.deliver_result(op)
   return "Completed", "response " .. op.response_id .. (cut and " (shortened for the variable)" or "")
 end
 
-function OPS.raise_event(op)
+--- Severity of the ai_core.event envelope: the failures are warnings
+--- (critical for the buffer), everything else is information.
+local RAISED_WARNING = { action_failed = true, ai_provider_error = true }
+
+function OPS.raise_event(op, request)
   gLast.event_detail = op.detail
+  -- Always written, so the value never belongs to an earlier event.
+  gLast.event_correlation_id = op.correlation_id or ""
   if op.pending_approvals ~= nil then
     gLast.pending_approvals = op.pending_approvals
   end
@@ -921,6 +941,25 @@ function OPS.raise_event(op)
   gCounters.events_raised = gCounters.events_raised + 1
   saveLast()
   setVar("AI_LAST_EVENT_DETAIL", op.detail)
+  setVar("AI_LAST_CORRELATION_ID", gLast.event_correlation_id)
+  -- What the platform raised, on the timeline, tied to what it is about.
+  record({
+    event_type = "ai_core.event",
+    evidence_source = "system",
+    quality = op.detail ~= "" and "unreviewed_text" or "confirmed",
+    severity = RAISED_WARNING[op.event] and "warning" or "info",
+    label = op.event,
+    correlation_id = op.correlation_id,
+    payload = {
+      event = op.event,
+      detail = op.detail ~= "" and op.detail or nil,
+      correlation_id = op.correlation_id,
+      operation_request_id = request and request.request_id or nil,
+      pending_approvals = op.pending_approvals,
+      recommendation_count = op.recommendation_count,
+      note = "raised by SmartBuildOS (restricted operation raise_event); the platform's word, not an observation",
+    },
+  })
   if op.event == "ai_provider_error" then
     -- The platform's word on the AI provider, shown where programming and
     -- the dealer look for errors; cleared by the next delivered result.
@@ -1077,6 +1116,7 @@ local VARIABLES = {
   { "AGENT_CONNECTED", "false", "BOOL" },
   { "LEARNING_ACTIVE", "false", "BOOL" },
   { "AI_LAST_ERROR", "", "STRING" },
+  { "AI_LAST_CORRELATION_ID", "", "STRING" },
 }
 
 local function registerComposerSurface()
@@ -1119,6 +1159,7 @@ local function restore()
       response = "string",
       request_id = "string",
       event_detail = "string",
+      event_correlation_id = "string",
       error = "string",
       error_kind = "string",
       refusal = "string",
@@ -1141,6 +1182,7 @@ local function restore()
   setVar("AI_LAST_RESPONSE_ID", gLast.response_id)
   setVar("AI_LAST_REQUEST_ID", gLast.request_id)
   setVar("AI_LAST_EVENT_DETAIL", gLast.event_detail)
+  setVar("AI_LAST_CORRELATION_ID", gLast.event_correlation_id)
   setVar("AI_LAST_ERROR", gLast.error)
   UpdateProperty("Last Error", gLast.error ~= "" and gLast.error or "none")
 end
@@ -1379,11 +1421,13 @@ function EC.TEST_AI_CONNECTION()
   client.cloudRequest("test_provider", { request_id = requestId }, { idempotency_key = requestId }, function(answer)
     local r = Commands.interpret(answer)
     if r.outcome == "accepted" then
-      gLast.test = "AI connection: test accepted (job "
-        .. tostring(r.job_id or "?")
-        .. "); result follows as AI Response Ready"
+      gLast.test = "AI connection: test accepted (job " .. r.job_id .. "); result follows as AI Response Ready"
       gLast.sync_at = now()
-      addJob(r.job_id or requestId, "TEST_AI_CONNECTION", requestId)
+      addJob(r.job_id, "TEST_AI_CONNECTION", requestId)
+    elseif r.outcome == "completed" then
+      -- No job id: nothing will follow, so do not promise a result.
+      gLast.test = "AI connection: answered by SmartBuildOS (no result follows)"
+      gLast.sync_at = now()
     else
       gLast.test = "AI connection: " .. r.outcome .. " (" .. tostring(r.code) .. ")"
     end

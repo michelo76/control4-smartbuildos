@@ -82,6 +82,8 @@ local wanted = {
   "AGENT_CONNECTED",
   "LEARNING_ACTIVE",
   "AI_LAST_ERROR",
+  -- Added after the brief's ten: the raise_event correlation_id (DRIVER.md §5).
+  "AI_LAST_CORRELATION_ID",
 }
 local xmlVars = {}
 for id, name in xml:gmatch("<variable><id>(%d+)</id><name>(.-)</name>") do
@@ -96,7 +98,7 @@ local okOrder = #xmlVars == #wanted and #luaVars == #wanted
 for i, name in ipairs(wanted) do
   okOrder = okOrder and xmlVars[i].name == name and xmlVars[i].id == 3999 + i and luaVars[i] == name
 end
-check("10 variables, ids 4000..4009, same order (AddVariable order is frozen)", okOrder)
+check("11 variables, ids 4000..4010, same order (AddVariable order is frozen)", okOrder)
 
 print("[3] commands and their typed parameters")
 local xmlCommands = {}

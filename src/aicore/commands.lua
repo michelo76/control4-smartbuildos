@@ -308,12 +308,18 @@ function M.envelope(cmd, requestId)
   }
 end
 
+--- Argument names that differ on the wire. The envelope must not carry a
+--- key named `key` (it is redacted as a credential), so the context key is
+--- `context_key` locally; the cloud body is not an envelope, and the
+--- platform's OP_BODIES.set_context (rpc/ops.ts) names it `key`.
+M.BODY_NAMES = { context_key = "key" }
+
 --- The cloud op's body (the Agent adds who sent it; the platform derives
 --- tenant and property from the Agent's pairing token, never from here).
 function M.body(cmd, requestId, extra)
   local body = { command = cmd.name, request_id = requestId }
   for k, v in pairs(cmd.args) do
-    body[k] = v
+    body[M.BODY_NAMES[k] or k] = v
   end
   for k, v in pairs(extra or {}) do
     body[k] = v
@@ -322,8 +328,14 @@ function M.body(cmd, requestId, extra)
 end
 
 --- What a CLOUD_RESPONSE answer means. outcome:
----   accepted   the platform took it; the result arrives later (deliver_result)
----   refused    the platform (or the relay) said no, with a code; not retried
+---   accepted    the platform took it AS A JOB (a job_id); the result arrives
+---               later as deliver_result
+---   completed   the platform took it and finished it now ({accepted: true}
+---               with job_id null or absent: set_context, send_notification);
+---               nothing will be delivered later, so nothing may wait for it
+---   refused     the platform (or the relay) said no, with a code; not retried
+---               by the driver (rate_limited included: the module client has
+---               already retried it, and it is an answer, not silence)
 ---   unreachable the cloud or the Agent could not be reached after retries
 ---   unavailable this Agent cannot relay at all (v1 Agent)
 function M.interpret(answer)
@@ -331,7 +343,14 @@ function M.interpret(answer)
   if answer.status == "ok" then
     local r = type(answer.result) == "table" and answer.result or {}
     if r.accepted == true then
-      return { outcome = "accepted", job_id = r.job_id ~= nil and tostring(r.job_id):sub(1, 128) or nil, code = "ok" }
+      -- Only a real id is a job: JSON null decodes to nil, and anything that
+      -- is not a non-empty string or a number (a null sentinel, a table)
+      -- names nothing that a deliver_result could ever match.
+      local job = r.job_id
+      if (type(job) == "string" and job ~= "") or type(job) == "number" then
+        return { outcome = "accepted", job_id = tostring(job):sub(1, 128), code = "ok" }
+      end
+      return { outcome = "completed", code = "ok" }
     end
     return {
       outcome = "refused",
@@ -343,13 +362,13 @@ function M.interpret(answer)
   if code == "incompatible_protocol" then
     return { outcome = "unavailable", code = code, message = "the SmartBuildOS Agent must be updated (protocol 2)" }
   end
-  if
-    code == "cloud_unreachable"
-    or code == "deadline_exceeded"
-    or code == "target_unavailable"
-    or code == "rate_limited"
-  then
+  if code == "cloud_unreachable" or code == "deadline_exceeded" or code == "target_unavailable" then
     return { outcome = "unreachable", code = code, message = "no answer from SmartBuildOS (" .. code .. ")" }
+  end
+  if code == "rate_limited" then
+    -- The platform's per-system limits (send_notification, test_provider)
+    -- and the Agent's own bucket both answer this: an answer, not silence.
+    return { outcome = "refused", code = code, message = "rate limited by SmartBuildOS (rate_limited); try again later" }
   end
   return { outcome = "refused", code = code, message = "refused by SmartBuildOS: " .. code }
 end

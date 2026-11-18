@@ -73,6 +73,7 @@
     <variable><id>4007</id><name>AGENT_CONNECTED</name><type>BOOL</type><default>false</default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>4008</id><name>LEARNING_ACTIVE</name><type>BOOL</type><default>false</default><readonly>true</readonly><hidden>false</hidden></variable>
     <variable><id>4009</id><name>AI_LAST_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4010</id><name>AI_LAST_CORRELATION_ID</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
   </variables>
   <events>
     <event><id>1</id><name>AI Response Ready</name><description>A result from SmartBuildOS AI arrived (AI_LAST_RESPONSE, AI_LAST_RESPONSE_ID)</description></event>

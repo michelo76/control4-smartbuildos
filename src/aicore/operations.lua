@@ -32,10 +32,39 @@ local ARGS = {
     pending_approvals = true,
     recommendation_count = true,
   },
-  raise_event = { event = true, detail = true, pending_approvals = true, recommendation_count = true },
+  raise_event = {
+    event = true,
+    detail = true,
+    pending_approvals = true,
+    recommendation_count = true,
+    -- What the platform ties the event to (an action id for approval_required /
+    -- action_completed / action_failed). Optional; carried into the
+    -- ai_core.event envelope and AI_LAST_CORRELATION_ID, never interpreted.
+    correlation_id = true,
+  },
   set_learning = { active = true, reason = true },
   run_diagnostic = { device_id = true, room_id = true, note = true },
 }
+
+--- The argument keys each operation accepts (a copy: the parity test reads
+--- it; changing the copy changes nothing here).
+function M.argKeys(command)
+  local out = {}
+  for k in pairs(ARGS[command] or {}) do
+    out[#out + 1] = k
+  end
+  table.sort(out)
+  return out
+end
+
+--- raise_event correlation_id: the envelope's bound (sbos.envelope
+--- LIMITS.correlation_id, 96) and the platform envelope's character rule
+--- (no control characters).
+M.CORRELATION_MAX = 96
+
+local function validCorrelation(s)
+  return type(s) == "string" and #s >= 1 and #s <= M.CORRELATION_MAX and not s:find("[%c\127]")
+end
 
 M.RESULT_KINDS = { answer = true, analysis = true, report = true, scene_suggestion = true, diagnostic = true }
 
@@ -131,6 +160,12 @@ function M.parse(command, args)
       op.detail, op.detail_truncated = cleanText(args.detail, L.event_detail)
     else
       op.detail = ""
+    end
+    if args.correlation_id ~= nil then
+      if not validCorrelation(args.correlation_id) then
+        return nil, "correlation_id must be text of 1.." .. M.CORRELATION_MAX .. " characters without control characters"
+      end
+      op.correlation_id = args.correlation_id
     end
   elseif command == "set_learning" then
     if type(args.active) ~= "boolean" then

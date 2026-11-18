@@ -229,7 +229,7 @@ H.agent = {
   connected = true,
   token = "tok-1",
   fr = { present = true, protocol = 2, instance_id = "9001", stale = false },
-  cloud = nil, -- function(op, body, params) → { status, http_status, error_code, result }
+  cloud = nil, -- function(op, body, params) → { status, http_status, error_code, result | raw_result }
   frAnswer = nil, -- function(capability, args) → status, result, code
   processed = 0,
   cloudCalls = {},
@@ -374,7 +374,8 @@ local function answer(frame)
       status = r.status,
       http_status = r.http_status or "",
       error_code = r.error_code or (r.status == "ok" and "ok" or "internal_error"),
-      result = JSON:encode(r.result or {}),
+      -- raw_result: the JSON text as the platform wrote it (e.g. a literal null)
+      result = r.raw_result or JSON:encode(r.result or {}),
     }))
   elseif c == "SBOS_MODULE_REQUEST" then
     local args = JSON:decode(p.args)
