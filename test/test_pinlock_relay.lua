@@ -109,6 +109,94 @@ print("[4] parsing: a PIN in the URL is never required")
 local parsed = relay.parse('POST /unlock?k=tok HTTP/1.1\r\nContent-Length: 27\r\n\r\n{"action":1,"pin":"4826"}  ')
 check("body is parsed separately from the query", parsed ~= nil and parsed.query.k == "tok" and parsed.query.pin == nil)
 
+print("[5] /verify: tokenless, closed body, a closed reply whatever the provider says")
+do
+  local PIN = "7391" -- test value
+  local CH = string.rep("ab", 16)
+  local got
+  local answer
+  local vp = {
+    encode = provider.encode,
+    decode = provider.decode,
+    verify = function(id, pin)
+      got = { id = id, pin = pin }
+      return answer
+    end,
+  }
+  local function post(body, method)
+    return relay.route(req(method or "POST", "/verify", {}, body), "tok", vp)
+  end
+  local function noLeak(res, label)
+    local raw = relay.render(res)
+    check(label .. ": no PIN in the response bytes", raw:find(PIN, 1, true) == nil)
+    check(label .. ": no code name in the response bytes", raw:find("Marta", 1, true) == nil)
+    check(label .. ": no role in the response bytes", raw:find("owner", 1, true) == nil)
+  end
+
+  -- A provider that over-shares: the router must not copy any of it.
+  answer = { ok = true, code = "Owner Marta", role = "owner", slot = 1, pin = PIN }
+  local res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '"}')
+  check(
+    'no page token needed: verified → 200 {"ok":true}',
+    res.status == "200 OK" and res.body == '{"ok":true}',
+    res.body
+  )
+  check("the provider got the challenge id and the PIN", got.id == CH and got.pin == PIN)
+  noLeak(res, "verified")
+
+  answer = { ok = false, code = "Owner Marta", reason = "not_owner", role = "guest" }
+  res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '"}')
+  check(
+    'not verified → 401 {"ok":false} exactly',
+    res.status == "401 Unauthorized" and res.body == '{"ok":false}',
+    res.body
+  )
+  noLeak(res, "not verified")
+
+  answer = { ok = false, locked = true, retry_in = 241.7, code = "Owner Marta", reason = "locked_out" }
+  res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '"}')
+  check(
+    "locked → 429 {ok:false, locked, retry_in} exactly",
+    res.status == "429 Too Many Requests" and res.body == '{"ok":false,"locked":true,"retry_in":241}',
+    res.body
+  )
+  noLeak(res, "locked")
+
+  answer = nil
+  res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '"}')
+  check('a provider answering nothing → {"ok":false}', res.body == '{"ok":false}')
+
+  got = nil
+  res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '","k":"tok"}')
+  check("an extra body key → 400, provider not called", res.status == "400 Bad Request" and got == nil)
+  res = post('{"challenge_id":"' .. CH .. '"}')
+  check("no PIN → 400, provider not called", res.status == "400 Bad Request" and got == nil)
+  res = post('{"challenge_id":"' .. CH .. '","pin":7391}')
+  check("a numeric PIN → 400, provider not called", res.status == "400 Bad Request" and got == nil)
+  res = post("not json")
+  check("non-JSON → 400 with no echo", res.status == "400 Bad Request" and res.body:find("not json") == nil)
+  res = post("", "GET")
+  check("GET /verify → 405", res.status == "405 Method Not Allowed")
+  res = relay.route(req("OPTIONS", "/verify"), "tok", vp)
+  check("preflight for /verify answered", res.status == "204 No Content")
+  check(
+    "CORS headers let another driver's page POST JSON",
+    relay.render(res):find("Access-Control-Allow-Origin: *", 1, true) ~= nil
+      and relay.render(res):find("Access-Control-Allow-Headers: Content-Type", 1, true) ~= nil
+  )
+  vp.verify = function()
+    error("boom " .. PIN)
+  end
+  res = post('{"challenge_id":"' .. CH .. '","pin":"' .. PIN .. '"}')
+  check(
+    "a provider that throws → 500 with no detail",
+    res.status == "500 Internal Server Error" and res.body == '{"ok":false}'
+  )
+  res = relay.route(req("POST", "/verify", {}, '{"challenge_id":"x","pin":"1"}'), "tok", provider)
+  check("a provider without verify → 404", res.status == "404 Not Found")
+  check("/verify never reaches the page's unlock", seen.unlock.pin == "4826")
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
