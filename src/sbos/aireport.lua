@@ -942,18 +942,19 @@ function M.declarationHash()
   return M.buildDescribe().hash
 end
 
+--- Sends describe when forced (AI Core appeared, revived or was updated),
+--- when the hash changed, or when the same hash was last sent at least
+--- 10 minutes ago (so an AI Core that restarted without going stale gets
+--- it back at the next directory change after that).
 local function sendDescribe(force)
   local d = M.buildDescribe()
-  if not force and d.hash == S.describeHash then
-    return false, "unchanged"
-  end
   if
     not force
-    and d.hash == S.describeSentHash
+    and (d.hash == S.describeHash or d.hash == S.describeSentHash)
     and S.describeAt ~= nil
     and now() - S.describeAt < M.DESCRIBE_SAME_HASH_SECONDS
   then
-    return false, "rate_limited"
+    return false, "unchanged"
   end
   local ok, why = send("describe", d)
   if ok then
@@ -1114,9 +1115,12 @@ local function onDirectory(dir, code)
   S.target = t
   repaint()
   if reportable() then
+    -- describe when AI Core appeared / changed (or the same one is due);
+    -- the latest state on every directory change (spec: latest wins,
+    -- re-sent on change or directory change), within the 6/min window.
     armBaseline()
     sendDescribe(changed)
-    flushState(changed or S.aiState == nil)
+    flushState(true)
   else
     CancelTimer(TIMERS.baseline)
     CancelTimer(TIMERS.state)

@@ -770,9 +770,13 @@ do
   check("accepted again -> reporting", value() == "Found — reporting (v20261118.2)", value())
 
   -- directory status unlicensed (AI Core's own status frame)
+  -- (AI Core rate-limits the state the push triggers, so the directory row
+  -- is the only news)
+  ai.accepted, ai.reason = false, "rate_limited"
   aiRegister({ status = "unlicensed" })
   pushDirectory()
   check("directory status unlicensed -> not licensed", value() == "Found — not licensed (v20261118.2)", value())
+  ai.accepted, ai.reason = true, nil
   aiRegister({ status = "ready" })
   pushDirectory()
   check("status back to ready -> a state is sent and its answer repaints", value() == "Found — reporting (v20261118.2)", value())
@@ -1005,6 +1009,17 @@ do
   check("a describe change is sent (hash differs)", #reportsOfKind("describe") == dCount + 1)
   aireport.describe({ summary = "Weather." })
   check("an unchanged describe is not re-sent", #reportsOfKind("describe") == dCount + 1)
+  pushDirectory() -- (nothing changed in the directory)
+  check("a directory change within 10 min does not re-send the same describe", #reportsOfKind("describe") == dCount + 1)
+  local sBefore = #reportsOfKind("state")
+  clock = clock + 601
+  agent.bus:directoryChanged()
+  pushDirectory()
+  check(
+    "after 10 min a directory change re-sends it (an AI Core restart recovers it)",
+    #reportsOfKind("describe") == dCount + 2
+  )
+  check("…and every directory change re-sends the latest state", #reportsOfKind("state") == sBefore + 1)
   check("controls: class closed", aireport.describe({ controls = { { id = "x", label = "X", class = "toaster" } } }) == false)
   check("describe keys closed", aireport.describe({ hash = "x" }) == false)
 
