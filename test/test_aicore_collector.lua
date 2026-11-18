@@ -21,6 +21,20 @@ local Config = require("aicore.config")
 
 print("[1] the collection plan (no double capture)")
 local cfg = Config.default()
+check(
+  "default: every collection source off",
+  not cfg.collection.system_events and not cfg.collection.flight_recorder_topics and not cfg.collection.agent_events
+)
+local d = Collector.plan("present", cfg, true)
+check(
+  "default document, even active: nothing subscribed or registered",
+  not d.subscribe and not d.system_events and not d.agent_events and not d.variables
+)
+d = Collector.plan("absent", cfg, true)
+check("default document, FR absent: no own collection either", not d.system_events and not d.agent_events)
+cfg.collection.system_events = true
+cfg.collection.flight_recorder_topics = true
+cfg.collection.agent_events = true
 cfg.collection.variables = { { device_id = 12, variable = "LIGHT_STATE" } }
 local p = Collector.plan("present", cfg, true)
 check("FR present: subscribe to its topics", p.subscribe)
@@ -44,6 +58,7 @@ check(
   not p.subscribe and not p.variables and not p.agent_events and not p.system_events
 )
 local none = Config.default()
+none.collection.system_events = true
 check("FR absent but no variables configured: none listened", not Collector.plan("absent", none, true).variables)
 none.collection.system_events = false
 check("system events can be switched off by config", not Collector.plan("absent", none, true).system_events)
@@ -59,7 +74,13 @@ local c = Collector.new({
     return t
   end,
 })
-c:setPolicy({ excludedRooms = { [9] = true }, excludedCategories = { security = true }, maxPerMinute = 3 })
+check("a new collector admits nothing until a policy is applied", select(2, c:admit({ category = "x" })) == "paused")
+c:setPolicy({
+  active = true,
+  excludedRooms = { [9] = true },
+  excludedCategories = { security = true },
+  maxPerMinute = 3,
+})
 check("admitted", c:admit({ id = "a", room_id = 3, category = "lighting" }) == true)
 check("duplicate id", select(2, c:admit({ id = "a", category = "lighting" })) == "duplicate")
 check("excluded room", select(2, c:admit({ room_id = 9, category = "lighting" })) == "excluded_room")
@@ -73,7 +94,7 @@ c:setPolicy({ active = false })
 check("paused before anything else", select(2, c:admit({ id = "new", category = "lighting" })) == "paused")
 check(
   "counters",
-  c.counters.paused == 1 and c.counters.excluded_room == 1 and c.counters.duplicate == 1 and c.counters.over_budget == 1
+  c.counters.paused == 2 and c.counters.excluded_room == 1 and c.counters.duplicate == 1 and c.counters.over_budget == 1
 )
 
 print("[3] consuming Flight Recorder envelopes")
@@ -82,7 +103,7 @@ local c2 = Collector.new({
     return 0
   end,
 })
-c2:setPolicy({ excludedRooms = { [9] = true }, maxPerMinute = 1 })
+c2:setPolicy({ active = true, excludedRooms = { [9] = true }, maxPerMinute = 1 })
 local events = {
   { event_id = "fr:1", event_type = "capture.event", room_id = 3, payload = {} },
   { event_id = "fr:2", event_type = "observation.change", room_id = 9, payload = { category = "lighting" } },

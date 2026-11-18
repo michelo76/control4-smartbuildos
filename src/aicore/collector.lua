@@ -106,7 +106,7 @@ function M.new(deps)
   local self = setmetatable({}, Collector)
   self.now = deps.now
   self.policy = {
-    active = true,
+    active = false, -- nothing is admitted until the driver applies a policy (learning is off by default)
     excludedRooms = {},
     excludedCategories = {},
     maxPerMinute = 60,

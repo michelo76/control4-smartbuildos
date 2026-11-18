@@ -203,7 +203,7 @@ check(
   stName == "Failed" and tostring(stDetail):find("AI_LEARNING") ~= nil,
   stDetail
 )
-H.config({ schema = 1, learning = { active = true } }, 21)
+H.config(H.learningOn(), 21) -- learning and every collection source asked for
 check(
   "BASE only: a configuration asking for learning keeps it paused, and says why",
   H.vars.LEARNING_ACTIVE == "false" and prop("Learning Status"):find("AI_LEARNING") ~= nil,

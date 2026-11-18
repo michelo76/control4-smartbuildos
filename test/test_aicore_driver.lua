@@ -64,22 +64,17 @@ check(
 check("AI_STATUS no_agent", H.vars.AI_STATUS == "no_agent", H.vars.AI_STATUS)
 check("AGENT_CONNECTED false", H.vars.AGENT_CONNECTED == "false")
 check("no register frame without an Agent", #H.sentOf("SBOS_MODULE_REGISTER") == 0)
-check(
-  "documented system events registered system-wide (device 0)",
-  H.sysRegs[48] == 0 and H.sysRegs[49] == 0 and H.sysRegs[17] == 0 and H.sysRegs[90] == 0
-)
-local undocumented = false
-for id in pairs(H.sysRegs) do
-  if not ({ [17] = 1, [18] = 1, [19] = 1, [20] = 1, [48] = 1, [49] = 1, [90] = 1 })[id] then
-    undocumented = true
-  end
-end
-check("no undocumented system event id registered", not undocumented)
+check("learning OFF by default: no system event registered", next(H.sysRegs) == nil)
 check(
   "the degraded status event is held in the persisted buffer",
   (H.persisted.aicore_buffer_v1 or { items = {} }).items[1] ~= nil
 )
-check("Learning Status Active by default", prop("Learning Status") == "Active", prop("Learning Status"))
+check(
+  "Learning Status: off until System Studio switches it on",
+  prop("Learning Status") == "Off (not switched on in System Studio)",
+  prop("Learning Status")
+)
+check("LEARNING_ACTIVE false by default", H.vars.LEARNING_ACTIVE == "false" and TC.LEARNING_ACTIVE() == false)
 check("AI API Credential: status only, nothing configured", prop("AI API Credential") == "Not configured")
 check("Permission Mode read-only, owned by System Studio", prop("Permission Mode"):find("System Studio") ~= nil)
 
@@ -117,6 +112,20 @@ for i = 2, #statuses do
 end
 check("status events in sequence order", ordered)
 check("licence registered with the Agent", H.lastSent("SBOS_REGISTER_DRIVER").params.sku == "SBOS_AI_CORE")
+check("learning off: no Flight Recorder subscription", H.lastSent("SBOS_MODULE_SUBSCRIBE") == nil)
+H.config(H.learningOn(), 1)
+check("learning switched on by configuration", H.vars.LEARNING_ACTIVE == "true" and prop("Learning Status") == "Active")
+check(
+  "documented system events registered system-wide (device 0)",
+  H.sysRegs[48] == 0 and H.sysRegs[49] == 0 and H.sysRegs[17] == 0 and H.sysRegs[90] == 0
+)
+local undocumented = false
+for id in pairs(H.sysRegs) do
+  if not ({ [17] = 1, [18] = 1, [19] = 1, [20] = 1, [48] = 1, [49] = 1, [90] = 1 })[id] then
+    undocumented = true
+  end
+end
+check("no undocumented system event id registered", not undocumented)
 
 print("[3] the Flight Recorder is discovered and subscribed to")
 local disc = H.lastSent("SBOS_MODULE_DISCOVER")
@@ -415,7 +424,12 @@ local good = {
   permission_mode = "recommend",
   provider = { name = "Anthropic", model = "claude-opus" },
   credential_status = "Configured in System Studio · Anthropic ••••abcd",
-  collection = { variables = { { device_id = 12, variable = "LIGHT_STATE" } } },
+  collection = {
+    system_events = true,
+    flight_recorder_topics = true,
+    agent_events = true,
+    variables = { { device_id = 12, variable = "LIGHT_STATE" } },
+  },
   property_id = "prop-123",
   controller_id = "ctrl-9",
 }

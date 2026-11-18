@@ -61,12 +61,29 @@ check(
 check("sets", Config.excludedRoomSet(cfg)[12] and Config.excludedCategorySet(cfg).presence)
 local empty = Config.validate({})
 check(
-  "{} = defaults",
+  "{} = the conservative defaults: learning OFF, every collection source off",
   empty ~= nil
-    and empty.learning.active == true
+    and empty.learning.active == false
     and empty.permission_mode == nil
-    and empty.collection.system_events == true
+    and empty.collection.system_events == false
+    and empty.collection.flight_recorder_topics == false
+    and empty.collection.agent_events == false
+    and empty.collection.max_events_per_minute == 60
+    and #empty.exclusions.rooms == 0
+    and #empty.exclusions.categories == 0
+    and empty.provider.name == nil
+    and empty.provider.model == nil
+    and empty.credential_status == nil
+    and empty.property_id == nil
+    and empty.controller_id == nil
 )
+check("Config.default() is the same document", Config.default().learning.active == false)
+local on = Config.validate({ learning = { active = true } })
+check("learning on only when a document says so", on ~= nil and on.learning.active == true)
+check("a document that only switches learning on collects nothing extra", on.collection.system_events == false)
+local off = Config.validate({ learning = { active = false } })
+check("explicit learning off", off ~= nil and off.learning.active == false)
+check("learning without active → refused", Config.validate({ learning = {} }) == nil)
 check("default: nothing listened to by variable", #empty.collection.variables == 0)
 
 print("[2] whole-document refusal")

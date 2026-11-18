@@ -9,7 +9,11 @@
 --- vault and never reaches the controller (ARCHITECTURE D2). What the
 --- controller shows about the key is a status string System Studio wrote.
 ---
---- Document (schema 1):
+--- Every field is optional and defaults to its conservative value (default()):
+--- learning OFF, every collection source off, nothing excluded, display
+--- fields unset. What System Studio has not said is not switched on here.
+---
+--- Document (schema 1; the values shown are an example, not the defaults):
 ---   {
 ---     "schema": 1,
 ---     "learning": { "active": true },
@@ -59,15 +63,17 @@ local TOP = {
 function M.default()
   return {
     schema = M.SCHEMA,
-    learning = { active = true },
+    -- Every default is the conservative one (most private, least capable):
+    -- what System Studio has not said is not switched on here.
+    learning = { active = false }, -- off until System Studio switches it on
     exclusions = { rooms = {}, categories = {} },
     permission_mode = nil, -- unknown until System Studio says
     provider = { name = nil, model = nil },
     credential_status = nil,
     collection = {
-      system_events = true,
-      flight_recorder_topics = true,
-      agent_events = true,
+      system_events = false,
+      flight_recorder_topics = false,
+      agent_events = false,
       variables = {},
       max_events_per_minute = 60,
     },

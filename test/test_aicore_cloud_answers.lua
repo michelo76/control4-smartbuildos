@@ -40,6 +40,7 @@ end
 H.agentPresent = true
 H.load("DIT_ADDING")
 H.advance(31000)
+H.config(H.learningOn(), 1) -- learning is off by default; learn_preference needs it on
 check("ready to start", H.vars.AI_STATUS == "ready", H.vars.AI_STATUS)
 
 print("[1] raise_event correlation_id")

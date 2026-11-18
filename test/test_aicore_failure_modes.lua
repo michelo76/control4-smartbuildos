@@ -34,6 +34,7 @@ H.agentPresent = true
 A.paired = false
 H.load("DIT_ADDING")
 H.advance(31000)
+H.config(H.learningOn(), 1) -- collection is off by default; [2] needs system events
 check("AI_STATUS agent_unpaired", H.vars.AI_STATUS == "agent_unpaired", H.vars.AI_STATUS)
 check("Agent Pairing Status: Not paired", prop("Agent Pairing Status") == "Not paired", prop("Agent Pairing Status"))
 check(

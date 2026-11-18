@@ -540,6 +540,21 @@ function H.config(settings, version)
   return H.lastSent("SBOS_DRIVER_CONFIG_ACK")
 end
 
+--- A configuration that switches learning and every collection source ON.
+--- Learning and collection are OFF by default (aicore.config default()), so
+--- a test of collection applies this first, explicitly.
+function H.learningOn(extra)
+  local doc = {
+    schema = 1,
+    learning = { active = true },
+    collection = { system_events = true, flight_recorder_topics = true, agent_events = true },
+  }
+  for k, v in pairs(extra or {}) do
+    doc[k] = v
+  end
+  return doc
+end
+
 function H.entitlement(fields)
   local p = { sku = "SBOS_AI_CORE", registered = "true", checked_at = "now" }
   for k, v in pairs(fields) do

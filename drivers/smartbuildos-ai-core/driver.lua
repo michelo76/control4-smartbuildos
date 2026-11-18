@@ -88,7 +88,8 @@ local AUTHORIZED =
 local gConfig = Config.default()
 local gConfigVersion = 0
 local gConfigError = ""
-local gLearning = { active = true, source = "default", reason = "" }
+-- Learning is OFF until a valid configuration (or set_learning) switches it on.
+local gLearning = { active = false, source = "default", reason = "" }
 local gBuffer = nil
 local gCollector = nil
 local gBucket = nil
@@ -345,6 +346,9 @@ local function learningText()
   if gLearning.active then
     return "Active"
   end
+  if gLearning.source == "default" then
+    return "Off (not switched on in System Studio)"
+  end
   local why = gLearning.reason ~= "" and (": " .. gLearning.reason) or ""
   return "Paused by " .. tostring(gLearning.source) .. why
 end
@@ -475,6 +479,12 @@ local function applyConfig(raw, version, source)
   local cfg, refusals = Config.validate(raw)
   if cfg == nil then
     gConfigError = "v" .. tostring(version) .. " refused: " .. Config.describeRefusals(refusals)
+    -- The rest of the last valid configuration stays in force, but not
+    -- learning: a document the driver cannot read may be the one that
+    -- switched it off, so learning is off until a valid one says otherwise.
+    gLearning = { active = false, source = "configuration", reason = "v" .. tostring(version) .. " refused" }
+    persist:set(LEARNING_KEY, gLearning)
+    applyCollection()
     persistConfig()
     setError("Configuration " .. gConfigError .. " (v" .. tostring(gConfigVersion) .. " kept)", "config")
     refresh("config_refused")
@@ -486,7 +496,13 @@ local function applyConfig(raw, version, source)
   -- The document's learning flag is the platform's latest word on learning
   -- (a licence without AI_LEARNING keeps it paused, and says so).
   local learningBlock = cfg.learning.active and licenceBlocks("AI_LEARNING") or nil
-  gLearning = { active = cfg.learning.active and learningBlock == nil, source = source, reason = learningBlock or "" }
+  -- A document that does not mention learning leaves it OFF (the default).
+  local stated = type(raw.learning) == "table"
+  gLearning = {
+    active = cfg.learning.active and learningBlock == nil,
+    source = source,
+    reason = learningBlock or (stated and "" or "the configuration does not switch it on"),
+  }
   persist:set(LEARNING_KEY, gLearning)
   persistConfig()
   gLast.sync_at = now()

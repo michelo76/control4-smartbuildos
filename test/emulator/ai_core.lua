@@ -289,6 +289,31 @@ check(
   aic.Properties["License Status"]
 )
 
+print("[1a] learning is OFF until System Studio switches it on")
+check(
+  "no configuration: LEARNING_ACTIVE false",
+  var(aic, "LEARNING_ACTIVE") == "0" or var(aic, "LEARNING_ACTIVE") == "false",
+  var(aic, "LEARNING_ACTIVE")
+)
+check(
+  "no configuration: Learning Status says so",
+  aic.Properties["Learning Status"] == "Off (not switched on in System Studio)",
+  aic.Properties["Learning Status"]
+)
+check(
+  "no configuration: no subscription to the recorder's topics",
+  agent.env.gBus:health().subscriptions == 0,
+  agent.env.gBus:health().subscriptions
+)
+-- Learning and every collection source switched on explicitly (System Studio).
+local COLLECT = { system_events = true, flight_recorder_topics = true, agent_events = true }
+heartbeatConfig(S, agent, { schema = 1, learning = { active = true }, collection = COLLECT }, 1)
+check(
+  "a configuration that says on → LEARNING_ACTIVE true",
+  var(aic, "LEARNING_ACTIVE") == "1" or var(aic, "LEARNING_ACTIVE") == "true",
+  var(aic, "LEARNING_ACTIVE")
+)
+
 print("[2] discovery with the Flight Recorder → subscription")
 check(
   "Flight Recorder Link: local history served, topics subscribed",
@@ -470,6 +495,7 @@ print("[6] configuration apply / refuse (SBOS_DRIVER_CONFIG through the Agent)")
 heartbeatConfig(S, agent, {
   schema = 1,
   learning = { active = true },
+  collection = COLLECT,
   exclusions = { rooms = {}, categories = { "security" } },
   permission_mode = "recommend",
   provider = { name = "Anthropic", model = "claude-opus" },
@@ -518,11 +544,16 @@ check(
   #cloudEnvelopes(S, "ai_core.record") == 1 and tostring(aic.Properties["Last Error"]):find("paused") ~= nil,
   aic.Properties["Last Error"]
 )
-heartbeatConfig(S, agent, { schema = 1, learning = { active = true }, exclusions = { categories = { "system" } } }, 7)
+heartbeatConfig(
+  S,
+  agent,
+  { schema = 1, learning = { active = true }, collection = COLLECT, exclusions = { categories = { "system" } } },
+  7
+)
 d:fireSystemEvent(49, '<event name="OnDeviceOffline" id="49"/>')
 d:advance(40000)
 check("excluded category: still not recorded", #cloudEnvelopes(S, "ai_core.observation.system") == sys0)
-heartbeatConfig(S, agent, { schema = 1, learning = { active = true } }, 8)
+heartbeatConfig(S, agent, { schema = 1, learning = { active = true }, collection = COLLECT }, 8)
 d:fireSystemEvent(49, '<event name="OnDeviceOffline" id="49"/>')
 d:advance(40000)
 check("active, nothing excluded: recorded", #cloudEnvelopes(S, "ai_core.observation.system") == sys0 + 1)
@@ -944,11 +975,20 @@ check(
   #V1.rpc.calls == 0 and tostring(aic1.Properties["Last Error"]):find("updated") ~= nil,
   aic1.Properties["Last Error"]
 )
+-- A v1 Agent cannot forward an SBOS_AI_CORE configuration, so learning
+-- stays off (the default) and AI_RECORD_EVENT is refused as paused; the
+-- event path itself still carries AI Core's status envelopes.
 dv:executeCommand(aic1, "AI_RECORD_EVENT", { NAME = "v1 still records" })
 dv:advance(40000)
 check(
-  "v1 services still work: the record reached the cloud through the v1 Agent",
-  #cloudEnvelopes(V1, "ai_core.record") == 1
+  "v1 Agent, no configuration: learning off, AI_RECORD_EVENT refused as paused",
+  #cloudEnvelopes(V1, "ai_core.record") == 0 and tostring(aic1.Properties["Last Error"]):find("paused") ~= nil,
+  aic1.Properties["Last Error"]
+)
+check(
+  "v1 services still work: AI Core's status envelopes reached the cloud through the v1 Agent",
+  #cloudEnvelopes(V1, "ai_core.status") >= 1,
+  #cloudEnvelopes(V1, "ai_core.status")
 )
 check("no runtime errors (v1 Agent, AI Core)", #agent1.errors + #aic1.errors == 0, agent1.errors[1] or aic1.errors[1])
 
