@@ -28,7 +28,9 @@
 ---                                           agent_update_required and keeps
 ---                                           its v1 services)
 ---                   onDirectoryChanged = fn(version)
----   calls           client.discover(filter, cb)
+---                   claim_driver_config = false  (leave EC.SBOS_DRIVER_CONFIG
+---                                           to the driver; default true)
+---   calls          client.discover(filter, cb)
 ---                   client.subscribe(id, topics, onEvents, onResult)
 ---                   client.unsubscribe(id)
 ---                   client.request(to, capability, args, opts, cb)
@@ -598,7 +600,13 @@ function M.setup(opts)
       pcall(state.opts.onSnapshotAck, tParams or {})
     end
   end
-  EC.SBOS_DRIVER_CONFIG = M.onConfig
+  -- `claim_driver_config = false` leaves EC.SBOS_DRIVER_CONFIG to the driver
+  -- (a driver whose remote settings already run through sbos.mirror, such as
+  -- Atmosphere, must not lose them to a helper that calls setup). Default:
+  -- the client takes it, as before.
+  if state.opts.claim_driver_config ~= false then
+    EC.SBOS_DRIVER_CONFIG = M.onConfig
+  end
 end
 
 function M.stop()

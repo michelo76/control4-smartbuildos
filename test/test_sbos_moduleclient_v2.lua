@@ -255,6 +255,19 @@ check(
   client.agentUpdateRequired() == true and client.displayStatus() == "agent_update_required"
 )
 
+print("[5] claim_driver_config: the opt-out leaves EC.SBOS_DRIVER_CONFIG to the driver")
+do
+  local mine = function() end
+  EC.SBOS_DRIVER_CONFIG = mine
+  setup({ claim_driver_config = false })
+  check("claim_driver_config = false → the driver's own handler stays", EC.SBOS_DRIVER_CONFIG == mine)
+  setup()
+  check("default → the client takes it (unchanged)", EC.SBOS_DRIVER_CONFIG == client.onConfig)
+  EC.SBOS_DRIVER_CONFIG = mine
+  setup({ claim_driver_config = true })
+  check("claim_driver_config = true → the client takes it", EC.SBOS_DRIVER_CONFIG == client.onConfig)
+end
+
 client.stop()
 check("stop cancels the client's timers", timers.SbosModuleStatus == nil and timers.SbosModuleTick == nil)
 print(string.format("\n%d passed, %d failed", pass, fail))
