@@ -50,6 +50,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **AI Core: Run Household Analysis from Control4 programming.** A new
+  programming command, `AI_RUN_HOUSEHOLD_ANALYSIS`, asks SmartBuildOS to run the
+  household analysis (op `analyze_household`; the Agent relays it). It needs the
+  `AI_LEARNING` licence feature and is refused on the controller without it. At
+  most one accepted run an hour and one request at a time, so programming in a
+  loop sends nothing; a refusal or an outage does not use up the hour. The
+  normal answer is *accepted (queued)*: the result appears in System Studio and
+  the driver is never told when the run finishes. Refusals show SmartBuildOS's
+  reason (`learning_not_allowed`, `not_licensed`, `already_running`,
+  `rate_limited` with the wait); an Agent too old to relay it says so.
+  `AI_ANALYZE_SYSTEM` is unchanged.
+
 - **SmartBuildOS module contract v2 (Agent + module client).** A strict superset
   of v1 (protocol 1..2 negotiated; v1 modules unchanged): capability manifest on
   registration, discovery with debounced directory-change pushes, local pub/sub

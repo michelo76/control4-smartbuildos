@@ -139,3 +139,46 @@ account-number flow on the Agent). AI Core follows the Agent:
 | `Flight Recorder Link`: `Installed (no local history service; update the Flight Recorder)` | An older Flight Recorder | Update it to the same build |
 | `Learning Status`: `Off (not switched on in System Studio)` / `Paused by System Studio…` / `Paused by configuration: vN refused` / `Stopped (not licensed)` | Learning not switched on yet (the default), turned off, the last document refused, or the licence is refused | System Studio / licence |
 | `AI_LAST_ERROR`: `AI provider error: …` | The provider (OpenAI / Anthropic) failed for the platform | Check the key and the provider's limits in System Studio |
+| `Last Error`: `AI_RUN_HOUSEHOLD_ANALYSIS refused: the licence does not include AI_LEARNING` | The licence lacks `AI_LEARNING` (enforced); nothing was sent | Add the feature |
+| `AI Status`: `… last request refused locally (rate_limited)` after **Run Household Analysis** | One accepted run an hour from this controller, or a request is still waiting; `Last Error` says which, and when the next is allowed | Wait; check the programming does not fire it repeatedly |
+| `AI Status`: `… last request refused (learning_not_allowed)` | Learning is off or paused for this home in System Studio | Switch learning on in System Studio |
+| `Last Error`: `AI_RUN_HOUSEHOLD_ANALYSIS: the SmartBuildOS Agent refused it (not_permitted): update the SmartBuildOS Agent …` | The Agent is older than this command and does not relay it | Update the SmartBuildOS Agent to the same build as AI Core |
+
+## 9. Running the household analysis from programming
+
+The household analysis is the learning step that turns this home's recorded
+activity into patterns and recommendations in System Studio. SmartBuildOS
+can run it on a schedule chosen in System Studio; to run it from Control4
+programming as well (for example every night after the house goes to Sleep,
+or from a dealer-only button), add the command **`AI_RUN_HOUSEHOLD_ANALYSIS`**
+— its description reads *Run Household Analysis* — to the programming:
+
+1. Composer Pro → **Programming**. In the left pane pick the event that
+   should start it (a scheduler event, a mode change, a keypad button).
+2. In the right pane select the **SmartBuildOS AI Core** device, choose
+   **Device Specific Command**, pick `AI_RUN_HOUSEHOLD_ANALYSIS` (it takes no
+   parameters) and drag it into the script. These Composer steps are the
+   usual ones for any driver command; they have not been walked through on a
+   real Composer with this driver (`TEST-MATRIX.md` procedure 21).
+3. Requirements: the AI Core licence includes **`AI_LEARNING`**, learning is
+   switched on for the home in System Studio, and the Agent is the build
+   that ships with this AI Core.
+
+What to expect:
+
+* Normally `Print Diagnostics` shows `last_cloud_result =
+  AI_RUN_HOUSEHOLD_ANALYSIS: accepted (queued)`, `AI Status` stays `Ready`
+  and `Last Error` shows no SmartBuildOS refusal. *Queued* means SmartBuildOS
+  took the request and runs the analysis afterwards; **the driver is never
+  told when it finishes**. The findings appear in System Studio (Intelligence
+  pages), not on the controller, and **AI Response Ready does not fire** for
+  this command.
+* At most one accepted run an hour from the controller, and one request
+  waiting at a time. A second press inside that sends nothing and shows
+  `refused locally (rate_limited)`. A refusal, a lost connection or a timeout
+  does not use up the hour. SmartBuildOS keeps its own limit of one accepted
+  run an hour for the home and answers `refused (rate_limited)` with the
+  time to wait.
+* Other refusals name their reason in `AI Status` and `Last Error`:
+  `learning_not_allowed`, `not_licensed`, `already_running`, `not_permitted`,
+  `invalid_args` (table in §8).

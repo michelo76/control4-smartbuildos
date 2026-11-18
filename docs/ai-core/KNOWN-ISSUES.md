@@ -90,13 +90,15 @@ redundant but harmless. Source: this closeout (`src/sbos/envelope.lua`,
 | KI-7 | Prompt delivery of a pause / resume / exclusion change needs the controller to have declared `modules_v1` and the document to have been published with a version; the queued `MODULE_COMMAND` expires after 10 minutes. Otherwise nothing is queued (logged, not an error) and the change reaches the controller with the next configuration delivery | open, by design | platform `settings.ts` `promptDriverDelivery`; `src/lib/control4/flight-recorder/modules.ts` `MODULE_COMMAND_TTL_SECONDS` |
 | KI-8 | The Agent forwards a configuration only when its `settings_version` or content changed since it last forwarded one (`forwardDriverConfig` fingerprint): an AI Core instance added after the current document was forwarded to another instance waits for the next change to receive it, and has learning off until then | open | `drivers/smartbuildos/driver.lua` `forwardDriverConfig` |
 | KI-36 | The `request_id` inside `ai_core.command` / `ai_core.record` **payloads** arrives as `[redacted]`: `aic-` + a UUID is 40 characters of `[%w-]`, which `sbos.envelope.looksLikeSecret` treats as a key. The envelope's `correlation_id` (not redacted) carries the same id, and `AI_LAST_REQUEST_ID` shows it; the payload copy is lost. Found during this closeout (shim) | open | `src/sbos/envelope.lua` `looksLikeSecret`; `src/aicore/commands.lua` `envelope` |
+| KI-37 | `AI_RUN_HOUSEHOLD_ANALYSIS`: "the Agent refused it, update the Agent" is inferred from `not_permitted` arriving **without** `result.reason`. The contract has the platform name a reason on every one of its own refusals of `analyze_household`; a platform refusal without one (for example from a layer in front of the op handler, or a platform that has not landed the op yet) is shown as the Agent's refusal. Until the platform side ships, the cross-repo parity test fails on the op lists (`test/test_aicore_platform_parity.lua` [2]) | open, by contract | `src/aicore/commands.lua` `interpretHousehold`; `src/sbos/modulebus.lua` `cloudRequest` |
+| KI-38 | `AI_RUN_HOUSEHOLD_ANALYSIS`: the driver is never told when an accepted (queued) run finishes or what it found — by design, the result is in System Studio. A reason the platform adds later is shown as it is; an error code outside the Agent's `CLOUD_PASSTHROUGH` without a reason arrives as `cloud_refused` | open, by design | `DRIVER.md` §3; `src/sbos/modulebus.lua` `CLOUD_PASSTHROUGH` |
 | KI-9 | System Studio's settings page still says the controller receives the change "on its next check-in"; learning and exclusion changes now also go at once | open (UI owners) | platform `src/components/system-studio/intelligence/AiProviderSetup.tsx` |
 
 ## Driver: not verified on hardware
 
 No physical controller has run AI Core, the Flight Recorder's v2 service or
 module contract v2 (`DRIVER.md` §14; `TEST-MATRIX.md` "Hardware validation
-plan", 20 procedures, none done; `RELEASE.md` §5). Owed on a bench:
+plan", 21 procedures, none done; `RELEASE.md` §5). Owed on a bench:
 
 | # | Item | Source |
 | --- | --- | --- |
@@ -118,6 +120,8 @@ plan", 20 procedures, none done; `RELEASE.md` §5). Owed on a bench:
 | KI-20 | `ROOM` is a STRING (name or id), not a room selector | `DRIVER.md` §15 |
 | KI-21 | Events never say who or what caused a change, the previous value, or that a programming item ran (DriverWorks provides none) | `DRIVER.md` §10; manual "What is not claimed" |
 | KI-22 | `AI_ACTIONS` and `AI_CONCIERGE` gate nothing on the controller (no action or concierge path there); the platform must enforce them | `TEST-MATRIX.md` known gaps; `DRIVER.md` §12 |
+| KI-39 | The controller's one-accepted-run-an-hour guard for `AI_RUN_HOUSEHOLD_ANALYSIS` lives in the driver's persisted state on `os.time()`: removing and re-adding the driver resets it, and a clock that moved backwards does not block (the platform's own hourly limit per property still applies). A cloud `rate_limited` is retried twice by the module client (2 s, 5 s) like every op, so one refused press can make three requests | `DRIVER.md` §3; `src/sbos/modulepolicy.lua` `RETRYABLE` |
+| KI-40 | Whether Composer lists a device command by its `<name>` (`AI_RUN_HOUSEHOLD_ANALYSIS`, like the driver's other `AI_*` commands) with the `<description>` (`Run Household Analysis: …`) in the script line is not checked in a real Composer (`TEST-MATRIX.md` procedure 21). A spaced `<name>` ("Run Household Analysis") would also work with the vendored `ExecuteCommand` (it maps spaces to `_`, as `drivers/smartbuildos-mode-composer` does) | `drivers/smartbuildos-ai-core/driver.xml`; `vendor/drivers-common-public/global/handlers.lua` |
 | KI-23 | Local pub/sub is lossy by design; there is no global event order (envelopes carry `sequence`) | `DRIVER.md` §12; `ARCHITECTURE.md` §4.5 |
 
 ## Licensing
