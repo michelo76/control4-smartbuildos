@@ -346,6 +346,9 @@ function Bus:directoryRow(e)
     protocol = tonumber(e.protocol) or 1,
     status = e.status or "",
     stale = self.registry:isStale(e),
+    -- Identity binding (sbos.modules): true only when the Agent matched a
+    -- reserved module id to its .c4z file at registration.
+    verified = e.verified == true,
     capabilities = manifest.capabilities or {},
   }
 end
@@ -606,7 +609,9 @@ function Bus:request(entry, p)
     return refuse("duplicate_request")
   end
   local rule = self.requestPolicy[capability]
-  if rule == nil or not (rule.requesters or {})[entry.module_id] then
+  -- requesters is a list of module ids or the ANY wildcard (every
+  -- authenticated module); anything else, or a missing rule, is refused.
+  if rule == nil or not Policy.requesterAllowed(rule, entry.module_id) then
     return refuse("not_permitted")
   end
   local idemKey = "req|" .. entry.module_id .. "|" .. key

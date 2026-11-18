@@ -85,17 +85,73 @@ M.RATES = {
   cloud = { per_minute = 20, burst = 10 }, -- CLOUD_REQUEST
 }
 
+--- The wildcard requester: `requesters = ANY` lets EVERY authenticated,
+--- registered v2 module call the capability (the Agent drops frames that do
+--- not carry a registration token before policy is ever consulted). It is a
+--- unique, empty, read-only table, never a string: an engine that does not
+--- know the marker indexes an empty table and refuses (fails closed), and a
+--- string would answer its own methods (`("*").len`) as truthy. Mirrored as
+--- `"*"` in the web repo.
+M.ANY = setmetatable({}, {
+  __newindex = function()
+    error("modulepolicy.ANY is read-only")
+  end,
+  __tostring = function()
+    return "ANY"
+  end,
+})
+local ANY = M.ANY
+
 --- MODULE_REQUEST_POLICY[capability] = { provider = module id that may
---- SERVE it, requesters = { module ids that may CALL it } }.
+--- SERVE it (nil = any module that advertises it), requesters = { module ids
+--- that may CALL it } or ANY }.
 --- The provider column is a strengthening of the architecture's table: a
 --- module that is not the sanctioned provider cannot answer for a
 --- capability even if its manifest advertises the name.
 local FR_READERS = { ai_core = true }
+local AI_CORE_ONLY = { ai_core = true }
 M.REQUEST_POLICY = {
   ["events.query"] = { provider = "flight_recorder", requesters = FR_READERS },
   ["events.timeline"] = { provider = "flight_recorder", requesters = FR_READERS },
   ["events.device_history"] = { provider = "flight_recorder", requesters = FR_READERS },
   ["events.room_activity"] = { provider = "flight_recorder", requesters = FR_READERS },
+  -- Any registered module reports to AI Core (describe/state/event/diagnostic).
+  ["ai_core.report"] = { provider = "ai_core", requesters = ANY },
+  -- PIN Lock's challenge/redeem for touchscreen approvals. No PIN ever
+  -- travels in these frames; it goes to PIN Lock's own LAN relay only.
+  ["pinlock.availability"] = { provider = "pin_lock", requesters = AI_CORE_ONLY },
+  ["pinlock.challenge"] = { provider = "pin_lock", requesters = AI_CORE_ONLY },
+  ["pinlock.redeem"] = { provider = "pin_lock", requesters = AI_CORE_ONLY },
+  -- Served by any driver that declares queries / actions; only AI Core asks.
+  ["ai.query"] = { provider = nil, requesters = AI_CORE_ONLY },
+  ["ai.action"] = { provider = nil, requesters = AI_CORE_ONLY },
+}
+
+--- Whether `moduleId` may CALL a capability under `rule` (a REQUEST_POLICY
+--- row). The ONE reading of the requesters column, wildcard included.
+function M.requesterAllowed(rule, moduleId)
+  if type(rule) ~= "table" or type(moduleId) ~= "string" or moduleId == "" then
+    return false
+  end
+  if rule.requesters == ANY then
+    return true
+  end
+  return type(rule.requesters) == "table" and rule.requesters[moduleId] == true
+end
+
+--- Reserved module ids, bound to the .c4z file(s) that may register them.
+--- The Agent checks a registration under one of these ids against the
+--- devices Director reports for that file (sbos.modules identity binding):
+--- a claimant at another device id is refused, so no other driver can
+--- squat `pin_lock` or `ai_core`. Ids not listed here register as before,
+--- marked unverified. Adding a SmartBuildOS module here is an Agent release.
+M.RESERVED_MODULES = {
+  ai_core = { "smartbuildos-ai-core.c4z" },
+  flight_recorder = { "smartbuildos-flight-recorder.c4z" },
+  usage_analytics = { "smartbuildos-usage-analytics.c4z" },
+  mqtt_broker = { "smartbuildos-mqtt-broker.c4z" },
+  venueflow = { "smartbuildos-venueflow.c4z" },
+  pin_lock = { "smartbuildos-pin-lock.c4z" },
 }
 
 --- MODULE_TOPIC_POLICY[prefix] = { subscriber module ids }. A requested
@@ -124,6 +180,15 @@ M.CLOUD_OPS = {
     status = true,
     test_provider = true,
     analyze_household = true,
+    -- Touchscreen approvals (the PIN itself never reaches the cloud).
+    approvals_pending = true,
+    approval_detail = true,
+    approval_decide = true,
+    -- Driver reporting: batched reports, and the outcomes of
+    -- run_driver_query / invoke_driver_action.
+    driver_reports = true,
+    driver_query_result = true,
+    driver_action_result = true,
   },
 }
 

@@ -71,6 +71,14 @@ M.CLOUD_OPS = {
   status = true,
   test_provider = true,
   analyze_household = true,
+  -- Added with the bus foundations (Agent policy); the AI Core driver does
+  -- not call them yet.
+  approvals_pending = true,
+  approval_detail = true,
+  approval_decide = true,
+  driver_reports = true,
+  driver_query_result = true,
+  driver_action_result = true,
 }
 
 --- Event categories (AI_RECORD_EVENT, exclusions, collected events).

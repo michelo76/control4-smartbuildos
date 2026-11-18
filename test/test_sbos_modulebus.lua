@@ -980,6 +980,170 @@ do
   )
 end
 
+print("[11] bus foundations: wildcard requester, PIN Lock and ai.* policy, new cloud ops")
+do
+  local registry, bus, fr, ai = setup()
+  local AI_REPORT = JSON:encode({
+    driver = "sbos.ai_core",
+    protocol = 2,
+    capabilities = { { id = "ai_core.report", version = 1, kind = "request" } },
+  })
+  ai = select(3, register(registry, bus, { module_id = "ai_core", instance_id = "601", manifest = AI_REPORT }))
+  local REPORTER = JSON:encode({
+    driver = "sbos.atmosphere",
+    protocol = 2,
+    capabilities = {
+      { id = "ai.query", version = 1, kind = "request" },
+      { id = "ai.action", version = 1, kind = "request" },
+      -- advertised, but not the sanctioned provider of these
+      { id = "pinlock.redeem", version = 1, kind = "request" },
+      { id = "ai_core.report", version = 1, kind = "request" },
+    },
+  })
+  local _, _, atmo =
+    register(registry, bus, { module_id = "atmosphere", instance_id = "801", manifest = REPORTER, singleton = "false" })
+  local PIN = JSON:encode({
+    driver = "sbos.pin_lock",
+    protocol = 2,
+    capabilities = {
+      { id = "pinlock.availability", version = 1, kind = "request" },
+      { id = "pinlock.challenge", version = 1, kind = "request" },
+      { id = "pinlock.redeem", version = 1, kind = "request" },
+    },
+  })
+  register(registry, bus, { module_id = "pin_lock", instance_id = "901", manifest = PIN })
+  local function outcome(from, over)
+    sent = {}
+    local p = req(bus, from, over)
+    local a = last("SBOS_MODULE_REQUEST_ACK")
+    local fwd = last("SBOS_MODULE_REQUEST")
+    return a and a.params.state, a and a.params.error_code, fwd, p
+  end
+  check("ANY is not a string (a string would answer its own methods)", type(Policy.ANY) == "table")
+  check("ANY is empty: an engine that does not know it fails closed", next(Policy.ANY) == nil)
+  check("ANY is read-only", not pcall(function()
+    Policy.ANY.anyone = true
+  end))
+  check("ai_core.report: requesters = ANY", Policy.REQUEST_POLICY["ai_core.report"].requesters == Policy.ANY)
+  local st, code, fwd =
+    outcome(atmo, { to = "ai_core", capability = "ai_core.report", args = '{"v":1,"kind":"state"}' })
+  check(
+    "ai_core.report from a module listed nowhere (unverified) → Routed to ai_core, sender stamped",
+    st == "Routed"
+      and code == "ok"
+      and fwd
+      and fwd.to == "601"
+      and fwd.params.from_module_id == "atmosphere"
+      and fwd.params.from_instance_id == "801",
+    code
+  )
+  st, code = outcome(fr, { to = "ai_core", capability = "ai_core.report", args = '{"v":1,"kind":"describe"}' })
+  check("ai_core.report from flight_recorder → Routed", st == "Routed" and code == "ok", code)
+  st, code = outcome(atmo, { to = "atmosphere", capability = "ai_core.report" })
+  check("ai_core.report served by anyone but ai_core → capability_not_found", code == "capability_not_found", code)
+  -- ai.query / ai.action: any provider, ai_core the only requester
+  st, code, fwd = outcome(ai, { to = "atmosphere", capability = "ai.query", args = '{"query_id":"x","params":{}}' })
+  check(
+    "ai.query from ai_core to a driver that serves it (provider = any) → Routed",
+    st == "Routed" and fwd and fwd.to == "801",
+    code
+  )
+  st, code = outcome(fr, { to = "atmosphere", capability = "ai.query" })
+  check("ai.query from a non-listed requester (flight_recorder) → not_permitted", code == "not_permitted", code)
+  st, code = outcome(atmo, { to = "atmosphere", capability = "ai.action" })
+  check("ai.action from a non-listed requester → not_permitted", code == "not_permitted", code)
+  st, code = outcome(ai, { to = "atmosphere", capability = "ai.action" })
+  check("ai.action from ai_core → Routed", st == "Routed", code)
+  -- PIN Lock: provider pin_lock, requester ai_core only
+  for _, cap in ipairs({ "pinlock.availability", "pinlock.challenge", "pinlock.redeem" }) do
+    st, code, fwd = outcome(ai, { to = "pin_lock", capability = cap })
+    check(cap .. " from ai_core → Routed to pin_lock", st == "Routed" and fwd and fwd.to == "901", code)
+    st, code = outcome(atmo, { to = "pin_lock", capability = cap })
+    check(cap .. " from any other module → not_permitted", code == "not_permitted", code)
+  end
+  st, code = outcome(ai, { to = "atmosphere", capability = "pinlock.redeem" })
+  check(
+    "pinlock.redeem routed to a module advertising it that is not pin_lock → capability_not_found",
+    code == "capability_not_found",
+    code
+  )
+  st, code = outcome(atmo, { to = "ai_core", capability = "ai_core.delete" })
+  check("a capability not in the policy stays not_permitted", code == "not_permitted", code)
+  -- an injected policy with no requesters refuses everyone (the column is read, not assumed)
+  local strict = ModuleBus.new({
+    registry = registry,
+    now = now,
+    send = function(id, command, params)
+      sent[#sent + 1] = { to = tostring(id), command = command, params = params }
+      return true
+    end,
+    cloudPost = function() end,
+    policy = { REQUEST_POLICY = { ["ai_core.report"] = { provider = "ai_core", requesters = {} } } },
+  })
+  sent = {}
+  strict:request(atmo, {
+    request_id = "strict-2",
+    idempotency_key = "strict-2",
+    to = "ai_core",
+    capability = "ai_core.report",
+    args = "{}",
+    deadline = tostring(T.now + 10),
+  })
+  local sa = last("SBOS_MODULE_REQUEST_ACK")
+  check("requesters = {} → not_permitted", sa and sa.params.error_code == "not_permitted")
+  -- directory carries verified (no resolver in this pure bus → false everywhere)
+  sent = {}
+  bus:discover(ai, { request_id = "dir-1" })
+  local d = last("SBOS_MODULE_DIRECTORY")
+  local rows = d and JSON:decode(d.params.modules) or {}
+  local allFalse = #rows > 0
+  for _, row in ipairs(rows) do
+    allFalse = allFalse and row.verified == false
+  end
+  check("directory rows carry verified (false without a binding)", allFalse)
+  -- the six new ai_core cloud ops are relayed
+  cloudAnswer = function()
+    return { ok = true, http_status = 200, body = { ok = true, result = { accepted = true } } }
+  end
+  local relayed = 0
+  for i, op in ipairs({
+    "approvals_pending",
+    "approval_detail",
+    "approval_decide",
+    "driver_reports",
+    "driver_query_result",
+    "driver_action_result",
+  }) do
+    sent, posts = {}, {}
+    bus:cloudRequest(ai, {
+      request_id = "cop-" .. i,
+      idempotency_key = "cop-" .. i,
+      op = op,
+      body = "{}",
+      deadline = tostring(T.now + 10),
+    })
+    local cr = last("SBOS_MODULE_CLOUD_RESPONSE")
+    if #posts == 1 and posts[1].op == op and cr and cr.params.status == "ok" then
+      relayed = relayed + 1
+    end
+  end
+  check("approvals_pending … driver_action_result: all six relayed", relayed == 6, relayed)
+  sent, posts = {}, {}
+  bus:cloudRequest(atmo, {
+    request_id = "cop-x",
+    idempotency_key = "cop-x",
+    op = "driver_reports",
+    body = "{}",
+    deadline = tostring(T.now + 10),
+  })
+  local crx = last("SBOS_MODULE_CLOUD_RESPONSE")
+  check(
+    "a cloud op is ai_core's only: another module → not_permitted, nothing posted",
+    #posts == 0 and crx and crx.params.error_code == "not_permitted"
+  )
+  cloudAnswer = nil
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
