@@ -1,0 +1,190 @@
+--- SmartBuildOS AI Core — restricted operations from the platform (pure).
+---
+--- They arrive as SBOS_MODULE_COMMAND through the Agent, which has already
+--- checked the operation name against MODULE_COMMANDS.ai_core and the
+--- module's token. This module checks the ARGUMENTS, strictly: every
+--- operation has a closed set of argument keys and anything else refuses
+--- the whole operation. So no argument can smuggle a device id plus a
+--- command name, a Lua string or a URL into the driver, and no operation
+--- names something to forward: none of them controls equipment. Device
+--- actions the AI proposes are executed by the Agent's existing command
+--- queue (ARCHITECTURE D4), never here.
+---
+---   parse(command, args) → op | nil, reason
+---
+--- op.kind is the operation; the other fields are normalised, bounded values.
+
+local V = require("aicore.vocab")
+
+local M = {}
+
+local L = V.LIMITS
+
+local ARGS = {
+  apply_config = { config = true, version = true },
+  refresh_status = {},
+  deliver_result = {
+    response_id = true,
+    request_id = true,
+    job_id = true,
+    text = true,
+    kind = true,
+    pending_approvals = true,
+    recommendation_count = true,
+  },
+  raise_event = { event = true, detail = true, pending_approvals = true, recommendation_count = true },
+  set_learning = { active = true, reason = true },
+  run_diagnostic = { device_id = true, room_id = true, note = true },
+}
+
+M.RESULT_KINDS = { answer = true, analysis = true, report = true, scene_suggestion = true, diagnostic = true }
+
+local function validId(s)
+  return type(s) == "string" and #s >= 1 and #s <= 128 and s:match("^[%w][%w%-_:%.]*$") ~= nil
+end
+
+local function count(v)
+  if v == nil then
+    return nil, nil
+  end
+  local n = tonumber(v)
+  if n == nil or n ~= math.floor(n) or n < 0 or n > 9999 then
+    return nil, "must be a whole number 0..9999"
+  end
+  return n
+end
+
+local function cleanText(v, max)
+  if type(v) ~= "string" then
+    return nil
+  end
+  local s = v:gsub("%z", ""):gsub("[\1-\8\11\12\14-\31\127]", " ")
+  if #s > max then
+    return s:sub(1, max), true
+  end
+  return s, false
+end
+
+--- @return table|nil op, string|nil reason
+function M.parse(command, args)
+  local allowed = ARGS[command]
+  if allowed == nil then
+    return nil, "unknown operation " .. tostring(command)
+  end
+  if type(args) ~= "table" then
+    return nil, "args must be an object"
+  end
+  for k in pairs(args) do
+    if not allowed[k] then
+      return nil, "argument '" .. tostring(k) .. "' is not accepted by " .. command
+    end
+  end
+  local op = { kind = command }
+  if command == "apply_config" then
+    if type(args.config) ~= "table" then
+      return nil, "apply_config needs args.config (an object)"
+    end
+    local v = tonumber(args.version)
+    if v == nil or v ~= math.floor(v) or v < 0 then
+      return nil, "apply_config needs args.version (a whole number)"
+    end
+    op.config, op.version = args.config, v
+  elseif command == "deliver_result" then
+    if not validId(args.response_id) then
+      return nil, "deliver_result needs a response_id"
+    end
+    op.response_id = args.response_id
+    if args.request_id ~= nil then
+      if not validId(args.request_id) then
+        return nil, "request_id malformed"
+      end
+      op.request_id = args.request_id
+    end
+    if args.job_id ~= nil then
+      if not validId(tostring(args.job_id)) then
+        return nil, "job_id malformed"
+      end
+      op.job_id = tostring(args.job_id)
+    end
+    if type(args.text) ~= "string" or args.text == "" then
+      return nil, "deliver_result needs text"
+    end
+    if #args.text > L.result_text then
+      return nil, "text longer than " .. L.result_text .. " characters"
+    end
+    op.text = cleanText(args.text, L.result_text)
+    op.kind_of = args.kind ~= nil and tostring(args.kind) or "answer"
+    if not M.RESULT_KINDS[op.kind_of] then
+      return nil, "kind must be one of answer, analysis, report, scene_suggestion, diagnostic"
+    end
+  elseif command == "raise_event" then
+    if type(args.event) ~= "string" or not V.RAISABLE[args.event] then
+      return nil, "event '" .. tostring(args.event) .. "' is not in the closed list"
+    end
+    op.event = args.event
+    op.event_id = V.EVENT_ID[args.event]
+    if args.detail ~= nil then
+      if type(args.detail) ~= "string" then
+        return nil, "detail must be text"
+      end
+      op.detail, op.detail_truncated = cleanText(args.detail, L.event_detail)
+    else
+      op.detail = ""
+    end
+  elseif command == "set_learning" then
+    if type(args.active) ~= "boolean" then
+      return nil, "set_learning needs active = true or false"
+    end
+    op.active = args.active
+    if args.reason ~= nil then
+      if type(args.reason) ~= "string" then
+        return nil, "reason must be text"
+      end
+      op.reason = cleanText(args.reason, 120)
+    end
+  elseif command == "run_diagnostic" then
+    local d = args.device_id ~= nil and tonumber(args.device_id) or nil
+    local r = args.room_id ~= nil and tonumber(args.room_id) or nil
+    if args.device_id ~= nil and (d == nil or d ~= math.floor(d) or d <= 0) then
+      return nil, "device_id must be a Director device id"
+    end
+    if args.room_id ~= nil and (r == nil or r ~= math.floor(r) or r <= 0) then
+      return nil, "room_id must be a Director room id"
+    end
+    if (d == nil) == (r == nil) then
+      return nil, "run_diagnostic needs exactly one of device_id, room_id"
+    end
+    op.device_id, op.room_id = d, r
+    if args.note ~= nil then
+      op.note = cleanText(tostring(args.note), 200)
+    end
+  end
+  if command == "deliver_result" or command == "raise_event" then
+    local why
+    op.pending_approvals, why = count(args.pending_approvals)
+    if why then
+      return nil, "pending_approvals " .. why
+    end
+    op.recommendation_count, why = count(args.recommendation_count)
+    if why then
+      return nil, "recommendation_count " .. why
+    end
+  end
+  return op
+end
+
+--- AI_LAST_RESPONSE: bounded for a Composer variable; the cut is marked.
+function M.boundResponse(text)
+  text = tostring(text or "")
+  if #text <= L.last_response then
+    return text, false
+  end
+  -- Do not split a UTF-8 sequence: back off continuation bytes.
+  local cut = L.last_response - 3
+  while cut > 1 and text:byte(cut + 1) and text:byte(cut + 1) >= 0x80 and text:byte(cut + 1) < 0xC0 do
+    cut = cut - 1
+  end
+  return text:sub(1, cut) .. "...", true
+end
+
+return M

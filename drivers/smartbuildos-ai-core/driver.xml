@@ -1,0 +1,212 @@
+<devicedata>
+  <name>SmartBuildOS AI Core</name>
+  <version></version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>AI Core</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
+  <created>11/18/2026 12:00 PM</created>
+  <modified></modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>AI_READY</name>
+      <type>BOOL</type>
+      <condition_statement>AI Core is ready</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>ready</true_text>
+      <false_text>not ready</false_text>
+    </conditional>
+    <conditional>
+      <id>2</id>
+      <name>AGENT_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>The SmartBuildOS Agent is connected</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>connected</true_text>
+      <false_text>not connected</false_text>
+    </conditional>
+    <conditional>
+      <id>3</id>
+      <name>LEARNING_ACTIVE</name>
+      <type>BOOL</type>
+      <condition_statement>AI learning is active</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>active</true_text>
+      <false_text>paused</false_text>
+    </conditional>
+    <conditional>
+      <id>4</id>
+      <name>APPROVALS_PENDING</name>
+      <type>BOOL</type>
+      <condition_statement>AI actions are waiting for approval</condition_statement>
+      <description>NAME has STRING</description>
+      <true_text>approvals waiting</true_text>
+      <false_text>no approvals waiting</false_text>
+    </conditional>
+    <conditional>
+      <id>5</id>
+      <name>RECOMMENDATIONS_AVAILABLE</name>
+      <type>BOOL</type>
+      <condition_statement>AI recommendations are available</condition_statement>
+      <description>NAME has STRING</description>
+      <true_text>recommendations</true_text>
+      <false_text>no recommendations</false_text>
+    </conditional>
+  </conditionals>
+  <variables>
+    <variable><id>4000</id><name>AI_STATUS</name><type>STRING</type><default>starting</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4001</id><name>AI_LAST_RESPONSE</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4002</id><name>AI_LAST_RESPONSE_ID</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4003</id><name>AI_LAST_REQUEST_ID</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4004</id><name>AI_LAST_EVENT_DETAIL</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4005</id><name>AI_PENDING_APPROVALS</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4006</id><name>AI_RECOMMENDATION_COUNT</name><type>NUMBER</type><default>0</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4007</id><name>AGENT_CONNECTED</name><type>BOOL</type><default>false</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4008</id><name>LEARNING_ACTIVE</name><type>BOOL</type><default>false</default><readonly>true</readonly><hidden>false</hidden></variable>
+    <variable><id>4009</id><name>AI_LAST_ERROR</name><type>STRING</type><default></default><readonly>true</readonly><hidden>false</hidden></variable>
+  </variables>
+  <events>
+    <event><id>1</id><name>AI Response Ready</name><description>A result from SmartBuildOS AI arrived (AI_LAST_RESPONSE, AI_LAST_RESPONSE_ID)</description></event>
+    <event><id>2</id><name>Pattern Detected</name><description>SmartBuildOS detected a pattern (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>3</id><name>Recommendation Available</name><description>A recommendation is waiting in System Studio (AI_RECOMMENDATION_COUNT)</description></event>
+    <event><id>4</id><name>Automation Conflict Detected</name><description>SmartBuildOS found programming or automations that conflict (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>5</id><name>Device Failure Pattern Detected</name><description>SmartBuildOS found a device failing repeatedly (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>6</id><name>Approval Required</name><description>An AI-proposed action waits for the homeowner's approval (AI_PENDING_APPROVALS)</description></event>
+    <event><id>7</id><name>Action Completed</name><description>An approved AI action completed (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>8</id><name>Action Failed</name><description>An approved AI action failed (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>9</id><name>Agent Disconnected</name><description>This driver lost the SmartBuildOS Agent (registration lost or the Agent stopped answering)</description></event>
+    <event><id>10</id><name>AI Provider Error</name><description>The AI provider configured in System Studio returned an error (AI_LAST_EVENT_DETAIL)</description></event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"></script>
+    <documentation file="www/documentation/index.html"></documentation>
+    <actions>
+      <action><name>Test Agent Link</name><command>TEST_AGENT_LINK</command></action>
+      <action><name>Test AI Connection</name><command>TEST_AI_CONNECTION</command></action>
+      <action><name>Sync Now</name><command>SYNC_NOW</command></action>
+      <action><name>Print Diagnostics</name><command>PRINT_DIAGNOSTICS</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>AI_ASK</name>
+        <description>Ask SmartBuildOS AI a question (the answer arrives later as AI Response Ready)</description>
+        <params>
+          <param><name>QUESTION</name><type>STRING</type></param>
+          <param><name>ROOM</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_ANALYZE_ROOM</name>
+        <description>Ask SmartBuildOS AI to analyse one room (room name or id)</description>
+        <params>
+          <param><name>ROOM</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_ANALYZE_SYSTEM</name>
+        <description>Ask SmartBuildOS AI to analyse the whole system</description>
+        <params>
+        </params>
+      </command>
+      <command>
+        <name>AI_RECORD_EVENT</name>
+        <description>Record a named event for SmartBuildOS AI (what the programming reports; not an observed result)</description>
+        <params>
+          <param><name>NAME</name><type>STRING</type></param>
+          <param><name>DETAIL</name><type>STRING</type></param>
+          <param><name>ROOM</name><type>STRING</type></param>
+          <param><name>CATEGORY</name><type>LIST</type><items><item>General</item><item>Lighting</item><item>Comfort</item><item>Media</item><item>Security</item><item>Access</item><item>Safety</item><item>Energy</item><item>Presence</item><item>System</item><item>Programming</item><item>Maintenance</item></items></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_SET_CONTEXT</name>
+        <description>Tell SmartBuildOS AI about the home's situation (closed list of keys)</description>
+        <params>
+          <param><name>KEY</name><type>LIST</type><items><item>Occupancy</item><item>Guests Present</item><item>Vacation</item><item>Quiet Hours</item><item>Special Event</item><item>Cleaning</item><item>Maintenance Window</item></items></param>
+          <param><name>VALUE</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_LEARN_PREFERENCE</name>
+        <description>Teach SmartBuildOS AI a household preference (needs learning active)</description>
+        <params>
+          <param><name>STATEMENT</name><type>STRING</type></param>
+          <param><name>ROOM</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_SUGGEST_SCENE</name>
+        <description>Ask SmartBuildOS AI to suggest a scene for a room and occasion (a suggestion only)</description>
+        <params>
+          <param><name>ROOM</name><type>STRING</type></param>
+          <param><name>OCCASION</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_GENERATE_REPORT</name>
+        <description>Ask SmartBuildOS AI for a report</description>
+        <params>
+          <param><name>TYPE</name><type>LIST</type><items><item>System Health</item><item>Usage</item><item>Energy</item><item>Security</item><item>Comfort</item><item>Device Reliability</item></items></param>
+          <param><name>PERIOD</name><type>LIST</type><items><item>Today</item><item>Last 24 Hours</item><item>Last 7 Days</item><item>Last 30 Days</item></items></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_START_DIAGNOSTIC</name>
+        <description>Start a diagnostic for one device or one room (attaches the Flight Recorder's recent local events)</description>
+        <params>
+          <param><name>DEVICE</name><type>DEVICE_SELECTOR</type></param>
+          <param><name>ROOM</name><type>STRING</type></param>
+        </params>
+      </command>
+      <command>
+        <name>AI_SEND_NOTIFICATION</name>
+        <description>Send a notification through SmartBuildOS (recipients are decided by SmartBuildOS)</description>
+        <params>
+          <param><name>TITLE</name><type>STRING</type></param>
+          <param><name>MESSAGE</name><type>STRING</type></param>
+          <param><name>AUDIENCE</name><type>LIST</type><items><item>Homeowner</item><item>Integrator</item><item>All</item></items></param>
+        </params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Connection Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Agent Pairing Status</name><type>STRING</type><default>Unknown</default><readonly>true</readonly></property>
+      <property><name>Property ID</name><type>STRING</type><default>Not delivered yet (System Studio)</default><readonly>true</readonly></property>
+      <property><name>Controller ID</name><type>STRING</type><default>Not delivered yet (System Studio)</default><readonly>true</readonly></property>
+      <property><name>AI Provider</name><type>STRING</type><default>Not configured (System Studio)</default><readonly>true</readonly></property>
+      <property><name>AI Model</name><type>STRING</type><default>Not configured (System Studio)</default><readonly>true</readonly></property>
+      <property><name>AI API Credential</name><type>STRING</type><default>Not configured</default><readonly>true</readonly><description>Status only. Keys are entered in System Studio and never reach the controller.</description></property>
+      <property><name>AI Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>Telemetry Status</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Learning Status</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Permission Mode</name><type>STRING</type><default>Not delivered yet (System Studio owns it)</default><readonly>true</readonly></property>
+      <property><name>Flight Recorder Link</name><type>STRING</type><default>Unknown</default><readonly>true</readonly></property>
+      <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>
+      <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>Last Synchronization</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
+      <property><name>Last Test Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
+      <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>
