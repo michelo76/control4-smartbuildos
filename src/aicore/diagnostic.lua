@@ -16,10 +16,22 @@ local M = {}
 
 M.LIMITS = { events = 25, payload_budget = 3300, line = 80 }
 
+--- A scalar the summary may carry (string ≤ 128 or number), else nil: a
+--- malformed answer never puts a table where an id or a time belongs.
+local function scalar(v)
+  if type(v) == "number" then
+    return v
+  end
+  if type(v) == "string" and #v <= 128 then
+    return v
+  end
+  return nil
+end
+
 local function line(e)
   local parts = {}
   for _, v in ipairs({ e.device_label, e.event_name, e.variable, e.value, e.text, e.step }) do
-    if v ~= nil and tostring(v) ~= "" then
+    if (type(v) == "string" or type(v) == "number") and tostring(v) ~= "" then
       parts[#parts + 1] = tostring(v)
     end
   end
@@ -47,26 +59,37 @@ function M.fields(target, fr, requestId, source)
     local ret = type(r.retention) == "table" and r.retention or {}
     recorder = {
       available = true,
-      capability = r.capability,
+      capability = type(r.capability) == "string" and scalar(r.capability) or nil,
       truncated = r.truncated == true,
-      held = ret.held,
-      capacity = ret.capacity,
-      oldest_available = ret.oldest_available,
+      held = scalar(ret.held),
+      capacity = scalar(ret.capacity),
+      oldest_available = type(ret.oldest_available) == "table" and {
+        seq = scalar(ret.oldest_available.seq),
+        at = scalar(ret.oldest_available.at),
+      } or nil,
       events = {},
       omitted = 0,
     }
     local events = type(r.events) == "table" and r.events or {}
+    local malformed = 0
     for i = 1, math.min(#events, M.LIMITS.events) do
       local e = events[i]
-      recorder.events[#recorder.events + 1] = {
-        event_id = e.event_id,
-        no_event_id = e.no_event_id,
-        at = e.at,
-        kind = e.kind,
-        line = line(e),
-      }
+      if type(e) == "table" then
+        recorder.events[#recorder.events + 1] = {
+          event_id = type(e.event_id) == "string" and scalar(e.event_id) or nil,
+          no_event_id = type(e.no_event_id) == "string" and scalar(e.no_event_id) or nil,
+          at = scalar(e.at),
+          kind = type(e.kind) == "string" and scalar(e.kind) or nil,
+          line = line(e),
+        }
+      else
+        malformed = malformed + 1 -- not an event: counted, never indexed
+      end
     end
     recorder.omitted = math.max(0, #events - #recorder.events)
+    if malformed > 0 then
+      recorder.malformed = malformed
+    end
     -- Fit the payload budget: drop the OLDEST summaries first (the answer is
     -- newest first), counted.
     local function size()

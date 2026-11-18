@@ -37,15 +37,48 @@ function M.new(io, capacity)
   self.duplicates = 0
   self.flushed = 0
   local doc = io and io.load and io.load() or nil
+  if type(doc) == "table" then
+    self.dropped = tonumber(doc.dropped) or 0
+    self.flushed = tonumber(doc.flushed) or 0
+  end
   if type(doc) == "table" and type(doc.items) == "table" then
+    local loaded = {}
     for _, env in ipairs(doc.items) do
       if type(env) == "table" and type(env.event_id) == "string" and not self.ids[env.event_id] then
-        self.items[#self.items + 1] = env
+        loaded[#loaded + 1] = env
         self.ids[env.event_id] = true
       end
     end
-    self.dropped = tonumber(doc.dropped) or 0
-    self.flushed = tonumber(doc.flushed) or 0
+    -- A persisted document is bounded like a live buffer: keep `capacity`,
+    -- the most severe first and among equals the newest; the rest is a
+    -- counted drop. Order (oldest first) is kept for what stays.
+    if #loaded > self.capacity then
+      local rank = {}
+      for i, env in ipairs(loaded) do
+        rank[i] = { i = i, s = M.SEVERITY[env.severity] or 0 }
+      end
+      table.sort(rank, function(a, b)
+        if a.s ~= b.s then
+          return a.s > b.s
+        end
+        return a.i > b.i
+      end)
+      local keep = {}
+      for n = 1, self.capacity do
+        keep[rank[n].i] = true
+      end
+      local bounded = {}
+      for i, env in ipairs(loaded) do
+        if keep[i] then
+          bounded[#bounded + 1] = env
+        else
+          self.ids[env.event_id] = nil
+        end
+      end
+      self.dropped = self.dropped + (#loaded - #bounded)
+      loaded = bounded
+    end
+    self.items = loaded
   end
   return self
 end
@@ -57,10 +90,14 @@ function Buffer:save()
 end
 
 --- Holds one critical envelope. Returns "held" | "duplicate" | "not_critical"
---- | "dropped_new" (the newcomer was the least important).
+--- | "dropped_new" (the newcomer was the least important) | "invalid" (no
+--- event id: it could neither be deduplicated nor acknowledged).
 function Buffer:push(env)
   if not M.isCritical(env) then
     return "not_critical"
+  end
+  if type(env.event_id) ~= "string" or env.event_id == "" then
+    return "invalid"
   end
   if self.ids[env.event_id] then
     self.duplicates = self.duplicates + 1

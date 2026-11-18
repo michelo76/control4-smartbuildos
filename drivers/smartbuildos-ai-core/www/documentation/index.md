@@ -77,7 +77,7 @@ a room excluded in System Studio is refused (except `AI_ASK` and
 | Action Completed                | An approved action completed                                                                                 |
 | Action Failed                   | An approved action failed                                                                                    |
 | Agent Disconnected              | This driver lost the SmartBuildOS Agent (registration lost, Agent restarted, or the Agent stopped answering) |
-| AI Provider Error               | The AI provider chosen in System Studio returned an error                                                    |
+| AI Provider Error               | The AI provider chosen in System Studio returned an error (also shown in `AI_LAST_ERROR` until the next result) |
 
 Wire the events you care about to the Notification Agent for push or email.
 
@@ -94,7 +94,7 @@ Wire the events you care about to the Notification Agent for push or email.
 | `AI_RECOMMENDATION_COUNT` | NUMBER | Recommendations available                                                                                                                 |
 | `AGENT_CONNECTED`         | BOOL   | Registered with the Agent and answered                                                                                                    |
 | `LEARNING_ACTIVE`         | BOOL   | Learning is on                                                                                                                            |
-| `AI_LAST_ERROR`           | STRING | The last error or refusal (empty when none)                                                                                               |
+| `AI_LAST_ERROR`           | STRING | The last error or refusal, including an AI provider error reported by SmartBuildOS (empty when none)                                      |
 
 ### Conditionals
 

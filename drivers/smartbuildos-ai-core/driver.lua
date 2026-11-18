@@ -626,8 +626,10 @@ discoverFlightRecorder = function(why)
         flushBuffer()
       end
       local found = nil
-      for _, m in ipairs(directory.modules or {}) do
-        if m.module_id == "flight_recorder" and not m.stale then
+      -- An entry that is not an object is skipped, never indexed: the
+      -- directory is the Agent's, but a malformed one must not throw here.
+      for _, m in ipairs(type(directory.modules) == "table" and directory.modules or {}) do
+        if type(m) == "table" and m.module_id == "flight_recorder" and m.stale ~= true then
           found = m
         end
       end
@@ -897,6 +899,9 @@ function OPS.deliver_result(op)
   end
   finishJob(op.job_id, op.request_id)
   gCounters.results_delivered = gCounters.results_delivered + 1
+  if gLast.error_kind == "provider" then
+    setError("") -- a delivered result means the provider answered again
+  end
   saveLast()
   setVar("AI_LAST_RESPONSE", bounded)
   setVar("AI_LAST_RESPONSE_ID", op.response_id)
@@ -916,6 +921,14 @@ function OPS.raise_event(op)
   gCounters.events_raised = gCounters.events_raised + 1
   saveLast()
   setVar("AI_LAST_EVENT_DETAIL", op.detail)
+  if op.event == "ai_provider_error" then
+    -- The platform's word on the AI provider, shown where programming and
+    -- the dealer look for errors; cleared by the next delivered result.
+    setError(
+      op.detail ~= "" and ("AI provider error: " .. op.detail) or "AI provider error (no detail from SmartBuildOS)",
+      "provider"
+    )
+  end
   refresh("raise_event")
   fire(op.event)
   return "Completed", "fired " .. op.event
@@ -1098,10 +1111,30 @@ local function restore()
   end
   local last = persist:get(LAST_KEY, false)
   if type(last) == "table" then
-    for k in pairs(gLast) do
-      if last[k] ~= nil then
+    -- Only a value of the type the field holds is restored: a corrupted
+    -- document must not put a table into a property or a variable (that
+    -- would throw here, in LateInit, before the timers are armed).
+    local types = {
+      response_id = "string",
+      response = "string",
+      request_id = "string",
+      event_detail = "string",
+      error = "string",
+      error_kind = "string",
+      refusal = "string",
+      sync_at = "number",
+      cloud_result = "string",
+      test = "string",
+      pending_approvals = "number",
+      recommendation_count = "number",
+    }
+    for k, want in pairs(types) do
+      if type(last[k]) == want then
         gLast[k] = last[k]
       end
+    end
+    if gLast.error == "" then
+      gLast.error_kind = nil
     end
   end
   setVar("AI_LAST_RESPONSE", gLast.response)
@@ -1211,6 +1244,14 @@ function OnDriverLateInit(reason)
       return applied, #refusals
     end,
   })
+  -- At Log Level 5 the vendored ExecuteCommand prints every param of every
+  -- command; the Agent's frames carry this module's token. Never printed.
+  EC.suppressDebug = EC.suppressDebug or {}
+  for name in pairs(EC) do
+    if type(name) == "string" and name:find("^SBOS_MODULE_") then
+      EC.suppressDebug[name] = true
+    end
+  end
   EC.SBOS_MODULE_AGENT_EVENT = function(tParams)
     tParams = tParams or {}
     if not gPlan.agent_events then
@@ -1234,6 +1275,7 @@ function OnDriverLateInit(reason)
       },
     })
   end
+  EC.suppressDebug.SBOS_MODULE_AGENT_EVENT = true
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -1305,7 +1347,8 @@ function EC.TEST_AGENT_LINK()
     if code ~= "ok" then
       gLast.test = "Agent link: FAILED (" .. tostring(code) .. ")"
     else
-      local a = directory.agent or {}
+      local a = type(directory.agent) == "table" and directory.agent or {}
+      local modules = type(directory.modules) == "table" and directory.modules or {}
       gLast.test = string.format(
         "Agent link: OK at %s — Agent %s, protocol %s..%s, %s, %s; %d module(s)",
         stamp(now()),
@@ -1314,7 +1357,7 @@ function EC.TEST_AGENT_LINK()
         tostring(a.protocol_max or "?"),
         a.paired and "paired" or "not paired",
         a.connected and "cloud connected" or "cloud NOT connected",
-        #(directory.modules or {})
+        #modules
       )
     end
     saveLast()

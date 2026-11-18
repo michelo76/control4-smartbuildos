@@ -69,14 +69,15 @@ end
 function M.parse(command, args)
   local allowed = ARGS[command]
   if allowed == nil then
-    return nil, "unknown operation " .. tostring(command)
+    return nil, "unknown operation " .. tostring(command):sub(1, 64)
   end
   if type(args) ~= "table" then
     return nil, "args must be an object"
   end
   for k in pairs(args) do
     if not allowed[k] then
-      return nil, "argument '" .. tostring(k) .. "' is not accepted by " .. command
+      -- The key is the platform's choice: bounded before it is shown.
+      return nil, "argument '" .. tostring(k):sub(1, 64) .. "' is not accepted by " .. command
     end
   end
   local op = { kind = command }

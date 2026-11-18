@@ -126,7 +126,7 @@ Ids are permanent. Registered from XML and again with `C4:AddEvent` at start.
 | 7 | `Action Completed` | `raise_event action_completed` |
 | 8 | `Action Failed` | `raise_event action_failed` |
 | 9 | `Agent Disconnected` | this driver only: `AGENT_CONNECTED` goes true → false (registration lost, Agent restarted, or the Agent stopped answering the liveness probe). Not raisable by the platform |
-| 10 | `AI Provider Error` | `raise_event ai_provider_error` |
+| 10 | `AI Provider Error` | `raise_event ai_provider_error`; also sets `AI_LAST_ERROR` / `Last Error` to `AI provider error: <detail>` (cleared by the next `deliver_result`) |
 
 ## 5. Variables and conditionals
 
@@ -143,7 +143,7 @@ Variables (ids fixed, order frozen):
 | 4006 | `AI_RECOMMENDATION_COUNT` | NUMBER | from `recommendation_count` |
 | 4007 | `AGENT_CONNECTED` | BOOL | registered and answering |
 | 4008 | `LEARNING_ACTIVE` | BOOL | learning on |
-| 4009 | `AI_LAST_ERROR` | STRING | as `Last Error` (empty when clear) |
+| 4009 | `AI_LAST_ERROR` | STRING | as `Last Error` (empty when clear); includes the platform's AI provider error (`raise_event ai_provider_error`) |
 
 All except `AI_STATUS`, `AGENT_CONNECTED` and `LEARNING_ACTIVE` (recomputed
 at start) are persisted and repainted after a reload.
@@ -200,7 +200,7 @@ equipment, runs code, or takes a command name to forward.
 | `apply_config` | `config` (object), `version` (integer) | as §9; `Completed` / `Failed` with the refusals; status frame with `applied_config_version` / `config_error` |
 | `refresh_status` | — | repaint, `ai_core.status` envelope, status frame |
 | `deliver_result` | `response_id` (id, required), `text` (≤ 4000, required), `request_id`, `job_id`, `kind` (`answer`, `analysis`, `report`, `scene_suggestion`, `diagnostic`), `pending_approvals`, `recommendation_count` (0–9999) | sets `AI_LAST_RESPONSE` (bounded), `AI_LAST_RESPONSE_ID`, counts; clears the pending job; fires `AI Response Ready` |
-| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512, control characters removed), `pending_approvals`, `recommendation_count` | sets `AI_LAST_EVENT_DETAIL`, counts; fires the event. Anything else → `Failed`, nothing fired |
+| `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512, control characters removed), `pending_approvals`, `recommendation_count` | sets `AI_LAST_EVENT_DETAIL`, counts; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
 | `set_learning` | `active` (boolean), `reason` (≤ 120) | learning on/off (on needs `AI_LEARNING` when enforced); re-plans collection |
 | `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8); `Executing` then `Completed` with the envelope id and how many local events |
 
