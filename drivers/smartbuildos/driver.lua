@@ -40,6 +40,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-temperature.c4z",
   "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-insights.c4z",
+  "smartbuildos-ai-core.c4z",
   "bond-bridge.c4z",
   "bond-color-light.c4z",
   "bond-fan.c4z",
@@ -2765,6 +2766,9 @@ end
 --- that predates a driver must never guess at filenames.
 local SKU_FILENAMES = {
   SBOS_ATMOSPHERE = { "smartbuildos-atmosphere.c4z" },
+  -- SmartBuildOS AI Core: configuration (learning, exclusions, provider
+  -- display names, credential STATUS text) reaches it by this SKU.
+  SBOS_AI_CORE = { "smartbuildos-ai-core.c4z" },
   SBOS_FLIGHT_RECORDER = { "smartbuildos-flight-recorder.c4z" },
   SBOS_MODE_COMPOSER = { "smartbuildos-mode-composer.c4z", "smartbuildos-mode-button.c4z" },
   SBOS_SYSTEM_LINK = {
