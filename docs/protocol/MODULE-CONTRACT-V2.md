@@ -272,9 +272,18 @@ Routed, error_code = duplicate_request` followed by the stored `RESPONSE`
 under the new `request_id` with `replayed = "true"`; it is not routed again.
 A target's answer with a retryable code is not stored (so the retry is
 routed). A key whose previous attempt is past its deadline is routed again
-(the old attempt is abandoned and counted as a timeout). Targets dedup on
-`request_id`: a duplicated frame gets the stored answer again and the handler
-does not run twice (ring of 256).
+(the old attempt is abandoned and counted as a timeout). The ring is keyed by
+the requester's module id, so one module's key never answers another's.
+Targets dedup on the Agent-stamped sender (`from_module_id`,
+`from_instance_id`) together with `request_id`: a duplicated frame from the
+same sender gets the stored answer again and the handler does not run twice
+(ring of 256). The same `request_id` from another sender (another module, or
+another instance of the same module) is a new request: it never receives, and
+cannot probe for, an answer stored for someone else. If a target is still
+holding a request when another sender's request reuses its `request_id`, the
+held answer is stored but not sent (the Agent only accepts a colliding id once
+the earlier route is gone, so that id now routes to the new sender); the
+client counts it as `superseded`.
 
 **Deadlines.** The requester arms its own timer at `deadline`; no answer →
 local `deadline_exceeded`. The Agent drops routing state at `deadline + 5 s`
@@ -469,7 +478,7 @@ checked before anything is sent.
   or above (§9).
 - The module's `SBOS_MODULE_STATUS.counters` gains `bus` (what the client
   measured: `requests`, `responses_ok`, `errors`, `timeouts`, `retries`,
-  `served`, `served_duplicates`, `published_received`, `dropped_reported`,
+  `served`, `served_duplicates`, `superseded`, `published_received`, `dropped_reported`,
   `cloud_requests`, `ignored_frames`).
 
 ## 15. Client library

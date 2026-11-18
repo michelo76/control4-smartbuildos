@@ -15,8 +15,11 @@
 ---   * Retries: only deadline_exceeded / target_unavailable / rate_limited /
 ---     cloud_unreachable; at most 2, after 2 s then 5 s, with the SAME
 ---     idempotency key and a fresh request_id per attempt.
----   * A target dedups on request_id (a duplicated frame gets the stored
----     answer again, the handler is not re-run).
+---   * A target dedups on (Agent-stamped sender, request_id): a duplicated
+---     frame from the SAME sender gets the stored answer again and the
+---     handler is not re-run. A colliding request_id from another sender is
+---     a new request — it never receives, and cannot probe for, an answer
+---     given to someone else.
 ---   * Every Agent → module frame must carry this module's token; anything
 ---     else is ignored.
 ---   * Subscriptions are desired state: re-sent after every successful v2
@@ -88,7 +91,10 @@ function M.new(io)
   self.discovers = {} -- request_id -> cb
   self.subs = {} -- subscription_id -> { topics, onEvents, onResult, state, granted }
   self.handlers = {} -- capability -> fun(req, respond)
-  self.served = { map = {}, order = {} } -- request_id -> stored RESPONSE params | "pending"
+  -- servedKey(sender, request_id) -> stored RESPONSE params | "pending";
+  -- pendingById: request_id -> the one servedKey still awaiting its answer
+  -- (what the public respond(request_id) resolves).
+  self.served = { map = {}, order = {}, pendingById = {} }
   self.counters = {
     requests = 0,
     responses_ok = 0,
@@ -97,6 +103,7 @@ function M.new(io)
     retries = 0,
     served = 0,
     served_duplicates = 0,
+    superseded = 0,
     published_received = 0,
     dropped_reported = 0,
     cloud_requests = 0,
@@ -515,21 +522,30 @@ function Rpc:onRequest(capability, handler)
   self.handlers[capability] = handler
 end
 
-function Rpc:servedPut(id, value)
-  if self.served.map[id] == nil then
-    self.served.order[#self.served.order + 1] = id
+--- The dedup key: the Agent-stamped sender together with the request id.
+local function servedKey(fromModule, fromInstance, requestId)
+  return tostring(fromModule or "") .. "@" .. tostring(fromInstance or "") .. "|" .. tostring(requestId)
+end
+M.servedKey = servedKey
+
+function Rpc:servedPut(key, value)
+  if self.served.map[key] == nil then
+    self.served.order[#self.served.order + 1] = key
     while #self.served.order > L.target_dedup_ring do
       local old = table.remove(self.served.order, 1)
       self.served.map[old] = nil
+      local oldId = old:match("|([^|]*)$")
+      if oldId ~= nil and self.served.pendingById[oldId] == old then
+        self.served.pendingById[oldId] = nil
+      end
     end
   end
-  self.served.map[id] = value
+  self.served.map[key] = value
 end
 
---- Sends the answer to a request this module received. Returns false when
---- the request is unknown or already answered.
-function Rpc:respond(requestId, status, result, errorCode, cursor)
-  if self.served.map[requestId] ~= "pending" then
+--- Answers the request stored under `key` (request id `requestId`).
+function Rpc:respondKey(key, requestId, status, result, errorCode, cursor)
+  if self.served.map[key] ~= "pending" then
     return false
   end
   status = status == "ok" and "ok" or "error"
@@ -548,10 +564,32 @@ function Rpc:respond(requestId, status, result, errorCode, cursor)
     status, code, raw, cursor = "error", "invalid_args", "null", ""
   end
   local params = { request_id = requestId, status = status, error_code = code, result = raw, cursor = cursor }
-  self:servedPut(requestId, params)
+  self:servedPut(key, params)
+  local superseded = self.served.pendingById[requestId] ~= key
+  if not superseded then
+    self.served.pendingById[requestId] = nil
+  end
   self.counters.served = self.counters.served + 1
+  if superseded then
+    -- A later request from ANOTHER sender reused this request_id, so the
+    -- Agent's route for it now leads to that sender (it only accepts a
+    -- colliding id once the earlier route is gone). Sending this answer
+    -- would deliver it to the wrong module: it is stored, not sent.
+    self.counters.superseded = self.counters.superseded + 1
+    return true
+  end
   self.io.send("SBOS_MODULE_RESPONSE", params)
   return true
+end
+
+--- Sends the answer to a request this module received. Returns false when
+--- the request is unknown or already answered.
+function Rpc:respond(requestId, status, result, errorCode, cursor)
+  local key = self.served.pendingById[requestId]
+  if key == nil then
+    return false
+  end
+  return self:respondKey(key, requestId, status, result, errorCode, cursor)
 end
 
 function Rpc:onIncomingRequest(p)
@@ -562,7 +600,8 @@ function Rpc:onIncomingRequest(p)
   if not Policy.validId(id) then
     return
   end
-  local held = self.served.map[id]
+  local key = servedKey(p.from_module_id, p.from_instance_id, id)
+  local held = self.served.map[key]
   if held ~= nil then
     -- A duplicated frame: the stored answer again, the handler not re-run.
     self.counters.served_duplicates = self.counters.served_duplicates + 1
@@ -575,16 +614,17 @@ function Rpc:onIncomingRequest(p)
   if deadline ~= nil and self.io.now() > deadline then
     return -- the requester has already given up
   end
-  self:servedPut(id, "pending")
+  self:servedPut(key, "pending")
+  self.served.pendingById[id] = key
   local capability = tostring(p.capability or "")
   local handler = self.handlers[capability]
   if handler == nil then
-    self:respond(id, "error", nil, "capability_not_found")
+    self:respondKey(key, id, "error", nil, "capability_not_found")
     return
   end
   local okA, args = decode(p.args or "{}")
   if not okA or type(args) ~= "table" then
-    self:respond(id, "error", nil, "invalid_args")
+    self:respondKey(key, id, "error", nil, "invalid_args")
     return
   end
   local req = {
@@ -597,10 +637,10 @@ function Rpc:onIncomingRequest(p)
     deadline = deadline,
   }
   local ok = pcall(handler, req, function(status, result, code, cursor)
-    return self:respond(id, status, result, code, cursor)
+    return self:respondKey(key, id, status, result, code, cursor)
   end)
   if not ok then
-    self:respond(id, "error", nil, "internal_error")
+    self:respondKey(key, id, "error", nil, "internal_error")
   end
 end
 

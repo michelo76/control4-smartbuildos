@@ -717,6 +717,47 @@ check(
   "a forged non-ai_core requester at PIN Lock → not_permitted",
   forgedAnswer ~= nil and forgedAnswer.status == "error" and forgedAnswer.error_code == "not_permitted"
 )
+-- A colliding request_id: PIN Lock stored a "verified" redeem answer for
+-- ai_core under request_id rN. A frame from another sender under the SAME
+-- request_id must reach the requester check, never the stored answer.
+c, bound = challenge("approval", PROPOSAL)
+verify(c.result.challenge_id, OWNER_PIN)
+r = redeem(c.result.challenge_id, bound)
+local redeemId = "r" .. nreq
+check("(ai_core's redeem verified under " .. redeemId .. ")", r.result and r.result.verified == true, r.raw)
+local function replayAs(fromModule, fromInstance)
+  local frame = {}
+  for k, v in pairs(forged) do
+    frame[k] = v
+  end
+  frame.request_id = redeemId
+  frame.from_module_id = fromModule
+  frame.from_instance_id = fromInstance
+  frame.args = JSON:encode({
+    challenge_id = c.result.challenge_id,
+    nonce = bound.nonce,
+    purpose = bound.purpose,
+    subject = bound.subject,
+  })
+  local mark = #sent
+  ExecuteCommand("SBOS_MODULE_REQUEST", frame)
+  for i = #sent, mark + 1, -1 do
+    if sent[i].command == "SBOS_MODULE_RESPONSE" and sent[i].params.request_id == redeemId then
+      return sent[i].params
+    end
+  end
+end
+for _, who in ipairs({ { "atmosphere", tostring(ATMO) }, { "ai_core", "999" } }) do
+  local a = replayAs(who[1], who[2])
+  check(
+    "replayed redeem id from " .. who[1] .. "@" .. who[2] .. " → not_permitted, not the stored answer",
+    a ~= nil
+      and a.status == "error"
+      and a.error_code == "not_permitted"
+      and tostring(a.result):find("verified", 1, true) == nil,
+    a and JSON:encode(a)
+  )
+end
 -- An ai_core the Agent could not verify (Director gave no answer).
 resolverOff = true
 agent.registry:remove("ai_core", tostring(AICORE))

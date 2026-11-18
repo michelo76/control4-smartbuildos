@@ -445,6 +445,70 @@ do
     "a duplicated frame re-sends the stored answer and does not re-run the handler",
     queryCalls == before + 1 and countTo("SBOS_MODULE_RESPONSE") == 2 and fr.rpc.counters.served_duplicates == 1
   )
+  -- The same request_id from ANOTHER sender (the Agent stamps the sender):
+  -- a new request, never the stored answer given to ai_core.
+  local other = {}
+  for k, v in pairs(frame) do
+    other[k] = v
+  end
+  other.from_module_id = "insights"
+  other.from_instance_id = "701"
+  trafficToAgent = {}
+  fr.deliver("SBOS_MODULE_REQUEST", other)
+  local sent = trafficToAgent[#trafficToAgent]
+  local okR, body = pcall(JSON.decode, JSON, sent and sent.params.result or "")
+  check(
+    "a colliding request_id from another sender runs the handler for THAT sender (no replay)",
+    queryCalls == before + 2
+      and countTo("SBOS_MODULE_RESPONSE") == 1
+      and fr.rpc.counters.served_duplicates == 1
+      and okR
+      and type(body) == "table"
+      and body.caller == "insights"
+  )
+  -- Another instance of the same module is another sender too.
+  local twin = {}
+  for k, v in pairs(frame) do
+    twin[k] = v
+  end
+  twin.from_instance_id = "602"
+  fr.deliver("SBOS_MODULE_REQUEST", twin)
+  check(
+    "a colliding request_id from another instance of the same module is not a duplicate",
+    queryCalls == before + 3 and fr.rpc.counters.served_duplicates == 1
+  )
+  -- A held answer for sender A must not be sent once sender B reused the id:
+  -- the Agent's route for that id now leads to B.
+  local holds = {}
+  fr.rpc:onRequest("events.hold", function(req, respond)
+    holds[#holds + 1] = { req = req, respond = respond }
+  end)
+  local heldA = {}
+  for k, v in pairs(frame) do
+    heldA[k] = v
+  end
+  heldA.request_id = "dup-hold"
+  heldA.capability = "events.hold"
+  local heldB = {}
+  for k, v in pairs(heldA) do
+    heldB[k] = v
+  end
+  heldB.from_module_id = "insights"
+  heldB.from_instance_id = "701"
+  fr.deliver("SBOS_MODULE_REQUEST", heldA)
+  fr.deliver("SBOS_MODULE_REQUEST", heldB)
+  trafficToAgent = {}
+  holds[1].respond("ok", { secret_for = "ai_core" })
+  check(
+    "a late answer for sender A is not sent after sender B reused its request_id",
+    #holds == 2 and countTo("SBOS_MODULE_RESPONSE") == 0 and fr.rpc.counters.superseded == 1
+  )
+  holds[2].respond("ok", { for_whom = "insights" })
+  local last = trafficToAgent[#trafficToAgent]
+  check(
+    "sender B's own answer is sent",
+    countTo("SBOS_MODULE_RESPONSE") == 1 and last.params.result:find("insights", 1, true) ~= nil
+  )
   local forged = {}
   for k, v in pairs(frame) do
     forged[k] = v
@@ -454,7 +518,7 @@ do
   fr.deliver("SBOS_MODULE_REQUEST", forged)
   check(
     "a REQUEST without this module's token is ignored",
-    queryCalls == before + 1 and fr.rpc.counters.ignored_frames >= 1
+    queryCalls == before + 3 and fr.rpc.counters.ignored_frames >= 1
   )
   fr.rpc:onRequest("events.timeline", function() end) -- never answers
   local got = call("flight_recorder", "events.timeline", {}, { timeout = 5, retries = 0 })
