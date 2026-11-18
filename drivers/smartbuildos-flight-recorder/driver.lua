@@ -56,6 +56,7 @@ local Recorder = require("flightrecorder.recorder")
 local Traces = require("flightrecorder.traces")
 local Snapshot = require("flightrecorder.snapshot")
 local History = require("flightrecorder.history")
+local LocalQuery = require("flightrecorder.localquery")
 local Catalog = require("tracer.catalog")
 local Ring = require("tracer.ring")
 local Tracer = require("tracer.tracer")
@@ -75,6 +76,9 @@ local CONFIG_META_KEY = "fr_config_meta_v1"
 local PAUSED_KEY = "fr_paused"
 local LEARNED_KEY = "fr_learned_v1"
 local HISTORY_KEY = "fr_history_v1"
+--- Bumped by Clear Local History, so a v2 cursor handed out before the
+--- clear is refused instead of being read against a new sequence.
+local HISTORY_GEN_KEY = "fr_history_generation"
 local TRACE_TICK_TIMER = "FrTraceTick"
 local STATUS_TIMER = "FrStatusPaint"
 local SNAPSHOT_TIMER = "FrSnapshotRun"
@@ -203,6 +207,15 @@ local function emit(fields)
     return nil
   end
   local eventType = tostring(env.event_type)
+  if eventType == "capture.event" and gTracer ~= nil and type(env.payload) == "table" then
+    -- The capture engine pushed this entry into the history just before it
+    -- asked for the upload; give it the envelope's id so a local reader
+    -- (module contract v2) cites the same id the platform stores.
+    local entry = gTracer.ring:get(env.payload.seq)
+    if entry ~= nil and entry.kind == "event" then
+      entry.envelope_id = env.event_id
+    end
+  end
   if eventType:sub(1, 8) ~= "capture." then
     -- A device event is already in the history: the capture engine put it
     -- there before it asked for the upload. Everything else is offered.
@@ -1247,6 +1260,20 @@ function OnDriverLateInit(reason)
     commands = { "apply_config", "apply_policy", "pause", "resume", "reapply", "capture_snapshot", "refresh_status" },
     event_types = { "observation.", "trace.", "recorder.", "snapshot.", "capture.", "tracer." },
     singleton = true,
+    -- Module contract v2: what this driver can answer LOCALLY, from its ring.
+    -- Correlation, incident analysis and period comparison are cloud-side
+    -- and deliberately not advertised. No require_protocol: against a v1-only
+    -- Agent the manifest is ignored and everything v1 keeps working.
+    manifest = {
+      driver = "sbos.flight_recorder",
+      capabilities = {
+        { id = "events.query", version = 1, kind = "request" },
+        { id = "events.timeline", version = 1, kind = "request" },
+        { id = "events.device_history", version = 1, kind = "request" },
+        { id = "events.room_activity", version = 1, kind = "request" },
+        { id = "events.subscribe", version = 1, kind = "topic", topics = { "capture.", "observation.", "trace." } },
+      },
+    },
     status = function()
       return recordingStatus(), gLastError ~= "none" and gLastError or "", counters()
     end,
@@ -1317,6 +1344,25 @@ function OnDriverLateInit(reason)
       end
     end,
   })
+  -- The local history over module contract v2 (only ever routed to us by a
+  -- v2 Agent, for requesters its MODULE_REQUEST_POLICY allows). Answered
+  -- whatever the recording state: a paused or unlicensed recorder's history
+  -- stays readable, and the answer says what state recording is in.
+  for _, capability in ipairs(LocalQuery.CAPABILITIES) do
+    client.onRequest(capability, function(req, respond)
+      if gTracer == nil then
+        respond("error", nil, "target_unavailable")
+        return
+      end
+      local status, result, code, cursor = LocalQuery.answer(capability, req.args, {
+        ring = gTracer.ring,
+        generation = tonumber(persist:get(HISTORY_GEN_KEY, 0)) or 0,
+        now = os.time(),
+        recording_status = recordingStatus(),
+      })
+      respond(status, result, code, cursor)
+    end)
+  end
   EC.SBOS_MODULE_AGENT_EVENT = function(tParams)
     tParams = tParams or {}
     local ok, detail = pcall(function()
@@ -1786,6 +1832,7 @@ end
 function EC.CLEAR_HISTORY()
   if gTracer then
     gTracer.ring = Ring.new(gPolicy.ring_size)
+    persist:set(HISTORY_GEN_KEY, (tonumber(persist:get(HISTORY_GEN_KEY, 0)) or 0) + 1)
     gHistoryDirty = true
     checkpointHistory(true)
     UpdateProperty("Last Event", "none yet (history cleared)")
