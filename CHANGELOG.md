@@ -33,6 +33,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `C4:UUID("RANDOM")`. Spec: `docs/protocol/MODULE-CONTRACT-V2.md`.
   Emulator-verified only; bench validation owed.
 
+- **SmartBuildOS AI Core (`smartbuildos-ai-core`, SKU `SBOS_AI_CORE`).** The
+  controller-side half of AI Core on module contract v2: ten Composer commands
+  (validated and bounded; one cloud op each through the Agent, with an
+  idempotency key; refusals shown as they are), ten Composer events, ten
+  variables and five conditionals, six restricted operations from the platform
+  with closed argument sets (none controls equipment), whole-document
+  configuration (no key ever reaches the controller; the credential property
+  is status text), collection without double capture (Flight Recorder topics
+  consumed; own collector for Director system events, and a minimal set when
+  the recorder is absent), a persisted critical-event buffer with counted
+  drops, local diagnostics from the Flight Recorder's ring. Reference:
+  `docs/ai-core/DRIVER.md`. No physical controller has run it.
+
+- **Flight Recorder: local history over module contract v2.** Manifest
+  `sbos.flight_recorder` with `events.query`, `events.timeline`,
+  `events.device_history`, `events.room_activity` (cursor-paged, under 24 KB,
+  each entry citing its uploaded envelope's `event_id`, retention stated) and
+  the `events.subscribe` topic. Unchanged against a v1-only Agent.
+
 - **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial AV
   control surface on an existing Control4 project.** Four operator screens on
   one UI Button tile (Visual Floor Plan, Command Center, Simplified Room

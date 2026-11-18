@@ -162,6 +162,18 @@ entries, and that is not the same as "nothing happened". Occurrences an event
 storm suppressed and changes dropped by the per-minute budget are counted, not
 listed.
 
+### Read by other SmartBuildOS drivers
+
+With a SmartBuildOS Agent that speaks module contract v2, the history can also
+be read by SmartBuildOS AI Core (the only reader the Agent allows) for its
+diagnostics: by time, by device or by room, a page at a time. Each entry it
+returns carries the id it was uploaded under, so what AI Core cites is what
+System Studio stores; a device event held here but over the upload budget says
+so instead. Every answer says how far back the history reaches and whether older
+entries were already evicted. Nothing outside the history is ever answered, and
+correlation or comparisons are done in the cloud, not here. With an older Agent
+nothing changes.
+
 ## Events: what is captured
 
 Director fires a device event to a driver only after the driver subscribes to
