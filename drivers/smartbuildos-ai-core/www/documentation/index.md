@@ -57,7 +57,7 @@ character.
 | `AI_ASK`               | `QUESTION` (required, up to 500 characters), `ROOM` (optional)                                                                                                                                                                           | Asks the AI. The answer arrives later: **AI Response Ready**, `AI_LAST_RESPONSE`                                               |
 | `AI_ANALYZE_ROOM`      | `ROOM` (required)                                                                                                                                                                                                                        | Asks for an analysis of one room                                                                                               |
 | `AI_ANALYZE_SYSTEM`    | —                                                                                                                                                                                                                                        | Asks for an analysis of the whole system                                                                                       |
-| `AI_RECORD_EVENT`      | `NAME` (required, up to 120), `DETAIL` (optional, up to 400), `ROOM` (optional), `CATEGORY` (optional, default General: General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance) | Records a named event for the AI. It says what your programming reports, not an observed result. Refused while learning is off |
+| `AI_RECORD_EVENT`      | `NAME` (required, up to 120), `DETAIL` (optional, up to 400), `ROOM` (optional), `CATEGORY` (optional, default General: General, Lighting, Comfort, Media, Security, Access, Safety, Energy, Presence, System, Programming, Maintenance) | Records a named marker. It says what your programming reports, not an observed result. Works with learning on, off or paused; refused for an excluded room or category |
 | `AI_SET_CONTEXT`       | `KEY` (required: Occupancy, Guests Present, Vacation, Quiet Hours, Special Event, Cleaning, Maintenance Window), `VALUE` (required, up to 120)                                                                                           | Tells the AI about the home's situation                                                                                        |
 | `AI_LEARN_PREFERENCE`  | `STATEMENT` (required, up to 300), `ROOM` (optional)                                                                                                                                                                                     | Teaches a household preference. Refused while learning is off                                                                  |
 | `AI_SUGGEST_SCENE`     | `ROOM` (required), `OCCASION` (required, up to 120)                                                                                                                                                                                      | Asks for a scene suggestion. A suggestion only: nothing is changed                                                             |
@@ -159,6 +159,13 @@ document is checked; if any part is wrong — or anything in it looks like a key
 none of it is applied, the previous one stays, **Last Error** says why, and
 learning is turned off until a valid configuration turns it on again.
 
+When learning is paused or resumed, or an exclusion changes — by you in System
+Studio or by the homeowner in their portal — SmartBuildOS also tells the driver
+at once (`set_learning`, `apply_config`) instead of waiting for the Agent's next
+check-in. The configuration still decides: an older instruction arriving late
+never undoes a newer configuration. If the controller is offline, nothing is
+lost; the next configuration brings it up to date.
+
 Until System Studio says otherwise, everything is off: learning, the Director
 system events, the Flight Recorder's topics, the Agent's events and any
 variables. Nothing is excluded (with nothing collected there is nothing to
@@ -181,8 +188,10 @@ network bindings, Director address). Without the recorder it also records the
 Agent's system events and any variables System Studio selected. Each of these is
 collected only once System Studio switches learning and that source on. Nothing
 is collected while learning is off or paused, from excluded rooms or categories,
-or while the driver is not licensed. Questions, reports, notifications and
-diagnostics work with learning off. Events never say who or what caused a
+or while the driver is not licensed. Questions, reports, notifications,
+diagnostics and your own `AI_RECORD_EVENT` markers work with learning off; a
+marker is still refused for an excluded room or category, and SmartBuildOS
+never learns household patterns from markers. Events never say who or what caused a
 change, or what the value was before: Control4 does not tell a driver.
 
 While no Agent answers, important events (warnings and above) are kept on the

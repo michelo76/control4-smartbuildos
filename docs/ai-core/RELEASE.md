@@ -101,9 +101,14 @@ release) published first as a **pre-release** (store `BETA`), bench-validated
 
 - [ ] `make test` green (count recorded), `make lint` 0 warnings / 0 errors.
 - [ ] `SBOS_PLATFORM_REPO=<platform checkout at the commit being deployed> make test`:
-      the parity test runs (not skipped) and passes; its NOTE lines reviewed
-      (today: `raise_event` with `correlation_id` from the actions service is
-      refused by the driver — must be resolved before step 2 ships approvals).
+      the parity test runs (not skipped) and passes [1]–[10], with no NOTE
+      line (none today); [10] feeds the platform's golden configuration
+      documents to `config.lua` — a platform change to `driverConfigDocument`
+      must regenerate its goldens deliberately, and this test then proves the
+      driver accepts them.
+- [ ] Both emulator scenarios green **with** `SBOS_PLATFORM_REPO` set, so
+      `run-ai-core.sh` [7a] delivers the goldens (it prints SKIP without it).
+- [ ] `docs/ai-core/KNOWN-ISSUES.md` reviewed: nothing in it newly blocking.
 - [ ] Both emulator scenarios green (`test/emulator/run-ai-core.sh`,
       `test/emulator/run-module-contract-v2.sh`).
 - [ ] `make build` on a clean checkout; the formatter's changes committed;
