@@ -2477,6 +2477,8 @@ function driverCapabilities()
   if rank >= 2 then
     caps[#caps + 1] = "comfort_v1" -- lights, scenes, thermostat setpoints
     caps[#caps + 1] = "camera_v1" -- live snapshot, never persisted
+    -- MODULE_COMMAND ai_core.invoke_driver_action (a driver-declared action)
+    caps[#caps + 1] = "driver_actions_v1"
   end
   if rank >= 3 then
     caps[#caps + 1] = "control_v1"
@@ -3796,8 +3798,13 @@ MODULE_COMMANDS = {
   -- refuses them otherwise. None of these routes video or runs a scene.
   venueflow = { snapshot = true, save_draft = true, publish = true, rollback = true, refresh_status = true },
   -- SmartBuildOS AI Core (ARCHITECTURE §5). Configuration, results and a
-  -- closed list of Composer events only; none of these controls equipment
-  -- (AI-originated device actions use the ordinary command queue).
+  -- closed list of Composer events; none of these controls equipment itself
+  -- (AI-originated device actions use the ordinary command queue), except
+  -- invoke_driver_action, which hands a homeowner-approved, driver-DECLARED
+  -- action to AI Core to relay to the declaring driver.
+  -- A NUMBER instead of true is the minimum Remote Control rank the verb
+  -- needs (ModuleCommandDispatch enforces it): a driver-declared action is
+  -- a house action, so it needs Comfort (2) or above.
   ai_core = {
     apply_config = true,
     refresh_status = true,
@@ -3805,6 +3812,8 @@ MODULE_COMMANDS = {
     raise_event = true,
     set_learning = true,
     run_diagnostic = true,
+    run_driver_query = true,
+    invoke_driver_action = 2,
   },
 }
 MODULE_COMMAND_TTL = 10 * 60
@@ -3832,7 +3841,22 @@ function ModulesInit()
   pcall(function()
     math.randomseed((os.time() + (tonumber(C4:GetTickCount()) or 0)) % 2147483647)
   end)
-  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), { now = os.time, newToken = ModuleToken })
+  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), {
+    now = os.time,
+    newToken = ModuleToken,
+    -- Identity binding: a reserved module id (pin_lock, ai_core, …) must be
+    -- claimed from a device running that id's .c4z (sbos.modules). nil when
+    -- Director gives no table, which registers the module unverified.
+    devicesForFile = function(filename)
+      local okD, devices = pcall(function()
+        return C4:GetDevicesByC4iName(filename)
+      end)
+      if okD and type(devices) == "table" then
+        return devices
+      end
+      return nil
+    end,
+  })
   gEvents = EventQueue.restore(persist:get(EVENT_JOURNAL_KEY, false), {
     now = os.time,
     saveJournal = function(journal)
@@ -3919,6 +3943,16 @@ end
 function EC.SBOS_MODULE_UNSUBSCRIBE(tParams)
   ModuleBusDispatch("unsubscribe", tParams)
 end
+
+-- Module frames that carry args, results or cloud bodies are kept out of
+-- ExecuteCommand's debug print (vendor handlers.lua prints every param when
+-- debug printing is on). CLOUD_RESPONSE is only ever sent by the Agent; it is
+-- listed so a future handler cannot start printing results.
+EC.suppressDebug = EC.suppressDebug or {}
+EC.suppressDebug.SBOS_MODULE_REQUEST = true
+EC.suppressDebug.SBOS_MODULE_RESPONSE = true
+EC.suppressDebug.SBOS_MODULE_CLOUD_REQUEST = true
+EC.suppressDebug.SBOS_MODULE_CLOUD_RESPONSE = true
 
 function EC.SBOS_MODULE_REQUEST(tParams)
   ModuleBusDispatch("request", tParams)
@@ -4066,7 +4100,7 @@ end
 function EC.SBOS_MODULE_REGISTER(tParams)
   ModulesInit()
   tParams = tParams or {}
-  local ok, reply, entry = gModules:register(tParams)
+  local ok, reply, entry, removed = gModules:register(tParams)
   for k, v in pairs(ModuleAgentState()) do
     -- `protocol` in the agent state is the Agent's MAXIMUM; the reply's is
     -- the NEGOTIATED version, which must survive the merge (a v1 module told
@@ -4094,11 +4128,17 @@ function EC.SBOS_MODULE_REGISTER(tParams)
     pcall(gBus.onRegistered, gBus, entry)
   else
     log:warn(
-      "module registration refused: %s@%s (%s)",
+      "module registration refused: %s@%s (%s)%s",
       tostring(reply.module_id),
       tostring(reply.instance_id),
-      tostring(reply.reason)
+      tostring(reply.reason),
+      reply.reason == "not_permitted" and "; a reserved module id from a device not running its driver file" or ""
     )
+    if removed ~= nil then
+      -- The earlier entry for that exact claim is dropped with the refusal.
+      ModulesPersist()
+      pcall(gBus.onRemoved, gBus, removed)
+    end
   end
 end
 
@@ -4349,6 +4389,11 @@ function ModuleCommandDispatch(payload)
     error(
       string.format("%s is not a restricted operation of %s", command, moduleId ~= "" and moduleId or "(no module)")
     )
+  end
+  -- A numeric entry is the minimum Remote Control tier (invoke_driver_action
+  -- needs Comfort): the homeowner's Composer setting is the last word here.
+  if type(allowed[command]) == "number" then
+    requireTier(allowed[command], moduleId .. "." .. command)
   end
   if not gCommandDedup:accept(requestId) then
     error("duplicate request id " .. requestId)

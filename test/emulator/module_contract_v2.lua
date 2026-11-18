@@ -51,8 +51,11 @@ d:setProperty(agent, "Pairing Code", "ABCD-2345")
 d:advance(5000)
 
 print("[1] modules register with the real Agent at protocol 2")
-local provider = assert(d:addDevice(OUT .. "/sbos-v2-provider", { roomId = room, name = "Probe Provider" }))
-local consumer = assert(d:addDevice(OUT .. "/sbos-v2-consumer", { roomId = room, name = "Probe Consumer" }))
+local provider = assert(
+  d:addDevice(OUT .. "/sbos-v2-provider/smartbuildos-flight-recorder", { roomId = room, name = "Probe Provider" })
+)
+local consumer =
+  assert(d:addDevice(OUT .. "/sbos-v2-consumer/smartbuildos-ai-core", { roomId = room, name = "Probe Consumer" }))
 d:advance(5000)
 d:executeCommand(consumer, "PROBE_INFO", {})
 d:executeCommand(provider, "PROBE_INFO", {})
@@ -82,6 +85,7 @@ check(
   fr ~= nil and fr.capabilities[1].id == "events.query",
   P.directory_code
 )
+check("the provider is verified (reserved id from its own driver file)", fr ~= nil and fr.verified == true)
 check("directory changes were pushed after the registrations", P.changes >= 1, P.changes)
 
 print("[3] pub/sub through the Agent's accepted-envelope path")

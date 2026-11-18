@@ -186,7 +186,8 @@ local Envelope = require("sbos.envelope")
 local agentSrc = assert(read("drivers/smartbuildos/driver.lua"))
 local mcBlock = agentSrc:match("\nMODULE_COMMANDS = (%b{})")
 local agentAiCore = {}
-for name in tostring(tostring(mcBlock):match("ai_core = (%b{})")):gmatch("([%w_]+) = true") do
+-- `= true`, or `= <rank>` for a verb that needs a Remote Control tier.
+for name in tostring(tostring(mcBlock):match("ai_core = (%b{})")):gmatch("([%w_]+) = [%w]+,") do
   agentAiCore[#agentAiCore + 1] = name
 end
 table.sort(agentAiCore)
@@ -201,7 +202,26 @@ check(
   show(agentAiCore, sorted(opsModules and opsModules.ai_core))
 )
 check("= AI_CORE_OPERATIONS (protocol.ts)", same(agentAiCore, opsTs), show(agentAiCore, opsTs))
-check("= the driver's registered vocab.OPERATIONS", same(agentAiCore, sorted(V.OPERATIONS)))
+-- The Agent carries run_driver_query / invoke_driver_action ahead of the AI
+-- Core driver (bus foundations); its instance check refuses them until the
+-- driver registers them. Once vocab.OPERATIONS lists them this allowance
+-- must go (test_aicore_surface.lua fails until it does).
+local driverOps = sorted(V.OPERATIONS)
+local hasAhead = {}
+for _, op in ipairs(driverOps) do
+  hasAhead[op] = true
+end
+for _, op in ipairs({ "run_driver_query", "invoke_driver_action" }) do
+  if not hasAhead[op] then
+    driverOps[#driverOps + 1] = op
+  end
+end
+table.sort(driverOps)
+check(
+  "= the driver's registered vocab.OPERATIONS (+ the two verbs the Agent carries ahead)",
+  same(agentAiCore, driverOps),
+  show(agentAiCore, driverOps)
+)
 
 print("[2] cloud ops")
 local cloudTs = sorted(strings(literal(protocolTs, "AI_CORE_CLOUD_OPS")))
@@ -280,7 +300,9 @@ check("same capabilities in the request policy", same(reqDriver, keys(reqTs)), s
 local reqWrong = {}
 for _, cap in ipairs(reqDriver) do
   local p = Policy.REQUEST_POLICY[cap]
-  if not same(keys(p.requesters), sorted(reqTs[cap])) or provTs[cap] ~= p.provider then
+  -- The wildcard requester is mirrored as "*".
+  local requesters = p.requesters == Policy.ANY and { "*" } or keys(p.requesters)
+  if not same(requesters, sorted(reqTs[cap])) or provTs[cap] ~= p.provider then
     reqWrong[#reqWrong + 1] = cap
   end
 end

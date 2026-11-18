@@ -663,19 +663,21 @@ do
   )
   local vocab = MODULE_COMMANDS.ai_core
   check(
-    "MODULE_COMMANDS.ai_core is exactly the six restricted operations",
+    "MODULE_COMMANDS.ai_core is exactly the eight restricted operations (invoke_driver_action at tier 2)",
     vocab.apply_config
       and vocab.refresh_status
       and vocab.deliver_result
       and vocab.raise_event
       and vocab.set_learning
       and vocab.run_diagnostic
+      and vocab.run_driver_query == true
+      and vocab.invoke_driver_action == 2
       and (function()
         local n = 0
         for _ in pairs(vocab) do
           n = n + 1
         end
-        return n == 6
+        return n == 8
       end)()
   )
 end
@@ -705,6 +707,179 @@ do
   )
   advance(1500)
   check("fan-out works again after re-subscribe", #sentOf("SBOS_MODULE_PUBLISH", AI_ID) == 1)
+end
+
+print("[10] bus foundations: Remote Control tier for invoke_driver_action, driver_actions_v1")
+do
+  -- ai_core registers the two driver-reporting verbs (the instance check).
+  ai = register(AI_ID, "ai_core", {
+    manifest = '{"driver":"sbos.ai_core","capabilities":[]}',
+    commands = "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,"
+      .. "run_driver_query,invoke_driver_action",
+  })
+  local seq = 0
+  local function dispatch(command)
+    seq = seq + 1
+    sent = {}
+    local ok, err = pcall(ModuleCommandDispatch, {
+      module_id = "ai_core",
+      command = command,
+      request_id = "tier-" .. seq,
+      args = { ai_action_id = "a-" .. seq },
+    })
+    return ok, tostring(err), #sentOf("SBOS_MODULE_COMMAND", AI_ID)
+  end
+  local function capsAt(setting)
+    Properties["Remote Control"] = setting
+    local caps = {}
+    for _, c in ipairs(driverCapabilities()) do
+      caps[c] = true
+    end
+    return caps
+  end
+  local saved = Properties["Remote Control"]
+  for _, setting in ipairs({ "Off", "Identify only" }) do
+    Properties["Remote Control"] = setting
+    local ok, err, forwarded = dispatch("invoke_driver_action")
+    check(
+      "invoke_driver_action refused at " .. setting .. " (needs Comfort), nothing forwarded",
+      not ok and err:find("Remote Control tier", 1, true) ~= nil and forwarded == 0,
+      err
+    )
+    check("driver_actions_v1 NOT advertised at " .. setting, not capsAt(setting).driver_actions_v1)
+  end
+  Properties["Remote Control"] = "Identify only"
+  local okQ, errQ, fwdQ = dispatch("run_driver_query")
+  check("run_driver_query (read) needs no tier: forwarded at Identify only", okQ and fwdQ == 1, errQ)
+  for _, setting in ipairs({ "Comfort", "Full control" }) do
+    Properties["Remote Control"] = setting
+    local ok, err, forwarded = dispatch("invoke_driver_action")
+    check("invoke_driver_action forwarded at " .. setting, ok and forwarded == 1, err)
+    check("driver_actions_v1 advertised at " .. setting, capsAt(setting).driver_actions_v1 == true)
+  end
+  Properties["Remote Control"] = saved
+end
+
+print("[11] bus foundations: module frames kept out of the debug log")
+do
+  for _, cmd in ipairs({
+    "SBOS_MODULE_REQUEST",
+    "SBOS_MODULE_RESPONSE",
+    "SBOS_MODULE_CLOUD_REQUEST",
+    "SBOS_MODULE_CLOUD_RESPONSE",
+  }) do
+    check("EC.suppressDebug." .. cmd, EC.suppressDebug[cmd] == true)
+  end
+  -- The real ExecuteCommand with debug printing on: a marker in a module
+  -- frame's args never reaches print / C4:DebugLog; an unsuppressed command
+  -- with the same marker does (so the capture works).
+  local printed = {}
+  local realPrint, realDebugLog, realDebug, realGetTime =
+    print, rawget(C4, "DebugLog"), DEBUGPRINT, rawget(C4, "GetTime")
+  -- HandlerDebug stamps the time with C4:GetTime (this test's C4 answers
+  -- nil for anything it does not model, which would abort the print).
+  C4.GetTime = function()
+    return 1800000000000
+  end
+  print = function(s)
+    printed[#printed + 1] = tostring(s)
+  end
+  C4.DebugLog = function(_, s)
+    printed[#printed + 1] = tostring(s)
+  end
+  DEBUGPRINT = true
+  local MARK = "marker-7f3a-not-for-logs"
+  for _, cmd in ipairs({ "SBOS_MODULE_REQUEST", "SBOS_MODULE_RESPONSE", "SBOS_MODULE_CLOUD_REQUEST" }) do
+    pcall(ExecuteCommand, cmd, auth(AI_ID, "ai_core", "wrong", { request_id = "dbg", args = MARK, result = MARK }))
+  end
+  local leakedModule = table.concat(printed, "\n"):find(MARK, 1, true) ~= nil
+  printed = {}
+  pcall(ExecuteCommand, "SBOS_DEBUG_CAPTURE_PROBE", { args = MARK })
+  local seenProbe = table.concat(printed, "\n"):find(MARK, 1, true) ~= nil
+  print, C4.DebugLog, DEBUGPRINT, C4.GetTime = realPrint, realDebugLog, realDebug, realGetTime
+  check("ExecuteCommand prints a module REQUEST/RESPONSE/CLOUD_REQUEST's params: never", not leakedModule)
+  check("(control) the same capture sees an unsuppressed command's params", seenProbe)
+end
+
+print("[12] bus foundations: identity binding for reserved module ids")
+do
+  local PIN_ID = 801
+  PROJECT[PIN_ID] = { deviceName = "PIN Lock", roomName = "Rack", driverFileName = "smartbuildos-pin-lock.c4z" }
+  local resolverCalls = 0
+  C4.GetDevicesByC4iName = function(_, file)
+    resolverCalls = resolverCalls + 1
+    local out = {}
+    for id, d in pairs(PROJECT) do
+      if d.driverFileName == file then
+        out[id] = d.deviceName
+      end
+    end
+    return out
+  end
+  local squat = register(AI_ID, "pin_lock", { manifest = '{"driver":"x","capabilities":[]}' })
+  check(
+    "pin_lock claimed from AI Core's device (not smartbuildos-pin-lock.c4z) → refused not_permitted",
+    squat.ok == "false" and squat.reason == "not_permitted" and gModules:find("pin_lock", tostring(AI_ID)) == nil,
+    squat.reason
+  )
+  check("the Agent asked Director (C4:GetDevicesByC4iName)", resolverCalls >= 1)
+  local pin = register(PIN_ID, "pin_lock", {
+    manifest = JSON:encode({
+      driver = "sbos.pin_lock",
+      capabilities = { { id = "pinlock.availability", version = 1, kind = "request" } },
+    }),
+  })
+  check(
+    "pin_lock from the PIN Lock driver's own device → registered, verified",
+    pin.ok == "true" and gModules:find("pin_lock", tostring(PIN_ID)).verified == true
+  )
+  ai = register(AI_ID, "ai_core", { manifest = '{"driver":"sbos.ai_core","capabilities":[]}' })
+  check(
+    "ai_core from smartbuildos-ai-core.c4z → verified",
+    gModules:find("ai_core", tostring(AI_ID)).verified == true
+  )
+  local other = register(63, "atmosphere_test", { manifest = '{"driver":"x","capabilities":[]}' })
+  check(
+    "a non-reserved id registers as before, unverified",
+    other.ok == "true" and gModules:find("atmosphere_test", "63").verified == false
+  )
+  sent = {}
+  EC.SBOS_MODULE_DISCOVER(auth(AI_ID, "ai_core", ai.token, { request_id = "dv" }))
+  local dir = lastSent("SBOS_MODULE_DIRECTORY")
+  local rows = dir and JSON:decode(dir.params.modules) or {}
+  local byId = {}
+  for _, r in ipairs(rows) do
+    byId[r.module_id] = r
+  end
+  check(
+    "directory rows carry verified (pin_lock true, non-reserved false)",
+    byId.pin_lock and byId.pin_lock.verified == true and byId.atmosphere_test and byId.atmosphere_test.verified == false
+  )
+  sent = {}
+  EC.SBOS_MODULE_REQUEST(auth(63, "atmosphere_test", other.token, {
+    request_id = "pin-1",
+    to = "pin_lock",
+    capability = "pinlock.availability",
+    args = "{}",
+    deadline = tostring(os.time() + 10),
+  }))
+  local ack = lastSent("SBOS_MODULE_REQUEST_ACK")
+  check(
+    "a non-ai_core module asking pinlock.availability → not_permitted, nothing forwarded",
+    ack and ack.params.error_code == "not_permitted" and #sentOf("SBOS_MODULE_REQUEST", PIN_ID) == 0
+  )
+  local hb = nil
+  requests = {}
+  EC.SEND_HEARTBEAT()
+  hb = requestsTo("heartbeat")[1]
+  local pinRow = nil
+  for _, row in ipairs(hb and hb.data.modules or {}) do
+    if row.module_id == "pin_lock" then
+      pinRow = row
+    end
+  end
+  check("heartbeat module row carries verified", pinRow and pinRow.verified == true)
+  C4.GetDevicesByC4iName = nil
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

@@ -26,9 +26,14 @@ assemble() {
 	cp -R "$OUT/tree/build/oss/vendor/." "$dest/"
 }
 assemble smartbuildos "$OUT/tree/build/oss/drivers/smartbuildos"
-assemble sbos-v2-consumer "$REPO/test/emulator/fixtures/sbos-v2-probe"
-assemble sbos-v2-provider "$REPO/test/emulator/fixtures/sbos-v2-probe"
-sed -i.bak 's|<default>consumer</default>|<default>provider</default>|' "$OUT/sbos-v2-provider/driver.xml"
+# The probe registers under the RESERVED ids ai_core / flight_recorder, which
+# the Agent binds to their .c4z file names (identity binding); the emulator
+# names a device's file after its directory, so each copy is assembled under
+# the name of the driver it stands in for.
+assemble sbos-v2-consumer/smartbuildos-ai-core "$REPO/test/emulator/fixtures/sbos-v2-probe"
+assemble sbos-v2-provider/smartbuildos-flight-recorder "$REPO/test/emulator/fixtures/sbos-v2-probe"
+sed -i.bak 's|<default>consumer</default>|<default>provider</default>|' \
+	"$OUT/sbos-v2-provider/smartbuildos-flight-recorder/driver.xml"
 cd "$OUT"
 SBOS_V2_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/module_contract_v2.lua"
