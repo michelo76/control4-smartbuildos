@@ -221,7 +221,8 @@ do
   check("ai_core from the AI Core device → verified", okA and eA.verified == true)
   local okSq = br:register(reg({ module_id = "ai_core", instance_id = "900" }))
   check("ai_core claimed from the PIN Lock device → refused", not okSq)
-  local okN, _, eN = br:register(reg({ module_id = "atmosphere", instance_id = "333" }))
+  -- (every root driver's id is reserved now; this one belongs to no driver)
+  local okN, _, eN = br:register(reg({ module_id = "atmosphere_test", instance_id = "333" }))
   check("a non-reserved id registers as before, verified = false", okN and eN.verified == false)
   mode = "nil"
   local okU, _, eU = newBound():register(reg({ module_id = "pin_lock", instance_id = "777" }))

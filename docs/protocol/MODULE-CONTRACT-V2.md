@@ -113,6 +113,27 @@ that may register it:
 | `mqtt_broker` | `smartbuildos-mqtt-broker.c4z` |
 | `venueflow` | `smartbuildos-venueflow.c4z` |
 | `pin_lock` | `smartbuildos-pin-lock.c4z` |
+| `atmosphere` | `smartbuildos-atmosphere.c4z` |
+| `mode_composer` | `smartbuildos-mode-composer.c4z` |
+| `bond_bridge` | `bond-bridge.c4z` |
+| `commissioning` | `smartbuildos-commissioning.c4z` |
+| `daypart` | `smartbuildos-daypart.c4z` |
+| `dealer_panel` | `smartbuildos-dealer-panel.c4z` |
+| `guest_mode` | `smartbuildos-guest-mode.c4z` |
+| `load_shedding` | `smartbuildos-load-shedding.c4z` |
+| `logic_pack` | `smartbuildos-logic-pack.c4z` |
+| `notification_router` | `smartbuildos-notification-router.c4z` |
+| `solar` | `smartbuildos-solar.c4z` |
+| `system_link` | `smartbuildos-system-link.c4z` |
+| `user_manual` | `smartbuildos-user-manual.c4z` |
+| `variable_inspector` | `smartbuildos-variable-inspector.c4z` |
+| `unifi_protect` | `unifi-protect.c4z` |
+
+Every root driver's id is reserved (the 21 roots in `drivers/`; the Agent
+itself never registers), so a root that joins the bus through
+`sbos.aireport` is `verified`. `src/sbos/aireport.lua` `MODULE_IDS` is the
+same table keyed by file; `test/test_sbos_aireport.lua` [1] fails if the two
+drift or a file is not a directory in `drivers/`.
 
 On a registration under a reserved id the Agent asks Director
 (`C4:GetDevicesByC4iName(file)`, injected into the registry as a resolver)

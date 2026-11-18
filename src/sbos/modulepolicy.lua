@@ -145,6 +145,10 @@ end
 --- a claimant at another device id is refused, so no other driver can
 --- squat `pin_lock` or `ai_core`. Ids not listed here register as before,
 --- marked unverified. Adding a SmartBuildOS module here is an Agent release.
+--- Every root driver's id is reserved, so a root that joins the bus through
+--- sbos.aireport is `verified` (declared actions are honoured only for a
+--- verified module); test/test_sbos_aireport.lua keeps this table and
+--- aireport.MODULE_IDS identical.
 M.RESERVED_MODULES = {
   ai_core = { "smartbuildos-ai-core.c4z" },
   flight_recorder = { "smartbuildos-flight-recorder.c4z" },
@@ -152,6 +156,21 @@ M.RESERVED_MODULES = {
   mqtt_broker = { "smartbuildos-mqtt-broker.c4z" },
   venueflow = { "smartbuildos-venueflow.c4z" },
   pin_lock = { "smartbuildos-pin-lock.c4z" },
+  atmosphere = { "smartbuildos-atmosphere.c4z" },
+  mode_composer = { "smartbuildos-mode-composer.c4z" },
+  bond_bridge = { "bond-bridge.c4z" },
+  commissioning = { "smartbuildos-commissioning.c4z" },
+  daypart = { "smartbuildos-daypart.c4z" },
+  dealer_panel = { "smartbuildos-dealer-panel.c4z" },
+  guest_mode = { "smartbuildos-guest-mode.c4z" },
+  load_shedding = { "smartbuildos-load-shedding.c4z" },
+  logic_pack = { "smartbuildos-logic-pack.c4z" },
+  notification_router = { "smartbuildos-notification-router.c4z" },
+  solar = { "smartbuildos-solar.c4z" },
+  system_link = { "smartbuildos-system-link.c4z" },
+  user_manual = { "smartbuildos-user-manual.c4z" },
+  variable_inspector = { "smartbuildos-variable-inspector.c4z" },
+  unifi_protect = { "unifi-protect.c4z" },
 }
 
 --- MODULE_TOPIC_POLICY[prefix] = { subscriber module ids }. A requested
