@@ -1,0 +1,568 @@
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar" role="banner">
+  <button type="button" class="iconbtn menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false" aria-label="Open chapter navigation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <a class="brand" href="#ch1"><b><span class="b1">SmartBuildOS</span><span class="full"> AI Core</span></b><em>Interactive Guide</em></a>
+  <div class="search" role="search">
+    <label class="sr-only" for="searchInput">Search the guide</label>
+    <svg class="glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="searchInput" type="search" placeholder="Search all chapters" autocomplete="off" aria-controls="searchResults" aria-describedby="searchHelp">
+    <span id="searchHelp" class="sr-only">Type at least two characters. Results list below; press Escape to close.</span>
+    <button type="button" class="clear" id="searchClear" aria-label="Clear search" hidden>Clear</button>
+    <div class="results" id="searchResults" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+  </div>
+  <button type="button" class="iconbtn" id="themeBtn" aria-label="Switch to dark theme" title="Theme">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  </button>
+</header>
+<div class="progress" id="readProgress" role="progressbar" aria-label="Reading progress in this chapter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+<div class="layout">
+<nav class="sidebar" id="sidebar" aria-label="Chapters">
+  <h2>Chapters</h2>
+  <ol id="chapterList">
+    <li><a class="chap" href="#ch1" data-ch="ch1"><span class="dot" aria-hidden="true"></span><span>Introduction</span><span class="num">1</span></a></li>
+    <li><a class="chap" href="#ch2" data-ch="ch2"><span class="dot" aria-hidden="true"></span><span>Installation</span><span class="num">2</span></a></li>
+    <li><a class="chap" href="#ch3" data-ch="ch3"><span class="dot" aria-hidden="true"></span><span>AI Provider Setup</span><span class="num">3</span></a></li>
+    <li><a class="chap" href="#ch4" data-ch="ch4"><span class="dot" aria-hidden="true"></span><span>SmartBuildOS Agent Integration</span><span class="num">4</span></a></li>
+    <li><a class="chap" href="#ch5" data-ch="ch5"><span class="dot" aria-hidden="true"></span><span>Flight Recorder Integration</span><span class="num">5</span></a></li>
+    <li><a class="chap" href="#ch6" data-ch="ch6"><span class="dot" aria-hidden="true"></span><span>Driver-to-Driver Integration</span><span class="num">6</span></a></li>
+    <li><a class="chap" href="#ch7" data-ch="ch7"><span class="dot" aria-hidden="true"></span><span>Household Learning</span><span class="num">7</span></a></li>
+    <li><a class="chap" href="#ch8" data-ch="ch8"><span class="dot" aria-hidden="true"></span><span>Intelligent Automation</span><span class="num">8</span></a></li>
+    <li><a class="chap" href="#ch9" data-ch="ch9"><span class="dot" aria-hidden="true"></span><span>Lifestyle Concierge</span><span class="num">9</span></a></li>
+    <li><a class="chap" href="#ch10" data-ch="ch10"><span class="dot" aria-hidden="true"></span><span>System Studio</span><span class="num">10</span></a></li>
+    <li><a class="chap" href="#ch11" data-ch="ch11"><span class="dot" aria-hidden="true"></span><span>Control4 Programming</span><span class="num">11</span></a></li>
+    <li><a class="chap" href="#ch12" data-ch="ch12"><span class="dot" aria-hidden="true"></span><span>Security</span><span class="num">12</span></a></li>
+    <li><a class="chap" href="#ch13" data-ch="ch13"><span class="dot" aria-hidden="true"></span><span>Troubleshooting</span><span class="num">13</span></a></li>
+    <li><a class="chap" href="#ch14" data-ch="ch14"><span class="dot" aria-hidden="true"></span><span>Developer Reference</span><span class="num">14</span></a></li>
+    <li><a class="chap" href="#verification" data-ch="verification"><span class="dot" aria-hidden="true"></span><span>Verification status</span><span class="num">&#10003;</span></a></li>
+  </ol>
+  <div class="legend" aria-hidden="true"><span><i class="dot"></i> not opened</span><span><i class="dot" data-state="visited"></i> opened</span><span><i class="dot" data-state="done"></i> read to the end</span></div>
+  <p class="legend sr-only">Each chapter link says whether you have opened it or read it to the end.</p>
+</nav>
+<div class="scrim" id="scrim"></div>
+<main id="main" tabindex="-1">
+
+<!-- ═════════════════════════════ CHAPTER 1 ═════════════════════════════ -->
+<section class="chapter" id="ch1" aria-labelledby="ch1-title" data-title="Introduction">
+<p class="eyebrow">Chapter 1</p>
+<h1 id="ch1-title">Introduction</h1>
+<p class="lede">SmartBuildOS AI Core is a Control4 driver plus a cloud AI layer for professional Control4 dealers. The driver turns Composer programming into validated requests to the SmartBuildOS cloud and turns the cloud's results back into Composer events and variables. All AI runs in the cloud; the controller holds no AI, no history beyond a small buffer, and no AI provider key.</p>
+<div class="status" data-status="driver"></div>
+<div class="note"><p><strong>How to read this guide.</strong> It documents what was built and verified on the AI Core branches as of 18 November 2026, and nothing else. Every name in it is copied from the driver's <code>driver.xml</code>, the protocol specification or the platform source. Coloured callouts say what is simulated, in development, or blocked. The <a href="#verification">Verification status</a> page lists every one of them.</p></div>
+
+<h2 id="ch1-what">What it does</h2>
+<ul>
+  <li><strong>Asks and explains.</strong> Composer programming can ask a question (<code>AI_ASK</code>), request an analysis of a room or the whole system, a scene suggestion, a report or a diagnostic. The answer arrives later as the <strong>AI Response Ready</strong> event and the <code>AI_LAST_RESPONSE</code> variable.</li>
+  <li><strong>Reads history instead of guessing.</strong> In the cloud, the AI may only answer historical questions from <button type="button" class="term" data-term="evidence">evidence</button>: stored Flight Recorder event ids returned by a tool in the same turn. Confirmed causes are kept apart from possible ones; unknown stays unknown.</li>
+  <li><strong>Records what programming reports.</strong> <code>AI_RECORD_EVENT</code> lets a dealer drop a named marker into programming, because Control4 gives a driver no way to see programming run.</li>
+  <li><strong>Learns, when the homeowner allows it.</strong> Deterministic detectors find routines and preferences with sample-size confidence. Learning is off by default.</li>
+  <li><strong>Proposes, never decides.</strong> The model only emits typed tool calls; a deterministic permission engine authorizes each one. Device actions are proposals that a person approves; they run through the existing SmartBuildOS command queue, not through this driver.</li>
+  <li><strong>Reports its health.</strong> Read-only Composer properties show the Agent link, licence, provider status, telemetry and learning state.</li>
+</ul>
+
+<h2 id="ch1-requirements">Requirements</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Requirement</th><th scope="col">Value</th><th scope="col">Source</th></tr></thead>
+<tbody>
+<tr><td>Control4 OS</td><td><strong>3.3.2 or later</strong> (<code>&lt;minimum_os_version&gt;3.3.2&lt;/minimum_os_version&gt;</code>). 3.4 / 4.x features are probed at runtime, not required.</td><td>driver.xml; ARCHITECTURE D11</td></tr>
+<tr><td>SmartBuildOS Agent</td><td><code>smartbuildos.c4z</code>, a build with <button type="button" class="term" data-term="contract">module contract v2</button>, paired to a SmartBuildOS system. An older Agent registers the driver but shows <em>Agent update required</em>.</td><td>DRIVER.md; dealer manual</td></tr>
+<tr><td>Licence</td><td>Driver Store <button type="button" class="term" data-term="entitlement">entitlement</button> SKU <code>SBOS_AI_CORE</code>; features <code>BASE</code>, <code>AI_LEARNING</code>, <code>AI_ACTIONS</code>, <code>AI_CONCIERGE</code>. The Agent is the licensing authority.</td><td>DRIVER.md; ARCHITECTURE D3</td></tr>
+<tr><td>AI provider key</td><td>A customer-supplied OpenAI or Anthropic API key, entered in System Studio only.</td><td>ARCHITECTURE D2</td></tr>
+<tr><td>Flight Recorder (recommended)</td><td>SmartBuildOS Flight Recorder on the same controller. AI Core reads its events instead of capturing them twice and attaches its local history to diagnostics.</td><td>DRIVER.md §10</td></tr>
+<tr><td>Instances</td><td>One AI Core per project (<code>module_id</code> <code>ai_core</code> is a singleton per controller).</td><td>DRIVER.md</td></tr>
+</tbody></table></div>
+
+<h2 id="ch1-capabilities">Supported capabilities</h2>
+<p>The table lists each capability with its real state. "Simulator-tested" means automated tests under a Control4 shim, a Director emulator, mocked HTTP or fakes; nothing in AI Core has run on a physical controller or against a live AI provider.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Capability</th><th scope="col">State</th></tr></thead>
+<tbody>
+<tr><td>Composer commands, events, variables, properties, conditionals</td><td>Completed in simulation (checklist 3.1–3.10); licence states Tested (3.11); not run on a controller (3.12).</td></tr>
+<tr><td>Module contract v2 (discovery, pub/sub, requests, cloud relay)</td><td>Completed in simulation (checklist 2.2–2.10); hardware bench owed (2.17).</td></tr>
+<tr><td>Flight Recorder local history over contract v2</td><td>Completed in simulation (4.1–4.2).</td></tr>
+<tr><td>Cloud history tools (search, timeline, device history, room activity, correlation, incident analysis, period comparison)</td><td>Completed in simulation with fakes (4.3–4.6).</td></tr>
+<tr><td>Anthropic and OpenAI provider adapters, key vault, settings, budgets</td><td>Completed with mocked HTTP (5.1–5.9). Live calls blocked on a real key (5.11, 5.12).</td></tr>
+<tr><td>Orchestrator (the conversation loop)</td><td>Completed in simulation (5.10); no live model call.</td></tr>
+<tr><td>Household learning: memory, detectors, recommendations, homeowner controls</td><td>Completed in simulation (6.1–6.6); analysis runs on demand only (6.7).</td></tr>
+<tr><td>Permission engine, action proposals, approvals, pre-approved rules, programming hand-offs</td><td>Completed in simulation (7.1–7.8). A real device change is blocked on hardware (7.9).</td></tr>
+<tr><td>System Studio "Intelligence" pages</td><td>In progress (8.1–8.4, 8.8, 8.9); Recommendations, Service and Conversations pages not started (8.5–8.7).</td></tr>
+<tr><td>Lifestyle concierge (reservations, calendar)</td><td>In development (9.1–9.3, 9.5 In progress; 9.4 Not started). Real booking blocked on vendor agreements; calendar blocked on OAuth credentials.</td></tr>
+<tr><td>Licence activation end to end, release packaging, store publication</td><td>In progress (10.1, 10.8); publication blocked on the owner (10.12).</td></tr>
+</tbody></table></div>
+
+<h2 id="ch1-architecture">Architecture overview</h2>
+<p>AI Core has three layers. On the <strong>controller</strong>, the AI Core driver talks only to the SmartBuildOS Agent, hub-and-spoke, using module contract v2. The Agent relays a closed list of <button type="button" class="term" data-term="cloudop">cloud ops</button> to one fixed platform route. In the <strong>cloud</strong>, the platform authorizes, runs the AI provider, reads Flight Recorder history and keeps learning data. People see and approve things in the <strong>interfaces</strong>: System Studio for staff and the homeowner portal. Select any component to see what it does and what it connects to.</p>
+<div class="feature wide" id="archExplorer" data-feature="arch">
+  <header><h3>Architecture Explorer</h3><span class="type">Interactive diagram</span></header>
+  <div class="arch">
+    <div id="archSvgHost"></div>
+    <div class="panel" id="archPanel" aria-live="polite"><h4>Select a component</h4><p>Click, tap, or focus a box and press Enter. Dashed outlines mark components that are in development.</p></div>
+  </div>
+</div>
+
+<h2 id="ch1-limitations">Important limitations</h2>
+<ul>
+  <li><strong>No hardware run.</strong> No physical controller has run the driver, the Flight Recorder's v2 service, or module contract v2. The bench list is in <a href="#ch14-versions">Developer Reference</a>.</li>
+  <li><strong>No live AI call.</strong> Every provider test uses mocked HTTP built from vendor documentation; no request has gone to Anthropic or OpenAI with a real key.</li>
+  <li><strong>Control4 does not tell a driver who caused a change</strong>, what the value was before, or that a programming item ran. AI Core never claims any of these; such links are labelled <em>possible</em>.</li>
+  <li><strong>The driver never controls equipment.</strong> It has no proxies and no connections; actions go through the Agent's command queue after approval.</li>
+  <li><strong>Persistent programming is never written.</strong> DriverWorks has no write API for programming; a change becomes a recommendation a person carries into Composer.</li>
+  <li><strong>Local pub/sub is lossy by design.</strong> The Agent's durable cloud queue is the record.</li>
+  <li><strong>Platform cloud results depend on a route that is not deployed.</strong> Until <code>/api/integrations/control4/modules/rpc</code> is deployed, the Agent gets 404 and the driver sees <code>cloud_refused</code>.</li>
+  <li><strong>Concierge bookings are not available.</strong> See <a href="#ch9">Chapter 9</a>.</li>
+</ul>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 2 ═════════════════════════════ -->
+<section class="chapter" id="ch2" aria-labelledby="ch2-title" data-title="Installation" hidden>
+<p class="eyebrow">Chapter 2</p>
+<h1 id="ch2-title">Installation</h1>
+<p class="lede">Installing AI Core means: an Agent with contract v2 that is paired, the AI Core driver added once, the configuration delivered from System Studio, and a test of the Agent link and the provider.</p>
+<div class="status" data-status="driver"></div>
+<div class="status" data-status="packaging"></div>
+
+<h2 id="ch2-obtain">Obtaining the C4Z</h2>
+<p>The driver file is <code>smartbuildos-ai-core.c4z</code>, built from <code>drivers/smartbuildos-ai-core</code> in the driver monorepo. Updates go through the Agent's existing store updater (Agent <code>DRIVER_FILENAMES</code>; store <code>sku_for</code>), like every SmartBuildOS driver.</p>
+<p>A <code>.c4z</code> has been built from the AI Core worktree during the simulation runs, but packaging for release is still in progress (checklist 10.8) and store publication waits for the owner (10.12). The packaging test (<code>test/test_aicore_package.lua</code>) checks the module closure and a built <code>.c4z</code> when one is present. Installation and release procedures are in <code>docs/ai-core/INSTALLATION.md</code> and <code>RELEASE.md</code> in the driver repo.</p>
+
+<h2 id="ch2-add">Adding the driver in Composer</h2>
+<ol>
+  <li>Install and pair the SmartBuildOS Agent (a build with module contract v2).</li>
+  <li>Optionally add the SmartBuildOS Flight Recorder.</li>
+  <li>Add <strong>SmartBuildOS AI Core</strong> to the project, in any room. It appears under the <em>Utility</em> category (manufacturer SmartBuildOS, model AI Core).</li>
+  <li>Wait for <strong>SmartBuildOS Connection Status</strong> to read <em>Connected</em> and <strong>AI Status</strong> to read <em>Ready</em>. Run <em>Test Agent Link</em> if it does not.</li>
+  <li>In System Studio, choose the AI provider, enter its key, and set learning, exclusions and the permission mode. <strong>AI Provider</strong>, <strong>AI Model</strong>, <strong>AI API Credential</strong> and <strong>Permission Mode</strong> fill in when the configuration arrives.</li>
+  <li>Run <em>Test AI Connection</em>.</li>
+</ol>
+
+<h2 id="ch2-controller">Controller selection</h2>
+<p>Add AI Core to the controller that runs the SmartBuildOS Agent: the driver finds the Agent on the same project (no <code>smartbuildos.c4z</code> found means <code>no_agent</code>), and the module registry, pub/sub and requests all run inside that Agent. Only one AI Core can be live per controller; a second instance is refused while the first is not stale. The controller must run OS 3.3.2 or later.</p>
+
+<h2 id="ch2-connections">Connections</h2>
+<p>AI Core declares <strong>no Composer connections, no proxies and no capabilities</strong> (the <code>&lt;connections&gt;</code>, <code>&lt;proxies&gt;</code> and <code>&lt;capabilities&gt;</code> elements of <code>driver.xml</code> are empty). There is nothing to bind. It reaches the Agent with <code>C4:SendToDevice</code>, and the Agent reaches the cloud. Tests record every <code>C4:SendToDevice</code> the driver makes and show that all go to the Agent and that <code>SetDeviceVariable</code>, <code>SendToProxy</code>, <code>SendUIRequest</code>, <code>RegisterDeviceEvent</code> and <code>Bind</code> are never called.</p>
+
+<h2 id="ch2-pairing">Pairing with the SmartBuildOS Agent</h2>
+<p>AI Core does not pair itself; it relies on the Agent's pairing. At LateInit the driver sends <code>SBOS_MODULE_REGISTER</code> with its v2 <button type="button" class="term" data-term="manifest">manifest</button>. The Agent answers <code>SBOS_MODULE_REGISTERED</code> with a per-registration token and the negotiated protocol, then forwards the last <code>SBOS_DRIVER_CONFIG</code> for SKU <code>SBOS_AI_CORE</code>. Registration retries every 30 s, doubling to 5 min. <strong>Agent Pairing Status</strong> shows <em>Paired</em>, <em>Not paired</em>, <em>No SmartBuildOS Agent</em>, <em>Agent update required</em> or <em>Unknown (not registered with the Agent yet)</em>.</p>
+
+<h2 id="ch2-verify">Verifying communication</h2>
+<ul>
+  <li><strong>Test Agent Link</strong> (<code>TEST_AGENT_LINK</code>) sends <code>SBOS_MODULE_DISCOVER</code> and writes the Agent's version, protocol range, pairing, cloud state and module count to <strong>Last Test Result</strong>, or why it cannot (no Agent, protocol 1, failed with a code).</li>
+  <li><strong>Test AI Connection</strong> (<code>TEST_AI_CONNECTION</code>) calls the cloud op <code>test_provider</code>. <strong>Last Test Result</strong> says <em>accepted</em> (with a job id; the result arrives as AI Response Ready) or the refusal code.</li>
+  <li>Variable <code>AGENT_CONNECTED</code> and conditional <code>AGENT_CONNECTED</code> are true while the driver is registered and the Agent answers.</li>
+</ul>
+<div class="status" data-status="rpc"></div>
+
+<h2 id="ch2-sync">Initial synchronization</h2>
+<p><strong>Sync Now</strong> (<code>SYNC_NOW</code>) re-registers if needed, drains the buffer, flushes staged events, re-reads the directory, sends a status frame and, on protocol 2, calls cloud op <code>status</code> with the applied config version. <strong>Last Synchronization</strong> records the last time the platform was heard: configuration applied, a restricted operation, an accepted cloud answer, or Sync Now. Until System Studio delivers configuration, <strong>Property ID</strong> and <strong>Controller ID</strong> read <em>Not delivered yet (System Studio)</em>.</p>
+
+<h2 id="ch2-wizard">Installation Wizard Simulator</h2>
+<div class="feature" id="wizard" data-feature="wizard">
+  <header><h3>Installation Wizard</h3><span class="label-sim">Simulation</span></header>
+  <p>Walk through an installation with sample inputs. Each step checks your inputs the way the driver and platform do, and shows the property text Composer would display. Nothing is sent anywhere and nothing is stored.</p>
+  <ol class="steps" id="wizSteps"></ol>
+  <div id="wizBody"></div>
+  <p id="wizError" class="err" role="alert"></p>
+  <div class="btn-row"><button type="button" class="btn" id="wizBack">Back</button><button type="button" class="btn primary" id="wizNext">Next</button><button type="button" class="btn" id="wizRestart">Start over</button></div>
+</div>
+
+<h2 id="ch2-checklist">Installation Checklist</h2>
+<div class="checklist-host">
+<div class="feature checklist" id="checklist" data-feature="checklist">
+  <header><h3>Installation Checklist</h3><span id="clCount" class="type">0 of 0</span></header>
+  <p>Your ticks are kept in this browser only (when it allows local storage).</p>
+  <div class="bar" role="progressbar" aria-label="Checklist progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="clBar"><span></span></div>
+  <div id="clList"></div>
+  <div class="btn-row no-print"><button type="button" class="btn" id="clReset">Reset checklist</button><button type="button" class="btn" id="clPrint">Print checklist</button></div>
+  <p id="clStatus" class="sr-only" aria-live="polite"></p>
+</div>
+</div>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 3 ═════════════════════════════ -->
+<section class="chapter" id="ch3" aria-labelledby="ch3-title" data-title="AI Provider Setup" hidden>
+<p class="eyebrow">Chapter 3</p>
+<h1 id="ch3-title">AI Provider Setup</h1>
+<p class="lede">AI Core uses the customer's own Anthropic (Claude) or OpenAI account. The key is entered in System Studio, encrypted in the AI Core vault, and never sent to the controller. Composer only ever shows a status line such as <em>Configured in System Studio · Anthropic ••••abcd</em>.</p>
+<div class="status" data-status="providers"></div>
+<div class="status" data-status="studio"></div>
+
+<h2 id="ch3-overview">How the provider layer works</h2>
+<p>One neutral interface sits over both vendors (<code>src/lib/ai-core/providers/</code>): Anthropic through the Messages API and OpenAI through the Responses API with <code>store:false</code>. Call sites ask for a model <em>class</em>, <code>deep</code> or <code>fast</code>, never a model id. Keys are passed per call and never stored by the library; it reads no environment variable for keys. <code>toolChoice</code> is <code>auto</code> or <code>none</code> only, and no temperature is sent.</p>
+
+<h2 id="ch3-anthropic">Anthropic (Claude)</h2>
+<ul>
+  <li>Adapter on the official SDK <code>@anthropic-ai/sdk</code> 1.10.0 (SDK retries off; the layer retries itself).</li>
+  <li>Cache breakpoints on the last tool and the system block; effort always sent explicitly; thinking blocks replayed verbatim.</li>
+  <li>Key shape check: 20–512 printable characters, no spaces. A key starting <code>sk-</code> but not <code>sk-ant-</code> is refused as "That looks like an OpenAI key, not an Anthropic key."</li>
+</ul>
+
+<h2 id="ch3-openai">OpenAI</h2>
+<ul>
+  <li>Adapter on the official SDK <code>openai</code> 7.59.0, Responses API, <code>store:false</code>, <code>include:["reasoning.encrypted_content"]</code>; reasoning items replayed verbatim.</li>
+  <li>Key shape check: same length rule; a key starting <code>sk-ant-</code> is refused as "That looks like an Anthropic key, not an OpenAI key."</li>
+</ul>
+
+<h2 id="ch3-models">Models</h2>
+<p>The model registry (<code>providers/registry.ts</code>) is the single edit point. Defaults:</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Provider</th><th scope="col">Class <code>deep</code></th><th scope="col">Class <code>fast</code></th></tr></thead>
+<tbody>
+<tr><td>Anthropic</td><td><code>claude-opus-5-5</code> (default effort <code>high</code>)</td><td><code>claude-haiku-5-5</code> (default effort <code>low</code>)</td></tr>
+<tr><td>OpenAI</td><td><code>gpt-6.2-astra</code> (default effort <code>high</code>)</td><td><code>gpt-6-luna</code> (default effort <code>low</code>)</td></tr>
+</tbody></table></div>
+<p>A settings override (<code>models: { deep, fast }</code>) may name only a model of the provider in force that the registry or the versioned price table (<code>2026-11-18</code>) knows: <code>claude-opus-5-5</code>, <code>claude-sonnet-5-5</code>, <code>claude-fable-5-2</code>, <code>claude-haiku-5-5</code>, <code>gpt-6.2-astra</code>, <code>gpt-6.2-sol</code>, <code>gpt-6.1-terra</code>, <code>gpt-6-luna</code>. Anything else is refused with <em>models.deep "…" is not a known Anthropic model</em> (or OpenAI). Effort is one of <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>; the stored setting defaults to <code>medium</code>. Model ids and prices rest on the vendor documentation fetched on 18 November 2026.</p>
+
+<h2 id="ch3-keys">Secure key entry</h2>
+<div class="note"><p><strong>Keys are entered only in System Studio, never in Composer.</strong> The Composer property <strong>AI API Credential</strong> is read-only status. The driver never receives, stores or displays a key, and refuses a whole configuration document if any key in it is credential-shaped (<code>api_key</code>, <code>token</code>, <code>secret</code>, …) or a display string looks like a key (<code>sk-…</code>, <code>Bearer …</code>, long opaque blobs).</p></div>
+<p>The Studio route behind the key form is <code>PUT /api/monitoring/ai-core/credentials</code> with <code>{ property_id, provider, api_key, scope? }</code> (needs <code>monitoring:manage</code>). The key is encrypted with the platform's secret box; every answer carries only provider, <code>••••last4</code> and test status. A key can be company-wide or a property override (<code>scope</code>, default <code>property</code>); a property's calls use its override, else the company key. <code>DELETE</code> removes a key; <code>GET</code> lists masked keys (<code>monitoring:view</code>).</p>
+<pre class="code" data-lang="http"><code>PUT /api/monitoring/ai-core/credentials
+Content-Type: application/json
+
+{ "property_id": "&lt;property uuid&gt;", "provider": "anthropic", "api_key": "&lt;entered in Studio, never stored in a file&gt;", "scope": "property" }
+
+200 { "ok": true,
+      "credential": { "provider": "anthropic", "scope": "property", "masked": "••••abcd", "rotated": false, "status": "untested" },
+      "credentials": [ … ], "driver_config": { … } }</code></pre>
+
+<h2 id="ch3-test">Connectivity test</h2>
+<p><code>POST /api/monitoring/ai-core/credentials/test</code> with <code>{ property_id, provider }</code> (<code>monitoring:manage</code>) tests the key the property's calls would use with a token-free call, <code>GET /v1/models</code> on either vendor. It answers ok or the error <em>kind</em> (<code>auth</code>, <code>permission</code>, <code>network</code>, …), never the vendor's message, which can echo the key. Tests are limited to 6 per minute per property (<code>connectivity_test_limit</code>: "Too many connection tests. Wait a minute and try again."). Whether either vendor bills <code>GET /v1/models</code> could not be verified from their documentation.</p>
+<p>From Composer, <strong>Test AI Connection</strong> asks the platform through cloud op <code>test_provider</code>; the result is delivered later as AI Response Ready.</p>
+<div class="status" data-status="rpc"></div>
+
+<h2 id="ch3-limits">Usage limits</h2>
+<p>Spend and rate limits are enforced in the database before every provider call (blocking, not advisory). Per-property settings and their defaults:</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">Allowed</th></tr></thead>
+<tbody>
+<tr><td><code>requests_per_hour</code></td><td>60</td><td>1–10,000</td></tr>
+<tr><td><code>daily_request_limit</code></td><td>500</td><td>1–100,000</td></tr>
+<tr><td><code>tokens_per_day</code></td><td>500,000</td><td>1,000–100,000,000</td></tr>
+<tr><td><code>monthly_spend_limit_cents</code></td><td>none</td><td>0–100,000,000</td></tr>
+<tr><td><code>timeout_seconds</code></td><td>60</td><td>5–300</td></tr>
+<tr><td><code>max_retries</code></td><td>2</td><td>0–5</td></tr>
+<tr><td>Burst</td><td>20 requests per minute per property (fixed)</td><td>—</td></tr>
+</tbody></table></div>
+<p>Refusal reasons: <code>monthly_spend_limit</code>, <code>daily_token_limit</code>, <code>burst_limit</code>, <code>hourly_request_limit</code>, <code>daily_request_limit</code>, <code>connectivity_test_limit</code>. Spend at 80 % or more of the limit reports <em>near</em>. A request whose price is unknown is counted as "cost unknown", never as zero. The default daily limit (500) and burst (20/min) are open owner decisions.</p>
+
+<h2 id="ch3-errors">Provider-error troubleshooting</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Error kind</th><th scope="col">Retried?</th><th scope="col">Falls back to the other provider?</th><th scope="col">What to do</th></tr></thead>
+<tbody>
+<tr><td><code>auth</code></td><td>No</td><td>No</td><td>Re-enter the key in System Studio and run the connectivity test.</td></tr>
+<tr><td><code>permission</code></td><td>No</td><td>No</td><td>The key's account or project cannot use this model or region.</td></tr>
+<tr><td><code>quota</code></td><td>No</td><td>No</td><td>A spend limit the customer set on their vendor account, or a vendor spend cap. Retrying does not restore access; raise the limit at the vendor.</td></tr>
+<tr><td><code>invalid_request</code>, <code>not_found</code>, <code>too_large</code>, <code>schema_invalid</code>, <code>schema_too_complex</code></td><td>No</td><td>No</td><td><code>not_found</code> usually means an unknown or retired model id.</td></tr>
+<tr><td><code>rate_limit</code>, <code>overloaded</code>, <code>server</code>, <code>timeout</code>, <code>network</code></td><td>Yes (backoff with jitter; <code>retry-after</code> honoured as a floor, not waited over 30 s)</td><td>Yes, if a fallback provider is set</td><td>Usually transient.</td></tr>
+<tr><td><code>conflict</code></td><td>Yes</td><td>No</td><td>—</td></tr>
+<tr><td><code>aborted</code>, <code>unknown</code></td><td>No</td><td>No</td><td>A deadline cut the call, or an unclassified failure.</td></tr>
+</tbody></table></div>
+<p>When the platform reports a provider error to the home it can fire the Composer event <strong>AI Provider Error</strong> (<code>raise_event</code> <code>ai_provider_error</code>), with detail in <code>AI_LAST_EVENT_DETAIL</code>. Quota and auth errors deliberately do not fail over to the other vendor: a customer's spend limit should stop spend, and a rejected key should surface.</p>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 4 ═════════════════════════════ -->
+<section class="chapter" id="ch4" aria-labelledby="ch4-title" data-title="SmartBuildOS Agent Integration" hidden>
+<p class="eyebrow">Chapter 4</p>
+<h1 id="ch4-title">SmartBuildOS Agent Integration</h1>
+<p class="lede">The SmartBuildOS Agent (<code>smartbuildos.c4z</code>) is AI Core's only peer on the controller. It authenticates AI Core, routes its messages, relays its cloud ops, forwards its configuration, licenses it and carries its events to the cloud.</p>
+<div class="status" data-status="protocol"></div>
+
+<h2 id="ch4-role">What the Agent does for AI Core</h2>
+<ul>
+  <li><strong>Registry and tokens.</strong> Registers AI Core as <code>ai_core</code> and issues a per-registration token minted from <code>C4:UUID("RANDOM")</code> when Director returns one (otherwise the v1 generator).</li>
+  <li><strong>Sender stamping.</strong> Writes <code>from_module_id</code> / <code>from_instance_id</code> itself; a module's own claim is never forwarded.</li>
+  <li><strong>Cloud relay.</strong> POSTs AI Core's cloud ops to <code>/api/integrations/control4/modules/rpc</code> with its pairing token. The platform derives tenant and property from that token only.</li>
+  <li><strong>Configuration.</strong> Forwards <code>SBOS_DRIVER_CONFIG</code> for SKU <code>SBOS_AI_CORE</code>; AI Core answers <code>SBOS_DRIVER_CONFIG_ACK</code>.</li>
+  <li><strong>Restricted operations.</strong> Delivers the platform's six closed operations as <code>SBOS_MODULE_COMMAND</code>.</li>
+  <li><strong>Durable event path.</strong> Queues AI Core's envelopes and uploads them; acknowledges with <code>SBOS_MODULE_EVENTS_ACK</code>.</li>
+  <li><strong>Licensing.</strong> Answers the licence SDK (<code>sbos.license</code>) for SKU <code>SBOS_AI_CORE</code>.</li>
+</ul>
+
+<h2 id="ch4-registration">Registration and liveness</h2>
+<p>LateInit registers with the v2 manifest (<code>driver</code> <code>sbos.ai_core</code>; AI Core serves no capability to other modules). On <code>SBOS_MODULE_AGENT_HELLO</code> it re-registers (new token) and re-subscribes; on <code>SBOS_MODULE_DIRECTORY_CHANGED</code> it re-reads the directory 2 s later. A liveness probe (<code>SBOS_MODULE_DISCOVER</code> filtered to <code>flight_recorder</code>) runs every 5 min, and every 30 s while the Agent is not answering. A failed probe sets <code>agent_lost</code> and tries to re-register; the first answer flushes the buffer. The probe exists because DriverWorks gives no delivery acknowledgement.</p>
+
+<h2 id="ch4-states">Connection states</h2>
+<p>The driver derives one state; the first matching row wins. <code>AI_STATUS</code> holds the code (or <code>working</code> while jobs are pending).</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col"><code>AI_STATUS</code></th><th scope="col">Condition</th><th scope="col">SmartBuildOS Connection Status</th></tr></thead>
+<tbody>
+<tr><td><code>no_agent</code></td><td>no <code>smartbuildos.c4z</code> found</td><td>No SmartBuildOS Agent in this project</td></tr>
+<tr><td><code>agent_update_required</code></td><td>the Agent negotiated protocol 1</td><td>SmartBuildOS Agent update required (module contract v2)</td></tr>
+<tr><td><code>agent_lost</code></td><td>registered, but the liveness probe got no directory by its deadline</td><td>SmartBuildOS Agent not responding</td></tr>
+<tr><td><code>registering</code></td><td>Agent found, registration not accepted yet</td><td>Registering with the SmartBuildOS Agent</td></tr>
+<tr><td><code>agent_unpaired</code></td><td>the Agent reports <code>paired=false</code></td><td>SmartBuildOS Agent not paired</td></tr>
+<tr><td><code>cloud_unreachable</code></td><td>the Agent reports <code>connected=false</code>, or the last cloud call ended <code>cloud_unreachable</code></td><td>SmartBuildOS cloud unreachable</td></tr>
+<tr><td><code>unlicensed</code></td><td><code>license.enforces()</code> (definitive denial with enforcement on)</td><td>Connected (not licensed)</td></tr>
+<tr><td><code>ready</code></td><td>none of the above</td><td>Connected</td></tr>
+</tbody></table></div>
+<p>Every change of state emits one <code>ai_core.status</code> envelope. <code>AGENT_CONNECTED</code> going true → false fires <strong>Agent Disconnected</strong>; the reason is in <code>AI_LAST_EVENT_DETAIL</code>.</p>
+
+<h2 id="ch4-config">Configuration document</h2>
+<p>System Studio owns the configuration. Saving AI Core settings publishes the driver-relevant, non-secret subset through <code>driver_config</code> for <code>SBOS_AI_CORE</code>; the Agent forwards it; the same document can also arrive by the restricted operation <code>apply_config</code>.</p>
+<pre class="code" data-lang="json"><code>{
+  "schema": 1,
+  "learning": { "active": true },
+  "exclusions": { "rooms": [12, 40], "categories": ["security"] },
+  "permission_mode": "observe | recommend | execute_low_risk",
+  "provider": { "name": "Anthropic", "model": "…" },
+  "credential_status": "Configured in System Studio · Anthropic ••••abcd",
+  "collection": {
+    "system_events": true,
+    "flight_recorder_topics": true,
+    "agent_events": true,
+    "variables": [ { "device_id": 12, "variable": "LIGHT_STATE" } ],
+    "max_events_per_minute": 60
+  },
+  "property_id": "…",
+  "controller_id": "…"
+}</code></pre>
+<p>Rules: every key is optional; <strong>unknown keys refuse the document</strong>; any credential-shaped key anywhere refuses it; display strings are bounded (<code>provider.name</code> 40, <code>provider.model</code> 80, <code>credential_status</code> 96) and refused if they look like a key; <code>exclusions.rooms</code> ≤ 256 ids; <code>exclusions.categories</code> from the closed list; <code>variables</code> ≤ 32 and never a code- or credential-named variable; <code>max_events_per_minute</code> 1–300. One bad field refuses the whole document and the last valid one stays in force; <strong>Last Error</strong> reads <em>Configuration vN refused: &lt;path&gt;: &lt;reason&gt; (vM kept)</em>.</p>
+
+<h2 id="ch4-ops">Restricted operations</h2>
+<p>The platform can send exactly six <button type="button" class="term" data-term="restricted">restricted operations</button>. Each accepts a closed set of argument keys; any other key refuses the whole operation (<code>Failed</code>). States are reported with <code>SBOS_MODULE_COMMAND_RESULT</code>: <code>Accepted</code>, <code>Executing</code>, then <code>Completed</code> / <code>Failed</code>. None controls equipment, runs code or forwards a command name.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Operation</th><th scope="col">Arguments</th><th scope="col">Effect</th></tr></thead>
+<tbody>
+<tr><td><code>apply_config</code></td><td><code>config</code>, <code>version</code></td><td>applies the configuration document above</td></tr>
+<tr><td><code>refresh_status</code></td><td>—</td><td>repaint, <code>ai_core.status</code> envelope, status frame</td></tr>
+<tr><td><code>deliver_result</code></td><td><code>response_id</code> (required), <code>text</code> (≤ 4000, required), <code>request_id</code>, <code>job_id</code>, <code>kind</code> (<code>answer</code>, <code>analysis</code>, <code>report</code>, <code>scene_suggestion</code>, <code>diagnostic</code>), <code>pending_approvals</code>, <code>recommendation_count</code> (0–9999)</td><td>sets <code>AI_LAST_RESPONSE</code>, <code>AI_LAST_RESPONSE_ID</code> and counts; fires <strong>AI Response Ready</strong></td></tr>
+<tr><td><code>raise_event</code></td><td><code>event</code> (closed list), <code>detail</code> (≤ 512), <code>pending_approvals</code>, <code>recommendation_count</code>, <code>correlation_id</code> (optional, 1–96 characters)</td><td>sets <code>AI_LAST_EVENT_DETAIL</code>, <code>AI_LAST_CORRELATION_ID</code> (empty without one) and counts; records one <code>ai_core.event</code> envelope; fires the event. <code>ai_provider_error</code> also sets <code>AI_LAST_ERROR</code> to <em>AI provider error: &lt;detail&gt;</em>, cleared by the next <code>deliver_result</code></td></tr>
+<tr><td><code>set_learning</code></td><td><code>active</code>, <code>reason</code> (≤ 120)</td><td>learning on/off; re-plans collection</td></tr>
+<tr><td><code>run_diagnostic</code></td><td>exactly one of <code>device_id</code>, <code>room_id</code>; <code>note</code></td><td>runs the local diagnostic</td></tr>
+</tbody></table></div>
+<p><code>raise_event</code> accepts <code>ai_response_ready</code>, <code>pattern_detected</code>, <code>recommendation_available</code>, <code>automation_conflict_detected</code>, <code>device_failure_pattern_detected</code>, <code>approval_required</code>, <code>action_completed</code>, <code>action_failed</code>, <code>ai_provider_error</code>. <strong>Agent Disconnected</strong> cannot be raised by the platform: only the driver knows it.</p>
+
+<h2 id="ch4-buffer">Buffering while the Agent is away</h2>
+<ul>
+  <li>Normal path: module client stage (≤ 300, frames of ≤ 100, 30 s ack, 3 tries) → the Agent's durable acknowledged queue → the cloud.</li>
+  <li>No Agent answering: <em>critical</em> envelopes (severity warning or above) go to a persisted buffer of 50 (dedup by <code>event_id</code>, evict least severe then oldest, every drop counted). The rest wait in memory and are lost on restart (counted when dropped). The buffer drains oldest first when the Agent answers again.</li>
+  <li><strong>Telemetry Status</strong> shows either <em>Through the Agent: N sent, N acknowledged, N dropped; buffer N, buffer drops N</em> or <em>No Agent answering: N critical event(s) buffered, N waiting in memory, N dropped</em>.</li>
+</ul>
+
+<h2 id="ch4-licence">Licence behaviour</h2>
+<p>Commands, <code>run_diagnostic</code> and collection stop only when <code>license.enforces()</code> (a definitive denial with enforcement on). A missing feature refuses only when enforcement is on <strong>and</strong> the status is authorised. Grace, trial, legacy, cloud-validation-required and no-answer states fail open. A refusal shows in <strong>Last Error</strong> as <em>not licensed: …</em> or <em>the licence does not include AI_LEARNING</em>.</p>
+<div class="status" data-status="licensing"></div>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 5 ═════════════════════════════ -->
+<section class="chapter" id="ch5" aria-labelledby="ch5-title" data-title="Flight Recorder Integration" hidden>
+<p class="eyebrow">Chapter 5</p>
+<h1 id="ch5-title">Flight Recorder Integration</h1>
+<p class="lede">The SmartBuildOS Flight Recorder is the home's history. Control4 offers drivers no way to read its own History, so AI Core answers "what happened" from Flight Recorder events: cloud-side for the AI, and from the recorder's recent local ring for diagnostics on the controller.</p>
+<div class="status" data-status="frLocal"></div>
+
+<h2 id="ch5-why">Why the Flight Recorder matters</h2>
+<p>Without it, AI Core cannot see Composer device events at all (it would need the recorder's per-driver event catalogue, and duplicating it would be the double capture the architecture forbids). With it, AI Core reads device events, variable changes and programming traces through topic subscriptions and records only what the recorder does not.</p>
+
+<h2 id="ch5-collection">What is collected, and by whom</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Class</th><th scope="col">Flight Recorder</th><th scope="col">AI Core, recorder present (v2)</th><th scope="col">AI Core, recorder absent</th></tr></thead>
+<tbody>
+<tr><td>Composer device events</td><td><code>capture.event</code></td><td>consumes topic <code>capture.</code></td><td><strong>not collected</strong> (documented gap)</td></tr>
+<tr><td>Variables selected in Studio</td><td><code>observation.change</code> / <code>observation.initial</code></td><td>consumes topic <code>observation.</code></td><td>own listeners for <code>collection.variables</code> only → <code>ai_core.observation.variable</code></td></tr>
+<tr><td>Programming markers and traces</td><td><code>observation.programmed</code>, <code>trace.*</code></td><td>consumes <code>observation.</code> / <code>trace.</code>; <code>AI_RECORD_EVENT</code> → <code>ai_core.record</code></td><td><code>AI_RECORD_EVENT</code> only</td></tr>
+<tr><td>Agent-classified events</td><td><code>observation.system</code>, when selected</td><td>left to the recorder</td><td>recorded → <code>ai_core.observation.agent</code></td></tr>
+<tr><td>Director system events</td><td>not captured</td><td>own collector, always</td><td>own collector, always</td></tr>
+</tbody></table></div>
+<p>AI Core's own system events are the documented ids only: 17 <code>OnNetworkBindingAdded</code>, 18 <code>OnNetworkBindingRemoved</code>, 19 <code>OnNetworkBindingRegistered</code>, 20 <code>OnNetworkBindingUnregistered</code>, 48 <code>OnDeviceOnline</code>, 49 <code>OnDeviceOffline</code>, 90 <code>OnDirectorIPAddressChanged</code>. Consumed recorder events are not re-uploaded; they already reach the cloud through the recorder. Before anything is recorded the collector applies, in order: learning paused or licence halted → nothing; excluded room; excluded category; event-id dedup (ring of 512); per-minute budget (own observations only).</p>
+<p><strong>Flight Recorder Link</strong> shows one of: <em>Installed: local history served; topics subscribed</em> · <em>Installed (no local history service; update the Flight Recorder)</em> · <em>Not installed: AI Core collects its minimal set itself</em> · <em>Unknown (needs Agent protocol 2)</em>.</p>
+
+<h2 id="ch5-local">Local history (on the controller)</h2>
+<p>The Flight Recorder advertises four request <button type="button" class="term" data-term="capability">capabilities</button> and one topic capability. Only AI Core may request them (policy table, Chapter 6). Correlation, incident analysis and period comparison are not served locally; they are cloud tools.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Capability</th><th scope="col">Arguments (closed)</th><th scope="col">Default order</th></tr></thead>
+<tbody>
+<tr><td><code>events.query</code></td><td><code>limit</code> 1–200 (50), <code>cursor</code>, <code>order</code>, <code>from</code>, <code>to</code>, <code>since_seq</code>, <code>kinds</code>, <code>device_id</code>, <code>room_id</code>, <code>text</code> (≤ 64)</td><td>desc</td></tr>
+<tr><td><code>events.timeline</code></td><td><code>limit</code>, <code>cursor</code>, <code>from</code>, <code>to</code> (default last 15 min; window ≤ 31 days), <code>kinds</code></td><td>asc</td></tr>
+<tr><td><code>events.device_history</code></td><td><code>device_id</code> (required), <code>limit</code>, <code>cursor</code>, <code>order</code>, <code>from</code>, <code>to</code></td><td>desc</td></tr>
+<tr><td><code>events.room_activity</code></td><td><code>room_id</code> (required), <code>limit</code>, <code>cursor</code>, <code>order</code>, <code>from</code>, <code>to</code></td><td>desc</td></tr>
+<tr><td><code>events.subscribe</code></td><td>topic capability over <code>capture.</code>, <code>observation.</code>, <code>trace.</code></td><td>—</td></tr>
+</tbody></table></div>
+<p>Each local event carries its <code>event_id</code> (the envelope id the platform stores) <em>or</em> <code>no_event_id</code> (<code>over_upload_budget</code>: held locally but never uploaded; <code>not_recorded</code>: recorded before ids were kept). <code>truncated = true</code> says older matching entries may have existed but are no longer held. Answers are never synthesised.</p>
+<h3 id="ch5-diagnostic">Local diagnostics</h3>
+<p><code>AI_START_DIAGNOSTIC</code> (or <code>run_diagnostic</code>) asks the recorder for <code>events.device_history {device_id, limit: 25}</code> or <code>events.room_activity {room_id, limit: 25}</code> (timeout 10 s, 1 retry) and records one <code>ai_core.diagnostic</code> envelope. Its note says <em>local Flight Recorder history only; causes are not inferred on the controller</em>. With nothing to attach it says why: <code>flight_recorder_not_installed</code>, <code>flight_recorder_has_no_local_history_service</code>, <code>flight_recorder_unknown_agent_cannot_discover</code>, or <code>request_failed</code> with <code>error_code</code>.</p>
+
+<h2 id="ch5-cloud">History in the cloud</h2>
+<p>For the AI, history is read from the platform's <code>flight_recorder_events</code> table through seven read tools (<code>flight_recorder_search_events</code>, <code>flight_recorder_get_timeline</code>, <code>flight_recorder_get_device_history</code>, <code>flight_recorder_get_room_activity</code>, <code>flight_recorder_correlate_events</code>, <code>flight_recorder_analyze_incident</code>, <code>flight_recorder_compare_periods</code>). Gaps (no data, retention edge, dropped events, stale Agent, clock-suspect events) are listed, never filled in. A shared correlation id is a <em>confirmed</em> link; same device or room within a time window is only <em>possible</em>. Full schemas are in <a href="#ch14-tools">Developer Reference</a>.</p>
+<div class="status" data-status="cloudTools"></div>
+
+<h2 id="ch5-retention">Retention</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Data</th><th scope="col">Default retention (platform)</th></tr></thead>
+<tbody>
+<tr><td>Events</td><td>30 days from receipt</td></tr>
+<tr><td>Traces and steps</td><td>90 days</td></tr>
+<tr><td>Snapshots</td><td>30 days</td></tr>
+</tbody></table></div>
+<div class="status" data-status="frRetention"></div>
+<p>The detectors depend on this: seasonal patterns always answer <code>insufficient_history</code> (they need ≥ 365 days), and an "unused scene" needs 90 observed days of scene recording.</p>
+
+<h2 id="ch5-limits">Limitations</h2>
+<ul>
+  <li>The local ring is short and bounded; local answers page with a cursor (pages ~20 KB, hard cap 24 KB). A cursor is refused after <em>Clear Local History</em>.</li>
+  <li>Local pub/sub is best-effort, at-most-once, bounded at 200 envelopes per subscription (drop-oldest, counted).</li>
+  <li>Variables whose names contain codes or credentials (USERCODE, PASSWORD, TOKEN, …) are never recorded; payloads are redacted on the controller and again on the platform.</li>
+  <li>Homeowner portal access to Flight Recorder tables is not granted.</li>
+  <li>An old (v1) recorder, or one AI Core cannot discover, is treated as present: AI Core does not duplicate its classes.</li>
+</ul>
+
+<h2 id="ch5-telemetry">Telemetry Explorer</h2>
+<div class="feature wide" id="telemetry" data-feature="telemetry">
+  <header><h3>Telemetry Explorer</h3><span class="label-sim">Sample data</span></header>
+  <p>A made-up event stream that uses the real envelope v1 fields and real event-type prefixes. None of these events came from a real home. Filter the stream, then select an event to see every field explained.</p>
+  <div class="filters">
+    <div class="field"><label for="teleType">Event-type prefix</label><select id="teleType"></select></div>
+    <div class="field"><label for="teleSev">Severity</label><select id="teleSev"></select></div>
+    <div class="field"><label for="teleEv">Evidence source</label><select id="teleEv"></select></div>
+    <div class="field"><label for="teleText">Text</label><input id="teleText" type="search" placeholder="label, room, device"></div>
+    <button type="button" class="btn" id="teleReset">Reset filters</button>
+  </div>
+  <p id="teleCount" aria-live="polite"></p>
+  <div class="tele"><ul class="events" id="teleList" aria-label="Sample events"></ul><div class="panel" id="teleDetail" aria-live="polite"><h4>Select an event</h4><p>Its envelope fields and what each one means appear here.</p></div></div>
+</div>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 6 ═════════════════════════════ -->
+<section class="chapter" id="ch6" aria-labelledby="ch6-title" data-title="Driver-to-Driver Integration" hidden>
+<p class="eyebrow">Chapter 6</p>
+<h1 id="ch6-title">Driver-to-Driver Integration</h1>
+<p class="lede">DriverWorks gives drivers no sender identity, no broadcast and no delivery guarantee. Module contract v2 supplies them, hub-and-spoke through the SmartBuildOS Agent: discovery, local pub/sub, module-to-module requests, and a closed-vocabulary cloud relay. It is a strict superset of v1, so v1 modules keep working.</p>
+<div class="status" data-status="protocol"></div>
+
+<h2 id="ch6-model">The model</h2>
+<p>Every frame is <code>C4:SendToDevice(id, COMMAND, params)</code> into the receiver's <code>ExecuteCommand</code>. Params are strings; structured data is JSON in one param. Module → Agent frames carry the v1 auth triple (<code>module_id</code>, <code>instance_id</code>, <code>token</code>); the Agent ignores, without answering, any frame that fails authentication. Agent → module frames carry the recipient's triple, so another driver cannot inject answers. Negotiation: both sides support <code>PROTOCOL_MIN = 1</code>, <code>PROTOCOL_MAX = 2</code>; AI Core requires 2 and reports <code>agent_update_required</code> against a v1-only Agent.</p>
+
+<h2 id="ch6-discovery">Capability discovery</h2>
+<p><code>SBOS_MODULE_DISCOVER</code> (optional <code>filter</code> <code>{module_id?, capability?}</code>) is answered by <code>SBOS_MODULE_DIRECTORY</code>: the Agent's state (<code>version</code>, <code>protocol_min</code>, <code>protocol_max</code>, <code>paired</code>, <code>connected</code>) and every registered module (<code>module_id</code>, <code>instance_id</code>, <code>driver</code>, <code>driver_version</code>, <code>protocol</code>, <code>status</code>, <code>stale</code>, <code>capabilities[]</code>). Modules not heard from for 15 minutes are <code>stale</code>. Tokens are never included. When a module registers, unregisters or goes stale, the Agent pushes <code>SBOS_MODULE_DIRECTORY_CHANGED</code> 5 s after the first change of a burst. Consumers discover; they never assume.</p>
+
+<h2 id="ch6-registration">Registration and the capability manifest</h2>
+<p><code>SBOS_MODULE_REGISTER</code> takes an optional <code>manifest</code> (JSON ≤ 2 KB, ≤ 24 capabilities). A malformed manifest does not fail registration; the reply carries <code>manifest_error</code> (<code>invalid_manifest</code>, <code>manifest_too_large</code>, <code>too_many_capabilities</code>, <code>invalid_capability</code>). A capability a driver cannot serve locally must not be advertised.</p>
+<pre class="code" data-lang="json"><code>{
+  "driver": "sbos.flight_recorder",
+  "version": "20261118.120000",
+  "protocol": 2,
+  "capabilities": [
+    { "id": "events.query", "version": 1, "kind": "request" },
+    { "id": "events.subscribe", "version": 1, "kind": "topic",
+      "topics": ["capture.", "observation.", "trace."] }
+  ]
+}</code></pre>
+
+<h2 id="ch6-subscriptions">Subscriptions</h2>
+<p><code>SBOS_MODULE_SUBSCRIBE</code> (<code>subscription_id</code>, <code>topics</code>: 1–16 <button type="button" class="term" data-term="topic">event-type prefixes</button>) is answered by <code>SBOS_MODULE_SUBSCRIBED</code> (<code>ok</code>, <code>reason</code>, <code>granted</code>, <code>refused</code>). The Agent fans out only envelopes it accepted, in <code>SBOS_MODULE_PUBLISH</code> frames (≤ 25 envelopes, 1 s after the first buffered one, with a <code>dropped</code> count). At most 8 subscriptions per instance. Subscriptions live in Agent memory and are re-sent after every registration.</p>
+
+<h2 id="ch6-requests">Request / response</h2>
+<p>The requester sends <code>SBOS_MODULE_REQUEST</code> (<code>request_id</code>, <code>idempotency_key</code>, <code>to</code>, <code>capability</code>, <code>args</code> ≤ 16 KB, <code>deadline</code> ≤ now + 60 s). The Agent acknowledges with <code>SBOS_MODULE_REQUEST_ACK</code> (<code>Routed</code> or <code>Refused</code> with a code), forwards the request to the target with the stamped sender, and relays the target's <code>SBOS_MODULE_RESPONSE</code> (<code>status</code>, <code>error_code</code>, <code>result</code> ≤ 24 KB, optional <code>cursor</code>). Only the instance the request was routed to may answer. Retries use the same <button type="button" class="term" data-term="idempotency">idempotency key</button>: the Agent replays a stored answer (<code>replayed = "true"</code>) instead of routing it twice.</p>
+<p>Retry rules (client library): only <code>deadline_exceeded</code>, <code>target_unavailable</code>, <code>rate_limited</code> and <code>cloud_unreachable</code> are retried — at most 2 retries, after 2 s then 5 s, with the same key and a fresh <code>request_id</code>.</p>
+
+<h2 id="ch6-authorization">Command authorization (policy tables)</h2>
+<p>The Agent holds closed policy tables; the platform mirrors them in <code>src/lib/ai-core/protocol.ts</code>. Anything not listed is <code>not_permitted</code>. Changing them is a driver release.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Table</th><th scope="col">Entries</th></tr></thead>
+<tbody>
+<tr><td><code>MODULE_REQUEST_POLICY</code></td><td><code>events.query</code>, <code>events.timeline</code>, <code>events.device_history</code>, <code>events.room_activity</code>: provider <code>flight_recorder</code>, requester <code>ai_core</code></td></tr>
+<tr><td><code>MODULE_TOPIC_POLICY</code></td><td><code>capture.</code>, <code>observation.</code>, <code>trace.</code> → subscriber <code>ai_core</code></td></tr>
+<tr><td><code>MODULE_CLOUD_OPS.ai_core</code></td><td><code>ask</code>, <code>analyze_room</code>, <code>analyze_system</code>, <code>learn_preference</code>, <code>suggest_scene</code>, <code>generate_report</code>, <code>start_diagnostic</code>, <code>send_notification</code>, <code>set_context</code>, <code>status</code>, <code>test_provider</code></td></tr>
+<tr><td><code>MODULE_COMMANDS.ai_core</code> (v1 table)</td><td><code>apply_config</code>, <code>refresh_status</code>, <code>deliver_result</code>, <code>raise_event</code>, <code>set_learning</code>, <code>run_diagnostic</code></td></tr>
+</tbody></table></div>
+<p>Rate limits per module: 30 requests/min (REQUEST and DISCOVER), 20 cloud requests/min, burst 10; at most 128 routes in flight in the whole Agent.</p>
+
+<h2 id="ch6-future">Adding future drivers</h2>
+<ol>
+  <li>Choose a <code>module_id</code> (<code>^[a-z][a-z0-9_]{2,47}$</code>) and an owned event-type prefix; reserved prefixes today: <code>health.</code> (guardian), <code>test.</code> (commissioning_inspector), <code>mode.</code> (home_state), <code>bridge.</code> (property_bridge).</li>
+  <li>Use the shared client (<code>sbos.moduleclient</code>) with a manifest that lists only what the driver can really serve, and <code>require_protocol = 2</code> if it needs v2.</li>
+  <li>Add rows to <code>MODULE_REQUEST_POLICY</code> / <code>MODULE_TOPIC_POLICY</code> / <code>MODULE_CLOUD_OPS</code> in the Agent and in <code>protocol.ts</code> together; the cross-repo parity test compares them.</li>
+  <li>Answer every request exactly once with a closed-vocabulary error code; page large results with a cursor.</li>
+  <li>Prove each guard by breaking it once and watching a test fail, then run the Director-emulator scenario. Bench validation on hardware is still owed for everything in v2.</li>
+</ol>
+<p>Known limits: no global ordering; module identity at registration is still a self-claimed <code>module_id</code> (the token proves the frame came from the registered instance, not that the driver is genuine); legacy Composer commands to the Agent (<code>SEND_EVENT</code>, <code>REPORT_*</code>, <code>SEND_PUSH_NOTIFICATION</code>) remain sender-unverified because programming has no token.</p>
+
+<h2 id="ch6-explorer">Driver Communication Explorer</h2>
+<div class="feature wide" id="commExplorer" data-feature="comm">
+  <header><h3>Driver Communication Explorer</h3><span class="label-sim">Simulation</span></header>
+  <p>Step through real frame sequences between AI Core, the Agent, the Flight Recorder and the SmartBuildOS cloud. Frame names, fields and error codes come from <code>MODULE-CONTRACT-V2.md</code>; ids, tokens and values are examples.</p>
+  <div class="field"><label for="commScenario">Scenario</label><select id="commScenario"></select></div>
+  <p id="commSummary"></p>
+  <div class="seq" id="commSvgHost"></div>
+  <div class="btn-row"><button type="button" class="btn" id="commPrev">Previous</button><button type="button" class="btn primary" id="commNext">Next</button><button type="button" class="btn" id="commPlay" aria-pressed="false">Play</button><button type="button" class="btn" id="commReset">Reset</button><span id="commPos" aria-live="polite"></span></div>
+  <div class="frame-detail panel" id="commDetail" aria-live="polite"><h4>Press Next to send the first frame</h4></div>
+</div>
+</section>
+
+<!-- ═════════════════════════════ CHAPTER 7 ═════════════════════════════ -->
+<section class="chapter" id="ch7" aria-labelledby="ch7-title" data-title="Household Learning" hidden>
+<p class="eyebrow">Chapter 7</p>
+<h1 id="ch7-title">Household Learning</h1>
+<p class="lede">AI Core learns routines and preferences only when the homeowner allows it, from deterministic detectors with sample-size confidence. The language model phrases findings; it does not invent them. Learning is off by default, and the homeowner can pause, exclude, correct, export and erase.</p>
+<div class="status" data-status="learning"></div>
+
+<h2 id="ch7-how">How it learns</h2>
+<p>The <code>analyze_property</code> job reads stored events, applies the homeowner's controls (pause, exclusions, erase watermark) <em>before</em> any detector, and runs 14 pure detectors:</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Detector</th><th scope="col">Evidence threshold</th></tr></thead>
+<tbody>
+<tr><td><code>scene_override</code>, <code>thermostat_override</code></td><td>≥ 10 activations, rate ≥ 40 %</td></tr>
+<tr><td><code>daily_routine</code></td><td>≥ 15 of the last 30 days, 60-minute local window</td></tr>
+<tr><td><code>weekly_routine</code></td><td>≥ 4 weeks, ≥ 75 % of that weekday</td></tr>
+<tr><td><code>unused_scene</code></td><td>90 observed days of scene recording, 0 activations (today always <code>insufficient_context</code>: no scene inventory exists)</td></tr>
+<tr><td><code>device_failure</code></td><td>≥ 8 offline transitions within 7 days</td></tr>
+<tr><td><code>frequent_room</code></td><td>≥ 50 events, ≥ 7 days, ≥ 15 % share</td></tr>
+<tr><td><code>lighting_level</code>, <code>shade_preference</code>, <code>media_volume</code>, <code>media_source</code></td><td>≥ 10 samples, ≥ 5 days, modal share ≥ 40 %</td></tr>
+<tr><td><code>favourite_scene</code></td><td>≥ 10 activations, ≥ 5 days, ≥ 20 % share</td></tr>
+<tr><td><code>automation_conflict</code></td><td>≥ 10 change-and-revert within 120 s on ≥ 3 days (labelled <em>possible</em>)</td></tr>
+<tr><td><code>seasonal</code></td><td>≥ 365 days of history (not built in v1; answers <code>insufficient_history</code>)</td></tr>
+</tbody></table></div>
+<p>Thresholds marked "AI Core v1" in the source (weekly routine, frequent room, preferences, favourite scene, automation conflict, seasonal) are this phase's choice and await architect/owner review. Analysis runs on demand (<code>POST /api/monitoring/ai-core/patterns {action:"analyze"}</code>), idempotent per property per 10 minutes; <strong>no schedule exists</strong> — scheduling is an owner decision.</p>
+
+<h2 id="ch7-confidence">Confidence scores</h2>
+<pre class="code" data-lang="text"><code>n = sample size, T = the detector's evidence threshold, c = consistency in [0,1]
+n &lt; T          → no finding (never rounded up)
+confidence     = c × n / (n + T)       0.5·c at threshold, → c as n grows
+band           = low (n &lt; 2T) · medium (n &lt; 4T) · high (n ≥ 4T)</code></pre>
+<p>The band comes from sample size alone. For a fixed consistency the score strictly increases with the sample size.</p>
+<div class="feature" id="confCalc" data-feature="confidence">
+  <header><h3>Confidence calculator</h3><span class="type">Formula from <code>patterns/confidence.ts</code> README</span></header>
+  <div class="grid2">
+    <div class="field"><label for="confN">Sample size n</label><input id="confN" type="text" inputmode="numeric" value="24"></div>
+    <div class="field"><label for="confT">Threshold T</label><input id="confT" type="text" inputmode="numeric" value="10"></div>
+    <div class="field"><label for="confC">Consistency c (0–1)</label><input id="confC" type="text" inputmode="decimal" value="0.8"></div>
+  </div>
+  <p id="confOut" aria-live="polite"></p>
+</div>
+
+<h2 id="ch7-memory">Preference memory</h2>
+<p>Memories are structured rows with full-text search (no vector store in v1), in four categories: <code>system</code>, <code>explicit_preference</code>, <code>behavioral</code>, <code>operational</code>. Each is <code>verified</code> or <code>inferred</code> (kept in its own column) and records its source: <code>homeowner_stated</code>, <code>staff_entered</code>, <code>detector</code> or <code>registry</code>. The AI reads them with the <code>memory_search</code> tool, which is household data and needs the <code>AI_LEARNING</code> feature. Staff can add a verified fact (<code>POST /api/monitoring/ai-core/memories</code>), never an inference and never a person.</p>
+<p>From Composer, <code>AI_LEARN_PREFERENCE</code> sends cloud op <code>learn_preference</code>. When the platform's memory library is wired it records the statement as a verified explicit preference (source <code>programming</code>) and answers <em>completed</em> at once: no job is tracked and <strong>AI Response Ready</strong> is not fired for it. Without it the platform answers <code>unsupported</code>.</p>
+<p>In a conversation the AI may call <code>memory_propose</code> to propose one memory. A proposal is stored as <em>pending</em>, is not used for anything, and waits for the homeowner or the integrator to accept or reject it; it never describes a person.</p>
+
+<h2 id="ch7-behaviour">Behavioural analysis — what the data cannot support</h2>
+<ul>
+  <li><strong>Occupancy:</strong> device interactions are not occupancy. Room findings are <code>interaction_based</code> unless a motion/occupancy sensor was the source.</li>
+  <li><strong>Who caused a change, and the value before:</strong> not recorded; override and conflict statements say so.</li>
+  <li><strong>Security, locks, access:</strong> never learned from; no enable switch exists.</li>
+  <li><strong>Away / vacation recommendations:</strong> not generated in v1.</li>
+  <li><strong>No time zone:</strong> time-of-day detectors answer <code>insufficient_context</code> rather than use UTC.</li>
+  <li><strong>Identity:</strong> no finding has a person field; inferred text is scanned for person-implying words. Residual limit: a room or device label an installer named after a person ("Emma's Room") passes through as the label.</li>
+</ul>
+
+<h2 id="ch7-correct">Correcting assumptions</h2>
+<p>The homeowner reviews everything learned, inferred items included, with confidence and evidence, through <code>/api/portal/ai-core/memories</code>:</p>
+<ul>
+  <li><code>PATCH { property_id, memory_id, action: "correct", value, statement? }</code> — a verified preference supersedes the inference.</li>
+  <li><code>PATCH { …, action: "assign_to_me" }</code> — links the homeowner's own stated preference to their profile (the only way a profile is ever set).</li>
+  <li><code>DELETE ?property_id=&amp;memory_id=</code> — content erased; a content-free key stops the same inference being re-learned.</li>
+</ul>
+<p>Staff can dismiss a recommendation (<code>PATCH /api/monitoring/ai-core/recommendations/[id] { to: "dismissed" }</code>).</p>
+<div class="status" data-status="portalUi"></div>
+
+<h2 id="ch7-privacy">Privacy settings</h2>
+<ul>
+  <li><strong>Off by default.</strong> <code>learning_enabled</code> defaults to false.</li>
+  <li><strong>Pause and exclusions:</strong> <code>PATCH /api/portal/ai-core/learning { property_id, paused?, excluded_room_ids?, excluded_categories? }</code>. While paused, the driver collects nothing and releases its subscriptions and listeners; <strong>Learning Status</strong> reads <em>Paused by &lt;who&gt;: &lt;reason&gt;</em>.</li>
+  <li><strong>Export:</strong> <code>GET /api/portal/ai-core/learning?property_id=&amp;export=1</code> returns every piece of AI Core learning data about the property as JSON.</li>
+  <li><strong>Erase all:</strong> <code>DELETE /api/portal/ai-core/learning { property_id, confirm: "erase" }</code> deletes memories, patterns and recommendations and sets a watermark so earlier events are never analysed again. <strong>Flight Recorder's own history is a separate store and is not deleted</strong>; it ages out under its own retention.</li>
+  <li><strong>Household gate:</strong> staff need <code>homecontrol:view</code> in addition to <code>monitoring:view</code> to read household activity. Homeowner controls do not require the licence.</li>
+  <li>Recommendations are not customer-visible by default (<code>customer_visible</code> false); only staff can change it.</li>
+</ul>
+</section>
