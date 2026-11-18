@@ -133,6 +133,22 @@ end
 check("only API-reference-documented ids", table.concat(ids, ",") == "17,18,19,20,48,49,90")
 check("device offline is critical", Collector.SYSTEM_BY_NAME.OnDeviceOffline.severity == "warning")
 
+print("[marker] AI_RECORD_EVENT: admitMarker ignores learning, honours exclusions")
+local m = Collector.new({
+  now = function()
+    return 0
+  end,
+})
+m:setPolicy({ active = false, excludedRooms = { [3] = true }, excludedCategories = { security = true }, maxPerMinute = 1 })
+check("learning off: admit refuses (paused)", select(2, m:admit({ category = "general" })) == "paused")
+check("learning off: admitMarker admits", m:admitMarker({ category = "general" }) == true)
+check("excluded room refused", select(2, m:admitMarker({ room_id = 3, category = "general" })) == "excluded_room")
+check("excluded category refused", select(2, m:admitMarker({ category = "security" })) == "excluded_category")
+check(
+  "not budgeted, not deduplicated: the same marker twice beyond the budget",
+  m:admitMarker({ category = "general" }) and m:admitMarker({ category = "general" })
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

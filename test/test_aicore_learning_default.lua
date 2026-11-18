@@ -10,6 +10,13 @@
 --   [6] an invalid document as the very first one
 --   [7] a restart keeps learning off
 --   [8] non-learning features work with learning off; names reach the cloud bounded
+--   [9] set_learning and the configuration document: the document decides
+--       (precedence, DRIVER.md §9), across versions, refusals and a restart
+--  [10] AI_RECORD_EVENT is a dealer's marker, not learning: recorded with
+--       learning off, paused or on; exclusions still refuse it; bounded
+--  [11] envelope text: every payload string AI Core records is cut to the
+--       envelope's 512 bytes BETWEEN characters (sbos.envelope would split one
+--       and the Agent could not decode the frame; KNOWN-ISSUES.md KI-1)
 --
 -- Run from the driver root: make test
 
@@ -74,9 +81,9 @@ H.advance(7000)
 EC.AI_RECORD_EVENT({ NAME = "Bedtime", CATEGORY = "Lighting" })
 H.advance(3000)
 check(
-  "no configuration: AI_RECORD_EVENT is not recorded (the paused rule applies to AI Core's own marker)",
-  #H.envelopes("ai_core.record") == 0 and H.vars.AI_LAST_ERROR:find("paused", 1, true) ~= nil,
-  H.vars.AI_LAST_ERROR
+  "no configuration: AI_RECORD_EVENT IS recorded (a dealer's marker, not learning; architect's ruling)",
+  #H.envelopes("ai_core.record") == 1 and H.envelopes("ai_core.record")[1].payload.name == "Bedtime",
+  #H.envelopes("ai_core.record")
 )
 
 print("[2] a valid document that does not mention learning")
@@ -140,7 +147,9 @@ A.subscriptions = {} -- the scripted Agent forgets the old instance's subscripti
 H.load("DIT_ADDING")
 H.advance(31000)
 off("fresh install", "Off (not switched on in System Studio)")
--- the platform's own document shape (settings.ts driverConfigDocument) is not this schema
+-- the platform's PRE-CLOSEOUT document shape (settings.ts before 2026-11-18): a
+-- deliberately wrong document now; the platform's goldens are accepted
+-- (test_aicore_platform_parity.lua [10])
 ack = H.config({
   schema = 1,
   settings_revision = 3,
@@ -214,6 +223,127 @@ check(
   diag[#diag].payload.target.device_name == string.rep("\240\159\146\161", 120)
 )
 H.devices[77] = nil
+
+print("[9] set_learning and the configuration document: the document decides")
+local function learning()
+  return H.vars.LEARNING_ACTIVE == "true"
+end
+local function op(args)
+  local state, detail = H.finalState(H.operation("set_learning", args))
+  return state, tostring(detail)
+end
+ack = H.config(H.learningOn(), 10)
+check("v10 (on) applied", ack.params.applied == "true" and learning())
+local state, detail = op({ active = false, reason = "paused by the homeowner", config_version = 11 })
+check("set_learning(false) previewing v11 → Completed, off at once", state == "Completed" and not learning(), detail)
+check(
+  "Learning Status names the preview",
+  prop("Learning Status") == "Paused by System Studio: paused by the homeowner",
+  prop("Learning Status")
+)
+ack = H.config(H.learningOn(), 10)
+check("a re-delivered OLDER document (v10, on) does not undo it", ack.params.applied == "true" and not learning())
+ack = H.config(H.learningOn({ provider = { name = "Anthropic" } }), 11)
+check("the document it previewed (v11) decides — here: on", ack.params.applied == "true" and learning())
+state, detail = op({ active = false, reason = "late", config_version = 11 })
+check(
+  "a stale set_learning (v11 already applied) is ignored, idempotently",
+  state == "Completed" and learning() and detail:find("already decides", 1, true) ~= nil,
+  detail
+)
+state = op({ active = false, config_version = 4 })
+check("an older one too", state == "Completed" and learning())
+state = op({ active = false, reason = "staff" })
+check("set_learning without a version: off now", state == "Completed" and not learning())
+H.config(H.learningOn({ provider = { name = "Anthropic" } }), 11)
+check("… held against the version in force (v11 again)", not learning())
+H.config(H.learningOn(), 12)
+check("… until a newer document (v12) decides", learning())
+st = H.operation("apply_config", { config = { schema = 1, learning = { active = false } }, version = 9 })
+check(
+  "a late apply_config older than the document in force is superseded, not applied",
+  H.finalState(st) == "Completed" and learning() and select(2, H.finalState(st)):find("superseded", 1, true) ~= nil
+)
+ack = H.config({ schema = 1, learning = { enabled = true } }, 13)
+check("an invalid document (v13) turns learning off", ack.params.applied == "false" and not learning())
+state, detail = op({ active = true, config_version = 13 })
+check(
+  "set_learning(true) cannot switch it back on over a refused document",
+  state == "Failed" and not learning() and detail:find("refused", 1, true) ~= nil,
+  detail
+)
+check("set_learning(false) is always accepted", op({ active = false, config_version = 14 }) == "Completed")
+H.config(H.learningOn(), 14)
+check("a valid v14 decides again", learning())
+op({ active = false, reason = "before restart", config_version = 20 })
+H.load("DIT_STARTUP")
+H.advance(31000)
+check("the preview survives a restart", not learning() and prop("Learning Status"):find("before restart") ~= nil)
+H.config(H.learningOn(), 19)
+check("after the restart v19 still does not undo it", not learning())
+H.config(H.learningOn(), 20)
+check("v20 decides", learning())
+
+print("[10] AI_RECORD_EVENT: a marker, not learning")
+local function recordCount()
+  return #H.envelopes("ai_core.record")
+end
+local function mark(params)
+  H.advance(7000) -- under the 10-a-minute command bucket
+  local before = recordCount()
+  EC.AI_RECORD_EVENT(params)
+  H.advance(3000)
+  return recordCount() == before + 1
+end
+check("learning on: recorded", learning() and mark({ NAME = "on" }))
+op({ active = false, reason = "paused", config_version = 21 })
+check("learning paused: still recorded", not learning() and mark({ NAME = "paused" }))
+H.config({ schema = 1, learning = { active = false }, exclusions = { rooms = { 3 }, categories = { "security" } } }, 21)
+check("learning off by the document: still recorded", not learning() and mark({ NAME = "off", CATEGORY = "Lighting" }))
+check(
+  "an excluded category still refuses it",
+  not mark({ NAME = "Alarm armed", CATEGORY = "Security" }) and H.vars.AI_LAST_ERROR:find("excluded_category") ~= nil,
+  H.vars.AI_LAST_ERROR
+)
+check(
+  "an excluded room still refuses it",
+  not mark({ NAME = "Pendants", ROOM = "Kitchen" }) and H.vars.AI_LAST_ERROR:find("excluded") ~= nil,
+  H.vars.AI_LAST_ERROR
+)
+check("bounded like other text: a NAME over 120 characters is refused", not mark({ NAME = string.rep("x", 121) }))
+check("sanitised: control characters become spaces, ends trimmed", mark({ NAME = "\tLine\none\226\128\168 " }))
+local last = H.envelopes("ai_core.record")[recordCount()]
+check("… and the recorded name is clean", last.payload.name == "Line one", tostring(last.payload.name))
+check("never a learning observation: no ai_core.observation.* for a marker", last.event_type == "ai_core.record")
+
+print("[11] envelope text cut between characters, never inside one")
+local EURO = "\226\130\172" -- 3 bytes
+H.advance(7000)
+local before11 = recordCount()
+-- 400 characters = 1200 bytes; 512 is not a multiple of 3, so a byte cut splits one.
+EC.AI_RECORD_EVENT({ NAME = string.rep(EURO, 120), DETAIL = string.rep(EURO, 400) })
+H.advance(3000) -- the scripted Agent JSON-decodes every SBOS_MODULE_EVENTS frame it is sent
+local rec = H.envelopes("ai_core.record")[recordCount()]
+check("the marker reached the Agent in a frame it could decode", recordCount() == before11 + 1)
+check(
+  "DETAIL cut to 510 bytes (170 whole characters), marked partial",
+  rec.payload.detail == string.rep(EURO, 170) and rec.quality == "partial",
+  #tostring(rec.payload.detail)
+)
+check("the label cut to 120 bytes between characters", rec.label == string.rep(EURO, 40), #tostring(rec.label))
+H.advance(7000)
+EC.AI_ASK({ QUESTION = string.rep(EURO, 500) })
+H.advance(3000)
+local cmdEnv = H.envelopes("ai_core.command")
+cmdEnv = cmdEnv[#cmdEnv]
+check(
+  "AI_ASK: the envelope's copy of a 1500-byte question is cut between characters",
+  cmdEnv.payload.args.question == string.rep(EURO, 170) and cmdEnv.quality == "partial"
+)
+check(
+  "… while the cloud body carries the whole question (the platform's bound is 500 characters)",
+  A.cloudCalls[#A.cloudCalls].body.question == string.rep(EURO, 500)
+)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

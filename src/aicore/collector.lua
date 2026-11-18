@@ -16,7 +16,8 @@
 ---
 --- Every own observation passes `admit` first: learning paused, licence
 --- halted, excluded room, excluded category, per-minute budget and event-id
---- dedup are all decided BEFORE anything is recorded. DriverWorks does not
+--- dedup are all decided BEFORE anything is recorded. AI_RECORD_EVENT is a
+--- dealer's marker, not an observation: `admitMarker` (exclusions only). DriverWorks does not
 --- say who caused a change, what the previous value was, or that a
 --- programming item ran, so no event built here claims any of those.
 
@@ -182,6 +183,24 @@ function Collector:admit(ev)
   end
   self:remember(ev.id)
   self.counters.admitted = self.counters.admitted + 1
+  return true
+end
+
+--- AI_RECORD_EVENT: an explicit marker a dealer placed in programming, not
+--- learning (architect's ruling 2026-11-18). It is recorded whether learning
+--- is off, on or paused; excluded rooms and categories still apply. The
+--- Composer command bucket (10 a minute) bounds it, not the observation
+--- budget, and it is never deduplicated (each call is a new marker).
+function Collector:admitMarker(ev)
+  local p = self.policy
+  if ev.room_id ~= nil and p.excludedRooms[tonumber(ev.room_id)] then
+    self.counters.excluded_room = self.counters.excluded_room + 1
+    return false, "excluded_room"
+  end
+  if p.excludedCategories[ev.category or "unknown"] then
+    self.counters.excluded_category = self.counters.excluded_category + 1
+    return false, "excluded_category"
+  end
   return true
 end
 

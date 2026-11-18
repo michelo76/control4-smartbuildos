@@ -269,6 +269,39 @@ function M.cutBytes(s, maxBytes)
   return s:sub(1, cut)
 end
 
+--- The shared envelope's bounds (sbos/envelope.lua LIMITS): text 512 and
+--- label 120, both in BYTES. envelope.lua cuts over-long strings with
+--- string.sub, which can split a multi-byte UTF-8 character; the Agent then
+--- cannot decode the frame that carries it (docs/ai-core/KNOWN-ISSUES.md
+--- KI-1). AI Core therefore cuts every payload string and its label HERE,
+--- between two characters, before sbos.envelope ever sees them.
+M.ENVELOPE_TEXT_BYTES = 512
+M.ENVELOPE_LABEL_BYTES = 120
+
+--- Copy of `value` with every string cut to `maxBytes` (default 512)
+--- between UTF-8 characters, keys included; tables walked to depth 6
+--- (deeper is left to the envelope, which replaces it). Returns copy, cut.
+function M.boundPayloadText(value, maxBytes, depth)
+  maxBytes = maxBytes or M.ENVELOPE_TEXT_BYTES
+  depth = depth or 0
+  if type(value) == "string" then
+    if #value > maxBytes then
+      return M.cutBytes(value, maxBytes), true
+    end
+    return value, false
+  end
+  if type(value) ~= "table" or depth > 6 then
+    return value, false
+  end
+  local out, cut = {}, false
+  for k, v in pairs(value) do
+    local bv, c = M.boundPayloadText(v, maxBytes, depth + 1)
+    out[k] = bv
+    cut = cut or c
+  end
+  return out, cut
+end
+
 --- A typed parameter, cleaned (no bound: build() refuses over-long text).
 function M.clean(s)
   return M.sanitise(s)

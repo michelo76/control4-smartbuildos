@@ -27,11 +27,18 @@
 --       enum lists equal, text bounds fit (Director's names included), the
 --       character rule and the unit of the bounds (code points) agree;
 --       {accepted, job_id: null} answers read as completed, job answers
---       as accepted
--- Reported, not asserted ([9] and NOTE lines in [7]/[8]): differences that
+--       as accepted; every op the platform handles validates its body
+--       (status included: it takes no fields)
+--   [9] raise_event detail: the platform's bound (characters) against the
+--       driver's (bytes) — never refused, cut between characters
+--  [10] the configuration document: every golden the platform publishes
+--       (tests/unit/fixtures/ai-core-driver-config/*.json, written from
+--       settings.ts driverConfigDocument) is accepted WHOLE by config.lua
+--       and lands in the golden's `expect`; deliberately wrong documents
+--       are refused; the platform's mirror of the bounds equals config.lua's
+-- Reported, not asserted (NOTE lines in [7]/[8]/[11]): differences that
 -- break nothing today (a key the driver accepts that nobody sends, an op
--- the platform answers `unsupported`, a body it does not validate); each
--- NOTE line names both sides.
+-- the platform answers `unsupported`); each NOTE line names both sides.
 
 local pass, fail = 0, 0
 local function check(name, ok, detail)
@@ -385,6 +392,7 @@ local SAMPLE = {
   correlation_id = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc",
   active = true,
   reason = "r",
+  config_version = 3,
   device_id = 12,
   room_id = 3,
   note = "n",
@@ -630,11 +638,10 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
         .. " (shown as a refusal on the controller; tested in test_aicore_cloud_answers.lua [2])"
     )
   elseif spec == nil then
-    note(
-      op
-        .. ": the platform validates no body for it (OP_BODIES has no entry); the driver sends {"
-        .. table.concat(keys(d.full), ",")
-        .. "}"
+    check(
+      op .. ": the platform validates its body (OP_BODIES has an entry)",
+      false,
+      "no OP_BODIES entry; the driver sends {" .. table.concat(keys(d.full), ",") .. "}"
     )
   else
     local unknown = minus(keys(d.full), keys(spec))
@@ -756,19 +763,162 @@ check(
     and Commands.interpret({ status = "ok", result = { accepted = true, job_id = "uuid-1" } }).outcome == "accepted"
 )
 
-print("[9] reported differences (NOTE lines are not failures)")
+print("[9] raise_event detail: platform ≤ RAISE_EVENT_DETAIL_MAX characters, driver keeps ≤ event_detail bytes")
+-- Compatible by design, asserted: the platform refuses a detail over 240
+-- CHARACTERS; the driver keeps 512 BYTES. 240 characters can be up to 960
+-- bytes, so the relationship that makes them compatible is that the driver
+-- never REFUSES a detail the platform accepts — it cuts it between two
+-- UTF-8 characters and says so (detail_truncated).
 local detailMax = tonumber(protocolTs:match("RAISE_EVENT_DETAIL_MAX = (%d+)"))
-if detailMax ~= V.LIMITS.event_detail then
-  note(
-    "raise_event detail bound: platform RAISE_EVENT_DETAIL_MAX "
-      .. tostring(detailMax)
-      .. " vs driver "
-      .. V.LIMITS.event_detail
-      .. " (AI_CORE_DRIVER_LIMITS.eventDetail says "
-      .. tostring(protocolTs:match("eventDetail: (%d+)"))
-      .. ")"
+check(
+  "AI_CORE_DRIVER_LIMITS.eventDetail (protocol.ts) = vocab.lua event_detail",
+  tonumber(protocolTs:match("eventDetail: (%d+)")) == V.LIMITS.event_detail
+)
+check("the platform's bound in characters ≤ the driver's in bytes", detailMax ~= nil and detailMax <= V.LIMITS.event_detail)
+local ascii = Operations.parse("raise_event", { event = "pattern_detected", detail = string.rep("a", detailMax or 0) })
+check(
+  "a " .. tostring(detailMax) .. "-character ASCII detail is kept whole",
+  ascii ~= nil and #ascii.detail == detailMax and not ascii.detail_truncated
+)
+local wide = Operations.parse("raise_event", { event = "pattern_detected", detail = string.rep("\240\159\146\161", detailMax or 0) })
+check(
+  "a " .. tostring(detailMax) .. "-character 4-byte detail (960 bytes) is accepted, cut to ≤ 512 bytes between characters",
+  wide ~= nil
+    and wide.detail_truncated == true
+    and #wide.detail <= V.LIMITS.event_detail
+    and #wide.detail % 4 == 0
+    and wide.detail:sub(-4) == "\240\159\146\161"
+)
+
+print("[10] the configuration document: the platform's goldens through config.lua")
+local Config = require("aicore.config")
+local JSONlib = require("JSON")
+local goldenDir = ROOT .. "/tests/unit/fixtures/ai-core-driver-config"
+local goldens = {}
+local ls = io.popen('ls "' .. goldenDir .. '" 2>/dev/null')
+for name in (ls and ls:read("*a") or ""):gmatch("([%w%-]+)%.json") do
+  goldens[#goldens + 1] = name
+end
+if ls then
+  ls:close()
+end
+table.sort(goldens)
+if #goldens == 0 then
+  print("  SKIP the platform checkout has no " .. goldenDir .. " (older platform); nothing compared here")
+else
+  check(
+    "the six goldens are present",
+    same(goldens, { "learning-on", "learning-paused", "maximum", "minimum", "typical", "with-exclusions" }),
+    table.concat(goldens, ",")
+  )
+  local function list(t)
+    local out = {}
+    for _, v in ipairs(t or {}) do
+      out[#out + 1] = tostring(v)
+    end
+    return table.concat(out, ",")
+  end
+  local docs = {}
+  for _, name in ipairs(goldens) do
+    local g = JSONlib:decode(assert(read(goldenDir .. "/" .. name .. ".json")))
+    docs[name] = g.document
+    local cfg, refusals = Config.validate(g.document)
+    check(name .. ": config.lua accepts the document whole", cfg ~= nil, Config.describeRefusals(refusals))
+    if cfg ~= nil then
+      local e = g.expect
+      local wrong = {}
+      local function want(label, got, expected)
+        if tostring(got) ~= tostring(expected) then
+          wrong[#wrong + 1] = label .. "=" .. tostring(got) .. " (want " .. tostring(expected) .. ")"
+        end
+      end
+      want("learning.active", cfg.learning.active, e.learning_active)
+      want("rooms", list(cfg.exclusions.rooms), list(e.rooms))
+      want("categories", list(cfg.exclusions.categories), list(e.categories))
+      want("permission_mode", cfg.permission_mode, e.permission_mode)
+      want("provider.name", cfg.provider.name, e.provider_name ~= JSONlib.null and e.provider_name or nil)
+      want("provider.model", cfg.provider.model, e.provider_model ~= JSONlib.null and e.provider_model or nil)
+      want("credential_status", cfg.credential_status, e.credential_status)
+      for _, k in ipairs({ "system_events", "flight_recorder_topics", "agent_events", "max_events_per_minute" }) do
+        want("collection." .. k, cfg.collection[k], e.collection[k])
+      end
+      want("collection.variables", #cfg.collection.variables, e.collection.variables)
+      check(name .. ": lands in the expected state", #wrong == 0, table.concat(wrong, "; "))
+    end
+  end
+  -- Deliberately wrong documents: one fault each, every one refused whole.
+  local function deepCopy(v)
+    if type(v) ~= "table" then
+      return v
+    end
+    local out = {}
+    for k, x in pairs(v) do
+      out[k] = deepCopy(x)
+    end
+    return out
+  end
+  local function variant(base, edit)
+    local d = deepCopy(base)
+    edit(d)
+    return d
+  end
+  local typical = docs.typical
+  local maximum = docs.maximum
+  if typical ~= nil and maximum ~= nil then
+    local wrongDocs = {
+      ["the platform's pre-closeout shape"] = {
+        schema = 1,
+        settings_revision = 3,
+        permission_mode = "observe",
+        learning = { enabled = true, paused = false },
+        excluded_room_ids = {},
+        excluded_categories = {},
+        credential_status = "Not configured",
+      },
+      ["typical + an unknown key"] = variant(typical, function(d)
+        d.fallback_provider = "OpenAI"
+      end),
+      ["typical + a credential-shaped key"] = variant(typical, function(d)
+        d.provider.api_key = "x"
+      end),
+      ["typical with a key in the status line"] = variant(typical, function(d)
+        d.credential_status = "Configured · sk-proj-abcdef"
+      end),
+      ["typical with a platform category"] = variant(typical, function(d)
+        d.exclusions.categories = { "climate" }
+      end),
+      ["maximum + one more room"] = variant(maximum, function(d)
+        d.exclusions.rooms[#d.exclusions.rooms + 1] = 1
+      end),
+    }
+    for label, doc in pairs(wrongDocs) do
+      check("refused whole: " .. label, Config.validate(doc) == nil)
+    end
+  end
+  local settingsTs = read(ROOT .. "/src/lib/ai-core/settings/driver-config.ts") or ""
+  local limitsTs = {}
+  for k, v in tostring(literal(settingsTs, "AI_CORE_DRIVER_CONFIG_LIMITS")):gmatch("([%w_]+): (%d+)") do
+    limitsTs[k] = tonumber(v)
+  end
+  local L = Config.LIMITS
+  check(
+    "AI_CORE_DRIVER_CONFIG_LIMITS (driver-config.ts) = config.lua LIMITS",
+    limitsTs.excludedRooms == L.excluded_rooms
+      and limitsTs.excludedCategories == L.excluded_categories
+      and limitsTs.variables == L.variables
+      and limitsTs.providerNameBytes == L.provider_name
+      and limitsTs.modelNameBytes == L.model_name
+      and limitsTs.credentialStatusBytes == L.credential_status
+      and limitsTs.idBytes == L.id
+      and limitsTs.eventsPerMinuteMax == L.events_per_minute_max
+  )
+  check(
+    "AI_CORE_DRIVER_CATEGORIES (driver-config.ts) = vocab.lua CATEGORY_LIST",
+    same(strings(literal(settingsTs, "AI_CORE_DRIVER_CATEGORIES")), V.CATEGORY_LIST)
   )
 end
+
+print("[11] reported differences (NOTE lines are not failures)")
 local typesTs = strings(literal(protocolTs, "AI_CORE_EVENT_TYPES"))
 -- What the driver emits besides ai_core.observation.* (AI_CORE_OBSERVATION_PREFIX).
 local emittedList = { "ai_core.command", "ai_core.record", "ai_core.status", "ai_core.diagnostic", "ai_core.event" }

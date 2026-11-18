@@ -32,6 +32,11 @@ check(
 local r = O.parse("raise_event", { event = "pattern_detected", detail = "kitchen lights at 03:00 on 4 of 7 nights" })
 check("raise_event maps to the Composer event id", r and r.event_id == 2)
 check("set_learning", O.parse("set_learning", { active = false, reason = "privacy" }).active == false)
+check(
+  "set_learning carries the configuration version it previews",
+  O.parse("set_learning", { active = false, config_version = 7 }).config_version == 7
+    and O.parse("set_learning", { active = true }).config_version == nil
+)
 check("run_diagnostic by device", O.parse("run_diagnostic", { device_id = 12 }).device_id == 12)
 check("run_diagnostic by room", O.parse("run_diagnostic", { room_id = 3 }).room_id == 3)
 
@@ -66,6 +71,9 @@ check("deliver_result text over 4000", refused("deliver_result", { response_id =
 check("deliver_result unknown kind", refused("deliver_result", { response_id = "r", text = "x", kind = "command" }))
 check("count out of range", refused("deliver_result", { response_id = "r", text = "x", pending_approvals = -1 }))
 check("set_learning active not boolean", refused("set_learning", { active = "on" }))
+check("set_learning config_version negative", refused("set_learning", { active = true, config_version = -1 }))
+check("set_learning config_version fractional", refused("set_learning", { active = true, config_version = 1.5 }))
+check("set_learning config_version as text", refused("set_learning", { active = true, config_version = "3" }))
 check("run_diagnostic both", refused("run_diagnostic", { device_id = 1, room_id = 2 }))
 check("run_diagnostic neither", refused("run_diagnostic", {}))
 check("run_diagnostic bad id", refused("run_diagnostic", { device_id = "x" }))

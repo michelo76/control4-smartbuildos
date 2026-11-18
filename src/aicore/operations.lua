@@ -42,7 +42,10 @@ local ARGS = {
     -- ai_core.event envelope and AI_LAST_CORRELATION_ID, never interpreted.
     correlation_id = true,
   },
-  set_learning = { active = true, reason = true },
+  -- config_version: the driver_config version System Studio published this
+  -- change as (DRIVER.md §9 precedence: the document decides, set_learning
+  -- previews it and is ignored once that version is applied).
+  set_learning = { active = true, reason = true, config_version = true },
   run_diagnostic = { device_id = true, room_id = true, note = true },
 }
 
@@ -183,6 +186,13 @@ function M.parse(command, args)
         return nil, "reason must be text"
       end
       op.reason = cleanText(args.reason, 120)
+    end
+    if args.config_version ~= nil then
+      local v = tonumber(args.config_version)
+      if type(args.config_version) ~= "number" or v ~= math.floor(v) or v < 0 then
+        return nil, "config_version must be a whole number (the configuration version it previews)"
+      end
+      op.config_version = v
     end
   elseif command == "run_diagnostic" then
     local d = args.device_id ~= nil and tonumber(args.device_id) or nil

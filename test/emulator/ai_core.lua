@@ -540,9 +540,11 @@ d:executeCommand(aic, "AI_RECORD_EVENT", { NAME = "while paused" })
 d:advance(40000)
 check("paused: no system event recorded", #cloudEnvelopes(S, "ai_core.observation.system") == sys0)
 check(
-  "paused: AI_RECORD_EVENT not recorded, said so",
-  #cloudEnvelopes(S, "ai_core.record") == 1 and tostring(aic.Properties["Last Error"]):find("paused") ~= nil,
-  aic.Properties["Last Error"]
+  "paused: AI_RECORD_EVENT still recorded (a dealer's marker, not learning)",
+  #cloudEnvelopes(S, "ai_core.record") == 2
+    and cloudEnvelopes(S, "ai_core.record")[2].payload.name == "while paused"
+    and tostring(aic.Properties["Last Error"]):find("paused") == nil,
+  #cloudEnvelopes(S, "ai_core.record")
 )
 heartbeatConfig(
   S,
@@ -558,6 +560,92 @@ d:fireSystemEvent(49, '<event name="OnDeviceOffline" id="49"/>')
 d:advance(40000)
 check("active, nothing excluded: recorded", #cloudEnvelopes(S, "ai_core.observation.system") == sys0 + 1)
 check("subscribed again on resume", agent.env.gBus:health().subscriptions == 1)
+
+print("[7a] the platform's golden documents through the real Agent (SBOS_DRIVER_CONFIG)")
+-- The documents System Studio publishes (settings.ts driverConfigDocument),
+-- read from the platform checkout's goldens — the same files the parity test
+-- feeds to config.lua. Delivered exactly as the platform delivers them: the
+-- heartbeat's driver_config block, forwarded by the real Agent.
+local PLATFORM = os.getenv("SBOS_PLATFORM_REPO")
+local function golden(name)
+  local f = PLATFORM and io.open(PLATFORM .. "/tests/unit/fixtures/ai-core-driver-config/" .. name .. ".json")
+  if f == nil then
+    return nil
+  end
+  local g = json.decode(f:read("*a"))
+  f:close()
+  return g
+end
+local typical, paused, on = golden("typical"), golden("learning-paused"), golden("learning-on")
+if typical == nil or paused == nil or on == nil then
+  print("  SKIP set SBOS_PLATFORM_REPO to a platform checkout with tests/unit/fixtures/ai-core-driver-config/")
+  print("       (the golden documents); [7a] delivered nothing")
+else
+  local function learningOn()
+    return var(aic, "LEARNING_ACTIVE") == "1" or var(aic, "LEARNING_ACTIVE") == "true"
+  end
+  local function acked(version)
+    for _, e in ipairs(S.cloud.events) do
+      if
+        e.driver_sku == "SBOS_AI_CORE"
+        and e.code == "remote_settings_applied"
+        and tostring(e.message):find("v" .. version .. ":", 1, true)
+      then
+        return true
+      end
+    end
+    return false
+  end
+  heartbeatConfig(S, agent, paused.document, 9)
+  check("learning-paused golden (v9): accepted, learning OFF", not learningOn(), var(aic, "LEARNING_ACTIVE"))
+  heartbeatConfig(S, agent, typical.document, 10)
+  d:advance(3000)
+  check("typical golden (v10): accepted whole → learning ON", learningOn(), var(aic, "LEARNING_ACTIVE"))
+  check("… the ack the Agent reports to Driver Cloud says applied v10", acked(10))
+  local entry = agent.env.gModules:instances("ai_core")[1]
+  check(
+    "… the Agent's registry shows applied_config_version 10, no config_error",
+    entry ~= nil and entry.applied_config_version == "10" and (entry.config_error or "") == "",
+    entry and (tostring(entry.applied_config_version) .. " / " .. tostring(entry.config_error))
+  )
+  check(
+    "… display fields as published (provider, model, credential STATUS, mode)",
+    aic.Properties["AI Provider"] == "Anthropic"
+      and aic.Properties["AI Model"] == "claude-opus-5-5"
+      and tostring(aic.Properties["AI API Credential"]):find("••••WXYZ", 1, true) ~= nil
+      and tostring(aic.Properties["Permission Mode"]):find("^recommend") ~= nil
+  )
+  check("… subscribed to the recorder's topics", agent.env.gBus:health().subscriptions == 1)
+  local recs = #cloudEnvelopes(S, "ai_core.record")
+  d:advance(7000)
+  d:executeCommand(aic, "AI_RECORD_EVENT", { NAME = "Alarm armed", CATEGORY = "Security" })
+  d:advance(40000)
+  check(
+    "… its excluded category (security) refuses a marker",
+    #cloudEnvelopes(S, "ai_core.record") == recs and tostring(aic.Properties["Last Error"]):find("excluded") ~= nil,
+    aic.Properties["Last Error"]
+  )
+  heartbeatConfig(S, agent, paused.document, 11)
+  d:advance(3000)
+  check("learning-paused golden (v11): learning OFF again", not learningOn(), var(aic, "LEARNING_ACTIVE"))
+  check("… the subscription is released", agent.env.gBus:health().subscriptions == 0)
+  check("… acked as applied v11", acked(11))
+  -- The prompt path: set_learning previewing v12, then the v12 document.
+  local state = moduleCommand(S, agent, "set_learning", { active = true, reason = "resumed", config_version = 12 })
+  check("set_learning(true) previewing v12 → Completed, learning ON at once", state == "Completed" and learningOn(), state)
+  local acks = #S.cloud.events
+  heartbeatConfig(S, agent, paused.document, 10)
+  check(
+    "an older document forwarded late (v10, paused) is applied but does not undo the preview",
+    #S.cloud.events == acks + 1 and S.cloud.events[#S.cloud.events].code == "remote_settings_applied" and learningOn()
+  )
+  heartbeatConfig(S, agent, on.document, 12)
+  check("the v12 document (learning-on golden) decides", learningOn())
+  state = moduleCommand(S, agent, "set_learning", { active = false, reason = "late", config_version = 12 })
+  check("a stale set_learning (v12 already applied) is ignored", state == "Completed" and learningOn(), state)
+  d:advance(3000)
+  check("subscribed again", agent.env.gBus:health().subscriptions == 1)
+end
 
 print("[8] local diagnostics with the Flight Recorder (incl. its real ring)")
 d:executeCommand(fr, "RECORD_EVENT", { NAME = "Rack temperature high", DEVICE = tostring(agent.id) })
@@ -976,14 +1064,15 @@ check(
   aic1.Properties["Last Error"]
 )
 -- A v1 Agent cannot forward an SBOS_AI_CORE configuration, so learning
--- stays off (the default) and AI_RECORD_EVENT is refused as paused; the
--- event path itself still carries AI Core's status envelopes.
+-- stays off (the default); AI_RECORD_EVENT is a marker, not learning, and
+-- reaches the cloud through the v1 Agent's event path.
 dv:executeCommand(aic1, "AI_RECORD_EVENT", { NAME = "v1 still records" })
 dv:advance(40000)
 check(
-  "v1 Agent, no configuration: learning off, AI_RECORD_EVENT refused as paused",
-  #cloudEnvelopes(V1, "ai_core.record") == 0 and tostring(aic1.Properties["Last Error"]):find("paused") ~= nil,
-  aic1.Properties["Last Error"]
+  "v1 Agent, no configuration: learning off, AI_RECORD_EVENT still recorded",
+  #cloudEnvelopes(V1, "ai_core.record") == 1
+    and (var(aic1, "LEARNING_ACTIVE") == "0" or var(aic1, "LEARNING_ACTIVE") == "false"),
+  #cloudEnvelopes(V1, "ai_core.record")
 )
 check(
   "v1 services still work: AI Core's status envelopes reached the cloud through the v1 Agent",

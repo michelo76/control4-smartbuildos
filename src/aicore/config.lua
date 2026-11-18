@@ -13,6 +13,16 @@
 --- learning OFF, every collection source off, nothing excluded, display
 --- fields unset. What System Studio has not said is not switched on here.
 ---
+--- This schema is the WIRE CONTRACT with the platform: System Studio builds
+--- the document in src/lib/ai-core/settings/{settings,driver-config}.ts
+--- (driverConfigDocument + a mirror of every rule below), and the golden
+--- documents it publishes (tests/unit/fixtures/ai-core-driver-config/) are
+--- fed to THIS validator by test/test_aicore_platform_parity.lua [10].
+--- A room here is a Director room id — the id an envelope's / a command's
+--- room_id carries and the id the platform stores in excluded_room_ids.
+--- Categories are THIS driver's (vocab.lua); the platform translates its
+--- learning categories to them before publishing.
+---
 --- Document (schema 1; the values shown are an example, not the defaults):
 ---   {
 ---     "schema": 1,
@@ -38,7 +48,7 @@ local M = {}
 
 M.SCHEMA = 1
 M.LIMITS = {
-  excluded_rooms = 256,
+  excluded_rooms = 500, -- = the platform's settings bound (SETTINGS_LIMITS.excludedRooms): a saved list arrives whole
   excluded_categories = 16,
   variables = 32,
   provider_name = 40,

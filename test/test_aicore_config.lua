@@ -222,6 +222,15 @@ check(
 )
 check("the masked status string itself is fine", Config.validate({ credential_status = "Not configured" }) ~= nil)
 
+print("[bounds] excluded rooms: the platform's bound, exactly")
+local rooms = {}
+for i = 1, 500 do
+  rooms[i] = 2147483647 - i
+end
+check("500 room ids (the platform's SETTINGS_LIMITS.excludedRooms) are accepted", Config.validate({ exclusions = { rooms = rooms } }) ~= nil)
+rooms[501] = 1
+check("501 are refused", Config.validate({ exclusions = { rooms = rooms } }) == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

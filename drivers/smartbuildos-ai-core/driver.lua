@@ -255,6 +255,17 @@ end
 --- Builds an envelope in this module's identity and routes it. Returns the
 --- envelope (or nil when the envelope itself was refused).
 local function record(fields)
+  -- Cut every payload string and the label between UTF-8 characters to the
+  -- envelope's byte bounds first: sbos.envelope would cut them mid-character
+  -- and the Agent could not decode the frame (KNOWN-ISSUES.md KI-1).
+  local payload, cut = Commands.boundPayloadText(fields.payload)
+  fields.payload = payload
+  if cut then
+    fields.quality = "partial" -- what the envelope says when it cuts
+  end
+  if fields.label ~= nil then
+    fields.label = Commands.cutBytes(tostring(fields.label), Commands.ENVELOPE_LABEL_BYTES)
+  end
   local env, why = client.event(fields)
   if env == nil then
     gCounters.events_unrecordable = gCounters.events_unrecordable + 1
@@ -493,16 +504,29 @@ local function applyConfig(raw, version, source)
   gConfig = cfg
   gConfigVersion = tonumber(version) or gConfigVersion
   gConfigError = ""
-  -- The document's learning flag is the platform's latest word on learning
-  -- (a licence without AI_LEARNING keeps it paused, and says so).
-  local learningBlock = cfg.learning.active and licenceBlocks("AI_LEARNING") or nil
-  -- A document that does not mention learning leaves it OFF (the default).
-  local stated = type(raw.learning) == "table"
-  gLearning = {
-    active = cfg.learning.active and learningBlock == nil,
-    source = source,
-    reason = learningBlock or (stated and "" or "the configuration does not switch it on"),
-  }
+  -- Precedence (DRIVER.md §9): the document is the source of truth on
+  -- learning. A set_learning that previews a NEWER document (until_version
+  -- above this one) stays in force until that document arrives; any document
+  -- of at least that version decides.
+  if gLearning.until_version ~= nil and gConfigVersion < gLearning.until_version then
+    log:info(
+      "configuration v%s applied; learning stays %s (set_learning previews v%s)",
+      tostring(gConfigVersion),
+      gLearning.active and "on" or "off",
+      tostring(gLearning.until_version)
+    )
+  else
+    -- The document's learning flag is the platform's latest word on learning
+    -- (a licence without AI_LEARNING keeps it paused, and says so).
+    local learningBlock = cfg.learning.active and licenceBlocks("AI_LEARNING") or nil
+    -- A document that does not mention learning leaves it OFF (the default).
+    local stated = type(raw.learning) == "table"
+    gLearning = {
+      active = cfg.learning.active and learningBlock == nil,
+      source = source,
+      reason = learningBlock or (stated and "" or "the configuration does not switch it on"),
+    }
+  end
   persist:set(LEARNING_KEY, gLearning)
   persistConfig()
   gLast.sync_at = now()
@@ -845,8 +869,11 @@ local function runCommand(name, params)
   saveLast()
 
   if name == "AI_RECORD_EVENT" then
-    -- AI Core's own marker: exclusions and the paused state apply first.
-    local ok, why = gCollector:admit({ room_id = cmd.args.room_id, category = cmd.args.category })
+    -- A dealer's explicit marker, not learning: recorded whether learning is
+    -- off, on or paused; excluded rooms (Commands.build) and excluded
+    -- categories still refuse it. The cloud's learning engine never learns
+    -- from ai_core.record (it reads only observation.change).
+    local ok, why = gCollector:admitMarker({ room_id = cmd.args.room_id, category = cmd.args.category })
     if not ok then
       refuseLocally(name, "not_permitted", "not recorded (" .. why .. ")")
       return
@@ -899,6 +926,11 @@ end
 local OPS = {}
 
 function OPS.apply_config(op)
+  -- A queued apply_config can arrive after the Agent already forwarded a
+  -- newer document: an older version never replaces a newer one.
+  if op.version < gConfigVersion then
+    return "Completed", "configuration v" .. tostring(op.version) .. " superseded; v" .. tostring(gConfigVersion) .. " kept"
+  end
   local applied, refusals = applyConfig(op.config, op.version, "operation")
   client.sendStatus({
     applied_config_version = tostring(gConfigVersion),
@@ -989,14 +1021,35 @@ function OPS.raise_event(op, request)
   return "Completed", "fired " .. op.event
 end
 
+--- Precedence (DRIVER.md §9): the configuration DOCUMENT is the source of
+--- truth; set_learning previews it so a pause takes effect at once.
+---   config_version given and already applied (or older) → ignored, the
+---     document in force decides (idempotent; a stale one cannot undo it);
+---   otherwise → applied now and held until a document of at least
+---     config_version (without one: newer than the version in force) is
+---     applied, which then decides;
+---   switching ON is refused while the last document was refused: the
+---     controller cannot know what the platform's settings are.
 function OPS.set_learning(op)
+  if op.config_version ~= nil and op.config_version <= gConfigVersion then
+    return "Completed",
+      "configuration v" .. tostring(gConfigVersion) .. " already decides learning (" .. learningText() .. ")"
+  end
   if op.active then
+    if gConfigError ~= "" then
+      return "Failed", "the last configuration was refused (" .. gConfigError .. "); learning stays off until a valid one"
+    end
     local block = licenceBlocks("AI_LEARNING")
     if block ~= nil then
       return "Failed", block
     end
   end
-  gLearning = { active = op.active, source = "System Studio", reason = op.reason or "" }
+  gLearning = {
+    active = op.active,
+    source = "System Studio",
+    reason = op.reason or "",
+    until_version = op.config_version or (gConfigVersion + 1),
+  }
   persist:set(LEARNING_KEY, gLearning)
   applyCollection()
   refresh("learning")
@@ -1163,8 +1216,12 @@ local function restore()
   end
   local learning = persist:get(LEARNING_KEY, false)
   if type(learning) == "table" and type(learning.active) == "boolean" then
-    gLearning =
-      { active = learning.active, source = tostring(learning.source or "?"), reason = tostring(learning.reason or "") }
+    gLearning = {
+      active = learning.active,
+      source = tostring(learning.source or "?"),
+      reason = tostring(learning.reason or ""),
+      until_version = tonumber(learning.until_version),
+    }
   else
     gLearning = { active = gConfig.learning.active, source = "default", reason = "" }
   end
@@ -1465,12 +1522,10 @@ function EC.SYNC_NOW()
   client.sendStatus()
   if (client.protocol() or 0) >= 2 then
     local requestId = newRequestId()
-    client.cloudRequest("status", {
-      request_id = requestId,
-      applied_config_version = gConfigVersion,
-      learning_active = learningActive(),
-      flight_recorder = gFr.state,
-    }, { idempotency_key = requestId }, function(answer)
+    -- status takes no fields of its own (rpc/ops.ts OP_BODIES.status: COMMON
+    -- only; an unknown key is invalid_args). What the platform shows about
+    -- this driver travels in SBOS_MODULE_STATUS instead.
+    client.cloudRequest("status", { request_id = requestId }, { idempotency_key = requestId }, function(answer)
       if answer.status == "ok" then
         gLast.sync_at = now()
         gCloudUnreachable = false
