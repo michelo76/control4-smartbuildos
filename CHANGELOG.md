@@ -22,6 +22,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **SmartBuildOS module contract v2 (Agent + module client).** A strict
+  superset of v1 (protocol 1..2 negotiated; v1 modules unchanged): capability
+  manifest on registration, discovery with debounced directory-change pushes,
+  local pub/sub of envelopes the Agent accepted (bounded, lossy by design),
+  module-to-module requests routed by the Agent with sender stamping, closed
+  policy tables, idempotency, deadlines and cursor paging, a closed-vocabulary
+  cloud relay to `/api/integrations/control4/modules/rpc`, per-module rate
+  limits, bus counters on the heartbeat, and registration tokens from
+  `C4:UUID("RANDOM")`. Spec: `docs/protocol/MODULE-CONTRACT-V2.md`.
+  Emulator-verified only; bench validation owed.
+
 - **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial AV
   control surface on an existing Control4 project.** Four operator screens on
   one UI Button tile (Visual Floor Plan, Command Center, Simplified Room

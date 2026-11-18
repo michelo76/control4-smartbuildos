@@ -2,8 +2,10 @@
 
 Status: implemented on driver branch `feat/flight-recorder` and web branch
 `codex/flight-recorder`; simulator-verified; bench validation owed
-(`VERIFICATION.md`). Versioned: `PROTOCOL_MIN = PROTOCOL_MAX = 1` on both
-sides (`src/sbos/modules.lua`, `src/sbos/moduleclient.lua`).
+(`VERIFICATION.md`). Versioned: this document is protocol 1. Both sides now
+negotiate `PROTOCOL_MIN = 1`, `PROTOCOL_MAX = 2` (`src/sbos/modulepolicy.lua`);
+everything here is unchanged in v2, which adds discovery, pub/sub, module
+requests and the cloud relay: `docs/protocol/MODULE-CONTRACT-V2.md`.
 
 ## 1. Parties and trust
 
