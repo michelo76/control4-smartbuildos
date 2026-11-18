@@ -199,7 +199,9 @@ const ki = read("docs/ai-core/KNOWN-ISSUES.md");
 for (const m of new Set([...prose.matchAll(/\bKI-(\d+)\b/g)].map((x) => x[1]))) ok(new RegExp(`\\bKI-${m}\\b`).test(ki), `KI-${m} exists in KNOWN-ISSUES.md`);
 
 // ── checklist: statuses the guide claims ──
-const CHECKLIST = process.env.AI_CORE_CHECKLIST || path.join(path.resolve(repo, ".."), "ai-core-program/IMPLEMENTATION_CHECKLIST.md");
+// The copy committed in this repo is read first, so the status checks run on any
+// machine; the programme folder beside the repo is the fallback.
+const CHECKLIST = process.env.AI_CORE_CHECKLIST || [path.join(repo, "docs/ai-core/program/IMPLEMENTATION_CHECKLIST.md"), path.join(path.resolve(repo, ".."), "ai-core-program/IMPLEMENTATION_CHECKLIST.md")].find((f) => fs.existsSync(f)) || "";
 if (fs.existsSync(CHECKLIST)) {
   const cl = fs.readFileSync(CHECKLIST, "utf8");
   const items = {};
