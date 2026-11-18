@@ -280,15 +280,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   and room and device names from Director are cut to 64 / 120 characters on a
   character boundary — a long or odd name used to make the whole command fail
   `invalid_args`. Typed text is counted in characters (as the platform counts),
-  not bytes, and still refused over its bound. Envelope labels, `Last Error`
-  and the `raise_event` detail are cut between UTF-8 characters too. (2)
-  **Learning is off by default**: with no configuration, a document that does
-  not mention it, or after an invalid document, learning is off
-  (`LEARNING_ACTIVE` false, `Learning Status` says so) and nothing is
-  collected; every collection source also defaults to off. A valid document
-  that says on turns it on. (3) `DRIVER.md` and the dealer manual mark every
-  required parameter (`AI_GENERATE_REPORT` `TYPE` and `PERIOD` included) and
-  default, and say that `AI_LAST_RESPONSE` holds up to 1024 **bytes**. Tests:
+  not bytes, and still refused over its bound. Envelope labels, `Last Error` and
+  the `raise_event` detail are cut between UTF-8 characters too. (2) **Learning
+  is off by default**: with no configuration, a document that does not mention
+  it, or after an invalid document, learning is off (`LEARNING_ACTIVE` false,
+  `Learning Status` says so) and nothing is collected; every collection source
+  also defaults to off. A valid document that says on turns it on. (3)
+  `DRIVER.md` and the dealer manual mark every required parameter
+  (`AI_GENERATE_REPORT` `TYPE` and `PERIOD` included) and default, and say that
+  `AI_LAST_RESPONSE` holds up to 1024 **bytes**. Tests:
   `test/test_aicore_learning_default.lua` (new), `test_aicore_commands.lua`
   [6]–[7], parity [8] (the `room_name`/`device_name` NOTE lines are now
   assertions). Simulation only.
