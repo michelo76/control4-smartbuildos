@@ -139,7 +139,12 @@ local m = Collector.new({
     return 0
   end,
 })
-m:setPolicy({ active = false, excludedRooms = { [3] = true }, excludedCategories = { security = true }, maxPerMinute = 1 })
+m:setPolicy({
+  active = false,
+  excludedRooms = { [3] = true },
+  excludedCategories = { security = true },
+  maxPerMinute = 1,
+})
 check("learning off: admit refuses (paused)", select(2, m:admit({ category = "general" })) == "paused")
 check("learning off: admitMarker admits", m:admitMarker({ category = "general" }) == true)
 check("excluded room refused", select(2, m:admitMarker({ room_id = 3, category = "general" })) == "excluded_room")

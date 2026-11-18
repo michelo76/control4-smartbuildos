@@ -929,7 +929,8 @@ function OPS.apply_config(op)
   -- A queued apply_config can arrive after the Agent already forwarded a
   -- newer document: an older version never replaces a newer one.
   if op.version < gConfigVersion then
-    return "Completed", "configuration v" .. tostring(op.version) .. " superseded; v" .. tostring(gConfigVersion) .. " kept"
+    return "Completed",
+      "configuration v" .. tostring(op.version) .. " superseded; v" .. tostring(gConfigVersion) .. " kept"
   end
   local applied, refusals = applyConfig(op.config, op.version, "operation")
   client.sendStatus({
@@ -1037,7 +1038,8 @@ function OPS.set_learning(op)
   end
   if op.active then
     if gConfigError ~= "" then
-      return "Failed", "the last configuration was refused (" .. gConfigError .. "); learning stays off until a valid one"
+      return "Failed",
+        "the last configuration was refused (" .. gConfigError .. "); learning stays off until a valid one"
     end
     local block = licenceBlocks("AI_LEARNING")
     if block ~= nil then

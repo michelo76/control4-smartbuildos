@@ -774,15 +774,23 @@ check(
   "AI_CORE_DRIVER_LIMITS.eventDetail (protocol.ts) = vocab.lua event_detail",
   tonumber(protocolTs:match("eventDetail: (%d+)")) == V.LIMITS.event_detail
 )
-check("the platform's bound in characters ≤ the driver's in bytes", detailMax ~= nil and detailMax <= V.LIMITS.event_detail)
+check(
+  "the platform's bound in characters ≤ the driver's in bytes",
+  detailMax ~= nil and detailMax <= V.LIMITS.event_detail
+)
 local ascii = Operations.parse("raise_event", { event = "pattern_detected", detail = string.rep("a", detailMax or 0) })
 check(
   "a " .. tostring(detailMax) .. "-character ASCII detail is kept whole",
   ascii ~= nil and #ascii.detail == detailMax and not ascii.detail_truncated
 )
-local wide = Operations.parse("raise_event", { event = "pattern_detected", detail = string.rep("\240\159\146\161", detailMax or 0) })
+local wide = Operations.parse(
+  "raise_event",
+  { event = "pattern_detected", detail = string.rep("\240\159\146\161", detailMax or 0) }
+)
 check(
-  "a " .. tostring(detailMax) .. "-character 4-byte detail (960 bytes) is accepted, cut to ≤ 512 bytes between characters",
+  "a "
+    .. tostring(detailMax)
+    .. "-character 4-byte detail (960 bytes) is accepted, cut to ≤ 512 bytes between characters",
   wide ~= nil
     and wide.detail_truncated == true
     and #wide.detail <= V.LIMITS.event_detail

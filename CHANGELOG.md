@@ -32,22 +32,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   platform translates its learning categories to the driver's.
 - **AI Core: a pause takes effect at once.** `set_learning` gains
   `config_version`: System Studio sends it (and `apply_config` for exclusions)
-  as soon as learning or exclusions change. The configuration document stays
-  the source of truth: an operation for a version already applied is ignored,
-  a preview holds only until that version's document arrives, an older
+  as soon as learning or exclusions change. The configuration document stays the
+  source of truth: an operation for a version already applied is ignored, a
+  preview holds only until that version's document arrives, an older
   `apply_config` never replaces a newer document, and learning cannot be
   switched on over a refused document.
 - **AI Core: `AI_RECORD_EVENT` works with learning off or paused** (it is a
-  dealer's marker, not learning); excluded rooms and categories still refuse
-  it.
-- **AI Core: payload text is cut between characters.** A long non-ASCII
-  `DETAIL` or question used to reach the shared envelope, which cut it in the
-  middle of a character; the Agent then refused the whole frame as malformed.
-  AI Core now cuts every payload string and label between characters itself.
-  The shared envelope is unchanged for the other drivers
-  (`docs/ai-core/KNOWN-ISSUES.md` KI-1).
-- **AI Core: Sync Now's `status` request carries only its request id**, the
-  only field the platform accepts.
+  dealer's marker, not learning); excluded rooms and categories still refuse it.
+- **AI Core: payload text is cut between characters.** A long non-ASCII `DETAIL`
+  or question used to reach the shared envelope, which cut it in the middle of a
+  character; the Agent then refused the whole frame as malformed. AI Core now
+  cuts every payload string and label between characters itself. The shared
+  envelope is unchanged for the other drivers (`docs/ai-core/KNOWN-ISSUES.md`
+  KI-1).
+- **AI Core: Sync Now's `status` request carries only its request id**, the only
+  field the platform accepts.
 
 ### Added
 
@@ -489,35 +488,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed -->
 
 ## Unreleased
-
-### Fixed
-
-- **AI Core: the configuration System Studio publishes is now accepted, so
-  learning can be switched on.** The platform's document had a different shape
-  from the driver's schema 1 and was refused whole, which kept learning off.
-  Both sides now build to the same contract; the platform's golden documents are
-  fed to the driver's validator by the cross-repo parity test and delivered
-  through the real Agent in the emulator. Excluded rooms go up to 500 (the
-  platform's own bound). A room is the Director room id on both sides; the
-  platform translates its learning categories to the driver's.
-- **AI Core: a pause takes effect at once.** `set_learning` gains
-  `config_version`: System Studio sends it (and `apply_config` for exclusions)
-  as soon as learning or exclusions change. The configuration document stays
-  the source of truth: an operation for a version already applied is ignored,
-  a preview holds only until that version's document arrives, an older
-  `apply_config` never replaces a newer document, and learning cannot be
-  switched on over a refused document.
-- **AI Core: `AI_RECORD_EVENT` works with learning off or paused** (it is a
-  dealer's marker, not learning); excluded rooms and categories still refuse
-  it.
-- **AI Core: payload text is cut between characters.** A long non-ASCII
-  `DETAIL` or question used to reach the shared envelope, which cut it in the
-  middle of a character; the Agent then refused the whole frame as malformed.
-  AI Core now cuts every payload string and label between characters itself.
-  The shared envelope is unchanged for the other drivers
-  (`docs/ai-core/KNOWN-ISSUES.md` KI-1).
-- **AI Core: Sync Now's `status` request carries only its request id**, the
-  only field the platform accepts.
 
 ### Added
 

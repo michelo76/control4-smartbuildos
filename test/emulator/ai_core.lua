@@ -632,7 +632,11 @@ else
   check("… acked as applied v11", acked(11))
   -- The prompt path: set_learning previewing v12, then the v12 document.
   local state = moduleCommand(S, agent, "set_learning", { active = true, reason = "resumed", config_version = 12 })
-  check("set_learning(true) previewing v12 → Completed, learning ON at once", state == "Completed" and learningOn(), state)
+  check(
+    "set_learning(true) previewing v12 → Completed, learning ON at once",
+    state == "Completed" and learningOn(),
+    state
+  )
   local acks = #S.cloud.events
   heartbeatConfig(S, agent, paused.document, 10)
   check(
