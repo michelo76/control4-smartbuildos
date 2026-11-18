@@ -166,6 +166,10 @@ local function aiReceive(command, params)
     if ai.reason ~= nil then
       result.reason = ai.reason
     end
+    if ai.needDescribe ~= nil and okA and type(args) == "table" then
+      -- The real AI Core says need_describe while it holds no describe.
+      result.need_describe = ai.needDescribe(args)
+    end
     agent.bus:response(ai.entry, {
       request_id = params.request_id,
       status = "ok",
@@ -958,7 +962,11 @@ do
   check("event: at most 10 a minute, the rest dropped (counted)", okCount == 10 and #reportsOfKind("event") == e0 + 10)
   check("…rate_limited counter", aireport.counters().rate_limited >= 2)
   local ev = reportsOfKind("event")[#reportsOfKind("event")].args
-  check("event text cut to 240, `at` stamped", #ev.text == 240 and ev.at:match("^%d%d%d%d%-%d%d%-%d%dT") ~= nil)
+  check(
+    "event text cut to 240, `at` stamped in epoch seconds (a whole number)",
+    #ev.text == 240 and type(ev.at) == "number" and ev.at == math.floor(ev.at) and math.abs(ev.at - os.time()) < 3600,
+    tostring(ev.at)
+  )
 
   -- diagnostic
   check("diagnostic severity closed", aireport.diagnostic("critical", "a.b", "x") == false)
@@ -1339,6 +1347,63 @@ do
   local n = count("SBOS_MODULE_REQUEST")
   aireport.event("weather.change", "x")
   check("nothing is sent after stop", count("SBOS_MODULE_REQUEST") == n)
+end
+
+print("[13a] need_describe (AI Core holds no describe for us): describe re-sent at once (KI-43 closed)")
+do
+  fresh()
+  newAgent(2)
+  aireport.start({ sku = "SBOS_ATMOSPHERE", summary = "Weather for the home." })
+  aiRegister()
+  pushDirectory()
+  check("(reporting)", #reportsOfKind("describe") == 1 and value():find("^Found — reporting") ~= nil, value())
+  -- AI Core restarted without going stale: it holds nothing now. Like the
+  -- real hub, it says need_describe until a describe arrives.
+  local held = false
+  ai.needDescribe = function(args)
+    if args.kind == "describe" then
+      held = true
+    end
+    return not held
+  end
+  local d0 = #reportsOfKind("describe")
+  aireport._clock = function()
+    return os.time() + 61
+  end
+  aireport.state({ temperature_f = 80 })
+  check("a state answered need_describe -> the same-hash describe goes again at once", #reportsOfKind("describe") == d0 + 1)
+  check("…counted", aireport.counters().describe_requested == 1, aireport.counters().describe_requested)
+  aireport._clock = function()
+    return os.time() + 122
+  end
+  aireport.state({ temperature_f = 81 })
+  check("once AI Core holds it, no further describe", #reportsOfKind("describe") == d0 + 1)
+  -- An AI Core that REFUSED this describe (invalid): need_describe does not
+  -- loop it back.
+  held = false
+  ai.accepted, ai.reason = false, "invalid"
+  ai.needDescribe = function()
+    return true
+  end
+  aireport._clock = function()
+    return os.time() + 183
+  end
+  aireport.state({ temperature_f = 82 }) -- refused + need_describe -> describe (refused)
+  local d1 = #reportsOfKind("describe")
+  aireport._clock = function()
+    return os.time() + 244
+  end
+  aireport.state({ temperature_f = 83 })
+  aireport._clock = function()
+    return os.time() + 305
+  end
+  aireport.state({ temperature_f = 84 })
+  check(
+    "a describe AI Core refused (invalid) is not re-sent on need_describe",
+    #reportsOfKind("describe") == d1,
+    #reportsOfKind("describe") - d1
+  )
+  ai.accepted, ai.reason, ai.needDescribe = true, nil, nil
 end
 
 print("[14] over the whole run: every closed value was reached, nothing else was painted")

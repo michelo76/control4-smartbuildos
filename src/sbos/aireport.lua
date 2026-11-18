@@ -356,8 +356,10 @@ local function now()
   return (M._clock or os.time)()
 end
 
-local function isoNow()
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", now())
+--- `at` of an event / diagnostic: epoch seconds, a whole number (the
+--- driver_reports wire takes epoch seconds end to end).
+local function epochNow()
+  return math.floor(now())
 end
 
 local function finite(n)
@@ -675,6 +677,8 @@ local function fresh()
     describeHash = nil, -- last describe hash ACCEPTED by AI Core
     describeSentHash = nil,
     describeAt = nil,
+    describeInFlight = false,
+    describeRefusedHash = nil, -- AI Core refused this describe (invalid / too_large)
     facts = {}, -- the driver's own facts (state())
     lastStateSent = nil,
     windows = { state = {}, event = {}, diagnostic = {} },
@@ -693,6 +697,7 @@ local function fresh()
       requests_refused = 0,
       values_refused = 0,
       discovers = 0,
+      describe_requested = 0, -- describes re-sent because AI Core said need_describe
     },
   }
 end
@@ -827,8 +832,12 @@ local function windowTake(kind)
 end
 
 local discover -- forward
+local sendDescribe -- forward
 
 local function onAnswer(kind, body, answer)
+  if kind == "describe" then
+    S.describeInFlight = false
+  end
   if answer.status == "ok" then
     S.notResponding = false
     local r = type(answer.result) == "table" and answer.result or {}
@@ -853,7 +862,22 @@ local function onAnswer(kind, body, answer)
       if r.reason == "unsupported_version" then
         S.unsupportedVersion = true
       end
+      if kind == "describe" and (r.reason == "invalid" or r.reason == "too_large") then
+        -- The same describe would be refused again: need_describe does not
+        -- re-send it (a changed describe has a new hash and goes).
+        S.describeRefusedHash = body.hash
+      end
       -- rate_limited / invalid / too_large leave the property as it is.
+    end
+    -- AI Core holds no describe for us (it restarted, or never got one):
+    -- send it again now (KI-43 closed), unless one is on its way or AI Core
+    -- refused this very describe.
+    if r.need_describe == true and kind ~= "describe" and not S.describeInFlight and reportable() then
+      if M.buildDescribe().hash ~= S.describeRefusedHash then
+        S.describeHash = nil
+        S.counters.describe_requested = S.counters.describe_requested + 1
+        sendDescribe(true)
+      end
     end
   else
     S.counters.refused = S.counters.refused + 1
@@ -946,7 +970,7 @@ end
 --- when the hash changed, or when the same hash was last sent at least
 --- 10 minutes ago (so an AI Core that restarted without going stale gets
 --- it back at the next directory change after that).
-local function sendDescribe(force)
+sendDescribe = function(force)
   local d = M.buildDescribe()
   if
     not force
@@ -956,10 +980,13 @@ local function sendDescribe(force)
   then
     return false, "unchanged"
   end
+  S.describeInFlight = true
   local ok, why = send("describe", d)
   if ok then
     S.describeSentHash = d.hash
     S.describeAt = now()
+  else
+    S.describeInFlight = false
   end
   return ok, why
 end
@@ -1103,6 +1130,7 @@ local function onDirectory(dir, code)
     S.unsupportedVersion = false
     S.notResponding = false
     S.describeHash = nil
+    S.describeRefusedHash = nil
     S.lastStateSent = nil
   elseif prev ~= nil and validVersion(prev.version) and t.version == "unknown" then
     t.version = prev.version
@@ -1554,7 +1582,7 @@ function M.event(eventType, text, data)
     type = eventType,
     text = M.clean(text, M.LIMITS.event_text),
     data = d,
-    at = isoNow(),
+    at = epochNow(),
   })
 end
 
@@ -1579,7 +1607,7 @@ function M.diagnostic(severity, code, text)
     severity = severity,
     code = code,
     text = M.clean(text, M.LIMITS.diagnostic_text),
-    at = isoNow(),
+    at = epochNow(),
   })
 end
 
