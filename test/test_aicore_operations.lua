@@ -131,6 +131,37 @@ local b, c2 = O.boundResponse(string.rep("x", 2000))
 check("cut to 1024 with a marker", #b == 1024 and c2 == true and b:sub(-3) == "...")
 local u = O.boundResponse(string.rep("€", 400)) -- 3-byte characters
 check("never splits a UTF-8 character", #u <= 1024 and (u:sub(1, -4):len() % 3) == 0)
+local det = O.parse("raise_event", { event = "pattern_detected", detail = "a" .. string.rep("€", 200) })
+check(
+  "raise_event detail: bounded to 512 bytes, cut between characters",
+  #det.detail <= 512 and det.detail == "a" .. string.rep("€", 170) and det.detail_truncated == true,
+  #det.detail
+)
+-- AI_LAST_RESPONSE is bounded in BYTES (1024, the 3-byte "..." included)
+check(
+  "exactly 1024 bytes of 2-byte characters: kept whole",
+  O.boundResponse(string.rep("é", 512)) == string.rep("é", 512)
+)
+local at1025, cutAt = O.boundResponse("x" .. string.rep("é", 512)) -- 1025 bytes
+check(
+  "1025 bytes: cut to 1021 bytes of whole characters + '...'",
+  cutAt == true and at1025 == "x" .. string.rep("é", 510) .. "..." and #at1025 == 1024,
+  #at1025
+)
+for offset = 0, 3 do
+  -- 4-byte characters shifted so the 1021-byte cut lands on each byte of one
+  local t = string.rep("a", offset) .. string.rep("😀", 300)
+  local r = O.boundResponse(t)
+  local body = r:sub(1, -4)
+  check(
+    "4-byte characters, offset " .. offset .. ": no partial sequence before the marker",
+    #r <= 1024
+      and #body >= 1017
+      and (#body - offset) % 4 == 0
+      and body:sub(offset + 1) == string.rep("😀", (#body - offset) / 4),
+    #body
+  )
+end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

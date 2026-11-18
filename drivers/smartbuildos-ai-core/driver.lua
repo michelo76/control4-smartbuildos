@@ -175,7 +175,7 @@ end
 --- kind: what produced the error ("cloud" ones are cleared by the next
 --- accepted cloud answer; local refusals stay until something replaces them).
 local function setError(message, kind)
-  message = tostring(message or ""):sub(1, V.LIMITS.error_text)
+  message = Commands.cutBytes(tostring(message or ""), V.LIMITS.error_text) -- bytes, between characters
   gLast.error = message
   gLast.error_kind = message ~= "" and (kind or "local") or nil
   setVar("AI_LAST_ERROR", message)
@@ -994,10 +994,13 @@ function OPS.run_diagnostic(op, request)
   end
   local devices = projectDevices()
   local target = { device_id = op.device_id, room_id = op.room_id }
+  -- Director's names, cleaned and bounded as for a cloud body (start_diagnostic)
   if op.device_id ~= nil then
     target.device_name = devices[op.device_id] and devices[op.device_id].name or nil
+    target.device_name = target.device_name and Commands.sanitise(target.device_name, V.LIMITS.device_name) or nil
   else
     target.room_name = projectRooms()[op.room_id]
+    target.room_name = target.room_name and Commands.sanitise(target.room_name, V.LIMITS.room) or nil
   end
   runDiagnostic(target, request.request_id, "run_diagnostic", function(env, fields)
     local fr = fields.payload.flight_recorder
@@ -1091,7 +1094,7 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
     severity = "info",
     device_id = l.device_id,
     room_id = d.room_id,
-    label = tostring(d.name or l.device_id) .. ": " .. l.name,
+    label = Commands.cutBytes(tostring(d.name or l.device_id) .. ": " .. l.name, 120), -- between characters
     payload = {
       device_name = d.name,
       variable = l.name,

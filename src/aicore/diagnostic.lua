@@ -11,6 +11,7 @@
 --- with the cut counted.
 
 local Envelope = require("sbos.envelope")
+local Commands = require("aicore.commands")
 
 local M = {}
 
@@ -35,7 +36,7 @@ local function line(e)
       parts[#parts + 1] = tostring(v)
     end
   end
-  return table.concat(parts, " · "):sub(1, M.LIMITS.line)
+  return Commands.cutBytes(table.concat(parts, " · "), M.LIMITS.line) -- never half a character
 end
 
 --- @param target table { device_id?, room_id?, device_name?, room_name? }
@@ -105,8 +106,12 @@ function M.fields(target, fr, requestId, source)
     evidence_source = "derived",
     quality = recorder.available and "confirmed" or "partial",
     severity = "info",
-    label = "Local diagnostic: "
-      .. tostring(target.device_name or target.room_name or target.device_id or target.room_id or "?"),
+    -- the envelope cuts a label at 120 BYTES; cut it here first, between characters
+    label = Commands.cutBytes(
+      "Local diagnostic: "
+        .. tostring(target.device_name or target.room_name or target.device_id or target.room_id or "?"),
+      Envelope.LIMITS.label
+    ),
     device_id = target.device_id,
     room_id = target.room_id,
     correlation_id = requestId,

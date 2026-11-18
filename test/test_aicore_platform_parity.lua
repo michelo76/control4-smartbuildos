@@ -24,8 +24,10 @@
 --       detail, count and text bounds fit
 --   [8] cloud ops: every body key the driver sends is in rpc/ops.ts
 --       OP_BODIES (+ COMMON), every required field is in the minimal body,
---       enum lists equal, text bounds fit; {accepted, job_id: null} answers
---       read as completed, job answers as accepted
+--       enum lists equal, text bounds fit (Director's names included), the
+--       character rule and the unit of the bounds (code points) agree;
+--       {accepted, job_id: null} answers read as completed, job answers
+--       as accepted
 -- Reported, not asserted ([9] and NOTE lines in [7]/[8]): differences that
 -- break nothing today (a key the driver accepts that nobody sends, an op
 -- the platform answers `unsupported`, a body it does not validate); each
@@ -673,26 +675,63 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
           show(driverList, tsList)
         )
       elseif f.kind == "text" and d.full[field] ~= nil and field ~= "command" then
-        local bound = d.max[field]
-        if bound == nil then
-          note(
-            op
-              .. "."
-              .. field
-              .. ": the driver sends a name Director supplies, not bounded by the driver; the platform refuses over "
-              .. tostring(f.max)
-              .. " characters"
-          )
-        else
-          check(
-            op .. "." .. field .. ": the driver's bound " .. bound .. " fits the platform's " .. tostring(f.max),
-            f.max ~= nil and bound <= f.max
-          )
-        end
+        -- A typed parameter's bound (refused over it) and the body's last
+        -- guard (commands.lua BODY_TEXT_MAX: Director's names are cut to it)
+        -- must both fit the platform's bound for the field.
+        local typed, guard = d.max[field], Commands.BODY_TEXT_MAX[field]
+        check(
+          op .. "." .. field .. ": the driver bounds it before sending (BODY_TEXT_MAX." .. field .. ")",
+          guard ~= nil,
+          "unbounded: the platform refuses over " .. tostring(f.max) .. " characters"
+        )
+        check(
+          op
+            .. "."
+            .. field
+            .. ": the driver's bound "
+            .. tostring(typed or guard)
+            .. " fits the platform's "
+            .. tostring(f.max),
+          f.max ~= nil and guard ~= nil and guard <= f.max and (typed == nil or typed <= f.max)
+        )
       end
     end
   end
 end
+-- The character rule and the unit of every text bound.
+local unprintable = opsTs:match("const UNPRINTABLE = /%[(.-)%]/;")
+check("rpc/ops.ts UNPRINTABLE is readable", unprintable ~= nil)
+local ranges = {}
+for a, b in tostring(unprintable):gmatch("\\u(%x%x%x%x)%-\\u(%x%x%x%x)") do
+  ranges[#ranges + 1] = { tonumber(a, 16), tonumber(b, 16) }
+end
+for single in tostring(unprintable):gsub("\\u%x%x%x%x%-\\u%x%x%x%x", ""):gmatch("\\u(%x%x%x%x)") do
+  ranges[#ranges + 1] = { tonumber(single, 16), tonumber(single, 16) }
+end
+local notRefused = {}
+for _, r in ipairs(ranges) do
+  for cp = r[1], r[2] do
+    if not Commands.refusedCodePoint(cp) then
+      notRefused[#notRefused + 1] = string.format("U+%04X", cp)
+    end
+  end
+end
+check(
+  "every character the platform refuses in text (UNPRINTABLE: "
+    .. #ranges
+    .. " ranges) is removed by the driver (commands.lua refusedCodePoint)",
+  #ranges >= 3 and #notRefused == 0,
+  table.concat(notRefused, ",")
+)
+check(
+  "the platform counts text bounds in code points ([...t].length), as the driver does (commands.lua length)",
+  opsTs:find("[...t].length > f.max", 1, true) ~= nil and Commands.length("\195\169\240\159\152\128") == 2
+)
+check(
+  "the platform trims text before measuring it (v.trim()), as the driver does",
+  opsTs:find("v.trim()", 1, true) ~= nil and Commands.sanitise(" \194\160x\227\128\128 ") == "x"
+)
+
 -- Answer shapes.
 local syncNull = {}
 for name, block in opsTs:gmatch("handlers%.([%w_]+) = async(.-)\n%s+};") do

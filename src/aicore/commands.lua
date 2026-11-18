@@ -118,13 +118,170 @@ function M.normaliseEnum(s)
   return (tostring(s or ""):lower():gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", ""))
 end
 
---- Control characters out, whitespace collapsed at the ends.
-function M.clean(s)
+-- ─── Text the cloud accepts ────────────────────────────────────────────────
+--
+-- The platform (rpc/ops.ts validateOpBody) trims every text field with JS
+-- String.prototype.trim, refuses it when it contains a character of
+-- UNPRINTABLE (U+0000–U+0008, U+000B–U+001F, U+007F–U+009F, U+2028, U+2029)
+-- and when it is longer than its bound counted in CODE POINTS ([...t].length),
+-- and one bad field refuses the whole request (invalid_args). So every text
+-- the driver sends goes through sanitise(): each code point the platform
+-- refuses — and every other C0 control (TAB, LF) as well — becomes a space,
+-- a byte that is not well-formed UTF-8 is dropped (the JSON body must be
+-- valid UTF-8), the ends are trimmed with the platform's whitespace set, and
+-- `max` is a count of code points cut between two characters, never inside a
+-- multi-byte sequence.
+
+--- The bound of each text field of a cloud-op body, by its wire name (the
+--- platform's OP_BODIES bound for the same field: rpc/ops.ts). Names Director
+--- supplies (room_name, device_name) are cut to it; free text a programmer
+--- typed is REFUSED over it by build() (a question cut in half is a
+--- different question) and only cut here as a last guard.
+M.BODY_TEXT_MAX = {
+  question = L.question,
+  statement = L.statement,
+  value = L.value,
+  occasion = L.occasion,
+  title = L.title,
+  message = L.message,
+  room_name = L.room,
+  device_name = L.device_name,
+}
+
+--- What JS String.prototype.trim removes (WhiteSpace + LineTerminator).
+local JS_SPACE = {
+  [0x09] = true,
+  [0x0A] = true,
+  [0x0B] = true,
+  [0x0C] = true,
+  [0x0D] = true,
+  [0x20] = true,
+  [0xA0] = true,
+  [0x1680] = true,
+  [0x2028] = true,
+  [0x2029] = true,
+  [0x202F] = true,
+  [0x205F] = true,
+  [0x3000] = true,
+  [0xFEFF] = true,
+}
+for cp = 0x2000, 0x200A do
+  JS_SPACE[cp] = true
+end
+
+--- True for a code point the driver never sends: every C0 control, DEL,
+--- every C1 control, U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR.
+function M.refusedCodePoint(cp)
+  return cp < 0x20 or (cp >= 0x7F and cp <= 0x9F) or cp == 0x2028 or cp == 0x2029
+end
+
+--- Well-formed UTF-8 → list of { code point, bytes }; a byte that does not
+--- start a well-formed sequence (stray continuation, overlong form,
+--- surrogate, > U+10FFFF, truncated sequence) is dropped.
+local function decode(s)
+  local out = {}
+  local i, n = 1, #s
+  while i <= n do
+    local b = s:byte(i)
+    local len, cp, min
+    if b < 0x80 then
+      len, cp, min = 1, b, 0
+    elseif b >= 0xC2 and b <= 0xDF then
+      len, cp, min = 2, b - 0xC0, 0x80
+    elseif b >= 0xE0 and b <= 0xEF then
+      len, cp, min = 3, b - 0xE0, 0x800
+    elseif b >= 0xF0 and b <= 0xF4 then
+      len, cp, min = 4, b - 0xF0, 0x10000
+    end
+    local ok = len ~= nil and i + len - 1 <= n
+    if ok then
+      for k = 1, len - 1 do
+        local c = s:byte(i + k)
+        if c < 0x80 or c > 0xBF then
+          ok = false
+          break
+        end
+        cp = cp * 64 + (c - 0x80)
+      end
+    end
+    if ok and (cp < min or cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF)) then
+      ok = false
+    end
+    if ok then
+      out[#out + 1] = { cp, s:sub(i, i + len - 1) }
+      i = i + len
+    else
+      i = i + 1
+    end
+  end
+  return out
+end
+
+--- Length in code points (what the platform's bounds count).
+function M.length(s)
+  return #decode(tostring(s or ""))
+end
+
+--- Text the platform accepts: refused characters → space, malformed bytes
+--- dropped, ends trimmed, at most `max` code points (cut on a character
+--- boundary, then trimmed again). Never longer than its input.
+function M.sanitise(s, max)
   if s == nil then
     return ""
   end
-  local out = tostring(s):gsub("[%c]", " ")
-  return (out:gsub("^%s+", ""):gsub("%s+$", ""))
+  local chars = decode(tostring(s))
+  for _, c in ipairs(chars) do
+    if M.refusedCodePoint(c[1]) then
+      c[1], c[2] = 0x20, " "
+    end
+  end
+  local first, last = 1, #chars
+  while first <= last and JS_SPACE[chars[first][1]] do
+    first = first + 1
+  end
+  while last >= first and JS_SPACE[chars[last][1]] do
+    last = last - 1
+  end
+  if max ~= nil and last - first + 1 > max then
+    last = first + max - 1
+    while last >= first and JS_SPACE[chars[last][1]] do
+      last = last - 1
+    end
+  end
+  local parts = {}
+  for k = first, last do
+    parts[#parts + 1] = chars[k][2]
+  end
+  return table.concat(parts)
+end
+
+--- At most `maxBytes` bytes of UTF-8 text, cut between two characters.
+function M.cutBytes(s, maxBytes)
+  s = tostring(s or "")
+  if #s <= maxBytes then
+    return s
+  end
+  local cut = maxBytes
+  -- back off while the byte after the cut continues a character
+  while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and s:byte(cut + 1) < 0xC0 do
+    cut = cut - 1
+  end
+  return s:sub(1, cut)
+end
+
+--- A typed parameter, cleaned (no bound: build() refuses over-long text).
+function M.clean(s)
+  return M.sanitise(s)
+end
+
+--- A name Director supplies, cut to the platform's bound; nil when nothing
+--- printable is left (the field is then not sent).
+local function boundName(s, max)
+  if s == nil then
+    return nil
+  end
+  local v = M.sanitise(s, max)
+  return v ~= "" and v or nil
 end
 
 local function refusal(name, message)
@@ -138,8 +295,8 @@ local function resolveRoom(raw, ctx)
   if s == "" then
     return nil, nil
   end
-  if #s > L.room then
-    return nil, "longer than " .. L.room .. " characters"
+  if M.length(s) > L.room then
+    return nil, "longer than " .. L.room .. " characters (use the room id)"
   end
   local rooms = (ctx and ctx.rooms and ctx.rooms()) or {}
   local id = tonumber(s)
@@ -147,12 +304,12 @@ local function resolveRoom(raw, ctx)
     if rooms[id] == nil then
       return nil, "no room " .. s .. " in this project"
     end
-    return { id = id, name = rooms[id] }
+    return { id = id, name = boundName(rooms[id], L.room) }
   end
   local wanted = s:lower()
   for rid, name in pairs(rooms) do
-    if tostring(name):lower() == wanted then
-      return { id = rid, name = name }
+    if M.clean(name):lower() == wanted then
+      return { id = rid, name = boundName(name, L.room) }
     end
   end
   return nil, "no room named '" .. s .. "' in this project"
@@ -172,7 +329,12 @@ local function resolveDevice(raw, ctx)
   if d == nil then
     return nil, "no device " .. s .. " in this project"
   end
-  return { id = id, name = d.name, room_id = d.room_id, room_name = d.room_name }
+  return {
+    id = id,
+    name = boundName(d.name, L.device_name),
+    room_id = d.room_id,
+    room_name = boundName(d.room_name, L.room),
+  }
 end
 
 --- @param name string Composer command name
@@ -196,7 +358,7 @@ function M.build(name, params, ctx)
         if p.required then
           return nil, refusal(key, "is required")
         end
-      elseif #v > p.max then
+      elseif M.length(v) > p.max then
         return nil, refusal(key, "longer than " .. p.max .. " characters")
       else
         cmd.args[key:lower()] = v
@@ -281,7 +443,7 @@ function M.envelope(cmd, requestId)
       evidence_source = "instrumented",
       quality = "unreviewed_text",
       severity = SAFETY[args.category] and "warning" or "info",
-      label = tostring(args.name or ""):sub(1, 120),
+      label = M.cutBytes(args.name, 120), -- the envelope's label bound is bytes
       room_id = args.room_id,
       correlation_id = requestId,
       payload = {
@@ -323,6 +485,14 @@ function M.body(cmd, requestId, extra)
   end
   for k, v in pairs(extra or {}) do
     body[k] = v
+  end
+  -- Last guard: every bounded text field satisfies the platform's rule for
+  -- that field, whatever built it (an empty one is not sent at all).
+  for k, max in pairs(M.BODY_TEXT_MAX) do
+    if type(body[k]) == "string" then
+      local v = M.sanitise(body[k], max)
+      body[k] = v ~= "" and v or nil
+    end
   end
   return body
 end

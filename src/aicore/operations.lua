@@ -89,7 +89,12 @@ local function cleanText(v, max)
   end
   local s = v:gsub("%z", ""):gsub("[\1-\8\11\12\14-\31\127]", " ")
   if #s > max then
-    return s:sub(1, max), true
+    -- bounded in BYTES, cut between two UTF-8 characters (never half of one)
+    local cut = max
+    while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and s:byte(cut + 1) < 0xC0 do
+      cut = cut - 1
+    end
+    return s:sub(1, cut), true
   end
   return s, false
 end
