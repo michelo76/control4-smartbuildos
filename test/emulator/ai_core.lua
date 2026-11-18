@@ -165,12 +165,18 @@ d:setProperty(agent, "Automatic Updates", "Off")
 d:advance(1000)
 d:setProperty(agent, "Pairing Code", "ABCD-2345")
 d:advance(5000)
--- The Agent registers Director system events only in a LateInit that finds
--- it already paired (drivers/smartbuildos/driver.lua OnDriverLateInit), so
--- an Agent paired at run time hears none until it reloads. Reload it once,
--- as a real install is after its first update/restart.
-d:updateDriver(agent)
-d:advance(5000)
+-- No reload here: the Agent is paired at run time and must register for
+-- Director system events on that transition (it used to do so only in a
+-- LateInit that found it already paired; this scenario then needed a reload).
+print("[0] an Agent paired while running hears Director system events")
+local heard0 = (agent.env.gSystemEventCounts or {}).OnItemAdded or 0
+d:fireSystemEvent(7, '<event name="OnItemAdded" id="7"/>')
+d:advance(1000)
+check(
+  "the run-time-paired Agent received OnItemAdded without a reload",
+  ((agent.env.gSystemEventCounts or {}).OnItemAdded or 0) == heard0 + 1,
+  (agent.env.gSystemEventCounts or {}).OnItemAdded
+)
 
 -- Every frame AI Core sends, and where (the equipment-control proof).
 local aicId = nil

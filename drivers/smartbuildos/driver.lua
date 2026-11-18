@@ -361,6 +361,11 @@ local gStart = { count = 0, at = nil, kind = nil, restart = nil, today = 0, day 
 --- Every Director system event seen since this start, by name. Shipped on
 --- the heartbeat so the fleet tells us which events each OS actually fires.
 gSystemEventCounts = {}
+--- Director system-event ids this load has registered for (id -> true). A
+--- global, not a local: this chunk is at Lua's 200-local ceiling. Lets
+--- RegisterSystemEvents run at start AND on the pairing transition without
+--- registering an id twice; reset by a Director reload with everything else.
+gSystemEventRegistrations = {}
 --- Project edits (Composer adds/removes/renames/rebinds): a per-day count,
 --- the last one, and the names pending the next debounced flush.
 gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
@@ -6020,6 +6025,13 @@ local function applyPairResponse(response)
     body.property_id and tostring(body.property_id) or "none"
   )
 
+  -- LateInit registered for Director system events only if it found the
+  -- Agent already paired; an Agent paired while running registers here
+  -- (idempotent per id, guarded so pairing never fails on it).
+  local okEvents, errEvents = pcall(RegisterSystemEvents)
+  if not okEvents then
+    log:error("Registering for system events after pairing failed: %s", tostring(errEvents))
+  end
   scheduleTimers()
   sendFullSync()
   sendHeartbeat()
@@ -6510,7 +6522,13 @@ local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
 --- Registers for every event in SYSTEM_EVENTS, system-wide. Global so that
 --- OnDriverLateInit (above) reaches it and the tests can call it.
---- @return integer registered How many registrations Director accepted.
+---
+--- Called at start when the Agent is already paired AND from applyPairResponse
+--- when it becomes paired while running: LateInit returns early for an
+--- unpaired Agent, so an Agent paired at run time used to hear no system
+--- event until its next reload. Idempotent per id (gSystemEventRegistrations):
+--- a second call registers only what Director refused before.
+--- @return integer registered How many registrations Director accepted on THIS call.
 function RegisterSystemEvents()
   local registered = 0
   if C4.RegisterSystemEvent == nil then
@@ -6518,16 +6536,19 @@ function RegisterSystemEvents()
     return registered
   end
   for id, name in pairs(SYSTEM_EVENTS) do
-    local ok, err = pcall(function()
-      -- Device id 0 registers for the event system-wide rather than for one
-      -- device, which is the whole point here.
-      C4:RegisterSystemEvent(id, 0)
-    end)
-    if ok then
-      registered = registered + 1
-      log:debug("Registered for system event %d (%s)", id, name)
-    else
-      log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
+    if not gSystemEventRegistrations[id] then
+      local ok, err = pcall(function()
+        -- Device id 0 registers for the event system-wide rather than for one
+        -- device, which is the whole point here.
+        C4:RegisterSystemEvent(id, 0)
+      end)
+      if ok then
+        gSystemEventRegistrations[id] = true
+        registered = registered + 1
+        log:debug("Registered for system event %d (%s)", id, name)
+      else
+        log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
+      end
     end
   end
   return registered

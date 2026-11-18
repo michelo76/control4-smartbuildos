@@ -3611,6 +3611,9 @@ local function registrationChecks()
   C4.RegisterSystemEvent = function(_, id, deviceId)
     registeredFor[id] = deviceId
   end
+  -- A fresh load: nothing registered yet (the pairing above, section [56]
+  -- below, would otherwise already have registered every id).
+  gSystemEventRegistrations = {}
   local acceptedCount = RegisterSystemEvents()
   local AgentTelemetryNames = require("sbos.agenttelemetry").SYSTEM_EVENT_NAMES
   local wantedCount, missingIds = 0, {}
@@ -3638,11 +3641,60 @@ local function registrationChecks()
   C4.RegisterSystemEvent = function()
     error("refused")
   end
+  gSystemEventRegistrations = {}
   local okRefused, refusedCount = pcall(RegisterSystemEvents)
   check("a refusal by Director is logged, not thrown", okRefused and refusedCount == 0, tostring(refusedCount))
   C4.RegisterSystemEvent = nil
   local okOld, oldCount = pcall(RegisterSystemEvents)
   check("an OS without RegisterSystemEvent falls back to polling", okOld and oldCount == 0, tostring(oldCount))
+
+  print("\n[56] An Agent paired WHILE RUNNING registers for system events (once)")
+  -- OnDriverLateInit returns early for an unpaired Agent, so registration
+  -- used to happen only in a LateInit that found the Agent already paired:
+  -- an Agent paired at run time heard no Director event until reloaded.
+  local calls, perId = 0, {}
+  C4.RegisterSystemEvent = function(_, id, deviceId)
+    calls = calls + 1
+    perId[id] = (perId[id] or 0) + 1
+    registeredFor[id] = deviceId
+  end
+  EC.UNPAIR()
+  gSystemEventRegistrations = {} -- a load that started unpaired: nothing registered
+  pair()
+  check(
+    "pairing at run time registers every listed event",
+    calls == wantedCount and TC.SMARTBUILDOS_PAIRED() == true,
+    calls .. " of " .. wantedCount
+  )
+  local twice = {}
+  pair()
+  RegisterSystemEvents() -- what a later start-time call would do
+  for id, n in pairs(perId) do
+    if n > 1 then
+      twice[#twice + 1] = tostring(id)
+    end
+  end
+  check(
+    "re-pairing and a later start-time call register nothing twice",
+    calls == wantedCount and #twice == 0,
+    calls .. " calls; twice: " .. table.concat(twice, ",")
+  )
+  -- Only what Director refused is retried on the next call.
+  gSystemEventRegistrations = {}
+  calls = 0
+  C4.RegisterSystemEvent = function(_, id)
+    if id == 86 then
+      error("refused once")
+    end
+    calls = calls + 1
+  end
+  RegisterSystemEvents()
+  C4.RegisterSystemEvent = function(_, id)
+    calls = calls + 1
+    perId.retried = id
+  end
+  local retried = RegisterSystemEvents()
+  check("a refused id is retried on the next call, alone", retried == 1 and perId.retried == 86, retried)
   C4.RegisterSystemEvent = savedRegister
 end
 registrationChecks()
