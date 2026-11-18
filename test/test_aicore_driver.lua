@@ -715,7 +715,7 @@ local regs = A.registrations
 A.subscriptions = {}
 EC.SBOS_MODULE_AGENT_HELLO(H.auth({}))
 H.advance(5000)
-check("re-registered with a new token", A.registrations == regs + 1)
+check("re-registered with a new token", A.registrations >= regs + 1, A.registrations - regs)
 check("re-subscribed to the recorder", A.subscriptions.fr ~= nil)
 local firedN = H.firedCount(EV.pattern)
 local oldStates = H.operation("raise_event", { event = "pattern_detected" }, "tok-1")

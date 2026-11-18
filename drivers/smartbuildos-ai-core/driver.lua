@@ -619,10 +619,12 @@ discoverFlightRecorder = function(why)
   end
   return client.discover({ module_id = "flight_recorder" }, function(directory, code)
     if code == "ok" then
-      if gAgentLost then
-        log:info("SmartBuildOS Agent answering again")
-      end
+      local recovered = gAgentLost
       gAgentLost = false
+      if recovered then
+        log:info("SmartBuildOS Agent answering again")
+        flushBuffer()
+      end
       local found = nil
       for _, m in ipairs(directory.modules or {}) do
         if m.module_id == "flight_recorder" and not m.stale then
@@ -1112,6 +1114,11 @@ end
 
 local function tick()
   expireJobs()
+  if gAgentLost then
+    -- Probe every tick (30 s) while the Agent is not answering, not every
+    -- 5 minutes: recovery should not wait for the liveness timer.
+    discoverFlightRecorder("recovery")
+  end
   if license.enforces() ~= gLicenceHalted then
     applyCollection()
   end
