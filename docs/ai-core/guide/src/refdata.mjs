@@ -29,6 +29,8 @@ const commands = [
     note: "Runs the local diagnostic first, then the cloud op with diagnostic_event_id, local_event_ids and flight_recorder_available." },
   { name: "AI_SEND_NOTIFICATION", description: "Send a notification through SmartBuildOS (recipients are decided by SmartBuildOS)", op: "send_notification", feature: "BASE",
     params: [{ name: "TITLE", type: "STRING", rule: "≤ 80, required" }, { name: "MESSAGE", type: "STRING", rule: "≤ 400, required" }, { name: "AUDIENCE", type: "LIST", rule: "optional, default Homeowner", items: ["Homeowner", "Integrator", "All"] }] },
+  { name: "AI_RUN_HOUSEHOLD_ANALYSIS", description: "Run Household Analysis: ask SmartBuildOS to analyse this home's recorded activity now (needs AI_LEARNING; at most one an hour; the result appears in System Studio, not here)", op: "analyze_household", feature: "AI_LEARNING", params: [],
+    note: "Runs the household analysis (patterns, memories, recommendations); not AI_ANALYZE_SYSTEM. Body {command, request_id} only. Refused locally without AI_LEARNING, while a request is waiting, and within the hour after an accepted run (refused locally (rate_limited)); a refusal, an outage or a timeout does not use up the hour. The normal answer is accepted (queued): the run happens afterwards, the driver is never told when it finishes and AI Response Ready does not fire; the result is in System Studio. Refusals show the platform's reason from result.reason (learning_not_allowed, not_licensed, already_running, rate_limited with the wait, not_permitted, invalid_args); not_permitted without a reason means the Agent itself does not relay the op (update the Agent)." },
 ];
 const actions = [
   { name: "Test Agent Link", command: "TEST_AGENT_LINK", does: "SBOS_MODULE_DISCOVER to the Agent; writes the Agent's version, protocol range, pairing, cloud state and module count to Last Test Result (or why it cannot: no Agent, protocol 1, failed with a code)." },
@@ -135,7 +137,7 @@ const errorCodes = [
   ["unsupported", "reserved for a platform answer", "no"], ["internal_error", "a handler failed, or an out-of-vocabulary code was normalised", "no"],
 ].map(([code, meaning, retry]) => ({ code, meaning, retry }));
 const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic"];
-const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider"];
+const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider", "analyze_household"];
 const tools = toolsRaw.map((t) => ({
   id: t.id, wire: t.wire, risk: t.risk, household: t.household, feature: t.feature ?? null, verb: t.verb ?? null, audience: t.audience ?? "everyone", description: t.description,
   required: t.schema.required ?? [],

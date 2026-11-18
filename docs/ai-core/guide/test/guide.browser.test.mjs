@@ -612,7 +612,7 @@ section("confidence, examples, reference");
   // Command reference
   await go(page, "#ch11-reference");
   const rows = await page.$$eval("#refTable tbody tr[data-i]", (r) => r.length);
-  eq(rows, 63, "reference lists 10 commands + 4 actions + 23 properties + 10 events + 11 variables + 5 conditionals");
+  eq(rows, 64, "reference lists 11 commands + 4 actions + 23 properties + 10 events + 11 variables + 5 conditionals");
   const types = await page.$$eval("#refTypes .chip", (c) => c.map((x) => x.dataset.t));
   for (const t of types) {
     await page.click(`#refTypes .chip[data-t="${t}"]`);

@@ -54,7 +54,7 @@
 
 <h2 id="ch1-what">What it does</h2>
 <ul>
-  <li><strong>Asks and explains.</strong> Composer programming can ask a question (<code>AI_ASK</code>), request an analysis of a room or the whole system, a scene suggestion, a report or a diagnostic. The answer arrives later as the <strong>AI Response Ready</strong> event and the <code>AI_LAST_RESPONSE</code> variable.</li>
+  <li><strong>Asks and explains.</strong> Composer programming can ask a question (<code>AI_ASK</code>), request an analysis of a room or the whole system, a scene suggestion, a report or a diagnostic. The answer arrives later as the <strong>AI Response Ready</strong> event and the <code>AI_LAST_RESPONSE</code> variable. It can also run the household analysis (<code>AI_RUN_HOUSEHOLD_ANALYSIS</code>, <em>Run Household Analysis</em>), whose findings appear in System Studio, not on the controller.</li>
   <li><strong>Reads history instead of guessing.</strong> In the cloud, the AI may only answer historical questions from <button type="button" class="term" data-term="evidence">evidence</button>: stored Flight Recorder event ids returned by a tool in the same turn. Confirmed causes are kept apart from possible ones; unknown stays unknown.</li>
   <li><strong>Records what programming reports.</strong> <code>AI_RECORD_EVENT</code> lets a dealer drop a named marker into programming, because Control4 gives a driver no way to see programming run.</li>
   <li><strong>Learns, when switched on.</strong> Learning is off by default and is switched on per property in System Studio; the homeowner can pause it, exclude rooms and kinds of activity, correct, export and erase. Deterministic detectors find routines and preferences with sample-size confidence.</li>
@@ -85,7 +85,7 @@
 <tr><td>Cloud history tools (search, timeline, device history, room activity, correlation, incident analysis, period comparison)</td><td>Completed in simulation with fakes (4.3–4.6).</td></tr>
 <tr><td>Anthropic and OpenAI provider adapters, key vault, settings, budgets</td><td>Completed with mocked HTTP (5.1–5.9). Live calls blocked on a real key (5.11, 5.12).</td></tr>
 <tr><td>Orchestrator (the conversation loop)</td><td>Completed in simulation (5.10); no live model call.</td></tr>
-<tr><td>Household learning: memory, detectors, recommendations, homeowner controls</td><td>Completed in simulation (6.1–6.6); analysis runs on demand only (6.7).</td></tr>
+<tr><td>Household learning: memory, detectors, recommendations, homeowner controls</td><td>Completed in simulation (6.1–6.6); analysis runs on demand (6.7). The owner decided on 2026-11-18 that it also runs on a dealer-chosen schedule (platform side; not in this guide's platform commit) and from Composer programming (<code>AI_RUN_HOUSEHOLD_ANALYSIS</code>, built in the driver and tested in simulation only).</td></tr>
 <tr><td>Permission engine, action proposals, approvals, pre-approved rules, programming hand-offs</td><td>Completed in simulation (7.1–7.8). A real device change is blocked on hardware (7.9).</td></tr>
 <tr><td>System Studio "Intelligence" pages (AI Overview, Provider &amp; settings, Household Usage, Flight Recorder Intelligence, Recommendations, Service, Conversations)</td><td>Completed: browser-verified in fixture mode and against a local stack (8.1–8.9). No real model answer shown (no key). Ninth top-level destination awaits owner sign-off (8.10).</td></tr>
 <tr><td>Homeowner portal "Your home assistant" (concierge, approvals, what my home has learned, recommendations, calendar)</td><td>Completed: browser-verified in fixture mode and against a local stack (9.4). Not deployed.</td></tr>
@@ -598,7 +598,7 @@ Content-Type: application/json
 <tbody>
 <tr><td><code>MODULE_REQUEST_POLICY</code></td><td><code>events.query</code>, <code>events.timeline</code>, <code>events.device_history</code>, <code>events.room_activity</code>: provider <code>flight_recorder</code>, requester <code>ai_core</code></td></tr>
 <tr><td><code>MODULE_TOPIC_POLICY</code></td><td><code>capture.</code>, <code>observation.</code>, <code>trace.</code> → subscriber <code>ai_core</code></td></tr>
-<tr><td><code>MODULE_CLOUD_OPS.ai_core</code></td><td><code>ask</code>, <code>analyze_room</code>, <code>analyze_system</code>, <code>learn_preference</code>, <code>suggest_scene</code>, <code>generate_report</code>, <code>start_diagnostic</code>, <code>send_notification</code>, <code>set_context</code>, <code>status</code>, <code>test_provider</code></td></tr>
+<tr><td><code>MODULE_CLOUD_OPS.ai_core</code></td><td><code>ask</code>, <code>analyze_room</code>, <code>analyze_system</code>, <code>learn_preference</code>, <code>suggest_scene</code>, <code>generate_report</code>, <code>start_diagnostic</code>, <code>send_notification</code>, <code>set_context</code>, <code>status</code>, <code>test_provider</code>, <code>analyze_household</code> (the platform side of <code>analyze_household</code> is being built; until it lands the platform refuses it)</td></tr>
 <tr><td><code>MODULE_COMMANDS.ai_core</code> (v1 table)</td><td><code>apply_config</code>, <code>refresh_status</code>, <code>deliver_result</code>, <code>raise_event</code>, <code>set_learning</code>, <code>run_diagnostic</code></td></tr>
 </tbody></table></div>
 <p>Rate limits per module: 30 requests/min (REQUEST and DISCOVER), 20 cloud requests/min, burst 10; at most 128 routes in flight in the whole Agent.</p>
@@ -660,7 +660,7 @@ Content-Type: application/json
 <tr><td><code>automation_conflict</code></td><td>≥ 10 change-and-revert within 120 s on ≥ 3 days (labelled <em>possible</em>)</td></tr>
 <tr><td><code>seasonal</code></td><td>≥ 365 days of history (not built in v1; answers <code>insufficient_history</code>)</td></tr>
 </tbody></table></div>
-<p>Thresholds marked "AI Core v1" in the source (weekly routine, frequent room, preferences, favourite scene, automation conflict, seasonal) are this phase's choice and await architect/owner review. Analysis runs on demand (<code>POST /api/monitoring/ai-core/patterns {action:"analyze"}</code>), idempotent per property per 10 minutes; <strong>no schedule exists</strong> — scheduling is an owner decision.</p>
+<p>Thresholds marked "AI Core v1" in the source (weekly routine, frequent room, preferences, favourite scene, automation conflict, seasonal) are this phase's choice and await architect/owner review. Analysis runs on demand (<code>POST /api/monitoring/ai-core/patterns {action:"analyze"}</code>), idempotent per property per 10 minutes. Who runs it is decided (owner, 2026-11-18): a schedule the dealer chooses in System Studio, which is being built on the platform and is not in this guide's platform commit, and the Composer command <code>AI_RUN_HOUSEHOLD_ANALYSIS</code> (op <code>analyze_household</code>; at most one accepted run an hour; the normal answer is <em>accepted (queued)</em> and the driver is never told when the run finishes).</p>
 
 <h2 id="ch7-confidence">Confidence scores</h2>
 <pre class="code" data-lang="text"><code>n = sample size, T = the detector's evidence threshold, c = consistency in [0,1]
