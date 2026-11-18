@@ -1,0 +1,29 @@
+<devicedata>
+  <name>SmartBuildOS AI Reporter (test fixture)</name>
+  <version>1</version>
+  <manufacturer>SmartBuildOS</manufacturer>
+  <model>AI Reporter Fixture</model>
+  <creator>SmartBuildOS</creator>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Test fixture. Never shipped.</copyright>
+  <created>11/18/2026 12:00 PM</created>
+  <modified>11/18/2026 12:00 PM</modified>
+  <combo>true</combo>
+  <minimum_os_version>3.3.2</minimum_os_version>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <properties>
+      <property><name>Reporter File</name><type>STRING</type><default>smartbuildos-atmosphere.c4z</default><readonly>true</readonly></property>
+      <property><name>Driver Status</name><type>STRING</type><default>Running</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
+    </properties>
+  </config>
+  <proxies>
+  </proxies>
+  <capabilities>
+  </capabilities>
+  <connections>
+  </connections>
+</devicedata>

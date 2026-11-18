@@ -4,7 +4,9 @@
 #   the REAL Agent            drivers/smartbuildos
 #   the REAL Flight Recorder  drivers/smartbuildos-flight-recorder
 #   the REAL AI Core          drivers/smartbuildos-ai-core
-# plus a v1-only Agent taken from git (the last commit before module
+# plus two reporters built on the real helper (test/emulator/fixtures/
+# sbos-ai-reporter, assembled under two reserved roots' file names) for the
+# report hub scenario (ai_core_reports.lua), and a v1-only Agent taken from git (the last commit before module
 # contract v2, 7db22e7) for the "Agent update required" case.
 #
 #   test/emulator/run-ai-core.sh [path/to/control4-director-emulator]
@@ -34,9 +36,22 @@ assemble() {
 assemble smartbuildos "$OUT/tree/build/oss/drivers/smartbuildos" "$OUT/tree"
 assemble smartbuildos-flight-recorder "$OUT/tree/build/oss/drivers/smartbuildos-flight-recorder" "$OUT/tree"
 assemble smartbuildos-ai-core "$OUT/tree/build/oss/drivers/smartbuildos-ai-core" "$OUT/tree"
+# The reporters stand in for two reserved roots: the emulator names a
+# device's file after its directory, and the Agent binds the module id to it.
+assemble rep-a/smartbuildos-atmosphere "$REPO/test/emulator/fixtures/sbos-ai-reporter" "$OUT/tree"
+assemble rep-b/smartbuildos-mode-composer "$REPO/test/emulator/fixtures/sbos-ai-reporter" "$OUT/tree"
+sed -i.bak 's|<default>smartbuildos-atmosphere.c4z</default>|<default>smartbuildos-mode-composer.c4z</default>|' \
+	"$OUT/rep-b/smartbuildos-mode-composer/driver.xml"
+# A second AI Core copy with a stamped version (a build stamps it; the
+# source driver.xml leaves it empty), so the answer's ai_core.version can be
+# compared with the Agent's directory.
+assemble reports/smartbuildos-ai-core "$OUT/tree/build/oss/drivers/smartbuildos-ai-core" "$OUT/tree"
+sed -i.bak 's|<version></version>|<version>20261118.000001</version>|' "$OUT/reports/smartbuildos-ai-core/driver.xml"
 # The v1 Agent keeps the Agent's file name so dependents find it by name.
 mkdir -p "$OUT/v1"
 assemble v1/smartbuildos "$OUT/v1tree/build/oss/drivers/smartbuildos" "$OUT/v1tree"
 cd "$OUT"
 SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core.lua"
+SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
+	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_reports.lua"
