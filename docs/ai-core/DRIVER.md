@@ -381,7 +381,14 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
   with enforcement on). A missing feature refuses only when enforcement is
   on **and** the status is authorised (the feature list is then definitive).
   Grace, trial, legacy, cloud-validation-required and no-answer states fail
-  open. Updates: the Agent's updater (`DRIVER_FILENAMES`; store `sku_for`).
+  open. Features gated on the controller: `BASE` (every command,
+  `run_diagnostic`, Test AI Connection) and `AI_LEARNING`
+  (`AI_LEARN_PREFERENCE`, `set_learning` on, `learning.active` in the
+  configuration). `AI_ACTIONS` and `AI_CONCIERGE` gate nothing here: the
+  driver has no action or concierge path; the platform enforces them.
+  An assertion the Agent cannot verify is dropped and the SKU answers
+  `LEGACY` (operational). Updates: the Agent's updater (`DRIVER_FILENAMES`;
+  store `sku_for`).
 * Limits: question 500, statement 300, name 120, detail 400, value 120,
   occasion 120, title 80, message 400, room 64, result text 4000,
   `AI_LAST_RESPONSE` 1024 bytes, event detail 512, error 240; 10 commands a
@@ -397,12 +404,22 @@ Payload keys never use names the envelope redacts (`code`, `key`, …).
 | Per module | `test/test_aicore_{commands,config,operations,buffer,collector,state,diagnostic}.lua` |
 | Packaging (squish closure; built `.c4z` when present) | `test/test_aicore_package.lua` |
 | Flight Recorder local history | `test/test_flightrecorder_localquery.lua`, `test/test_flightrecorder_v2.lua` |
-| Real Agent + real Flight Recorder + AI Core (EMULATOR ONLY) | `test/emulator/run-ai-core.sh` → `test/emulator/ai_core.lua` |
+| Licensing as the driver sees it (statuses × enforcement, features, renewal, transfer, trial) | `test/test_aicore_licence.lua` |
+| Store update selection for AI Core | `test/test_aicore_updates.lua` |
+| Failure modes no other suite named (pairing, Agent cloud loss, missing history, approvals, refused operations) | `test/test_aicore_failure_modes.lua` |
+| Malformed input, timers on destroy, persistence growth, tokens in Trace output | `test/test_aicore_robustness.lua` |
+| Vocabularies against the platform's mirrors (needs `SBOS_PLATFORM_REPO`) | `test/test_aicore_platform_parity.lua` |
+| Real Agent + real Flight Recorder + AI Core, incl. licensing with real signatures (EMULATOR ONLY) | `test/emulator/run-ai-core.sh` → `test/emulator/ai_core.lua` |
+
+Every item of the product brief's test list is mapped to a named test in
+`TEST-MATRIX.md`; installation is in `INSTALLATION.md`, building and
+releasing in `RELEASE.md`.
 
 ## 14. Not verified on hardware
 
 No physical controller has run this driver, the Flight Recorder's v2
-service, or module contract v2. Owed on a bench:
+service, or module contract v2. The bench procedures are in
+`TEST-MATRIX.md` (hardware validation plan). Owed on a bench:
 
 * the whole driver on OS 3.3.2 and 4.x (LuaJIT load, `<script>` tag, squished modules);
 * `C4:UUID("RANDOM")` output; BOOL variable values `"true"`/`"false"` as Composer conditions read them;

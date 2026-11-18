@@ -84,7 +84,7 @@
     <event><id>7</id><name>Action Completed</name><description>An approved AI action completed (AI_LAST_EVENT_DETAIL)</description></event>
     <event><id>8</id><name>Action Failed</name><description>An approved AI action failed (AI_LAST_EVENT_DETAIL)</description></event>
     <event><id>9</id><name>Agent Disconnected</name><description>This driver lost the SmartBuildOS Agent (registration lost or the Agent stopped answering)</description></event>
-    <event><id>10</id><name>AI Provider Error</name><description>The AI provider configured in System Studio returned an error (AI_LAST_EVENT_DETAIL)</description></event>
+    <event><id>10</id><name>AI Provider Error</name><description>The AI provider configured in System Studio returned an error (AI_LAST_ERROR, AI_LAST_EVENT_DETAIL)</description></event>
   </events>
   <config>
     <script file="driver.lua" jit="1"></script>

@@ -1,0 +1,176 @@
+# SmartBuildOS AI Core — driver test matrix
+
+Every driver-side item of the product brief's test list, mapped to a named
+test that passes today, plus the licensing and update items. **Everything in
+the first two tables is simulation**: `unit` = the C4 shim with a scripted
+Agent (`test/aicore_harness.lua`) or pure modules; `emulator` = the Director
+emulator running the real Agent, the real Flight Recorder and the real AI
+Core with a scripted cloud (`test/emulator/run-ai-core.sh`). Neither is a
+controller. What only a physical controller can show is in
+[Hardware validation plan](#hardware-validation-plan); none of it has been
+done.
+
+How to run: `make test` (unit; every `test/test_*.lua`), `make lint`,
+`test/emulator/run-ai-core.sh [path/to/control4-director-emulator]`,
+`test/emulator/run-module-contract-v2.sh [path]`, and for the cross-repo
+check `SBOS_PLATFORM_REPO=/path/to/smartbuildos make test`.
+
+A case is named `file [section] "check label"`; the label is the exact text
+the test prints after `ok`.
+
+## Product brief test list (driver side)
+
+| # | Item | Test (file → section → case) | Class |
+| --- | --- | --- | --- |
+| 1 | Driver startup | `test/test_aicore_driver.lua` [1] "Driver Status Online"; `test/test_aicore_robustness.lua` [5] "LateInit completed (Driver Status Online)" (corrupted persisted state) | unit |
+| | | `test/emulator/ai_core.lua` [1] "AI Core AI_STATUS ready" | emulator |
+| 2 | Agent pairing | `test/test_smartbuildos_connector.lua` [56] "pairing at run time registers every listed event", "re-pairing and a later start-time call register nothing twice"; `test/test_aicore_failure_modes.lua` [1] "paired while running → ready, no reload" | unit |
+| | | `test/emulator/ai_core.lua` [0] "the run-time-paired Agent received OnItemAdded without a reload"; [1] "Agent Pairing Status Paired" | emulator |
+| 3 | Driver registration | `test/test_aicore_driver.lua` [2] "registration contract: ai_core, protocol 1..2, SKU, singleton"; [16] "AI_STATUS agent_update_required" (v1 Agent) | unit |
+| | | `test/emulator/ai_core.lua` [1] "both modules registered with the Agent"; [16] "registered at protocol 1 → AI_STATUS agent_update_required" | emulator |
+| 4 | Capability discovery | `test/test_aicore_driver.lua` [3] "directory asked for flight_recorder"; [12] "Flight Recorder Link: not installed"; `test/test_aicore_robustness.lua` [2] "the recorder probe with a malformed directory does not throw" | unit |
+| | | `test/emulator/ai_core.lua` [2] "Flight Recorder Link: local history served, topics subscribed"; [9] "recorder re-added → found and subscribed again" | emulator |
+| 5 | Event delivery | `test/test_aicore_driver.lua` [4] "two distinct events consumed"; [2] "the buffered status event reached the Agent" | unit |
+| | | `test/emulator/ai_core.lua` [3] "AI Core consumed the recorder's event"; [4] "an ai_core.command envelope per cloud command reached the cloud", "AI_RECORD_EVENT → ai_core.record through the durable event path" | emulator |
+| 6 | Event deduplication | `test/test_aicore_driver.lua` [4] "the repeat is dropped as a duplicate (dedup by event id)"; [18] "no event id handed to the Agent twice" | unit |
+| | | `test/emulator/ai_core.lua` [3] "a PUBLISH frame delivered twice is consumed once (dedup by event id)"; [12] "no AI Core event id reached the cloud twice in the whole run" | emulator |
+| 7 | Buffer recovery | `test/test_aicore_driver.lua` [14] "buffered events delivered on recovery", "delivered in order"; `test/test_aicore_robustness.lua` [6] "a 500-item persisted buffer loads at most capacity (50)" | unit |
+| | | `test/emulator/ai_core.lua` [11] "the buffered events reached the cloud after recovery", "in order", "the overflow is counted" | emulator |
+| 8 | Network interruptions | `test/test_aicore_driver.lua` [7] "cloud unreachable after retries → connection status says so", "the next accepted answer clears cloud_unreachable"; `test/test_aicore_failure_modes.lua` [2] "Agent reports no cloud → cloud_unreachable", "cloud back → ready" | unit |
+| | | `test/emulator/ai_core.lua` [11] "AI_STATUS agent_lost" (Agent unreachable both ways); [13d] "day 11: never bricked (not unlicensed; commands go)" (cloud down 11 days) | emulator |
+| 9 | Controller restarts | `test/test_aicore_driver.lua` [18] "sequence continues after the restart (never reused)", "buffer survives"; [15] "re-registered with a new token" (Agent restart) | unit |
+| | | `test/emulator/ai_core.lua` [12] "AI Core back: ready, configuration v8 kept", "event sequence continues after the restart"; [10] "re-subscribed on the reloaded Agent" | emulator |
+| 10 | AI provider failure surfaced | `test/test_aicore_robustness.lua` [11] "AI Provider Error (event 10) fired", "AI_LAST_ERROR names the provider error", "a delivered result clears the provider error" | unit |
+| 11 | Invalid permissions / refused operations | `test/test_aicore_driver.lua` [7] "Last Error: refused by SmartBuildOS: not_permitted"; [9] "no event fired by a refused raise_event"; [15] "a restricted operation under a pre-restart token is ignored"; [19] "refused: execute_lua with equipment-shaped args"; `test/test_aicore_failure_modes.lua` [5] "an operation under a forged token is ignored: nothing fired, nothing answered", "a device action smuggled into an operation's args → Failed, named" | unit |
+| | | `test/emulator/ai_core.lua` [4] "a platform refusal is shown as it is (Last Error)"; [5] "raise_event outside the closed list → Failed, nothing fired"; [14] "every SendToDevice AI Core made in the run went to the Agent" | emulator |
+| 12 | Action-approval events | `test/test_aicore_failure_modes.lua` [4] "approval_required Completed → Approval Required fired", "AI_PENDING_APPROVALS 1, APPROVALS_PENDING true, detail shown", "action_completed → Action Completed, approvals back to 0", "action_failed → Action Failed with its detail"; `test/test_aicore_driver.lua` [9] "raise_event approval_required → event 6" | unit |
+| 13 | Flight Recorder queries, incl. missing history and absent recorder | `test/test_aicore_driver.lua` [13] "ai_core.diagnostic envelope with the recorder's events", "recorder absent: the envelope says so", "run_diagnostic on an empty ring: Completed, 0 local events"; `test/test_aicore_failure_modes.lua` [3] "a ring that no longer holds older matching events says truncated, with what it does hold", "a refused query: available=false, request_failed, the code kept", "a recorder that never answers: request_failed / deadline_exceeded, after its retry"; `test/test_aicore_robustness.lua` [3] (malformed answer); `test/test_flightrecorder_localquery.lua`, `test/test_flightrecorder_v2.lua` (the recorder's side) | unit |
+| | | `test/emulator/ai_core.lua` [8] "it carries the recorder's local event with the id the cloud stores"; [9] "absent recorder: the diagnostic says so instead of failing" | emulator |
+| 14 | Licence expiration | `test/test_aicore_driver.lua` [17] "enforced denial → AI_STATUS unlicensed"; `test/test_aicore_licence.lua` [2] "22 combinations: refused exactly when enforce AND a definitive denial"; [9] "past the deadline with no new licence answer: unlicensed" | unit |
+| | | `test/emulator/ai_core.lua` [13] "expired + enforce → AI_STATUS unlicensed", "unlicensed: the command is refused, nothing sent" | emulator |
+
+## Licensing and updates
+
+| Item | Test | Class |
+| --- | --- | --- |
+| Activation on first registration | `test/test_aicore_licence.lua` [1] "SBOS_REGISTER_DRIVER to the Agent at start: sku, version, requester", "the licence registration is re-sent the moment the module registers", "an answered driver stops asking" | unit |
+| | `test/emulator/ai_core.lua` [1] "activation: the Agent asked the cloud for SBOS_AI_CORE on its own", "activation: licensed before anyone pressed anything" | emulator |
+| Controller-bound assertion accepted | `test/emulator/ai_core.lua` [13a] "signed for this controller: Licensed / Permanent" | emulator |
+| Assertion for another controller refused | `test/emulator/ai_core.lua` [13b] "signed with another controller's secret: not honoured (the Agent drops it at fetch)", "server-issued CONTROLLER_MISMATCH (signed, enforced): unlicensed, read-only"; `test/test_aicore_licence.lua` [3] (every path refuses, naming the reason); `test/test_sbos_entitlements.lua` [4], [15] (the Agent's verification) | emulator, unit |
+| Signature tampering refused | `test/emulator/ai_core.lua` [13c] "a tampered assertion is not honoured (no Licensed / Permanent)"; `test/test_sbos_entitlements.lua` [3], [14] | emulator, unit |
+| Cache → grace → `CLOUD_VALIDATION_REQUIRED` | `test/emulator/ai_core.lua` [13d] "day 8: AI Core told Licensed / Grace (dated) without a refresh", "day 11: Cloud Validation Required" (virtual clock, cloud down); `test/test_aicore_licence.lua` [6]; `test/test_sbos_entitlements.lua` [5], [19]–[21] | emulator, unit |
+| Renewal without a reload | `test/emulator/ai_core.lua` [13e] "…AI Core was not reloaded"; `test/test_aicore_licence.lua` [7] "no reload happened (the same tick timer)" | emulator, unit |
+| Transfer (revoked here, granted again) | `test/emulator/ai_core.lua` [13g] "moved away: unlicensed, commands refused", "granted again: Licensed / Permanent, commands go, no reload"; `test/test_aicore_licence.lua` [8] | emulator, unit |
+| Feature entitlements | `test/test_aicore_licence.lua` [4] "BASE only: AI_LEARN_PREFERENCE refused — 'the licence does not include AI_LEARNING'", "BASE only: set_learning(true) Failed, saying so", "BASE only: a configuration asking for learning keeps it paused, and says why", "without AI_ACTIONS the driver still shows approval/action events …", "the driver gates exactly BASE and AI_LEARNING (AI_ACTIONS / AI_CONCIERGE: no driver path)" | unit |
+| Uncertain states never brick | `test/test_aicore_licence.lua` [5] "validation required, unauthenticated, legacy, an unknown status: all operational"; `test/emulator/ai_core.lua` [13d], [13f] "AI Core stays licensed and operational" (clock skew) | unit, emulator |
+| Store update picks up a newer `.c4z` | `test/test_aicore_updates.lua` [2] "newer → installed", "older → never a downgrade"; [3] "leading-zero time: 093000 < 120000 on the same day"; [4] "sku_for maps smartbuildos-ai-core.c4z → SBOS_AI_CORE" | unit |
+| Cross-repo vocabulary parity | `test/test_aicore_platform_parity.lua` [1]–[6] (needs `SBOS_PLATFORM_REPO`; skips otherwise) | unit |
+| Robustness (malformed input, timers, persistence, secrets in logs) | `test/test_aicore_robustness.lua` [1]–[10] | unit |
+
+## Known gaps the tests pin rather than hide
+
+* An assertion that fails verification is dropped and the SKU answers
+  `LEGACY` ("Licensing Not Yet Enforced"), which is operational: a forged or
+  tampered assertion does not license AI Core, but it does not stop it
+  either (emulator [13b], [13c]). This is the Agent's documented "enforcement
+  cannot precede issuance" rule.
+* The Agent never compares an assertion's `controller_id` with its own
+  identity (it does not know its platform controller id); binding rests on
+  the per-controller signing secret. `CONTROLLER_MISMATCH` is a status the
+  platform must issue — and for `SBOS_AI_CORE` the refresh route issues it
+  nowhere today (only System Link does); a transferred licence reaches the
+  old controller as `NOT_ENTITLED`.
+* `AI_ACTIONS` and `AI_CONCIERGE` gate nothing on the controller because the
+  driver has no action or concierge path (device actions use the Agent's
+  command queue, D4); the platform must enforce them.
+
+## Hardware validation plan
+
+None of this has been done. Each procedure needs a physical Control4
+controller, Composer Pro, a paired SmartBuildOS Agent built from this branch
+(protocol 2), the Flight Recorder and AI Core `.c4z` from the same build, and
+access to System Studio for the paired property. Record for each: OS version,
+controller model, Agent / Flight Recorder / AI Core versions, the Lua output
+(Composer → driver → Lua tab) and a pass/fail with the observed text.
+
+1. **Load on OS 3.3.2 and on 4.x.** Add `smartbuildos-ai-core.c4z` (Items →
+   search the local drivers). Expect in the Lua output no error, `Driver
+   Status` = `Online`, `Driver Version` = the build's `<version>`. Press
+   **Print Diagnostics**: the counter list prints (proves every squished
+   module loaded and the `<script>` tag runs).
+2. **Agent paired while running hears system events.** With the Agent
+   unpaired, pair it (Pairing Code) and do not reload anything. Add any
+   device in Composer and refresh navigators. Expect the Agent's `Project
+   Changed` event (or its Lua log `OnSystemEvent(… OnItemAdded …)` at Debug)
+   within 30 s, without reloading the Agent.
+3. **Registration at protocol 2.** Expect on AI Core: `Agent Pairing Status`
+   = `Paired`, `SmartBuildOS Connection Status` = `Connected`, `AI_STATUS` =
+   `ready`. **Test Agent Link** writes `Agent link: OK … protocol 1..2,
+   paired, cloud connected; N module(s)`.
+4. **Request ids and UUIDs.** Run `AI_ASK` from a programming button. Expect
+   `AI_LAST_REQUEST_ID` = `aic-` followed by a UUID-shaped value (records
+   `C4:UUID("RANDOM")`'s real format).
+5. **BOOL variables and conditionals.** Program `If AGENT_CONNECTED is true`
+   and `If AI_READY`; disable the Agent driver (or remove it) and confirm the
+   `Agent Disconnected` event fires once, `AGENT_CONNECTED` reads false in
+   Composer's variable view, and the conditionals evaluate as shown.
+6. **System event payloads (17–20, 48, 49, 90).** Unplug a networked device
+   for 2 minutes, plug it back; change the Director's IP (DHCP lease) on a
+   bench network. Expect `system_events` to grow in Print Diagnostics and
+   `ai_core.observation.system` events in System Studio's Flight Recorder
+   view with the event name; record the raw `data` text Director sent.
+7. **Variable listener first callback.** With the Flight Recorder removed,
+   deliver `collection.variables` for a light's `LIGHT_STATE` from System
+   Studio. Expect the first event's evidence `initial`, later ones
+   `observed`.
+8. **Flight Recorder local history under load.** With the recorder
+   installed and a busy device, run `AI_START_DIAGNOSTIC` with that device.
+   Expect an `ai_core.diagnostic` event citing recorder event ids, no
+   `payload_too_large` and no Lua error (frame sizes near 24–32 KB are
+   unmeasured on hardware).
+9. **Command budget and timers under load.** Fire 11 AI commands in one
+   minute from programming. Expect 10 sent and the 11th refused
+   `rate_limited`, and the 30 s tick still running (Last Synchronization
+   moves).
+10. **Graceful controller reboot.** Reboot from Composer. Expect AI Core back
+    with its configuration version, `AI_LAST_RESPONSE_ID` kept, and in
+    System Studio no duplicated event id and increasing sequence numbers.
+11. **Power cut.** Pull power right after a `deliver_result` from System
+    Studio. Expect the same as 10 (records Director's persistence flush
+    timing).
+12. **Agent update / restart.** Update the Agent driver. Expect `Agent
+    Disconnected` once, then re-registration within a minute and the Flight
+    Recorder subscription back (Flight Recorder Link `…topics subscribed`).
+13. **WAN loss.** Unplug the internet uplink for 10 minutes. Expect
+    `AI_STATUS` `cloud_unreachable`, AI Core still recording to the Agent's
+    queue; after reconnection the queued events reach System Studio in order.
+14. **Agent unreachable (LAN side).** Disable the Agent for 6 minutes while
+    a device goes offline repeatedly. Expect `agent_lost`, Telemetry Status
+    `No Agent answering: N critical event(s) buffered`, and after re-enabling
+    the buffered events in System Studio in order.
+15. **The platform route.** With the platform deployed, press **Test AI
+    Connection**. Expect `AI connection: test accepted (job …)` and later `AI
+    Response Ready`. A 404 shows `cloud_refused` (route not deployed).
+16. **Results and events to programming.** From System Studio deliver a
+    result and raise `approval_required`, `action_completed`,
+    `action_failed`, `ai_provider_error`. Expect each Composer event to fire
+    its programming (wire one to the Notification Agent), `AI_LAST_ERROR` to
+    show the provider error, and `APPROVALS_PENDING` to follow
+    `AI_PENDING_APPROVALS`.
+17. **Licence on real HMAC.** Refresh entitlements on the Agent. Expect AI
+    Core `License Status` `Licensed / …`. With the platform set to enforce
+    and the entitlement removed, expect `unlicensed` and commands refused
+    with the licence text; restore and expect service back without a reload.
+18. **Store update.** Publish a newer AI Core build to the BETA channel
+    (owner action), set the Agent's Update Channel to prerelease and press
+    Update Drivers. Expect AI Core's `Driver Version` to change and the
+    driver to keep its configuration (Director's `UpdateProjectC4i` on real
+    hardware).
+19. **No equipment touched.** During all of the above, watch the project's
+    devices. Expect no device state change caused by AI Core.
+20. **Secrets never printed.** Set Log Level `5 - Trace` and Log Mode
+    `Print` during registration and an operation. Expect no module token in
+    the Lua output (the `SBOS_MODULE_*` frames are suppressed from the
+    handler debug print).
+
+20 procedures.

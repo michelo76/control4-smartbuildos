@@ -66,17 +66,17 @@ a room excluded in System Studio is refused (except `AI_ASK` and
 
 ### Events
 
-| Event                           | When                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| AI Response Ready               | A result arrived (`AI_LAST_RESPONSE`, `AI_LAST_RESPONSE_ID`)                                                 |
-| Pattern Detected                | SmartBuildOS found a pattern (`AI_LAST_EVENT_DETAIL`)                                                        |
-| Recommendation Available        | A recommendation waits in System Studio (`AI_RECOMMENDATION_COUNT`)                                          |
-| Automation Conflict Detected    | Programming or automations conflict (`AI_LAST_EVENT_DETAIL`)                                                 |
-| Device Failure Pattern Detected | A device keeps failing (`AI_LAST_EVENT_DETAIL`)                                                              |
-| Approval Required               | An AI-proposed action waits for the homeowner (`AI_PENDING_APPROVALS`)                                       |
-| Action Completed                | An approved action completed                                                                                 |
-| Action Failed                   | An approved action failed                                                                                    |
-| Agent Disconnected              | This driver lost the SmartBuildOS Agent (registration lost, Agent restarted, or the Agent stopped answering) |
+| Event                           | When                                                                                                            |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| AI Response Ready               | A result arrived (`AI_LAST_RESPONSE`, `AI_LAST_RESPONSE_ID`)                                                    |
+| Pattern Detected                | SmartBuildOS found a pattern (`AI_LAST_EVENT_DETAIL`)                                                           |
+| Recommendation Available        | A recommendation waits in System Studio (`AI_RECOMMENDATION_COUNT`)                                             |
+| Automation Conflict Detected    | Programming or automations conflict (`AI_LAST_EVENT_DETAIL`)                                                    |
+| Device Failure Pattern Detected | A device keeps failing (`AI_LAST_EVENT_DETAIL`)                                                                 |
+| Approval Required               | An AI-proposed action waits for the homeowner (`AI_PENDING_APPROVALS`)                                          |
+| Action Completed                | An approved action completed                                                                                    |
+| Action Failed                   | An approved action failed                                                                                       |
+| Agent Disconnected              | This driver lost the SmartBuildOS Agent (registration lost, Agent restarted, or the Agent stopped answering)    |
 | AI Provider Error               | The AI provider chosen in System Studio returned an error (also shown in `AI_LAST_ERROR` until the next result) |
 
 Wire the events you care about to the Notification Agent for push or email.

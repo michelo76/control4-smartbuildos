@@ -45,19 +45,16 @@ check("unknown operation (lua)", refused("execute_lua", { code = "x" }))
 for _, cmd in ipairs(V.OPERATIONS) do
   check(
     cmd .. ": an extra `command` argument refuses it",
-    refused(
-      cmd,
-      {
-        command = "UNLOCK",
-        event = "pattern_detected",
-        active = true,
-        response_id = "r",
-        text = "t",
-        device_id = 1,
-        config = {},
-        version = 1,
-      }
-    )
+    refused(cmd, {
+      command = "UNLOCK",
+      event = "pattern_detected",
+      active = true,
+      response_id = "r",
+      text = "t",
+      device_id = 1,
+      config = {},
+      version = 1,
+    })
   )
 end
 check("args not an object", refused("refresh_status", "x"))
