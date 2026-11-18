@@ -93,8 +93,9 @@ check(
     and reg.params.event_types == "ai_core."
 )
 check(
-  "registers exactly the six restricted operations",
-  reg.params.commands == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic",
+  "registers exactly the eight restricted operations",
+  reg.params.commands
+    == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,run_driver_query,invoke_driver_action",
   reg.params.commands
 )
 local manifest = JSON:decode(reg.params.manifest)

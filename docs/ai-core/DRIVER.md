@@ -283,8 +283,9 @@ Delivered by the Agent's `MODULE_COMMAND` runner as `SBOS_MODULE_COMMAND`
 (`MODULE_COMMANDS.ai_core`, registered by this driver). States reported with
 `SBOS_MODULE_COMMAND_RESULT`: `Accepted` (module client), `Executing`, then
 `Completed` / `Failed`. Each operation accepts a **closed set of argument
-keys**; any other key refuses the whole operation (`Failed`). None controls
-equipment, runs code, or takes a command name to forward.
+keys**; any other key refuses the whole operation (`Failed`). None runs
+code or takes a command name to forward; the last two hand a read-only
+query / a person-approved action to the driver that DECLARED it (§7a).
 
 | Operation | Arguments | Effect |
 | --- | --- | --- |
@@ -294,12 +295,102 @@ equipment, runs code, or takes a command name to forward.
 | `raise_event` | `event` (one of `ai_response_ready`, `pattern_detected`, `recommendation_available`, `automation_conflict_detected`, `device_failure_pattern_detected`, `approval_required`, `action_completed`, `action_failed`, `ai_provider_error`), `detail` (≤ 512 bytes, cut between UTF-8 characters; control characters removed), `pending_approvals`, `recommendation_count`, `correlation_id` (optional; 1–96 characters, no control characters — the envelope's rule; anything else refuses the operation) | sets `AI_LAST_EVENT_DETAIL`, `AI_LAST_CORRELATION_ID` (empty without one), counts; records one `ai_core.event` envelope whose `correlation_id` is it; fires the event; `ai_provider_error` also sets `AI_LAST_ERROR` (`AI provider error: <detail>`, or `… (no detail from SmartBuildOS)`), which the next `deliver_result` clears. Anything else → `Failed`, nothing fired |
 | `set_learning` | `active` (boolean), `reason` (≤ 120), `config_version` (whole number ≥ 0, optional: the configuration version this change was published as) | learning on/off at once (on needs `AI_LEARNING` when enforced, and is `Failed` while the last document was refused); re-plans collection. Precedence with the document in §9. System Studio sends it when learning is paused, resumed, switched on or off |
 | `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8; the target's Director name cleaned and bounded as in §3); `Executing` then `Completed` with the envelope id and how many local events |
+| `run_driver_query` | `query_ref` (lower-case uuid), `module_id` (`^[a-z][a-z0-9_]{2,47}$`, never `ai_core`), `instance_id` (digits), `query_id` (`^[a-z][a-z0-9_]{0,47}$`), `params` (object, ≤ 6 keys `^[a-z][a-z0-9_]{0,31}$`, each a string ≤ 64 characters without control characters, a finite number or a boolean; `{}` when absent) | licence `BASE`; `ai.query` to that instance (§7a); `Executing`, then `Completed` / `Failed` on the driver's answer; the answer goes back as cloud op `driver_query_result` |
+| `invoke_driver_action` | `ai_action_id` (lower-case uuid), `module_id`, `instance_id`, `action_id`, `params` (as above), `declaration_hash` (16 lower-case hex: the declaring driver's describe hash) | licence `AI_ACTIONS`; the Agent refuses it below Remote Control *Comfort*; only to a module the Agent **verified**; `ai.action` to that instance (§7a); `Completed` only when the driver answered `ok`; the real outcome goes back as cloud op `driver_action_result` |
 
 Proof that no path reaches equipment: `test/test_aicore_driver.lua` [19] and
 `test/emulator/ai_core.lua` [14] record every `C4:SendToDevice` the driver
 makes over the whole run — all go to the Agent — and that
 `SetDeviceVariable`, `SendToProxy`, `SendUIRequest`, `RegisterDeviceEvent`
 and `Bind` are never called, including with equipment-shaped arguments.
+
+## 7a. Report hub (`ai_core.report` v1) and driver queries / actions
+
+Every SmartBuildOS root driver reports to AI Core with `sbos.aireport`
+(`docs/DRIVER_PLATFORM_GUIDE.md` §9). AI Core's manifest advertises
+`{id: "ai_core.report", version: 1, kind: "request"}`; the Agent's policy
+lets any registered module call it (`requesters = ANY`). Code:
+`src/aicore/reports.lua` (pure) and `drivers/smartbuildos-ai-core/driver.lua`
+(`onReport`, `flushReports`, `relayDriverOp`). **Emulator and unit tests
+only: nothing here has run on a physical controller.**
+
+**Receiving.** A report is `args = {v: 1, kind, …}` with closed keys
+(`docs/protocol/MODULE-CONTRACT-V2.md`). The sender is the module id and
+instance id **the Agent stamped** on the request; a report that names a
+sender itself has an unknown key and is refused. Each report is checked
+against the shapes the platform accepts in `driver_reports`
+(`P:src/lib/ai-core/drivers/wire.ts`), because there one bad item fails the
+whole batch:
+
+| Check | Refused as |
+| --- | --- |
+| `v` ≠ 1 (a higher whole number) | `unsupported_version` |
+| `v` missing / not 1, kind not `describe`/`state`/`event`/`diagnostic`, a missing or unknown key, an id / key / enum value / param that breaks its rule, `at` not epoch seconds (whole, 2001–2100), a describe `hash` not 16 lower-case hex, an empty summary / description / title / label / vocabulary word / driver name / version / file (the platform requires text) | `invalid` |
+| the report over 16 KB, a describe over 8 KB (encoded) | `too_large` |
+| per instance per rolling minute: more than 6 `state`, 10 `event`, 6 `diagnostic`; the same describe hash again within 10 minutes | `rate_limited` |
+
+Free text (summary, labels, titles, descriptions, event / diagnostic text,
+fact and data strings) is data: bidi characters removed, every character the
+platform refuses (C0 incl. newline and tab, DEL, C1, U+2028/2029) turned into
+a space, trimmed, cut to its bound in code points. It is never interpreted.
+
+**Answer** (what the helper consumes): `{accepted, ai_core: {state,
+version}, reason?, need_describe?}`. `ai_core.version` is this driver's
+`driver_version` as the Agent's directory lists it. `state`: `unlicensed`
+when the licence blocks `BASE` (then `accepted` is always false and nothing
+is kept), else `agent_unpaired` / `cloud_unreachable` from §6, else `ready`.
+`need_describe: true` whenever AI Core holds no describe for that sender —
+always after an AI Core restart, since describes are not persisted — and the
+helper re-sends its describe at once on seeing it.
+
+**What AI Core keeps (memory only).** Per reporting instance, at most 48
+(the least recently heard is evicted, counted): the describe hash and when
+it came, the driver's name / version / file, the declared query and action
+ids, the latest state facts (≤ 32) and when, per-kind counts and the
+per-minute windows. Waiting for upload: the latest describe (≤ 8 KB) and
+latest state per instance (latest wins, counted `coalesced`), and one ring of
+200 events and diagnostics (drop-oldest, counted).
+
+**Uploading.** Cloud op `driver_reports`, body `{request_id, reports:[…],
+dropped?}`: ≤ 64 items, ≤ the 16 KB cloud body, describes first, then
+states, then events and diagnostics oldest first. Each item is the report
+flattened with the stamped sender: `{from_module_id, from_instance_id, v: 1,
+kind, …the kind's keys}`. `dropped` (sent only when above 0) counts every
+report AI Core dropped since the last delivered batch: refused (over budget,
+invalid, oversize), ring overflow, evicted, or in a batch the cloud refused.
+A 20 s timer asks; a batch goes only when something waits, none is in flight
+and fewer than **3** went in the last 60 s — inside the Agent's per-module
+cloud bucket (20 a minute, burst 10). An answered batch is delivered; one
+that never arrived (`cloud_unreachable`, `deadline_exceeded`,
+`target_unavailable`, `rate_limited`, `agent_not_paired`) goes again later
+(the module client already retried it twice); any other answer (today the
+platform answers `unsupported`: no handler until P3) drops it, counted.
+Nothing is uploaded while the licence blocks `BASE`.
+
+**`run_driver_query` / `invoke_driver_action`.** AI Core reads the target's
+directory row at that moment: it must exist (`unknown_target`), be live and
+protocol 2 (`target_unavailable`), advertise `ai.query` / `ai.action`
+(`capability_not_found`) and, for an action, be **verified** by the Agent's
+identity binding (`not_permitted`, `target_unverified`). Then one request,
+never retried (an action must not run twice), 10 s for a query, 20 s for an
+action, idempotency key = `ai_action_id`. An `ai_action_id` runs once per AI
+Core run (`duplicate_request` after that); at most 8 driver operations in
+flight (`rate_limited`). The declaring driver's own helper validates the
+params against its declaration and refuses a changed `declaration_hash`.
+
+| Driver's answer | `driver_query_result` | `driver_action_result` |
+| --- | --- | --- |
+| `ok`, `{ok: true, data}` / `{ok: true, result_text}` | `completed`, `data` (scalars / arrays / objects ≤ 3 deep; strings lose refused characters) | `completed`, `result_text` |
+| `ok`, `{ok: false, …}` (its handler could not) | `failed`, `internal_error` | `failed`, `internal_error`, `result_text` = the driver's words |
+| an error (`invalid_args`, `not_permitted` + `reason: declaration_changed`, …) | `failed`, that code | `failed`, that code, `result_text` = the helper's reason (`declaration_changed`, `requester_unverified`, `unknown_action`, …) |
+| no answer by the deadline | `failed`, `deadline_exceeded` | `failed`, `deadline_exceeded`, `result_text` says the outcome is unknown |
+| refused here (licence, unverified, not found, duplicate, busy) | `failed`, the code | `failed`, the code, `result_text` = `not_licensed` / `target_unverified` / `target_not_found` / `target_not_responding` / `not_declared` / `already_invoked` / `busy` |
+| a query answer that does not fit the 16 KB cloud body | `failed`, `payload_too_large` (never cut) | — |
+
+"Sent" is never reported as done: the operation stays `Executing` until the
+driver answers or the deadline passes. Both result ops go once per operation
+(the module client retries a lost one twice); a result that still cannot be
+delivered is logged, not stored (KNOWN-ISSUES KI-44).
 
 ## 8. Local diagnostics
 
@@ -549,7 +640,11 @@ body carries it whole; only the envelope's copy is cut.
   `operations_refused`, `liveness_failures`, `jobs_expired`, `jobs_dropped`,
   `system_events`, `variable_events`, `agent_events`, `collector_*`,
   `applied_config_version`, `config_error`, `learning_active`,
-  `flight_recorder`, `flight_recorder_subscribed`, and `bus` (module client).
+  `flight_recorder`, `flight_recorder_subscribed`, `report_modules`,
+  `reports_accepted`, `reports_refused`, `reports_pending`, `reports_dropped`,
+  `report_batches_sent`, `report_batches_delivered`, `report_batches_refused`,
+  and `bus` (module client). Print Diagnostics adds every hub counter
+  (`hub_*`) and one line per reporting module.
 * Licence (`sbos.license`, SKU `SBOS_AI_CORE`): commands, `run_diagnostic`
   and collection stop only when `license.enforces()` (a definitive denial
   with enforcement on). A missing feature refuses only when enforcement is
@@ -559,8 +654,9 @@ body carries it whole; only the envelope's copy is cut.
   `AI_LEARN_PREFERENCE` and `AI_RUN_HOUSEHOLD_ANALYSIS`, `run_diagnostic`,
   Test AI Connection) and `AI_LEARNING` (`AI_LEARN_PREFERENCE`,
   `AI_RUN_HOUSEHOLD_ANALYSIS`, `set_learning` on, `learning.active` in the
-  configuration). `AI_ACTIONS` and `AI_CONCIERGE` gate nothing here: the
-  driver has no action or concierge path; the platform enforces them.
+  configuration), `BASE` also for reports and `run_driver_query`, and
+  `AI_ACTIONS` for `invoke_driver_action`. `AI_CONCIERGE` gates nothing
+  here (no concierge path); the platform enforces it.
   An assertion the Agent cannot verify is dropped and the SKU answers
   `LEGACY` (operational). The Agent's licence inventory keeps the **set of
   instances** per SKU: removing one instance of a driver keeps the SKU while
@@ -584,6 +680,7 @@ body carries it whole; only the envelope's copy is cut.
 | Names agree across XML, code, Agent tables, policy, docs | `test/test_aicore_surface.lua` |
 | Per module | `test/test_aicore_{commands,config,operations,buffer,collector,state,diagnostic}.lua` |
 | Learning off by default; absent / invalid / explicit-on / explicit-off configuration; non-learning features with learning off; Director names bounded end to end; `set_learning` / document precedence; `AI_RECORD_EVENT` with learning off, paused, on; envelope text cut between characters | `test/test_aicore_learning_default.lua` [1]–[11] |
+| Report hub: validation against the platform's item shapes, answers, `need_describe`, rates, coalescing, ring and instance bounds, batches (≤ 64 items, ≤ 16 KB, ≤ 3 a minute, `dropped`), identity from the Agent's stamp, restart; `run_driver_query` / `invoke_driver_action` real outcomes, unverified target, timeout, duplicate, licence | `test/test_aicore_reports.lua` [1]–[7]; end to end `test/emulator/ai_core_reports.lua` |
 | Packaging (squish closure; built `.c4z` when present) | `test/test_aicore_package.lua` |
 | Flight Recorder local history | `test/test_flightrecorder_localquery.lua`, `test/test_flightrecorder_v2.lua` |
 | Licensing as the driver sees it (statuses × enforcement, features, renewal, transfer, trial) | `test/test_aicore_licence.lua` |
@@ -610,6 +707,7 @@ service, or module contract v2. The bench procedures are in
 * `RegisterVariableListener` first-callback behaviour (treated as `initial`);
 * SendToDevice ordering, frame sizes near 24–32 KB, timer behaviour under Director load;
 * the platform route `/api/integrations/control4/modules/rpc` (until deployed, the Agent gets 404 → `cloud_refused`);
+* the report hub and driver queries / actions with real drivers on a controller (bus latency, memory with 48 reporting modules, the 20 s batch timer under Director load);
 * persistence across a real power cut (Director's flush timing).
 
 ## 15. Deviations from the brief / architecture
@@ -625,4 +723,6 @@ service, or module contract v2. The bench procedures are in
 | Variables are collected by AI Core only when listed in `collection.variables` | no documented API identifies a device's proxy type reliably; System Studio selects |
 | Agent-classified events are left to the recorder when it is present, even if it is not configured to record them | AI Core cannot read the recorder's configuration; recording them too would double-capture when it is |
 | `Last Test Result` and `Flight Recorder Link` properties added | the four actions need a place to report; the recorder link is a state the brief requires to be clear |
+| A driver action that its driver refused (`{ok: false}`) is `driver_action_result` `failed` with `error_code: internal_error` and the driver's words in `result_text`; `declaration_changed`, `target_unverified` and the other local reasons also travel in `result_text` | the platform's `error_code` is the closed module error vocabulary, which has no code for "the driver declined" or "the declaration changed" |
+| `driver_reports` is sent without `command` (COMMON's optional key) | the batch is not a Composer command |
 | Agent liveness is a periodic directory request | DriverWorks gives no delivery acknowledgement; the directory request is the cheapest authenticated round trip the Agent answers |

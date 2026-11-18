@@ -13,11 +13,18 @@
                (the result arrives later as deliver_result), completed with
                no job (set_context, send_notification: nothing follows), or
                a refusal shown as it is.
-    RESULTS    six restricted operations from the platform (apply_config,
+    RESULTS    eight restricted operations from the platform (apply_config,
                refresh_status, deliver_result, raise_event, set_learning,
-               run_diagnostic). None controls equipment, runs code or names
-               a command to forward: device actions go through the Agent's
-               existing command queue, never through this driver.
+               run_diagnostic, run_driver_query, invoke_driver_action).
+               None runs code or names a command to forward: device actions
+               go through the Agent's existing command queue. The last two
+               hand a read-only query / a person-approved action to the
+               driver that DECLARED it (ai.query / ai.action, validated by
+               that driver's own helper) and report its REAL outcome.
+    REPORTS    the report hub (src/aicore/reports.lua): every SmartBuildOS
+               driver reports to capability ai_core.report v1; reports are
+               validated, kept as a bounded picture per module and uploaded
+               in batches (cloud op driver_reports, at most 3 a minute).
     EVENTS     collection without double capture: Flight Recorder topics
                are consumed when it is installed; this driver's own
                collector covers only what the Flight Recorder does not
@@ -66,6 +73,7 @@ local Buffer = require("aicore.buffer")
 local Collector = require("aicore.collector")
 local State = require("aicore.state")
 local Diagnostic = require("aicore.diagnostic")
+local Reports = require("aicore.reports")
 
 gInitialized = false
 
@@ -76,6 +84,7 @@ local LAST_KEY = "aicore_last_v1"
 local TICK_TIMER = "AiCoreTick"
 local LIVENESS_TIMER = "AiCoreLiveness"
 local DISCOVER_TIMER = "AiCoreDiscover"
+local REPORTS_TIMER = "AiCoreReports"
 local TICK_SECONDS = 30
 local LIVENESS_SECONDS = 5 * 60
 local FR_SUBSCRIPTION = "fr"
@@ -93,6 +102,10 @@ local gLearning = { active = false, source = "default", reason = "" }
 local gBuffer = nil
 local gCollector = nil
 local gBucket = nil
+--- The report hub (ai_core.report v1): in memory only, never persisted.
+local gReports = nil
+--- This driver's version as the Agent's directory lists it (driver_version).
+local gVersion = ""
 local gPlan = { subscribe = false, system_events = false, agent_events = false, variables = false }
 --- What is known about the Flight Recorder (from the Agent's directory).
 local gFr = { state = "unknown", instance_id = nil, capabilities = {}, subscribed = false, granted = nil }
@@ -405,6 +418,17 @@ local function statusCounters()
   c.learning_active = learningActive()
   c.flight_recorder = gFr.state
   c.flight_recorder_subscribed = gFr.subscribed
+  if gReports then
+    local r = gReports.counters
+    c.report_modules = gReports.count
+    c.reports_accepted = r.accepted
+    c.reports_refused = r.refused
+    c.reports_pending = gReports:pendingCount()
+    c.reports_dropped = r.items_dropped + r.refused
+    c.report_batches_sent = r.batches_sent
+    c.report_batches_delivered = r.batches_delivered
+    c.report_batches_refused = r.batches_refused
+  end
   return c
 end
 
@@ -987,9 +1011,178 @@ for _, name in ipairs(Commands.NAMES) do
   end
 end
 
+-- ─── Report hub (ai_core.report v1, src/aicore/reports.lua) ───────────────
+
+--- What a reporting driver is told about AI Core (its "AI Core" property).
+--- Reports are accepted on licence feature BASE; an unlicensed AI Core still
+--- answers, never accepting (ruling 19).
+local function reportState()
+  if licenceBlocks("BASE") ~= nil then
+    return "unlicensed"
+  end
+  local code = State.code(facts())
+  if code == "agent_unpaired" or code == "cloud_unreachable" then
+    return code
+  end
+  return "ready"
+end
+
+--- A report from the bus. The sender is the module the AGENT stamped on the
+--- frame (from_module_id / from_instance_id), never a name in the report.
+local function onReport(req, respond)
+  respond(
+    "ok",
+    gReports:receive(req.from_module_id, req.from_instance_id, req.args, { state = reportState(), version = gVersion })
+  )
+end
+
+--- One driver_reports batch when one is due (at most 3 a rolling minute,
+--- one in flight; the timer only asks).
+local function flushReports()
+  if gReports == nil or not client.isRegistered() or gAgentLost or (client.protocol() or 0) < 2 then
+    return false
+  end
+  if licenceBlocks("BASE") ~= nil then
+    return false
+  end
+  local requestId = newRequestId()
+  local body = gReports:takeBatch(requestId)
+  if body == nil then
+    return false
+  end
+  client.cloudRequest("driver_reports", body, { idempotency_key = requestId }, function(answer)
+    gReports:settle(Reports.outcome(answer))
+  end)
+  return true
+end
+
+--- Relays one run_driver_query / invoke_driver_action to the driver that
+--- declared it and reports what that driver REALLY answered:
+---   spec = { capability, feature, verified (required), timeout, args,
+---            ai_action_id, result_op, build(answer, localReason), label }
+local function relayDriverOp(op, request, spec)
+  local begun = false
+  local function finish(answer, localReason)
+    if begun then
+      gReports:endOp()
+    else
+      gReports:refuseOp()
+    end
+    local body = spec.build(answer, localReason)
+    local done = body.status == "completed"
+    client.commandResult(
+      request.request_id,
+      done and "Completed" or "Failed",
+      spec.label
+        .. (done and ": completed" or (": failed (" .. tostring(body.error_code) .. ")"))
+        .. ((body.result_text or localReason) and (" " .. tostring(body.result_text or localReason)):sub(1, 200) or "")
+    )
+    client.cloudRequest(spec.result_op, body, { idempotency_key = newRequestId() }, function(a)
+      if a.status ~= "ok" then
+        log:warn("%s for %s not delivered (%s)", spec.result_op, spec.label, tostring(a.error_code))
+      end
+    end)
+  end
+  local block = licenceBlocks(spec.feature)
+  if block ~= nil then
+    finish({ status = "error", error_code = "not_permitted" }, "not_licensed")
+    return
+  end
+  local ok, code, why = gReports:beginOp(spec.ai_action_id)
+  if not ok then
+    finish({ status = "error", error_code = code }, why)
+    return
+  end
+  begun = true
+  -- The target as the Agent's directory lists it NOW: registered, live,
+  -- advertising the capability, and (actions) verified by the Agent.
+  client.discover({ module_id = op.module_id }, function(directory, dcode)
+    if dcode ~= "ok" then
+      finish({ status = "error", error_code = dcode }, "directory_unavailable")
+      return
+    end
+    local row = nil
+    for _, m in ipairs(type(directory.modules) == "table" and directory.modules or {}) do
+      if type(m) == "table" and m.module_id == op.module_id and tostring(m.instance_id) == op.instance_id then
+        row = m
+      end
+    end
+    if row == nil then
+      finish({ status = "error", error_code = "unknown_target" }, "target_not_found")
+      return
+    end
+    if row.stale == true or (tonumber(row.protocol) or 1) < 2 then
+      finish({ status = "error", error_code = "target_unavailable" }, "target_not_responding")
+      return
+    end
+    if spec.verified and row.verified ~= true then
+      -- Ruling 9: a declared action never runs on a module the Agent could
+      -- not bind to its .c4z.
+      finish({ status = "error", error_code = "not_permitted" }, "target_unverified")
+      return
+    end
+    local declared = false
+    for _, c in ipairs(type(row.capabilities) == "table" and row.capabilities or {}) do
+      if type(c) == "table" and c.id == spec.capability then
+        declared = true
+      end
+    end
+    if not declared then
+      finish({ status = "error", error_code = "capability_not_found" }, "not_declared")
+      return
+    end
+    client.request(op.module_id, spec.capability, spec.args, {
+      to_instance = op.instance_id,
+      timeout = spec.timeout,
+      retries = 0, -- never twice: an action must not run again on a lost answer
+      idempotency_key = spec.ai_action_id,
+    }, function(answer)
+      finish(answer or { status = "error", error_code = "internal_error" })
+    end)
+  end)
+end
+
 -- ─── Restricted operations from the platform ───────────────────────────────
 
 local OPS = {}
+
+function OPS.run_driver_query(op, request)
+  relayDriverOp(op, request, {
+    capability = "ai.query",
+    feature = "BASE",
+    verified = false,
+    timeout = 10,
+    args = { query_id = op.query_id, params = op.params },
+    result_op = "driver_query_result",
+    label = "query " .. op.module_id .. "." .. op.query_id,
+    build = function(answer)
+      return Reports.queryResultBody(newRequestId(), op.query_ref, answer)
+    end,
+  })
+  return "Executing", "asking " .. op.module_id
+end
+
+function OPS.invoke_driver_action(op, request)
+  relayDriverOp(op, request, {
+    capability = "ai.action",
+    feature = "AI_ACTIONS",
+    verified = true,
+    timeout = 20,
+    ai_action_id = op.ai_action_id,
+    args = {
+      action_id = op.action_id,
+      params = op.params,
+      ai_action_id = op.ai_action_id,
+      declaration_hash = op.declaration_hash,
+    },
+    result_op = "driver_action_result",
+    label = "action " .. op.module_id .. "." .. op.action_id,
+    build = function(answer, localReason)
+      return Reports.actionResultBody(newRequestId(), op.ai_action_id, answer, localReason)
+    end,
+  })
+  return "Executing", "sent to " .. op.module_id .. " (not done until it answers)"
+end
 
 function OPS.apply_config(op)
   -- A queued apply_config can arrive after the Agent already forwarded a
@@ -1379,6 +1572,8 @@ function OnDriverLateInit(reason)
     end,
   })
   gCollector = Collector.new({ now = now })
+  gReports = Reports.new({ now = now })
+  gVersion = tostring(C4:GetDriverConfigInfo("version"))
   gBucket = Commands.newBucket(V.LIMITS.commands_per_minute, now)
 
   license.setup({ sku = V.SKU })
@@ -1390,14 +1585,18 @@ function OnDriverLateInit(reason)
 
   client.setup({
     module_id = V.MODULE_ID,
-    driver_version = tostring(C4:GetDriverConfigInfo("version")),
+    driver_version = gVersion,
     capabilities = { "ai_core", "local_diagnostics" },
     entitlements = { V.SKU },
     commands = V.OPERATIONS,
     event_types = { V.EVENT_PREFIX },
     singleton = true,
     require_protocol = 2,
-    manifest = { driver = V.MANIFEST_DRIVER, capabilities = {} },
+    -- Any registered module may report to AI Core (Agent policy ANY).
+    manifest = {
+      driver = V.MANIFEST_DRIVER,
+      capabilities = { { id = Reports.CAPABILITY, version = Reports.CAPABILITY_VERSION, kind = "request" } },
+    },
     status = function()
       return State.code(facts()), gLast.error, statusCounters()
     end,
@@ -1431,8 +1630,10 @@ function OnDriverLateInit(reason)
       return applied, #refusals
     end,
   })
+  client.onRequest(Reports.CAPABILITY, onReport)
   -- At Log Level 5 the vendored ExecuteCommand prints every param of every
-  -- command; the Agent's frames carry this module's token. Never printed.
+  -- command; the Agent's frames carry this module's token, reports and the
+  -- params of driver queries and actions. Never printed.
   EC.suppressDebug = EC.suppressDebug or {}
   for name in pairs(EC) do
     if type(name) == "string" and name:find("^SBOS_MODULE_") then
@@ -1475,6 +1676,7 @@ function OnDriverLateInit(reason)
   SetTimer(LIVENESS_TIMER, LIVENESS_SECONDS * ONE_SECOND, function()
     discoverFlightRecorder("liveness")
   end, true)
+  SetTimer(REPORTS_TIMER, Reports.LIMITS.batch_interval_seconds * ONE_SECOND, flushReports, true)
   refresh("started")
   log:info("AI Core started (%s)", tostring(reason))
 end
@@ -1493,6 +1695,7 @@ function OnDriverDestroyed()
   CancelTimer(TICK_TIMER)
   CancelTimer(LIVENESS_TIMER)
   CancelTimer(DISCOVER_TIMER)
+  CancelTimer(REPORTS_TIMER)
   saveLast()
 end
 
@@ -1645,6 +1848,30 @@ function EC.PRINT_DIAGNOSTICS()
   end
   for k, v in pairs(client.busCounters()) do
     log:print("  bus %s = %s", tostring(k), tostring(v))
+  end
+  if gReports then
+    local rk = {}
+    for k in pairs(gReports.counters) do
+      rk[#rk + 1] = k
+    end
+    table.sort(rk)
+    for _, k in ipairs(rk) do
+      log:print("  hub_%s = %s", k, tostring(gReports.counters[k]))
+    end
+    for _, m in ipairs(gReports:modules()) do
+      log:print(
+        "  report module %s@%s: describe %s, state %s, %d describe / %d state / %d event / %d diagnostic, %d refused",
+        m.module_id,
+        m.instance_id,
+        m.describe_hash or "none",
+        m.state_at and stamp(m.state_at) or "none",
+        m.counts.describe,
+        m.counts.state,
+        m.counts.event,
+        m.counts.diagnostic,
+        m.counts.refused
+      )
+    end
   end
 end
 

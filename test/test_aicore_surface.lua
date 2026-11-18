@@ -221,20 +221,13 @@ local opsOk = true
 for _, op in ipairs(V.OPERATIONS) do
   opsOk = opsOk and agentOps[op]
 end
--- The Agent carries the two driver-reporting verbs ahead of the AI Core
--- driver (bus foundations); the Agent's instance check refuses them until
--- the driver registers them.
-local AGENT_AHEAD = { run_driver_query = true, invoke_driver_action = true }
-local nOps, nAhead = 0, 0
-for op in pairs(agentOps) do
+local nOps = 0
+for _ in pairs(agentOps) do
   nOps = nOps + 1
-  if AGENT_AHEAD[op] then
-    nAhead = nAhead + 1
-  end
 end
 check(
-  "MODULE_COMMANDS.ai_core = the driver's six operations + run_driver_query, invoke_driver_action",
-  opsOk and nAhead == 2 and nOps == #V.OPERATIONS + 2,
+  "MODULE_COMMANDS.ai_core = the driver's restricted operations, exactly (vocab.OPERATIONS)",
+  opsOk and nOps == #V.OPERATIONS,
   nOps
 )
 check(

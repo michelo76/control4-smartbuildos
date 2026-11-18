@@ -15,6 +15,7 @@
 --- op.kind is the operation; the other fields are normalised, bounded values.
 
 local V = require("aicore.vocab")
+local Commands = require("aicore.commands")
 
 local M = {}
 
@@ -47,6 +48,19 @@ local ARGS = {
   -- previews it and is ignored once that version is applied).
   set_learning = { active = true, reason = true, config_version = true },
   run_diagnostic = { device_id = true, room_id = true, note = true },
+  -- A read-only query / a person-approved action for the driver that
+  -- declared it (docs/ai-core/DRIVER-CONTRACT.md, platform side). `params`
+  -- is checked for shape here and against the declaration by the declaring
+  -- driver's own helper before its handler runs.
+  run_driver_query = { query_ref = true, module_id = true, instance_id = true, query_id = true, params = true },
+  invoke_driver_action = {
+    ai_action_id = true,
+    module_id = true,
+    instance_id = true,
+    action_id = true,
+    params = true,
+    declaration_hash = true,
+  },
 }
 
 --- The argument keys each operation accepts (a copy: the parity test reads
@@ -100,6 +114,75 @@ local function cleanText(v, max)
     return s:sub(1, cut), true
   end
   return s, false
+end
+
+local function validUuid(s)
+  return type(s) == "string"
+    and s:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") ~= nil
+    and s:lower() == s
+end
+
+local function validModule(s)
+  return type(s) == "string" and #s >= 3 and #s <= 48 and s:match("^[a-z][a-z0-9_]+$") ~= nil and s ~= V.MODULE_ID
+end
+
+local function validDeclId(s)
+  return type(s) == "string" and #s <= 48 and s:match("^[a-z][a-z0-9_]*$") ~= nil
+end
+
+--- params: at most 6 keys ^[a-z][a-z0-9_]{0,31}$, each a string of at most
+--- 64 characters without control characters, a finite number or a boolean.
+local function validParams(p)
+  if p == nil then
+    return {}
+  end
+  if type(p) ~= "table" then
+    return nil
+  end
+  local n = 0
+  for k, v in pairs(p) do
+    n = n + 1
+    if n > 6 or type(k) ~= "string" or #k > 32 or not k:match("^[a-z][a-z0-9_]*$") then
+      return nil
+    end
+    local t = type(v)
+    if t == "string" then
+      if #v > 256 or v:find("[%z\1-\31\127]") or v:find("\194[\128-\159]") or v:find("\226\128[\168\169]") then
+        return nil
+      end
+      if Commands.length(v) > 64 then
+        return nil
+      end
+    elseif t == "number" then
+      if v ~= v or v == math.huge or v == -math.huge then
+        return nil
+      end
+    elseif t ~= "boolean" then
+      return nil
+    end
+  end
+  return p
+end
+
+--- The declaring driver both operations address: its module id (never
+--- AI Core) and its device id as a decimal string.
+local function driverTarget(op, args)
+  if not validModule(args.module_id) then
+    return nil, "module_id must be a module id ^[a-z][a-z0-9_]{2,47}$ other than ai_core"
+  end
+  local inst = args.instance_id
+  if type(inst) == "number" and inst == math.floor(inst) and inst > 0 then
+    inst = string.format("%d", inst)
+  end
+  if type(inst) ~= "string" or #inst > 12 or not inst:match("^%d+$") then
+    return nil, "instance_id must be the driver's device id (digits)"
+  end
+  local params = validParams(args.params)
+  if params == nil then
+    return nil, "params must be an object of at most 6 scalar values"
+  end
+  op.module_id, op.instance_id, op.params = args.module_id, inst, params
+  return op
 end
 
 --- @return table|nil op, string|nil reason
@@ -193,6 +276,35 @@ function M.parse(command, args)
         return nil, "config_version must be a whole number (the configuration version it previews)"
       end
       op.config_version = v
+    end
+  elseif command == "run_driver_query" then
+    if not validUuid(args.query_ref) then
+      return nil, "run_driver_query needs a query_ref (a lower-case uuid)"
+    end
+    if not validDeclId(args.query_id) then
+      return nil, "query_id must match ^[a-z][a-z0-9_]{0,47}$"
+    end
+    op.query_ref, op.query_id = args.query_ref, args.query_id
+    local ok, why = driverTarget(op, args)
+    if not ok then
+      return nil, why
+    end
+  elseif command == "invoke_driver_action" then
+    if not validUuid(args.ai_action_id) then
+      return nil, "invoke_driver_action needs an ai_action_id (a lower-case uuid)"
+    end
+    if not validDeclId(args.action_id) then
+      return nil, "action_id must match ^[a-z][a-z0-9_]{0,47}$"
+    end
+    -- 16 lower-case hex: the declaring driver's describe hash (aireport.hash).
+    local h = args.declaration_hash
+    if type(h) ~= "string" or #h ~= 16 or not h:match("^[0-9a-f]+$") then
+      return nil, "declaration_hash must be 16 lower-case hex characters"
+    end
+    op.ai_action_id, op.action_id, op.declaration_hash = args.ai_action_id, args.action_id, h
+    local ok, why = driverTarget(op, args)
+    if not ok then
+      return nil, why
     end
   elseif command == "run_diagnostic" then
     local d = args.device_id ~= nil and tonumber(args.device_id) or nil

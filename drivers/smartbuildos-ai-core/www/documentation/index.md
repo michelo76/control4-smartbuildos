@@ -201,12 +201,25 @@ variables. Nothing is excluded (with nothing collected there is nothing to
 exclude), and the provider, model, key status, permission mode and ids read *Not
 configured* or *Not delivered yet*.
 
-SmartBuildOS can also send six restricted operations through the Agent:
+SmartBuildOS can also send eight restricted operations through the Agent:
 `apply_config`, `refresh_status`, `deliver_result` (a result: variables and AI
 Response Ready), `raise_event` (one of the events above, from a closed list;
 never Agent Disconnected; it may name what it is about, shown in
-`AI_LAST_CORRELATION_ID`), `set_learning`, `run_diagnostic`. None of them
-controls equipment or runs code.
+`AI_LAST_CORRELATION_ID`), `set_learning`, `run_diagnostic`,
+`run_driver_query` and `invoke_driver_action`. None of them runs code. The
+last two pass a read-only question, or an action a person approved, to the
+SmartBuildOS driver that declared it; an action needs the Agent's Remote
+Control property at Comfort or above, goes only to a driver the Agent has
+verified, and is reported as done only when that driver says it succeeded.
+
+## Reports from other SmartBuildOS drivers
+
+Other SmartBuildOS drivers in the project report to AI Core what they are,
+their current state, events and faults (their own **AI Core** property shows
+whether that works). AI Core checks every report, keeps a small picture per
+driver in memory and sends the reports to SmartBuildOS in batches, at most
+three a minute. Report text is treated as data and never as an instruction.
+Tested in the emulator only; not yet on a controller.
 
 ## What it collects
 

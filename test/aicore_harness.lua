@@ -231,6 +231,11 @@ H.agent = {
   fr = { present = true, protocol = 2, instance_id = "9001", stale = false },
   cloud = nil, -- function(op, body, params) → { status, http_status, error_code, result | raw_result }
   frAnswer = nil, -- function(capability, args) → status, result, code
+  -- Other modules on the bus: extra directory rows, and the answer to a
+  -- request AI Core sends to them. busAnswer(to, capability, args, params)
+  -- → status, result, code | false (no answer at all).
+  modules = {},
+  busAnswer = nil,
   processed = 0,
   cloudCalls = {},
   frRequests = {},
@@ -305,6 +310,9 @@ local function directory(filter)
           }
         or {},
     }
+  end
+  for _, m in ipairs(H.agent.modules) do
+    mods[#mods + 1] = m
   end
   local out = {}
   for _, m in ipairs(mods) do
@@ -382,7 +390,14 @@ local function answer(frame)
     a.frRequests[#a.frRequests + 1] = { to = p.to, capability = p.capability, args = args }
     EC.SBOS_MODULE_REQUEST_ACK(auth({ request_id = p.request_id, state = "Routed", error_code = "ok" }))
     local status, result, code = "ok", { events = {}, count = 0 }, "ok"
-    if a.frAnswer then
+    local fromModule, fromInstance = "flight_recorder", a.fr.instance_id
+    if p.to ~= "flight_recorder" and a.busAnswer then
+      status, result, code = a.busAnswer(p.to, p.capability, args, p)
+      if status == false then
+        return -- the target never answers
+      end
+      fromModule, fromInstance = p.to, p.to_instance
+    elseif a.frAnswer then
       status, result, code = a.frAnswer(p.capability, args)
     end
     EC.SBOS_MODULE_RESPONSE(auth({
@@ -391,8 +406,8 @@ local function answer(frame)
       error_code = code or "ok",
       result = JSON:encode(result or {}),
       cursor = "",
-      from_module_id = "flight_recorder",
-      from_instance_id = a.fr.instance_id,
+      from_module_id = fromModule,
+      from_instance_id = fromInstance,
     }))
   elseif c == "SBOS_MODULE_EVENTS" then
     local events = JSON:decode(p.events)
@@ -513,6 +528,47 @@ function H.operation(command, args, token)
     end
   end
   return states, id
+end
+
+--- A request another module sent AI Core through the Agent, which stamps
+--- the sender (from_module_id / from_instance_id). Returns AI Core's
+--- answer { status, error_code, result } (nil when it gave none).
+local reqSeq = 0
+function H.request(fromModule, fromInstance, capability, args, extra)
+  reqSeq = reqSeq + 1
+  local id = "rq-" .. reqSeq
+  local p = auth({
+    request_id = id,
+    idempotency_key = "rk-" .. reqSeq,
+    from_module_id = fromModule,
+    from_instance_id = tostring(fromInstance),
+    capability = capability,
+    args = type(args) == "string" and args or JSON:encode(args),
+    deadline = tostring(os.time() + 30),
+  })
+  for k, v in pairs(extra or {}) do
+    p[k] = v
+  end
+  EC.SBOS_MODULE_REQUEST(p)
+  H.pump()
+  for i = #H.sent, 1, -1 do
+    local s = H.sent[i]
+    if s.command == "SBOS_MODULE_RESPONSE" and s.params.request_id == id then
+      return { status = s.params.status, error_code = s.params.error_code, result = JSON:decode(s.params.result) }
+    end
+  end
+  return nil
+end
+
+--- Every cloud op AI Core sent (through the Agent), optionally of one op.
+function H.cloudOps(op)
+  local out = {}
+  for _, c in ipairs(H.agent.cloudCalls) do
+    if op == nil or c.op == op then
+      out[#out + 1] = c
+    end
+  end
+  return out
 end
 
 function H.finalState(states)

@@ -12,7 +12,8 @@
 --   [3]  CONTROLLER_MISMATCH (enforced): commands, run_diagnostic, the AI
 --        test and collection all stop, each saying why
 --   [4]  feature entitlements: AI_LEARNING gates exactly its paths;
---        AI_ACTIONS / AI_CONCIERGE gate no driver path (none exists)
+--        AI_ACTIONS gates invoke_driver_action (test_aicore_reports.lua);
+--        AI_CONCIERGE gates no driver path (none exists)
 --   [5]  uncertain states never brick the driver
 --   [6]  the cache → grace → validation-required ladder, as answered
 --   [7]  renewal restores service without a reload
@@ -259,8 +260,8 @@ for f in pairs(gated) do
 end
 table.sort(list)
 check(
-  "the driver gates exactly BASE and AI_LEARNING (AI_ACTIONS / AI_CONCIERGE: no driver path)",
-  table.concat(list, ",") == "AI_LEARNING,BASE",
+  "the driver gates exactly BASE, AI_LEARNING and AI_ACTIONS (invoke_driver_action; AI_CONCIERGE: no driver path)",
+  table.concat(list, ",") == "AI_ACTIONS,AI_LEARNING,BASE",
   table.concat(list, ",")
 )
 

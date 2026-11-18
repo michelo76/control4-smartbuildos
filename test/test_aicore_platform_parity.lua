@@ -202,23 +202,9 @@ check(
   show(agentAiCore, sorted(opsModules and opsModules.ai_core))
 )
 check("= AI_CORE_OPERATIONS (protocol.ts)", same(agentAiCore, opsTs), show(agentAiCore, opsTs))
--- The Agent carries run_driver_query / invoke_driver_action ahead of the AI
--- Core driver (bus foundations); its instance check refuses them until the
--- driver registers them. Once vocab.OPERATIONS lists them this allowance
--- must go (test_aicore_surface.lua fails until it does).
 local driverOps = sorted(V.OPERATIONS)
-local hasAhead = {}
-for _, op in ipairs(driverOps) do
-  hasAhead[op] = true
-end
-for _, op in ipairs({ "run_driver_query", "invoke_driver_action" }) do
-  if not hasAhead[op] then
-    driverOps[#driverOps + 1] = op
-  end
-end
-table.sort(driverOps)
 check(
-  "= the driver's registered vocab.OPERATIONS (+ the two verbs the Agent carries ahead)",
+  "= the driver's registered vocab.OPERATIONS, exactly",
   same(agentAiCore, driverOps),
   show(agentAiCore, driverOps)
 )
@@ -418,6 +404,14 @@ local SAMPLE = {
   device_id = 12,
   room_id = 3,
   note = "n",
+  query_ref = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc",
+  ai_action_id = "1d6f9a2e-5b1c-4c8e-9f00-123456789abc",
+  module_id = "atmosphere",
+  instance_id = "321",
+  query_id = "current_conditions",
+  action_id = "refresh_now",
+  params = {},
+  declaration_hash = "0123456789abcdef",
 }
 local BASE = {
   apply_config = { config = {}, version = 1 },
@@ -426,6 +420,21 @@ local BASE = {
   raise_event = { event = "pattern_detected" },
   set_learning = { active = true },
   run_diagnostic = { device_id = 12 },
+  run_driver_query = {
+    query_ref = SAMPLE.query_ref,
+    module_id = "atmosphere",
+    instance_id = "321",
+    query_id = "current_conditions",
+    params = {},
+  },
+  invoke_driver_action = {
+    ai_action_id = SAMPLE.ai_action_id,
+    module_id = "atmosphere",
+    instance_id = "321",
+    action_id = "refresh_now",
+    params = {},
+    declaration_hash = SAMPLE.declaration_hash,
+  },
 }
 --- Whether the driver accepts `key` (with the platform's kind of value) on `op`.
 local function driverTakes(op, key)
@@ -532,12 +541,19 @@ local limitsTs = record(protocolTs, "AI_CORE_DRIVER_LIMITS") or {}
 for k, v in tostring(literal(protocolTs, "AI_CORE_DRIVER_LIMITS")):gmatch("([%w_]+): (%d+)") do
   limitsTs[k] = tonumber(v)
 end
+local wireTs = read(ROOT .. "/src/lib/ai-core/drivers/wire.ts") or ""
+local wireLimits = {}
+for k, v in tostring(wireTs:match("export const DRIVER_WIRE_LIMITS = (%b{})")):gmatch("([%w_]+): (%d+)") do
+  wireLimits[k] = tonumber(v)
+end
 local function platformFields(lit)
   local out = {}
   for _, f in ipairs(entries(lit)) do
     local max = f.body:match("max:%s*([%w_%.]+)")
     if max and max:match("^L%.") then
       max = limitsTs[max:sub(3)]
+    elseif max and max:match("^DRIVER_WIRE_LIMITS%.") then
+      max = wireLimits[max:sub(#"DRIVER_WIRE_LIMITS." + 1)]
     else
       max = tonumber(max)
     end
@@ -648,12 +664,59 @@ for _, op in ipairs({ "test_provider", "status" }) do
   end
   driverBodies[op] = { full = body, minimal = body, max = {} }
 end
+-- The report hub's three ops, built by src/aicore/reports.lua exactly as the
+-- driver sends them (driver.lua flushReports / relayDriverOp).
+do
+  require("drivers-common-public.global.lib") -- the JSON encoder's number formatter
+  local Reports = require("aicore.reports")
+  local function keysOf(...)
+    local out = {}
+    for _, b in ipairs({ ... }) do
+      for k in pairs(b) do
+        out[k] = true
+      end
+    end
+    return out
+  end
+  local hub = Reports.new({
+    now = function()
+      return 1800000000
+    end,
+  })
+  local ctx = { state = "ready", version = "1" }
+  hub:receive("atmosphere", "321", { v = 1, kind = "bogus" }, ctx) -- one dropped
+  hub:receive("atmosphere", "321", { v = 1, kind = "state", facts = { a = 1 } }, ctx)
+  local withDropped = assert(hub:takeBatch("aic-1"))
+  hub:settle("delivered")
+  hub:receive("atmosphere", "321", { v = 1, kind = "event", type = "a.b", text = "x", data = {}, at = 1800000000 }, ctx)
+  local plain = hub:takeBatch("aic-2")
+  local errorCodes = {}
+  for c in pairs(Policy.ERRORS) do
+    if c ~= "ok" then
+      errorCodes[c] = true
+    end
+  end
+  local resultEnums = { status = set(Reports.RESULT_STATUSES), error_code = errorCodes }
+  local qOk = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "ok", result = { ok = true, data = { a = 1 } } })
+  local qFail = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "error", error_code = "invalid_args" })
+  local aOk = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "ok", result = { ok = true, result_text = "done" } })
+  local aFail = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "error", error_code = "not_permitted" }, "target_unverified")
+  driverBodies.driver_reports = { full = keysOf(withDropped), minimal = keysOf(plain or {}), max = {} }
+  driverBodies.driver_query_result = { full = keysOf(qOk, qFail), minimal = keysOf(qFail), max = {}, enums = resultEnums }
+  driverBodies.driver_action_result = {
+    full = keysOf(aOk, aFail),
+    minimal = keysOf(aOk),
+    max = {},
+    guard = { result_text = Reports.LIMITS.result_text },
+    enums = resultEnums,
+  }
+end
 for _, op in ipairs(keys(V.CLOUD_OPS)) do
   local d = driverBodies[op]
   local spec = bodies[op]
   if d == nil then
     note(op .. ": in the vocabulary, but no driver path sends it")
-  elseif not handled[op] then
+  elseif not handled[op] and spec == nil then
     note(
       op
         .. ": the driver sends it; the platform registers no handler, so it answers `unsupported`"
@@ -666,6 +729,11 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
       "no OP_BODIES entry; the driver sends {" .. table.concat(keys(d.full), ",") .. "}"
     )
   else
+    if not handled[op] then
+      -- Wire reserved: the body is validated (OP_BODIES) but no handler
+      -- answers it yet (`unsupported`); the body must still be right.
+      note(op .. ": OP_BODIES validates it, no handler yet (answered `unsupported`); body checked anyway")
+    end
     local unknown = minus(keys(d.full), keys(spec))
     check(
       op .. ": every body key the driver sends is in OP_BODIES." .. op .. " (+ COMMON)",
@@ -687,6 +755,12 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
     for field, f in pairs(spec) do
       if f.kind == "enum" and d.full[field] ~= nil and f.list then
         local tsList = sorted(strings(literal(protocolTs, f.list)))
+        if f.list == "AI_CORE_DRIVER_RESULT_ERROR_CODES" then
+          -- MODULE_ERROR_CODES.filter((c) => c !== "ok"), not a literal.
+          tsList = protocolTs:find('MODULE_ERROR_CODES.filter((c) => c !== "ok")', 1, true)
+              and minus(sorted(strings(literal(protocolTs, "MODULE_ERROR_CODES"))), { "ok" })
+            or {}
+        end
         local driverList = {}
         for _, name in ipairs(Commands.NAMES) do
           local sp = Commands.SPECS[name]
@@ -698,6 +772,9 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
             end
           end
         end
+        if d.enums and d.enums[field] then
+          driverList = keys(d.enums[field])
+        end
         check(
           op .. "." .. field .. ": the same closed list (" .. f.list .. ")",
           same(driverList, tsList),
@@ -707,7 +784,7 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
         -- A typed parameter's bound (refused over it) and the body's last
         -- guard (commands.lua BODY_TEXT_MAX: Director's names are cut to it)
         -- must both fit the platform's bound for the field.
-        local typed, guard = d.max[field], Commands.BODY_TEXT_MAX[field]
+        local typed, guard = d.max[field], (d.guard and d.guard[field]) or Commands.BODY_TEXT_MAX[field]
         check(
           op .. "." .. field .. ": the driver bounds it before sending (BODY_TEXT_MAX." .. field .. ")",
           guard ~= nil,
@@ -784,6 +861,89 @@ check(
   jobFn:find("accepted: true, job_id: jobId", 1, true) ~= nil
     and Commands.interpret({ status = "ok", result = { accepted = true, job_id = "uuid-1" } }).outcome == "accepted"
 )
+
+print("[8a] driver reporting: the report items and operation args against drivers/wire.ts")
+do
+  local Reports = require("aicore.reports")
+  check("drivers/wire.ts is readable", wireTs ~= "" and next(wireLimits) ~= nil)
+  local itemKeys = sorted(strings(literal(wireTs, "DRIVER_REPORT_ITEM_KEYS")))
+  check(
+    "item keys: from_module_id, from_instance_id, v, kind (DRIVER_REPORT_ITEM_KEYS)",
+    same(itemKeys, sorted({ "from_module_id", "from_instance_id", "v", "kind" })),
+    table.concat(itemKeys, ",")
+  )
+  local reportKeys = tostring(wireTs:match("const REPORT_KEYS[^=]*= (%b{})"))
+  for _, kind in ipairs({ "describe", "state", "event", "diagnostic" }) do
+    local ts = sorted(strings(reportKeys:match(kind .. ":%s*(%b[])")))
+    check(
+      kind .. ": the same keys (REPORT_KEYS." .. kind .. ")",
+      same(sorted(Reports.KIND_KEYS[kind]), ts),
+      show(sorted(Reports.KIND_KEYS[kind]), ts)
+    )
+  end
+  local kindsTs = sorted(strings(literal(wireTs, "DRIVER_REPORT_KINDS")))
+  check("kinds: DRIVER_REPORT_KINDS", same(keys(Reports.KINDS), kindsTs), show(keys(Reports.KINDS), kindsTs))
+  for name, mine in pairs({
+    DRIVER_CONTROL_CLASSES = Reports.CLASSES,
+    DRIVER_PARAM_TYPES = Reports.PARAM_TYPES,
+    DRIVER_ACTION_RISKS = Reports.RISKS,
+    DRIVER_DIAGNOSTIC_SEVERITIES = Reports.SEVERITIES,
+  }) do
+    local ts = sorted(strings(literal(wireTs, name)))
+    check("closed list " .. name, same(keys(mine), ts), show(keys(mine), ts))
+  end
+  -- every bound: the driver's is never looser than the platform's
+  local MAP = {
+    reportsPerBatch = "batch_items",
+    controls = "controls",
+    vocabulary = "vocabulary",
+    vocabularyText = "vocabulary_len",
+    queries = "queries",
+    actions = "actions",
+    params = "params",
+    paramValues = "param_values",
+    paramValueText = "param_value_len",
+    paramMaxLen = "param_max_len",
+    facts = "facts",
+    factText = "fact_len",
+    eventData = "event_data",
+    text = "text",
+    summary = "summary",
+    description = "description",
+    title = "title",
+    label = "control_label",
+    controlId = "control_id",
+    driverName = "name",
+    driverVersion = "version",
+    driverSku = "sku",
+    driverFile = "file",
+    dataDepth = "data_depth",
+    resultText = "result_text",
+  }
+  local loose, unmapped = {}, {}
+  for k, v in pairs(wireLimits) do
+    local mine = MAP[k] and Reports.LIMITS[MAP[k]]
+    if mine == nil then
+      unmapped[#unmapped + 1] = k
+    elseif mine > v then
+      loose[#loose + 1] = k .. " " .. mine .. ">" .. v
+    end
+  end
+  table.sort(loose)
+  table.sort(unmapped)
+  check("every DRIVER_WIRE_LIMITS bound is mirrored by reports.lua", #unmapped == 0, table.concat(unmapped, ","))
+  check("…and none is looser on the driver", #loose == 0, table.concat(loose, ","))
+  local hashLen = tonumber(tostring(wireTs:match("DECLARATION_HASH = /%^%[0%-9a%-f%]{(%d+)}%$/")))
+  check(
+    "describe hash / declaration_hash: the platform's DECLARATION_HASH length = the helper's 16 hex (conductor ruling 1)",
+    hashLen == 16,
+    "platform " .. tostring(hashLen) .. ", driver 16"
+  )
+  check(
+    "the platform refuses a whole batch for one bad item (validDriverReports: every) — reports.lua validates each item first",
+    wireTs:find("v.every(validDriverReportItem)", 1, true) ~= nil
+  )
+end
 
 print("[9] raise_event detail: platform ≤ RAISE_EVENT_DETAIL_MAX characters, driver keeps ≤ event_detail bytes")
 -- Compatible by design, asserted: the platform refuses a detail over 240

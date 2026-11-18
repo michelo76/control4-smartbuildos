@@ -47,7 +47,11 @@ M.RAISABLE = {
 }
 
 --- Restricted operations (Agent MODULE_COMMANDS.ai_core). None controls
---- equipment, runs code, or names a command to forward.
+--- equipment, runs code, or names a command to forward. The last two hand
+--- a read-only query / a person-approved action to the driver that DECLARED
+--- it (ai.query / ai.action over the bus, schema-validated by that driver's
+--- own helper); invoke_driver_action needs the Agent's Remote Control tier
+--- at Comfort or above (the Agent enforces it).
 M.OPERATIONS = {
   "apply_config",
   "refresh_status",
@@ -55,6 +59,8 @@ M.OPERATIONS = {
   "raise_event",
   "set_learning",
   "run_diagnostic",
+  "run_driver_query",
+  "invoke_driver_action",
 }
 
 --- Cloud ops (Agent MODULE_CLOUD_OPS.ai_core).
@@ -71,11 +77,13 @@ M.CLOUD_OPS = {
   status = true,
   test_provider = true,
   analyze_household = true,
-  -- Added with the bus foundations (Agent policy); the AI Core driver does
-  -- not call them yet.
+  -- Added with the bus foundations (Agent policy); the touchscreen ops are
+  -- not called yet (brief D5).
   approvals_pending = true,
   approval_detail = true,
   approval_decide = true,
+  -- The report hub (src/aicore/reports.lua) and the outcomes of
+  -- run_driver_query / invoke_driver_action.
   driver_reports = true,
   driver_query_result = true,
   driver_action_result = true,
