@@ -3,8 +3,9 @@
 Status: implemented on `feat/dealer-tools`; simulator-verified
 (`test_pinlock_engine.lua`, `test_pinlock_relay.lua`, `test_pinlock_driver.lua`);
 nothing run on a controller yet. SKU `SBOS_PIN_LOCK`, module id `pin_lock`
-(reserved for the Agent contract below; the driver does not use
-`sbos.moduleclient` today). Marketing name: "PIN-gated actions and keypad
+(reserved in the Agent and bound to `smartbuildos-pin-lock.c4z`; the driver
+joins the module bus for AI Core verification only, see "AI Core
+verification" below). Marketing name: "PIN-gated actions and keypad
 sequences".
 
 ## What it is, and what it is not
@@ -19,8 +20,9 @@ being locked up beyond neutral examples (wine cellar, garage service door,
 alarm zone).
 
 Pure engine `src/pinlock/engine.lua` (injected clock, HMAC, calendar);
-`src/pinlock/relay.lua` is the pure HTTP router; `driver.lua` maps engine
-events to Composer, the target device and the Flight Recorder.
+`src/pinlock/relay.lua` is the pure HTTP router; `src/pinlock/challenge.lua`
+is the AI Core challenge store; `driver.lua` maps engine events to Composer,
+the target device and the Flight Recorder, and serves the module bus.
 
 ## Rules (all tested)
 
@@ -34,7 +36,7 @@ events to Composer, the target device and the Flight Recorder.
 | Dates / uses | optional start, expiry (end of day), max uses; use counted on grant only |
 | Temporary | guest role, `hours` 0..8760, same-name temporary code is replaced (a failed replacement keeps the old one), pruned 24 h after expiry |
 | Last owner | cannot be disabled, revoked or demoted |
-| Lockout | per entry point `page` / `keypad` / `admin`; `maxFails` (3..10) → locked `lockSeconds`; every denial counts (a valid PIN outside its hours too, so there is no oracle); a success does NOT reset the count (else one valid PIN allows endless guessing); failures decay after 10 quiet minutes; locks persisted with absolute expiry |
+| Lockout | per entry point `page` / `keypad` / `admin` (AI Core verification, entry `ai_core`, counts in `page`: one bucket); `maxFails` (3..10) → locked `lockSeconds`; every denial counts (a valid PIN outside its hours too, so there is no oracle); a success does NOT reset the count (else one valid PIN allows endless guessing); failures decay after 10 quiet minutes; locks persisted with absolute expiry |
 | Locked attempts | refused without evaluating; recorded at most once per 30 s per entry point; *Access Denied* is not re-fired |
 | Keypad | per-keypad buffer (≤ 8); the whole sequence must finish within `seqWindow` of its first press; a complete buffer = exactly one attempt; partial timeouts are not attempts; no sequence code defined → presses are ignored (no attempts, no buffers) |
 | Admin | owner PIN → in-memory session (32 hex, 10 min sliding, ≤ 4), attempts count against `admin`; first owner can be created only while none exists |
@@ -92,7 +94,10 @@ Events: 1 Access Granted, 2 Access Denied, 3 Entry Point Locked Out,
 Commands: `ENABLE_CODE`, `DISABLE_CODE`, `REVOKE_CODE`, `ADD_TEMPORARY_CODE`,
 `KEYPAD_PRESS`, `CLEAR_LOCKOUTS`. Conditionals: `CODE_ACTIVE`,
 `ENTRY_LOCKED` (STRING, `=` / `!=`; the logic pack's pattern, because a
-conditional gets one value). Variables 3000..3007. Actions tab: Print State,
+conditional gets one value). Variables 3000..3007. Properties for AI Core: `AI Core` (read-only, painted
+by `sbos.aireport`), `AI Core Approvals` (read-only, plain words: whether AI
+Core may use PIN verification now, and why not) and `AI Core PIN
+Verification` (dealer switch, see below). Actions tab: Print State,
 Clear Lockouts, Refresh Device Lists, Republish App URL, Remove All Codes,
 Register With Agent Now, Refresh Status.
 
@@ -114,6 +119,97 @@ resolution through `lib.relayhost`. Routes are in `src/pinlock/relay.lua`.
 Replies to the keypad user are generic (`Done` / `not allowed` / `locked`,
 with `retry_in`); reasons go to variables and the recorder only.
 
+## AI Core verification (owner PIN on the AI Core touchscreen)
+
+AI Core (brief D5) may ask for an owner PIN before it shows an approval or
+unlocks its touchscreen chat. **AI Core never sees the PIN and no module-bus
+frame carries it**: the AI Core page posts the PIN to THIS driver's relay
+against a challenge, and AI Core learns only the outcome. Unit, bus-level
+and emulator tests only; nothing here has run on a controller.
+
+**Module bus.** The driver registers as `pin_lock` (`sbos.moduleclient`,
+`singleton = true`, protocol 2 only, `claim_driver_config = false`) and
+attaches `sbos.aireport` to that client, which paints the `AI Core` property
+and sends the baseline describe/state reports. `aireport.start` is not used
+because it cannot advertise a driver's own capabilities; `attach` is the
+documented mode for a driver that runs its own client. Manifest:
+`pinlock.availability`, `pinlock.challenge`, `pinlock.redeem` (v1, kind
+`request`). The Agent's policy routes them from `ai_core` only; the driver
+refuses `not_permitted` as well unless the requester is the `ai_core`
+instance its own directory view lists as **verified** (identity binding).
+
+| Capability | args (closed keys) | ok result | errors |
+| --- | --- | --- | --- |
+| `pinlock.availability` | `{}` | `{ready, reason, retry_in?}`; reason `ready \| starting \| off \| unlicensed \| no_owner_pin \| relay_unavailable \| locked` | `invalid_args`, `not_permitted` |
+| `pinlock.challenge` | `{purpose: "approval" \| "chat_view", subject, nonce}`; subject = the proposal uuid (approval) or a 32-hex page session id (chat_view); nonce = 32 lowercase hex, minted by AI Core | `{challenge_id (32 hex), expires_in: 60, verify_url: "http://<controller>:47831/verify"}` | `invalid_args`; `unsupported` + `{reason}` (not ready, reasons as above); `rate_limited` + `{reason: "busy"}` (8 open); `not_permitted` |
+| `pinlock.redeem` | `{challenge_id, nonce, purpose, subject}` | `{verified: true, verified_at (ISO-8601 UTC), role: "owner", slot}` or `{verified: false, reason: not_verified \| expired \| locked \| wrong_subject \| unknown}` | `invalid_args`, `not_permitted` |
+
+`slot` is the verified code's 1-based position in the code list at that
+moment: it tells two owner codes apart for an audit line, it is not a stable
+identity (a revoke shifts it). **The code name is never returned, recorded
+for this path or sent anywhere** (owner ruling): no field of any answer, no
+recent-list entry, no event, no recorder marker carries it.
+
+**`POST /verify`** `{challenge_id, pin}` (exactly these two string keys; no
+page token: the challenge authenticates it). Answers, rebuilt by the router
+from constants whatever the driver returned:
+
+| HTTP | Body |
+| --- | --- |
+| 200 | `{"ok":true}` |
+| 401 | `{"ok":false}` (wrong PIN, not an owner code, unknown / expired / already-attempted challenge, feature off) |
+| 429 | `{"ok":false,"locked":true,"retry_in":N}` (the page bucket is locked; the PIN Lock page already shows `retry_in`) |
+| 400 / 405 / 500 | `{"ok":false}` |
+
+Never the code name, the role, which digit was wrong or why.
+
+**Challenges** (`challenge.lua`, in memory only): at most 8 open; the 9th is
+**refused** (`busy`), never evicting one a person may be typing against;
+valid 60 s from issue for `/verify` and for redeem alike; one `/verify`
+attempt each (a second post answers `{ok:false}` without checking a PIN);
+consumed by the first redeem whatever its answer; bound to purpose +
+subject + nonce + the requesting AI Core instance. A redeem naming another
+purpose, subject or nonce answers `wrong_subject` and consumes it, so an
+approval grant can never unlock the chat and a chat unlock can never approve.
+A restart, the dealer switch going Off, or Remove All Codes forgets every
+challenge. The id is 32 hex from `C4:HMAC` over the controller's random UUID
+(when Director offers one), the clock, a counter and `math.random`; there is
+no weaker fallback.
+
+**Who may verify: owner-role codes only** (`Engine:verifyOwnerPin`). Staff,
+vendor and guest codes are refused whatever guarded actions the dealer gave
+them; there is no setting that widens this. Validity still applies (a
+disabled, not-yet-started, expired or used-up owner code, or one outside its
+hours, is refused). A verification fires no guarded action and no *Access
+Granted* event (programming attached to that event unlocks things); a
+refusal fires *Access Denied* like any other denial.
+
+**One lockout.** Entry `ai_core` counts in the `page` bucket
+(`Engine.LOCK_BUCKET`): AI attempts lock the page and page attempts lock AI
+verification, with the same `Max Wrong Attempts` / `Lockout Minutes`, the
+same persistence, and a success does not reset the count. *Clear Lockouts*
+clears it.
+
+**Availability and the dealer switch.** `AI Core PIN Verification` (LIST,
+default `On when an owner PIN exists`, or `Off`). The spec does not set a
+PIN Lock-side default, so verification is offered only while an active owner
+code with a PIN exists, and the dealer can switch it off here. This is not
+the homeowner's opt-in: touchscreen approvals stay off until the homeowner
+turns them on in the portal (cloud side). AI verification also needs the
+licence (a licence-restricted PIN Lock answers `unlicensed`, although owner
+codes keep working on its own page) and a listening relay. `AI Core
+Approvals` shows the result in plain words.
+
+**How the AI Core page reaches `/verify`.** It does not guess: the
+`verify_url` comes back from `pinlock.challenge` (the address PIN Lock's
+`lib.relayhost` resolved, port 47831). The relay answers `OPTIONS` and sends
+`Access-Control-Allow-Origin: *`, `Allow-Methods: GET, POST, OPTIONS`,
+`Allow-Headers: Content-Type`. **Unverified:** that Navigator's web view
+lets a page served from AI Core's relay (another port, so another origin)
+`fetch` PIN Lock's port, preflight included; and the page's CSP must list
+PIN Lock's origin in `connect-src`. Over plain LAN HTTP the PIN is as
+exposed on the wire as it already is on PIN Lock's own page.
+
 ## Flight Recorder
 
 Device lookup: the lowest-id device whose `driverFileName` is
@@ -122,7 +218,8 @@ Device lookup: the lowest-id device whose `driverFileName` is
 documented parameters (`CHANNEL` left unset). Markers: `PIN Lock granted:
 <action>` (`code=<name> entry=<entry>`), `PIN Lock denied: <action|entry>`
 (`reason=… code=… entry=…`), `PIN Lock locked out: <entry>`, `PIN Lock admin
-sign-in`. Silent when no recorder exists. Code names are personal data that
+sign-in`, `PIN Lock AI Core verification` (`role=owner entry=ai_core`, no
+code name). Silent when no recorder exists. Code names are personal data that
 then follows the recorder's retention and upload settings; the manual says so.
 The in-memory recent list (20) is for the admin page only and is not persisted.
 
@@ -138,8 +235,8 @@ The in-memory recent list (20) is for the admin page only and is not persisted.
 
 ## Agent contract needed
 
-Not implemented; nothing is sent to the Agent today (only the licence
-handshake). `src/sbos/envelope.lua` and the web repo are NOT edited by this
+Not implemented. The driver's only Agent traffic is the licence handshake
+and the module-bus registration for AI Core verification (above). `src/sbos/envelope.lua` and the web repo are NOT edited by this
 change. To let Studio see and manage codes, the Agent would need:
 
 **1. Outbound audit (optional; the Flight Recorder already carries markers).**
