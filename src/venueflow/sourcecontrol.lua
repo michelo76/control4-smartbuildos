@@ -210,6 +210,8 @@ function Engine:_noteSent(job)
     self.unfinished[job.deviceId] = true
     self.deps.timers.set(timer, M.UNFINISHED_PAUSE_MS, function()
       self.unfinished[job.deviceId] = nil
+      -- A number held for this box may go now (_next).
+      self:_pump()
     end)
   elseif self.unfinished[job.deviceId] then
     self.unfinished[job.deviceId] = nil
@@ -231,35 +233,40 @@ function Engine:_changed(job)
   return nil
 end
 
+--- Takes the next key that may leave now, in the order they were pressed.
+--- A new channel number for a box that still holds unfinished digits is
+--- held, and with it every later key for THAT box (one box never gets two
+--- numbers mixed, nor a key out of order); keys for other boxes go past it.
+--- The box's own timer (_noteSent) wakes the queue when the pause is over.
+--- A key whose source is no longer the same device stops its sequence.
+function Engine:_next()
+  local held = {}
+  local i = 1
+  while i <= #self.pending do
+    local job = self.pending[i]
+    local why = self:_changed(job)
+    if why ~= nil then
+      self:_stop(job.seq, job.source, why)
+      held, i = {}, 1 -- the waiting list changed: look again from the start
+    elseif held[job.deviceId] or (job.first and self.unfinished[job.deviceId]) then
+      held[job.deviceId] = true
+      i = i + 1
+    else
+      return table.remove(self.pending, i)
+    end
+  end
+  return nil
+end
+
 function Engine:_pump()
   if self.busy then
     return
   end
-  local job = table.remove(self.pending, 1)
-  while job ~= nil do
-    local why = self:_changed(job)
-    if why == nil then
-      break
-    end
-    table.insert(self.pending, 1, job)
-    self:_stop(job.seq, job.source, why)
-    job = table.remove(self.pending, 1)
-  end
+  local job = self:_next()
   if job == nil then
     return
   end
   self.busy = true
-  if job.first and self.unfinished[job.deviceId] then
-    -- A new channel number must not join digits the box still holds: wait
-    -- until it has given up on them (the flag clears first: its timer was
-    -- set earlier for the same length).
-    table.insert(self.pending, 1, job)
-    self.deps.timers.set("VfSourceKeys", M.UNFINISHED_PAUSE_MS, function()
-      self.busy = false
-      self:_pump()
-    end)
-    return
-  end
   local ok, sent, why = pcall(function()
     return self.deps.adapter().deviceCommand(job.deviceId, job.command, {})
   end)
@@ -291,7 +298,7 @@ function Engine:_pump()
 end
 
 --- `number` is true for a channel number (its first key waits for a box
---- that still holds unfinished digits, see _pump).
+--- that still holds unfinished digits, see _next).
 function Engine:_send(source, commands, label, opts, number)
   if #self.pending + #commands > M.MAX_WAITING then
     return refuse("VF_UNSUPPORTED", "too many keys are waiting; try again in a moment")
@@ -398,7 +405,7 @@ end
 --- Stops the keys a stopped run queued and that have not left yet (the rest
 --- of a channel number it was dialling), and says so in diagnostics. A key
 --- already sent cannot be taken back; the next number for that box waits for
---- it to give up on the unfinished digits (_pump). Returns how many keys
+--- it to give up on the unfinished digits (_next). Returns how many keys
 --- were dropped.
 function Engine:cancelExecution(executionId, why)
   if executionId == nil then
@@ -427,7 +434,7 @@ end
 --- A channel already being dialled finishes: cutting it off would leave a
 --- partial number typed into the box, after the page was told how many keys
 --- were sent. Each waiting key is checked again just before it leaves
---- (`_pump`): if its source is no longer the same Control4 device in the new
+--- (`_next`): if its source is no longer the same Control4 device in the new
 --- configuration, the rest of that sequence stops. If the control mode
 --- changed (Simulation <-> Live), every waiting key stops: they were pressed
 --- for the other mode's devices. Either way diagnostics say what was dropped.
