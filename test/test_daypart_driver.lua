@@ -512,9 +512,21 @@ check(
   "block start in the history",
   recorded("block started") ~= nil and recorded("block started").DETAIL == "Dining / Morning"
 )
-local startedCommands = #sent
+-- Device commands only: since AI Core reporting (sbos.aireport) the driver
+-- also registers with the Agent, and this fake Agent never answers, so the
+-- registration retries land in `sent` too.
+local function deviceCommands()
+  local n = 0
+  for _, s in ipairs(sent) do
+    if s.device ~= AGENT_ID then
+      n = n + 1
+    end
+  end
+  return n
+end
+local startedCommands = deviceCommands()
 advance(120000)
-check("nothing is re-sent while the block runs", #sent == startedCommands)
+check("nothing is re-sent while the block runs", deviceCommands() == startedCommands)
 
 print("[4] restart mid-block: the right block carries on, nothing is blasted or re-announced")
 reset()

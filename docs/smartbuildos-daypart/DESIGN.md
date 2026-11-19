@@ -127,6 +127,19 @@ above), `Engine:addBlock/updateBlock/deleteBlock/setHolidays` (return
 `result` or `nil, message`). A `revision` counter (monotonic, persisted) and
 `importSchedule(doc)` are the two pieces still to add.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `daypart` (guide §9 `start`) and reports a describe (music
+and display schedules per zone, class media) and a state from `paint()`
+(schedule status, paused, zones set up, zones in a block; never the
+Manager PIN). No diagnostics (no fault transition of its own beyond the
+licence), events, queries or actions. Without AI Core nothing is sent.
+`test_daypart_driver`'s "nothing is re-sent while the block runs" now
+counts device commands only (the fake Agent never answers the module
+registration, whose retries land in the same list). Unit tests only
+(`test/test_daypart_aicore.lua`); nothing here has run on a controller.
+
 ## Open questions
 
 - Should a block be able to name a Control4 scene or a lighting level too? Out

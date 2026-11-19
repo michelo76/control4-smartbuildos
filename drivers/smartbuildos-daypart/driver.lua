@@ -49,6 +49,9 @@ local pagedata = require("daypart.page")
 local RelayHost = require("lib.relayhost")
 local Engine = require("daypart.engine")
 local Relay = require("daypart.relay")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -408,6 +411,50 @@ end
 
 local WEEKDAY_SHORT = Engine.DAY_NAMES
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   the weekly music / volume / display schedule per zone
+--   state      schedule status, paused, zones set up and zones in a block
+--              now (what Schedule Status and Zones already show, counted)
+--   diagnostics, events, queries, actions: none. The driver has no fault
+--              transition of its own beyond its licence (which the helper
+--              reports); pause, skip and run-now act on real rooms and stay
+--              with the Manager PIN and Composer.
+
+local function aiReportState(status)
+  local zones, inBlock = 0, 0
+  for slot = 1, Engine.MAX_ZONES do
+    if gEngine.zones[slot] ~= nil then
+      zones = zones + 1
+      if gEngine.run[slot] ~= nil then
+        inBlock = inBlock + 1
+      end
+    end
+  end
+  aireport.state({
+    schedule_status = status,
+    paused = gPaused == true,
+    zones = zones,
+    zones_in_block = inBlock,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "A weekly schedule of background music, volume and display power for each zone of the venue, by part of the day, which on-site staff change from a touchscreen with a manager PIN.",
+    controls = {
+      { id = "music_schedule", label = "Music schedule", class = "media" },
+      { id = "display_power", label = "Display power schedule", class = "media" },
+    },
+    vocabulary = {
+      "schedule", "background music", "volume", "daypart", "opening hours", "lunch", "dinner", "zone", "displays",
+    },
+  })
+end
+
 local function nextText(nxt, zoneName)
   if nxt == nil then
     return ""
@@ -458,6 +505,7 @@ local function paint()
     end
   end
   UpdateProperty("Zones", #pieces > 0 and table.concat(pieces, " | ") or "none set up")
+  aiReportState(status)
 end
 
 -- ─── Persistence ────────────────────────────────────────────────────────────
@@ -1195,6 +1243,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -1225,6 +1274,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   stopRelay()
   cancelAllSteps()
   if gEngine then

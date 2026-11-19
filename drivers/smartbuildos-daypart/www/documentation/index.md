@@ -36,6 +36,7 @@ page, so the dealer can give the page to anyone.
 1. [What happens when](#what-happens-when) - restarts, clocks, overlaps
 1. [Troubleshooting](#troubleshooting)
 1. [Reference](#reference) - properties, limits
+1. [AI Core](#ai-core) - what this driver tells SmartBuildOS AI Core
 1. [What has been verified, and what has not](#what-has-been-verified-and-what-has-not)
 
 ## How it fits together
@@ -427,6 +428,7 @@ schedule running.
 | Zone N Name, Room, Source 1-4, Min/Max Volume, Display 1-2  | The dealer's limits, four zones                            |
 | Device List Filter                                          | Narrows the source and display lists                       |
 | App Relay Address                                           | Leave on `Auto` unless the tile does not load              |
+| AI Core | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
 
 ### Limits
 
@@ -445,6 +447,47 @@ schedule running.
 - A zone controls one room. A display is switched with plain `ON` and `OFF`.
 - Remote schedule backup and editing through the SmartBuildOS Agent are not
   built yet.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+driver tells it, over the SmartBuildOS Agent, what the schedule is and
+whether it is running. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: the weekly music, volume and display schedule per zone,
+  and the words people use (background music, opening hours, lunch…).
+- **State**: the schedule status, whether it is paused, how many zones are
+  set up and how many are in a block now. Never the Manager PIN.
+
+What it will answer when asked: nothing beyond the reports. It reports no
+faults of its own beyond its licence, which the property and AI Core
+already show.
+
+What it can be asked to do: nothing. Pause, skip and run-now act on real
+rooms and stay with the Manager PIN and Composer programming.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in unit tests only: nothing here has run on a
+physical controller.
 
 ## What has been verified, and what has not
 
