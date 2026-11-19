@@ -12,9 +12,9 @@ const AUTHZ = (() => {
   const CONTROL_COMMANDS = ['LOCK_DEVICE', 'GARAGE_DEVICE', 'SECURITY_PARTITION'];
   const COMMAND_REQUIRES = { REQUEST_FULL_SYNC: null, REQUEST_HEARTBEAT: null, REQUEST_DIAGNOSTICS: null, RUN_NETWORK_SCAN: 'telemetry_v1', PROBE_CAPABILITIES: 'telemetry_v1', REQUEST_CATALOGUE: 'catalogue_v1', REQUEST_UPDATE_CHECK: 'update_check_v1', SEND_NOTIFICATION: 'notify_v1', IDENTIFY_DEVICE: 'identify_v1', SET_LIGHT: 'comfort_v1', SET_THERMOSTAT: 'comfort_v1', ACTIVATE_SCENE: 'comfort_v1', LOCK_DEVICE: 'control_v1', GARAGE_DEVICE: 'control_v1', SECURITY_PARTITION: 'control_v1', CAMERA_SNAPSHOT: 'camera_v1', MODULE_COMMAND: 'modules_v1', DISCOVER_VARIABLES: 'modules_v1' };
   const MODES = ['observe', 'recommend', 'execute_low_risk'];
-  const RISK_CLASSES = ['read', 'low', 'high', 'external', 'programming'];
-  const RISK_RANK = { read: 0, low: 1, external: 2, high: 3 };
-  const DEFAULT_FEATURE_BY_RISK = { read: 'BASE', low: 'AI_ACTIONS', high: 'AI_ACTIONS', external: 'AI_CONCIERGE', programming: 'BASE' };
+  const RISK_CLASSES = ['read', 'low', 'medium', 'high', 'external', 'programming'];
+  const RISK_RANK = { read: 0, low: 1, medium: 2, external: 3, high: 4 };
+  const DEFAULT_FEATURE_BY_RISK = { read: 'BASE', low: 'AI_ACTIONS', medium: 'AI_ACTIONS', high: 'AI_ACTIONS', external: 'AI_CONCIERGE', programming: 'BASE' };
   const HIGH = new Set(['lock', 'garage', 'security', 'access_control']);
   const PATTERNS = [['lock', /lock|deadbolt/i], ['garage', /garage/i], ['security', /security|alarm|partition|arm(?:ing)?_?panel|intrusion/i], ['access_control', /access|door_?station|intercom|gate|entry/i], ['thermostat', /thermostat|hvac|climate/i], ['light', /light|dimmer|lamp|switch/i], ['scene', /scene/i]];
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -124,6 +124,10 @@ const AUTHZ = (() => {
       if (learned) return deny('learned_behaviour_insufficient', risk);
       return approval('homeowner', 'high_risk_needs_homeowner', risk);
     }
+    if (risk === 'medium') {
+      if (learned) return deny('learned_behaviour_insufficient', risk);
+      return approval('homeowner', 'medium_risk_needs_homeowner', risk);
+    }
     if (risk === 'low') {
       const approver = actor.kind === 'automation' || learned ? 'homeowner' : 'requester';
       if (input.permissionMode === 'execute_low_risk' && input.preapprovedRules.some((r) => ruleMatches(r, tool.verb, input.target, input.now))) return { decision: 'allow', reason: 'preapproved_rule_matched', effectiveRisk: risk };
@@ -139,6 +143,7 @@ const REASON_TEXT = {
   preapproved_rule_matched: 'A homeowner-consented pre-approved rule covers this exact call (verb, scope, bounds), so it runs without a per-action approval.',
   low_risk_needs_approval: 'Low risk: someone must approve this proposal before it is queued.',
   high_risk_needs_homeowner: 'High risk (lock, garage, security, access control): the homeowner must approve this action explicitly.',
+  medium_risk_needs_homeowner: 'Medium risk (a driver-declared action): the homeowner must approve it; it is never automatic and no pre-approved rule can match it.',
   external_needs_homeowner: 'External action: the homeowner must give final confirmation.',
   unknown_tool: 'There is no such tool.',
   unknown_risk: 'The risk class is not recognised.',
@@ -155,7 +160,7 @@ const REASON_TEXT = {
   entitlement_missing: 'The licence does not include the feature this tool needs.',
   capability_missing: 'The controller has not declared the capability this verb needs (the homeowner’s Composer Remote Control tier).',
   unknown_verb: 'The queue verb is not recognised.',
-  learned_behaviour_insufficient: 'Learned behaviour alone never authorizes high-risk or external actions.',
+  learned_behaviour_insufficient: 'Learned behaviour alone never authorizes medium-risk, high-risk or external actions.',
   automation_external_forbidden: 'An automation may never take an external action.',
   audience_not_permitted: 'This tool exists for another kind of actor: the service tools are staff-only and the concierge tools homeowner-only, so it is never offered and never runs.',
   unknown_audience: 'The tool declares an audience the engine does not recognise.',
@@ -255,7 +260,9 @@ function initPermissions() {
      devices, rooms, usage, health), createMemoryTools (search; propose only in
      a person's conversation), createServiceTools, createActionTools only
      in a person's conversation (createNotificationTools was removed in
-     commit c79f42d09);
+     commit c79f42d09), createDriverTools (drivers.list and
+     drivers.run_query for every turn; drivers.propose_action only in a
+     person's conversation: driverToolPort(admin, Boolean(actions)));
    * concierge/server.ts portalConversationDeps: the homeowner's turn adds
      createConciergeTools to that registry;
    * orchestrator/turn.ts offeredTools: a controller turn keeps read tools
@@ -270,14 +277,16 @@ function initPermissions() {
 function toolFamily(id) {
   if (id === 'memory.search') return 'memory_search';
   if (id === 'memory.propose') return 'memory_propose';
+  if (id === 'drivers.propose_action') return 'drivers_propose';
+  if (id.startsWith('drivers.')) return 'drivers_read';
   const head = id.split('.')[0];
   if (['flight_recorder', 'devices', 'rooms', 'usage', 'health'].includes(head)) return 'read';
   return { service: 'service', actions: 'actions', concierge: 'concierge' }[head] || 'unknown';
 }
 const PERSONA_REGISTRY = {
-  staff: ['read', 'memory_search', 'memory_propose', 'service', 'actions'],
-  homeowner: ['read', 'memory_search', 'memory_propose', 'service', 'actions', 'concierge'],
-  controller: ['read', 'memory_search', 'service'],
+  staff: ['read', 'memory_search', 'memory_propose', 'service', 'actions', 'drivers_read', 'drivers_propose'],
+  homeowner: ['read', 'memory_search', 'memory_propose', 'service', 'actions', 'drivers_read', 'drivers_propose', 'concierge'],
+  controller: ['read', 'memory_search', 'service', 'drivers_read'],
 };
 const PERSONA_OF = { staff: 'technician', homeowner: 'homeowner', controller: 'homeowner (technician for analyze_system and start_diagnostic)' };
 function wfActor(ex) {

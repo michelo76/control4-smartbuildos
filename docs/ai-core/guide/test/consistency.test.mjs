@@ -55,7 +55,14 @@ const X = {
   conditionals: blocks(tag(xml, "conditionals"), "conditional").map((c) => ({ id: Number(tag(c, "id")), name: tag(c, "name"), type: tag(c, "type"), statement: tag(c, "condition_statement") })),
 };
 ok(X.commands.length >= 10 && X.events.length >= 10 && X.variables.length >= 10, `driver.xml parsed (${X.commands.length} commands, ${X.events.length} events, ${X.variables.length} variables)`);
-ok(tag(xml, "connections") === "" && tag(xml, "proxies") === "", "driver.xml declares no connections or proxies (the guide says so)");
+// The only proxy is the touchscreen tile (a primary uibutton on binding 5001) with its one connection
+// and its web view; nothing that addresses equipment. The guide must say exactly that.
+const proxyList = [...tag(xml, "proxies").matchAll(/<proxy\b([^>]*)>([^<]*)<\/proxy>/g)].map((m) => ({ binding: (m[1].match(/proxybindingid="(\d+)"/) || [])[1], kind: m[2].trim() }));
+ok(proxyList.length === 1 && proxyList[0].binding === "5001" && proxyList[0].kind === "uibutton", `driver.xml declares exactly one proxy, uibutton on binding 5001 (found ${JSON.stringify(proxyList)})`);
+const connIds = blocks(tag(xml, "connections"), "connection").map((c) => tag(c, "id") + ":" + tag(c, "connectionname"));
+ok(connIds.length === 1 && connIds[0] === "5001:UIBUTTON", `driver.xml declares exactly one connection, 5001 UIBUTTON (found ${connIds.join(", ")})`);
+ok(/<web_view_url proxybindingid="5001">controller:\/\/driver\/smartbuildos-ai-core\/app\/index\.html<\/web_view_url>/.test(xml), "driver.xml web_view_url is the AI Core page on binding 5001");
+
 const ex = (s) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 
 // ── guide reference data ──
@@ -90,6 +97,7 @@ sameSet(X.conditionals.map((c) => `${c.id}:${c.name}:${c.type}:${c.statement}`),
 // Every driver.xml name also appears in the guide's prose or generated tables' data.
 const prose = html.replace(/<script[\s\S]*?<\/script>/g, " ");
 for (const n of [...X.commands.map((c) => c.name), ...X.actions.map((a) => a.command), ...X.variables.map((v) => v.name), ...X.conditionals.map((c) => c.name)]) ok(html.includes(n), `guide mentions ${n}`);
+ok(/<code>uibutton<\/code> proxy on binding 5001/.test(html) && !/declares <strong>no Composer connections, no proxies/.test(html) && !/It has no proxies and no connections/.test(html), "the guide says the only proxy is the uibutton on binding 5001 (and no longer says there is none)");
 for (const n of ["AI_ASK", "AI_RECORD_EVENT", "AI_START_DIAGNOSTIC", "AI_LAST_RESPONSE", "AI_STATUS", "AGENT_CONNECTED", "Last Error", "AI API Credential", "SmartBuildOS Connection Status", "Flight Recorder Link"]) ok(prose.includes(n), `guide prose discusses ${n}`);
 
 // ── AI_* tokens: nothing invented ──
@@ -143,7 +151,7 @@ if (fs.existsSync(path.join(PLATFORM, "src/lib/ai-core/tools/registry.ts"))) {
   // Built from the factories tools/index.ts exports, so a tool added or removed on the platform is caught.
   const idx = await import(T("index.ts"));
   const tools = [...idx.READ_TOOLS];
-  for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
+  for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]], ["createDriverTools", [{ port }]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
   const key = (t) => [t.id, t.wireName ?? t.wire, t.risk, t.household, t.verb ?? null, t.feature ?? null, t.audience ?? "everyone", (t.schema ? t.schema.required ?? [] : t.required).join(",")].join("|");
   sameSet(tools.map(key), REF.tools.map(key), "tools (id|wire|risk|household|verb|feature|audience|required) vs the platform registry");
   for (const t of tools) ok(prose.includes(t.wireName) || html.includes(t.wireName), `guide documents tool ${t.wireName}`);
@@ -226,7 +234,10 @@ if (fs.existsSync(CHECKLIST)) {
   const listOf = (name) => { const i = verifyBlock.indexOf(name + ": ["); const j = verifyBlock.indexOf("\n  ],", i); return verifyBlock.slice(i, j); };
   for (const r of refsIn(listOf("never"))) ok(items[r] === "Blocked", `Verification “never run” cites ${r}, which the checklist marks ${items[r]} (must be Blocked)`);
   for (const r of refsIn(listOf("unreleased"))) ok(items[r] === "Blocked", `Verification “not released” cites ${r}, which the checklist marks ${items[r]} (must be Blocked)`);
-  for (const r of refsIn(listOf("simulated"))) ok(items[r] === "Completed" || items[r] === "Tested", `Verification “verified in simulation” cites ${r}, which the checklist marks ${items[r]}`);
+  // "simulated" lists what the conductor reran (Completed only); "reported" what a worker tested (Completed or Tested).
+  for (const r of refsIn(listOf("simulated"))) ok(items[r] === "Completed", `Verification “verified in simulation (conductor reran)” cites ${r}, which the checklist marks ${items[r]} (must be Completed)`);
+  ok(refsIn(listOf("reported")).length > 0, "Verification has a worker-reported list");
+  for (const r of refsIn(listOf("reported"))) ok(items[r] === "Completed" || items[r] === "Tested", `Verification “worker-reported” cites ${r}, which the checklist marks ${items[r]}`);
   const decisions = [...cl.slice(cl.indexOf("## Open owner decisions")).matchAll(/^(\d+)\. (.*)$/gm)].filter((m) => !/^\(Resolved/.test(m[2])).map((m) => Number(m[1])).filter((n) => n > 0);
   const listedDecisions = [...listOf("owner").matchAll(/'decision (\d+)/g)].map((m) => Number(m[1]));
   sameSet(decisions.map(String), listedDecisions.map(String), "open owner decisions on the Verification page vs the checklist");

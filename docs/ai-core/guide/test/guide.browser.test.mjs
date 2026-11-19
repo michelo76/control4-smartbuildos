@@ -35,7 +35,8 @@ const port = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : async (
 const toolsIndex = await import(T("index.ts"));
 const FACTORIES = { memory: "createMemoryTools", service: "createServiceTools", notifications: "createNotificationTools", actions: "createActionTools", concierge: "createConciergeTools" };
 const build = (name) => (typeof toolsIndex[name] === "function" ? toolsIndex[name](port, {}) : []);
-const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build)];
+// createDriverTools takes one options object; with a port that has propose it declares all three driver tools.
+const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build), ...(typeof toolsIndex.createDriverTools === "function" ? toolsIndex.createDriverTools({ port }) : [])];
 const registryTools = realTools.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature, audience: t.audience }));
 // The real offeredTools and registry builder, and the source of the per-persona composition.
 const realTurn = await import(pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/orchestrator/turn.ts")).href);
@@ -509,15 +510,15 @@ section("workflow simulator");
   const body = (src, fn) => { const i = src.indexOf("export function " + fn); const j = src.indexOf("\n}\n", i); return src.slice(i, j); };
   const reg = body(serverSrc, "aiCoreRegistry");
   ok(reg.length > 100, "found aiCoreRegistry in orchestrator/server.ts");
-  const fams = { read: /\.\.\.READ_TOOLS/.test(reg), memory_search: /createMemoryTools\(/.test(reg), memory_propose: /\.\.\.\(actions \? \{ propose:/.test(reg), service: /createServiceTools\(/.test(reg), notifications: /createNotificationTools\(/.test(reg), actions: /\.\.\.\(actions \? createActionTools\(/.test(reg) };
+  const fams = { read: /\.\.\.READ_TOOLS/.test(reg), memory_search: /createMemoryTools\(/.test(reg), memory_propose: /\.\.\.\(actions \? \{ propose:/.test(reg), service: /createServiceTools\(/.test(reg), notifications: /createNotificationTools\(/.test(reg), actions: /\.\.\.\(actions \? createActionTools\(/.test(reg), drivers_read: /\.\.\.createDriverTools\(/.test(reg), drivers_propose: /createDriverTools\(\{\s*port: driverToolPort\(admin, Boolean\(actions\)\)/.test(reg) };
   const homeownerAddsConcierge = /createRegistry\(\[\.\.\.aiCoreRegistry\(db, [^\n]*conversationId \}\)\.tools, \.\.\.tools\]\)/.test(conciergeServerSrc) && /createConciergeTools\(/.test(body(conciergeServerSrc, "portalConversationDeps"));
   const person = Object.keys(fams).filter((k) => fams[k]);
-  const controllerFams = person.filter((k) => k !== "memory_propose" && k !== "actions");
+  const controllerFams = person.filter((k) => k !== "memory_propose" && k !== "actions" && k !== "drivers_propose");
   const G = await page.evaluate(() => ({ P: window.AICoreGuide.PERSONA_REGISTRY, CTX: window.AICoreGuide.WF_CTX }));
   eq(G.P.staff.slice().sort(), person.slice().sort(), "simulator: staff registry families = orchestrator/server.ts aiCoreRegistry (person's conversation)");
   eq(G.P.homeowner.slice().sort(), [...person, ...(homeownerAddsConcierge ? ["concierge"] : [])].sort(), "simulator: homeowner registry = aiCoreRegistry + concierge (concierge/server.ts portalConversationDeps)");
   eq(G.P.controller.slice().sort(), controllerFams.slice().sort(), "simulator: controller registry = aiCoreRegistry without a conversation (no propose, no actions)");
-  const famOf = (id) => id === "memory.search" ? "memory_search" : id === "memory.propose" ? "memory_propose" : ["flight_recorder", "devices", "rooms", "usage", "health"].includes(id.split(".")[0]) ? "read" : id.split(".")[0];
+  const famOf = (id) => id === "memory.search" ? "memory_search" : id === "memory.propose" ? "memory_propose" : id === "drivers.propose_action" ? "drivers_propose" : id.startsWith("drivers.") ? "drivers_read" : ["flight_recorder", "devices", "rooms", "usage", "health"].includes(id.split(".")[0]) ? "read" : id.split(".")[0];
   let offeredCompared = 0;
   for (const ex of G.CTX) for (const mode of ["observe", "recommend", "execute_low_risk"]) {
     const famList = G.P[ex.actor];
@@ -612,7 +613,7 @@ section("confidence, examples, reference");
   // Command reference
   await go(page, "#ch11-reference");
   const rows = await page.$$eval("#refTable tbody tr[data-i]", (r) => r.length);
-  eq(rows, 64, "reference lists 11 commands + 4 actions + 23 properties + 10 events + 11 variables + 5 conditionals");
+  eq(rows, 69, "reference lists 11 commands + 5 actions + 27 properties + 10 events + 11 variables + 5 conditionals");
   const types = await page.$$eval("#refTypes .chip", (c) => c.map((x) => x.dataset.t));
   for (const t of types) {
     await page.click(`#refTypes .chip[data-t="${t}"]`);

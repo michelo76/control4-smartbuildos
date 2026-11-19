@@ -25,8 +25,8 @@
 <thead><tr><th scope="col">Mode (System Studio)</th><th scope="col">What the page says</th><th scope="col">Engine</th></tr></thead>
 <tbody>
 <tr><td><code>observe</code> (default)</td><td>AI Core reads and explains. It proposes nothing to the house.</td><td>every non-read class is denied (<code>observe_mode_no_actions</code>), so no action tool is even offered</td></tr>
-<tr><td><code>recommend</code></td><td>AI Core may propose actions; every one needs approval.</td><td>low → approval by the requester (the homeowner for an automation or a learned basis); high and external → the homeowner</td></tr>
-<tr><td><code>execute_low_risk</code></td><td>Only low-risk actions that match a pre-approved rule may run without approval. Locks, garage and security always need the homeowner.</td><td>low → allowed only on a matching active rule, otherwise as <code>recommend</code>; high and external as <code>recommend</code></td></tr>
+<tr><td><code>recommend</code></td><td>AI Core may propose actions; every one needs approval.</td><td>low → approval by the requester (the homeowner for an automation or a learned basis); medium, high and external → the homeowner</td></tr>
+<tr><td><code>execute_low_risk</code></td><td>Only low-risk actions that match a pre-approved rule may run without approval. Locks, garage and security always need the homeowner.</td><td>low → allowed only on a matching active rule, otherwise as <code>recommend</code>; medium, high and external as <code>recommend</code> (no rule can ever match a medium action)</td></tr>
 </tbody></table></div>
 
 <h2 id="ch8-approvals">The action lifecycle</h2>
@@ -41,7 +41,7 @@
 <tr><td><code>completed</code>, <code>failed</code>, <code>expired</code>, <code>denied</code>, <code>cancelled</code></td><td>— (final)</td></tr>
 </tbody></table></div>
 <ul>
-  <li><strong>Who approves.</strong> A low-risk action a person asked for is approved by that requester, or by staff with <code>homecontrol:manage</code> (<code>POST /api/monitoring/ai-core/actions/[id]</code>). An action with <code>required_approver</code> homeowner, or risk high, is the homeowner's alone (<code>POST /api/portal/ai-core/actions</code>); Studio says <em>Awaiting the homeowner. Lock, garage and security actions are the homeowner's alone to approve; staff cannot approve them here.</em></li>
+  <li><strong>Who approves, and where.</strong> A low-risk action a person asked for is approved by that requester, or by staff with <code>homecontrol:manage</code> (<code>POST /api/monitoring/ai-core/actions/[id]</code>). An action with <code>required_approver</code> homeowner, or risk medium or high, is the homeowner's alone; Studio says <em>Awaiting the homeowner. Lock, garage and security actions are the homeowner's alone to approve; staff cannot approve them here.</em> The homeowner approves in the portal (<code>POST /api/portal/ai-core/actions</code>) and, <strong>only for low- and medium-risk proposals and only when the homeowner has switched it on</strong>, also at the AI Core touchscreen tile with one owner PIN per item (<a href="#ch8-touchscreen-approve">below</a>). High-risk actions (locks, garage doors, security), external actions, programming, recommendations and settings are approved in the portal only.</li>
   <li><strong>What was seen is what runs.</strong> An approval carries <code>args_hash</code>, the hash of the action as the approver saw it; a mismatch answers 409 <code>approval_mismatch</code> (<em>This action changed since you saw it. Reload it and decide again.</em>).</li>
   <li><strong>Timing and limits.</strong> A proposal waits 30 minutes for approval; the queue adds its own 1 hour after enqueue. At most 10 open actions per property, 6 proposals a minute and 40 an hour (owner decision 9).</li>
   <li><strong>Outcome.</strong> <code>completed</code> and <code>failed</code> come only from the queue row (a real driver acknowledgement), never from AI Core. The platform can raise <strong>Approval Required</strong>, <strong>Action Completed</strong> and <strong>Action Failed</strong> in Composer, with the action id in <code>AI_LAST_CORRELATION_ID</code>.</li>
@@ -50,6 +50,64 @@
 <h2 id="ch8-two-step">Locks, garage doors and security: two confirmations</h2>
 <p>A lock, garage or security action (or any action escalated to high risk by its target class) needs <strong>two separate homeowner confirmations</strong>: first AI Core's approval in the portal, then the command queue's <strong>own</strong> Control4 approval, which collects any disarm code. AI Core never takes, answers or pre-fills that second step. The portal says so after the first approval: <em>Locks, garage doors and security ask again: after you approve here, the request appears in Home control requests (under Approvals), where you approve it a second time — and enter your security code if it disarms the alarm.</em> Whether two confirmations should stay is owner decision 9.</p>
 <figure class="shot"><img src="shot:portal-approvals" alt="Homeowner portal assistant, Approvals tab: an approved front door unlock waiting for its second approval in Home control requests, a pending lighting proposal with Approve and Decline, a history list, and two pre-approved rules — one off waiting for the homeowner's yes, one on with Revoke now." width="960" height="1100" loading="lazy" decoding="async"><figcaption>Homeowner portal — Your home assistant › Approvals after approving a lock, fixture preview with sample data (<code>screenshots/portal/fx-1280-22-lock-approved-second-step.png</code>).</figcaption></figure>
+
+<h2 id="ch8-touchscreen">The AI Core touchscreen page</h2>
+<p>AI Core has its own Navigator tile, on a touchscreen and in the phone app, served by the driver from the controller on the home network (port 47871). It is built the way PIN Lock and Atmosphere build theirs. <strong>None of it has run on a real touchscreen, phone or controller</strong>: the page, the PIN flow and the platform side were tested only with unit tests and the Director emulator (the driver side with the real PIN Lock driver in the emulator). Whether the tile opens in Navigator, whether Navigator lets the page post the PIN to PIN Lock on another port, and whether Navigator tells the page it closed are not known: blocked, no controller or Navigator (checklist 11.10–11.12).</p>
+<div class="status" data-status="touchscreen"></div>
+<p><strong>What it needs.</strong> SmartBuildOS PIN Lock in the same project, licensed, with an owner code (<a href="#ch2-tile">Chapter 2</a>), and a touchscreen or phone on the home network: away from home the page cannot be reached and there is no cloud fallback. Without a usable PIN Lock — not installed, not verified by the Agent, not answering, unlicensed, without an owner PIN, or locked out — the chat is unavailable, no approval is offered, and the page says to use the SmartBuildOS portal.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Anyone at the screen sees (chat locked)</th><th scope="col">After an owner PIN (chat unlocked)</th></tr></thead>
+<tbody>
+<tr><td>
+<ul>
+  <li>Status: online, licensed, assistant set up, learning on or off, in one line.</li>
+  <li>Approvals: how many requests are waiting, how many this screen may review and how many need the portal.</li>
+  <li>Whether PIN Lock is ready for this screen, or why not.</li>
+  <li><em>Works only on the home network.</em></li>
+  <li>The button <em>Unlock with owner PIN</em>. No question, answer, suggestion or <em>Explain</em> action is sent to a locked page.</li>
+</ul></td><td>
+<ul>
+  <li>Three suggested questions (<em>Is everything in the house working?</em>, <em>What happened today?</em>, <em>Does anything need attention?</em>), <em>Explain what just happened</em>, and <em>Your question</em> (up to 500 characters). <em>Each question is answered on its own; there are no follow-ups.</em></li>
+  <li>The last 10 questions and answers of this screen, kept in memory only and cleared after 15 minutes without use. A touchscreen answer is shown only there: it never reaches <code>AI_LAST_RESPONSE</code> or <strong>AI Response Ready</strong>.</li>
+  <li>A <em>Lock</em> button. The chat relocks after <strong>five minutes without use</strong>, on <em>Lock</em>, when the page closes or goes silent for 75 seconds, when the driver restarts, and on every screen at once when PIN Lock stops being available.</li>
+</ul></td></tr>
+</tbody></table></div>
+<p>What a touchscreen answer may draw on is set twice: the homeowner's portal switch for household activity (below) and the dealer's <strong>Touchscreen Detail</strong> property, which can only lower it. With the switch off, answers use equipment status and recent events only.</p>
+
+<h2 id="ch8-touchscreen-approve">Approving one item at the touchscreen with one PIN</h2>
+<p>Only when the homeowner has switched <em>Approve at the touchscreen with an owner PIN</em> on in the portal. A person at the wall screen:</p>
+<ol>
+  <li>Sees how many requests wait in <strong>Approvals</strong> and presses <em>Review next item</em>.</li>
+  <li>Enters an owner PIN on the PIN pad (<em>Owner PINs only. The PIN goes to PIN Lock, not to AI Core.</em>). The page posts it to PIN Lock directly; PIN Lock answers only whether an owner code was entered. Guest and vendor codes are always refused, and wrong PINs count against PIN Lock's own lockout.</li>
+  <li>Sees that one request: its title, description and risk. AI Core holds a proof for <strong>that one item</strong> for 60 seconds.</li>
+  <li>Presses <em>Approve</em> or <em>Decline</em>. The proof is used once and deleted, whatever the answer; the outcome (queued, declined, failed, expired, or the reason it was refused) is shown in words.</li>
+  <li>The next item needs a new PIN. Unlocking the chat never approves anything, and an approval PIN never unlocks the chat.</li>
+</ol>
+<p>The homeowner is <strong>notified of every touchscreen approve and decline</strong>. SmartBuildOS records "approved at the touchscreen with an owner PIN" and nothing that identifies which code was used: no code name and no slot leave PIN Lock. The platform also checks, in code and by a database CHECK, that the item is low or medium risk; it accepts each verification once (single-use nonce) and only inside the window [now − 120 s, now + 60 s]; and it allows 30 item details and 10 decisions an hour per property. The cloud cannot see the PIN itself: it relies on AI Core's statement that PIN Lock verified an owner PIN, inside those bounds (KI-58). These limits are the conductor's rulings, open for the owner to confirm (owner decisions 16–20).</p>
+
+<h2 id="ch8-touchscreen-limits">What an owner PIN can and cannot approve</h2>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">At the touchscreen, with one owner PIN per item</th><th scope="col">In the SmartBuildOS portal only</th></tr></thead>
+<tbody><tr><td>
+<ul>
+  <li>Low-risk action proposals: lights, thermostats, scenes.</li>
+  <li>Medium-risk proposals: an action a SmartBuildOS driver declared (<a href="#ch6-queries-actions">Chapter 6</a>), unless that driver controls a lock or security equipment.</li>
+</ul></td><td>
+<ul>
+  <li>Locks, garage doors and security, and every action of a driver that controls a lock or security equipment (high risk).</li>
+  <li>Recommendations, concierge bookings and other external actions, programming hand-offs.</li>
+  <li>Learning consent, erase, and every setting, including the two touchscreen switches.</li>
+</ul></td></tr></tbody></table></div>
+
+<h2 id="ch8-touchscreen-switches">The homeowner's two switches (portal)</h2>
+<p>In the portal, <strong>Your home assistant</strong> › Approvals › <strong>Touchscreen permissions</strong> (<em>Your Control4 touchscreen</em>), per property: <em>Both are off until you turn them on. Your integrator can turn them off but never on.</em></p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Switch</th><th scope="col">Off (the default)</th><th scope="col">On</th></tr></thead>
+<tbody>
+<tr><td><strong>Approve at the touchscreen with an owner PIN</strong></td><td>Requests are decided in the portal only.</td><td>An owner PIN from PIN Lock can approve or decline the assistant's low- and medium-risk requests at the touchscreen, one PIN per item; locks, garage doors, security, recommendations, bookings and settings stay in the portal. The homeowner is notified of every touchscreen decision. Turning it on needs the licence feature <code>AI_ACTIONS</code>.</td></tr>
+<tr><td><strong>Let touchscreen answers use household activity</strong></td><td>Touchscreen answers use equipment status and recent events only, so a guest at a wall screen cannot ask when the house is usually empty.</td><td>Touchscreen answers may use the household's activity patterns. Entering a PIN does not change this; only this switch does.</td></tr>
+</tbody></table></div>
+<p>Only the portal route <code>/api/portal/ai-core/touchscreen</code> can switch either on. Staff see both switches, who changed them and when, and can only switch one off (<code>/api/monitoring/ai-core/touchscreen</code>; asking it to switch one on is refused). In System Studio a touchscreen decision reads <em>Approved at the touchscreen with an owner PIN</em>. <em>Screenshot pending:</em> no screenshot of the switches or of the tile exists from the platform's browser runs, so this guide describes them in words.</p>
 
 <h2 id="ch8-rules">Pre-approved rules and homeowner consent</h2>
 <p>In <code>execute_low_risk</code>, a low action runs without a per-action approval only when an active rule covers it exactly: verb <code>SET_LIGHT</code>, <code>SET_THERMOSTAT</code> or <code>ACTIVATE_SCENE</code> only; a device or room scope; numeric bounds inside the queue's clamp; allowed values (thermostat modes); an optional time window with an IANA time zone; an expiry within 365 days.</p>
@@ -68,6 +126,7 @@
   <li><code>observe</code> denies every non-read class: the AI may not even ask.</li>
   <li>Locks, garage doors and security partitions always need explicit homeowner approval per action, are never automatic, and are never proposed on learned behaviour alone. A disarm code is never taken by AI Core; approving sends the action on to the queue's own Control4 approval, a second separate confirmation that collects any code.</li>
   <li>The homeowner's Composer <em>Remote Control</em> tier on the Agent still bounds what is possible: low verbs need the controller capability <code>comfort_v1</code> (Comfort) and lock/garage/security need <code>control_v1</code> (Full control).</li>
+  <li>A <code>medium</code> action (a driver-declared action) is never automatic: no pre-approved rule can match it, learned behaviour alone never proposes it, and the homeowner approves each one.</li>
   <li>No tool can read a credential: there is no credential risk class.</li>
   <li>A physical device change from an approved AI action has not been demonstrated: it needs a controller (checklist 7.9).</li>
 </ul>
@@ -194,10 +253,9 @@
 <h1 id="ch10-title">System Studio — Intelligence</h1>
 <p class="lede">Staff see and manage AI Core in System Studio, on the property's <strong>Intelligence</strong> destination: six pages, each with its own tabs. Every page reads stored records; only AI Conversations runs a model (the connectivity test on Provider &amp; settings only lists the provider's models). This chapter says what each page shows and what it honestly cannot. Screens are fixture-mode screenshots with sample data.</p>
 <div class="status" data-status="studio"></div>
-<div class="status" data-status="ninth"></div>
 
 <h2 id="ch10-nav">Navigation and permissions</h2>
-<p><strong>Intelligence</strong> is a <strong>ninth top-level destination</strong> (section id <code>intelligence</code>), shown only where the property's controller holds the <code>SBOS_AI_CORE</code> entitlement (Studio capability <code>ai-core</code>). Studio permissions: <code>intelligence.view</code> (from <code>monitoring:view</code>), <code>intelligence.manage</code> (<code>monitoring:manage</code>), <code>intelligence.raise-mode</code> (<code>monitoring:manage</code> and <code>homecontrol:manage</code>); household pages need <code>household.view</code> (<code>homecontrol:view</code>). Every page shows a fixture banner in fixture mode, a <em>Sample data</em> mark, and states for not entitled, permission denied, empty and error.</p>
+<p><strong>Intelligence</strong> is a <strong>ninth top-level destination</strong> (section id <code>intelligence</code>; the owner decided on 18 November 2026 that it stays one, checklist 8.10), shown only where the property's controller holds the <code>SBOS_AI_CORE</code> entitlement (Studio capability <code>ai-core</code>). Studio permissions: <code>intelligence.view</code> (from <code>monitoring:view</code>), <code>intelligence.manage</code> (<code>monitoring:manage</code>), <code>intelligence.raise-mode</code> (<code>monitoring:manage</code> and <code>homecontrol:manage</code>); household pages need <code>household.view</code> (<code>homecontrol:view</code>). Every page shows a fixture banner in fixture mode, a <em>Sample data</em> mark, and states for not entitled, permission denied, empty and error.</p>
 <div class="table-wrap"><table>
 <thead><tr><th scope="col">Page (section id)</th><th scope="col">Tabs</th><th scope="col">Needs</th><th scope="col">Routes</th></tr></thead>
 <tbody>
@@ -207,6 +265,7 @@
 <tr><td>Recommendations (<code>ai-recommendations</code>)</td><td>Recommendations · Programming hand-offs · Actions &amp; approvals · Pre-approved rules · Pending memories</td><td>household.view; <code>AI_LEARNING</code>, <code>AI_ACTIONS</code></td><td><code>recommendations</code>, <code>programming</code>, <code>actions</code>, <code>rules</code>, <code>memories</code></td></tr>
 <tr><td>Service (<code>ai-service</code>)</td><td>Recurring problems · Predictive maintenance · Driver health · Network correlation</td><td>intelligence.view</td><td><code>service/findings</code>, <code>driver-health</code>, <code>playbook</code>, <code>ticket</code></td></tr>
 <tr><td>Conversations (<code>ai-conversations</code>)</td><td>thread list, conversation</td><td>intelligence.view; asking needs monitoring:manage</td><td><code>conversations</code>, <code>conversations/[id]/messages</code> (SSE)</td></tr>
+<tr><td>Connected drivers (<code>ai-drivers</code>; staff only)</td><td>one list</td><td>intelligence.view; events and state need household.view</td><td><code>drivers</code></td></tr>
 </tbody></table></div>
 <p>Routes are under <code>/api/monitoring/ai-core/</code>. A read-only staff concierge route (<code>concierge</code>, with the sandbox switch) exists without a page of its own.</p>
 
@@ -249,6 +308,10 @@
 <p><strong>What it cannot show:</strong> a real model answer — no provider key exists, so a real turn ends <em>AI Core has no AI provider key for this property. Add one in System Studio.</em>; token streaming (the answer arrives whole); an answer without evidence (replaced by <em>I don't have evidence for that.</em>).</p>
 <figure class="shot"><img src="shot:studio-conv" alt="System Studio AI Conversations page: a sample answer with Confirmed, Possible, Unknown and Suggested next steps, and a How this answer was produced panel listing the turn's tool calls and engine decisions." width="960" height="1100" loading="lazy" decoding="async"><figcaption>System Studio — Conversations with a finished sample turn, fixture mode with sample data (<code>screenshots/studio-b/mock-desktop-47-conv-progress-final-answer.png</code>). The answer is a fixture, not a model's output.</figcaption></figure>
 <div class="status" data-status="conversations"></div>
+
+<h2 id="ch10-drivers">Connected drivers</h2>
+<p>Staff only; the homeowner portal has no counterpart (homeowners see only the approval items). It lists every SmartBuildOS driver instance of the property's system: the drivers that report to AI Core joined with the Agent's module registry (<a href="#ch6-reporting">Chapter 6</a>). For each one it shows whether the Agent verified it (<em>Verified by the Agent</em>, or a warning that <em>The SmartBuildOS Agent could not verify that this module is the driver it claims to be</em>, whose reports are labelled unverified and whose declared actions cannot be proposed), drivers that registered but never reported, dropped reports, what the driver described, its <em>Declared read-only queries</em> and <em>Declared actions</em> (<em>proposal only; the homeowner approves each</em>) with their effective risk, its latest state, recent diagnostics and recent events. A driver that controls a lock or security equipment says that every action it declares is high risk, for the homeowner in the portal only, never with a touchscreen PIN. Driver text is shown as text; nothing on the page runs anything. <em>Events and state are household activity: they need Home control view as well.</em> Route: <code>GET /api/monitoring/ai-core/drivers</code>.</p>
+<p>Tested by the platform worker: unit tests and a browser walk in fixture mode (checklist 12.12, worker-reported); not deployed. <em>Screenshot pending:</em> no capture of this page from the platform's browser runs exists, so it is described in words.</p>
 </section>
 
 <!-- ═════════════════════════════ CHAPTER 11 ═════════════════════════════ -->
@@ -308,7 +371,7 @@
 <div id="tblConditionals"></div>
 
 <h2 id="ch11-connections">Connections</h2>
-<p>None. AI Core has no connections, proxies or bindings to make in Composer; see <a href="#ch2-connections">Installation</a>.</p>
+<p>Nothing to bind. The one proxy is the touchscreen tile, a <code>uibutton</code> proxy on binding 5001; see <a href="#ch2-connections">Installation</a> and <a href="#ch8-touchscreen">Chapter 8</a>.</p>
 
 <h2 id="ch11-examples">Composer Programming Examples</h2>
 <div class="feature wide examples" id="examples" data-feature="examples">
@@ -395,7 +458,7 @@
   </div>
 </div>
 
-<p>The explorer below is checked against the engine as it is at platform commit <code>4e86ca3c6</code>: <code>observe</code> denies every non-read class (<code>observe_mode_no_actions</code>); a learned basis (anything that is not <code>explicit_request</code>, <code>recommendation</code> or <code>preapproved_rule</code>) is never enough for a <code>high</code> or <code>external</code> action (<code>learned_behaviour_insufficient</code>) and makes a <code>low</code> action need the homeowner; an automation may never take an external action; a staff-only tool (the service tools) is denied to a homeowner or an automation and a homeowner-only tool (concierge) to staff or an automation (<code>audience_not_permitted</code>); risk is only ever escalated by the target class, never lowered.</p>
+<p>The explorer below is checked against the engine as it is at platform commit <code>dbdd9b67c</code>: <code>observe</code> denies every non-read class (<code>observe_mode_no_actions</code>); a learned basis (anything that is not <code>explicit_request</code>, <code>recommendation</code> or <code>preapproved_rule</code>) is never enough for a <code>medium</code>, <code>high</code> or <code>external</code> action (<code>learned_behaviour_insufficient</code>); a <code>medium</code> action (a driver-declared action) always needs the homeowner and no pre-approved rule is consulted (<code>medium_risk_needs_homeowner</code>) and makes a <code>low</code> action need the homeowner; an automation may never take an external action; a staff-only tool (the service tools) is denied to a homeowner or an automation and a homeowner-only tool (concierge) to staff or an automation (<code>audience_not_permitted</code>); risk is only ever escalated by the target class, never lowered.</p>
 
 <h2 id="ch12-isolation">Property isolation</h2>
 <ul>
@@ -408,11 +471,11 @@
 
 <h2 id="ch12-gates">Route gates</h2>
 <p>Every staff route checks, in order: the platform permission (<code>monitoring:view</code> or <code>manage</code>); the audit-mode would-deny flag; a uuid <code>property_id</code> in the caller's company (another company's looks like no property: 404); a linked Control4 system; the <code>SBOS_AI_CORE</code> entitlement (403 <code>not_entitled</code>, 503 when unreadable). Families add the household grant (<code>homecontrol:view</code>), <code>homecontrol:manage</code> for action writes, the <code>AI_LEARNING</code> / <code>AI_ACTIONS</code> / <code>AI_CONCIERGE</code> feature, and for conversations a property visible to the caller's <strong>own</strong> session. Portal routes resolve the client portal session, the property (must belong to the caller's client), the system, and the licence only for the directions that need it: the homeowner's learning controls and every "safe direction" (decline, revoke, cancel, dismiss, disconnect) never need the licence.</p>
-<h3 id="ch12-staff-ops">Four operations staff cannot send</h3>
-<p>Through the staff route <code>POST /api/monitoring/control4/commands</code>, staff may send <code>refresh_status</code> and <code>run_diagnostic</code> to AI Core; <code>deliver_result</code>, <code>raise_event</code>, <code>set_learning</code> and <code>apply_config</code> are refused with 403. Each is produced only from a record the platform owns (a job's result, an action, the settings), so a hand-made copy cannot fake an answer, an approval event, or switch learning on over a homeowner's pause.</p>
+<h3 id="ch12-staff-ops">Six operations staff cannot send</h3>
+<p>Through the staff route <code>POST /api/monitoring/control4/commands</code>, staff may send <code>refresh_status</code> and <code>run_diagnostic</code> to AI Core; <code>deliver_result</code>, <code>raise_event</code>, <code>set_learning</code>, <code>apply_config</code>, <code>invoke_driver_action</code> and <code>run_driver_query</code> are refused with 403. Each is produced only from a record the platform owns (a job's result, an action, the settings, a homeowner-approved driver action, a query a tool asked for), so a hand-made copy cannot fake an answer or an approval event, switch learning on over a homeowner's pause, or run a house action nobody approved.</p>
 
 <h2 id="ch12-approvals">Approval policies</h2>
-<p>See <a href="#ch8-approvals">Chapter 8</a>. In short: low actions — the requester (or the homeowner for automations and learned behaviour), unless a consented rule covers them in <code>execute_low_risk</code>; high and external — the homeowner, per action; programming — a person in Composer Studio.</p>
+<p>See <a href="#ch8-approvals">Chapter 8</a>. In short: low actions — the requester (or the homeowner for automations and learned behaviour), unless a consented rule covers them in <code>execute_low_risk</code>; medium, high and external — the homeowner, per action; programming — a person in Composer Studio. The homeowner may approve low and medium proposals at the touchscreen with one owner PIN per item when they have switched that on in the portal (<a href="#ch8-touchscreen-approve">Chapter 8</a>); everything else is approved in the portal.</p>
 
 <h2 id="ch12-audit">Audit</h2>
 <p><code>ai_core_audit_events</code> is append-only (a trigger refuses UPDATE and DELETE except a foreign key nulling its pointer). The orchestrator writes <code>turn.started</code>, <code>provider.call</code>, <code>budget.refused</code>, <code>turn.round_limit</code> and <code>answer.invalid</code>; every tool call records its decision; credential changes are recorded (e.g. <code>credential.deleted</code>). The audit trail for every tool call and decision is Completed in simulation (7.7).</p>
@@ -435,7 +498,7 @@
 <p class="lede">Start with the property that describes the symptom. The assistant asks what Composer shows and ends on the exact property or status text to check and what to do.</p>
 
 <h2 id="ch13-texts">Failure texts and where to look</h2>
-<p>Every text below is quoted from the source that writes it. Composer texts come from the driver (<code>INSTALLATION.md</code> §8, <code>DRIVER.md</code>); Studio and portal texts from the platform at commit <code>4e86ca3c6</code>.</p>
+<p>Every text below is quoted from the source that writes it. Composer texts come from the driver (<code>INSTALLATION.md</code> §8, <code>DRIVER.md</code>); Studio and portal texts from the platform at commit <code>dbdd9b67c</code>.</p>
 <div class="table-wrap"><table>
 <thead><tr><th scope="col">Where</th><th scope="col">Text</th><th scope="col">Meaning and what to do</th></tr></thead>
 <tbody>
@@ -540,7 +603,7 @@
 <p>AI Core's manifest is <code>{ "driver": "sbos.ai_core", "protocol": 2, "capabilities": [] }</code> in substance: it consumes, it serves nothing to other modules.</p>
 
 <h2 id="ch14-tools">Tool definitions</h2>
-<p>The <span data-tool-count>34</span> tools the platform registry defines, dumped from the registry code (<code>src/dump-tools.mjs</code>; the consistency test compares this list with the live registry). Wire names are what the model sees; ids are internal. Every schema is a closed object. <code>recommendations.create</code> and <code>actions.propose</code>, listed in the architecture, do not exist as such: recommendations come from the deterministic detectors, and actions are one tool per queue verb. The model has no notification tool: <code>notifications.send</code> was removed (platform commit <code>c79f42d09</code>) because, being low risk with no verb and no proposal, it could never be allowed; notices come only from the platform's own services (and Composer's <code>AI_SEND_NOTIFICATION</code>).</p>
+<p>The <span data-tool-count>37</span> tools the platform registry defines, dumped from the registry code (<code>src/dump-tools.mjs</code>; the consistency test compares this list with the live registry). Wire names are what the model sees; ids are internal. Every schema is a closed object. <code>recommendations.create</code> and <code>actions.propose</code>, listed in the architecture, do not exist as such: recommendations come from the deterministic detectors, and actions are one tool per queue verb, plus <code>drivers_propose_action</code> for an action a driver declared (risk <code>medium</code>: it only creates a proposal a person must approve). The model has no notification tool: <code>notifications.send</code> was removed (platform commit <code>c79f42d09</code>) because, being low risk with no verb and no proposal, it could never be allowed; notices come only from the platform's own services (and Composer's <code>AI_SEND_NOTIFICATION</code>).</p>
 <h3 id="ch14-offered">Which tools each persona is offered</h3>
 <p>A turn is offered every tool in its registry that the permission engine would not outright deny for that actor, audience, mode, licence, household grant and gate (a <code>require_approval</code> tool is offered: calling it records a proposal); a controller job is offered <code>read</code> tools only (<code>orchestrator/turn.ts</code> <code>offeredTools</code>). The registries are composed in <code>orchestrator/server.ts</code> <code>aiCoreRegistry</code> and <code>concierge/server.ts</code> <code>portalConversationDeps</code>:</p>
 <div class="table-wrap"><table>
@@ -623,7 +686,9 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
   <li><code>RegisterVariableListener</code> first-callback behaviour;</li>
   <li>SendToDevice ordering, frame sizes near 24–32 KB, timer behaviour under Director load;</li>
   <li>the platform route (until deployed, the Agent gets 404 → <code>cloud_refused</code>);</li>
-  <li>persistence across a real power cut.</li>
+  <li>persistence across a real power cut;</li>
+  <li>the AI Core tile in Navigator on a touchscreen and in the phone app, the PIN posted from AI Core's page (port 47871) to PIN Lock's relay (port 47831), and Navigator's page-close events;</li>
+  <li>identity binding against Director (<code>C4:GetDevicesByC4iName</code>), system events 13 and 11 reaching child drivers, sizes at a full 48-module registry, driver-query latency against the platform's 15 s wait, and a declared action (Mode Composer <code>activate_mode</code>) running and reporting its outcome.</li>
 </ul>
 
 <h2 id="ch14-extend">Extension guidelines</h2>
@@ -642,15 +707,23 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
 <section class="chapter" id="verification" aria-labelledby="verification-title" data-title="Verification status" hidden>
 <p class="eyebrow">Status</p>
 <h1 id="verification-title">Verification status</h1>
-<p class="lede">What has and has not been verified, from <code>IMPLEMENTATION_CHECKLIST.md</code> as it read when this guide was refreshed (18 November 2026) and the platform branch at commit <code id="platformHead">4e86ca3c6</code>. "Simulated" means automated tests with a Control4 shim, a Director emulator, mocked HTTP, fakes or a throwaway local database. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider or vendor, or in production.</p>
-<h2 id="verification-sim">Verified in simulation</h2>
+<p class="lede">What has and has not been verified, from <code>IMPLEMENTATION_CHECKLIST.md</code> as it read when this guide was refreshed (18 November 2026) and the platform branch at commit <code id="platformHead">dbdd9b67c</code>. "Simulated" means automated tests with a Control4 shim, a Director emulator, mocked HTTP, fakes or a throwaway local database. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider or vendor, or in production.</p>
+<p>Three kinds of evidence are kept apart below: what the conductor <strong>reran</strong> against the repository (checklist Completed), what a worker ran and <strong>reported</strong> and the conductor has not yet rerun (checklist Tested, or a database run marked worker-reported), and what has <strong>never run</strong>. Final gate totals at the final heads are being finalised by the conductor and are not shown here.</p>
+<h2 id="verification-sim">Verified in simulation, rerun by the conductor</h2>
 <ul class="verify" id="verify-simulated"></ul>
+<h2 id="verification-reported">Tested in simulation, worker-reported</h2>
+<p>Each passed its own automated tests on the worker's run; the conductor's rerun of the platform gates is still to come.</p>
+<ul class="verify" id="verify-reported"></ul>
 <h2 id="verification-browser">Browser-verified against fixtures and a local stack</h2>
 <ul class="verify" id="verify-browser"></ul>
 <h2 id="verification-never">Has never run</h2>
 <ul class="verify" id="verify-never"></ul>
+<h2 id="verification-migrations">The migrations: independent review</h2>
+<p>An independent review of the AI Core migrations on 18 November 2026 found them <strong>“ready with conditions”</strong>. Its fixes are being applied: checks and cron calls inside the transaction, the dealer price moved to a twelfth file applied after the new app is deployed (today's production app would otherwise expose it publicly), <code>lock_timeout</code> in files that lock busy tables, order checks between files, a catalogue rollback that refuses while licences exist, and the revoke of a pre-existing TRUNCATE grant. The final migration list is being finalised. The owner should know that the first nightly Flight Recorder cleanup deletes the whole backlog beyond the windows in one pass. Nothing is applied to any remote database.</p>
 <h2 id="verification-owner">Blocked on the owner</h2>
-<p>Open owner decisions (none blocks current work). Decided by the architect, reversible: AI Core events count as household activity, and learning is off by default. Resolved: decision 8 (the homeowner approval screen and two-party approval are built).</p>
+<p>Decided by the owner on 18 November 2026 (decisions 1, 2 and 4, and the scheduling part of 7):</p>
+<ul class="verify" id="verify-decided"></ul>
+<p>Open owner decisions, with the checklist's numbers (none blocks current work). Decided by the architect, reversible: AI Core events count as household activity, and learning is off by default. Resolved earlier: decision 8 (the homeowner approval screen and two-party approval are built). Decisions 16–23 are the conductor's rulings of 18 November 2026, in force until the owner confirms or changes them.</p>
 <ul class="verify" id="verify-owner"></ul>
 <h2 id="verification-released">Nothing has been released</h2>
 <ul class="verify" id="verify-unreleased"></ul>
@@ -659,7 +732,7 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
 <h2 id="verification-guide">This guide's own tests</h2>
 <p><code>test/run.sh</code> runs a consistency test (names, frames, error codes, vocabularies, tools, routes, statuses and stated facts against <code>driver.xml</code>, the protocol documents, the driver's Lua vocabularies and the live platform registry) and a browser test that exercises every control in Chromium from <code>file://</code>, compares the Permissions Explorer with the real engine and the Workflow Simulator's tool lists with the real <code>offeredTools</code>, checks the phone layouts at 360 px, and records zero network requests.</p>
 <h2 id="verification-sources">Sources and date</h2>
-<p>Refreshed on 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (committed work at <code>4e86ca3c6</code> only; uncommitted work in progress there is not described), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources. Screenshots of System Studio and the portal are fixture-mode captures with sample data, never a customer's system.</p>
+<p>Refreshed on 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (committed work at <code>dbdd9b67c</code> only; uncommitted work in progress there is not described), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources. Screenshots of System Studio and the portal are fixture-mode captures with sample data, never a customer's system.</p>
 <h2 id="verification-about">About this guide</h2>
 <p>This page is a single self-contained file. It makes no network requests (a Content-Security-Policy forbids them; images are embedded as <code>data:</code> URIs), and uses this browser's local storage only for the theme, checklist ticks, chapter progress and last chapter. All simulations and sample data are labelled.</p>
 </section>

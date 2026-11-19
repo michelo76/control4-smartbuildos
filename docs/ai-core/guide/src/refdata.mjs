@@ -36,6 +36,7 @@ const actions = [
   { name: "Test Agent Link", command: "TEST_AGENT_LINK", does: "SBOS_MODULE_DISCOVER to the Agent; writes the Agent's version, protocol range, pairing, cloud state and module count to Last Test Result (or why it cannot: no Agent, protocol 1, failed with a code)." },
   { name: "Test AI Connection", command: "TEST_AI_CONNECTION", does: "Cloud op test_provider; Last Test Result says accepted (job id; the result arrives as AI Response Ready) or the refusal code." },
   { name: "Sync Now", command: "SYNC_NOW", does: "Re-registers if needed, drains the buffer, flushes staged events, re-reads the directory, sends a status frame (which carries applied_config_version), and (protocol 2) calls cloud op status, whose body is {request_id} only." },
+  { name: "Republish App URL", command: "REPUBLISH_URL", does: "Sends the touchscreen page's URL (URL_CHANGED on binding 5001) again; Navigator applies it the next time the tile opens." },
   { name: "Print Diagnostics", command: "PRINT_DIAGNOSTICS", does: "Prints state, Agent link, licence, configuration, learning, Flight Recorder link, collection plan, every counter, pending jobs and bus counters to the Lua output." },
 ];
 const P = (name, def, shows, editable) => ({ name, type: editable ? "LIST" : "STRING", default: def, readonly: !editable, shows });
@@ -61,6 +62,10 @@ const properties = [
   P("Last Synchronization", "never", "last time the platform was heard (config applied, restricted operation, accepted cloud answer, Sync Now)"),
   P("Last Test Result", "none", "result line of Test Agent Link / Test AI Connection"),
   P("Last Error", "none", "last error or refusal, ≤ 240 bytes (cut between UTF-8 characters), none when clear"),
+  { name: "Touchscreen Detail", type: "LIST", default: "Standard (no household activity)", readonly: false, shows: "editable: what a touchscreen question may be answered with (Basic also switches the chat off). It can only lower what the homeowner allowed: household activity is answered only when the homeowner's portal switch is on (the cloud decides)", items: ["Basic (status and approvals only)", "Standard (no household activity)", "Household (only if the homeowner allows it)"] },
+  P("Touchscreen Approvals", "Starting", "one line: PIN Lock ready or why not (unavailable (<reason>): chat and approvals off, use the portal), the chat's detail and that it needs an owner PIN to view, whether the homeowner switched approvals on in the portal, how many page sessions are open"),
+  P("Webview Address", "Starting", "http://<controller>:47871/app (home network only), Controller address unknown: set App Relay Address, or Not listening (port 47871 unavailable)"),
+  { name: "App Relay Address", type: "STRING", default: "Auto", readonly: false, shows: "editable: Auto, or the controller's LAN address typed by hand (the same value on PIN Lock) when Webview Address says the address is unknown" },
   { name: "Log Level", type: "LIST", default: "2 - Warning", readonly: false, shows: "editable", items: ["0 - Fatal", "1 - Error", "2 - Warning", "3 - Info", "4 - Debug", "5 - Trace"] },
   { name: "Log Mode", type: "LIST", default: "Off", readonly: false, shows: "editable", items: ["Off", "Print", "Log", "Print and Log"] },
 ];
@@ -136,8 +141,8 @@ const errorCodes = [
   ["cloud_unreachable", "no usable answer from the platform", "yes"], ["cloud_refused", "the platform refused", "no"],
   ["unsupported", "reserved for a platform answer", "no"], ["internal_error", "a handler failed, or an out-of-vocabulary code was normalised", "no"],
 ].map(([code, meaning, retry]) => ({ code, meaning, retry }));
-const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic"];
-const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider", "analyze_household"];
+const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic", "run_driver_query", "invoke_driver_action"];
+const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider", "analyze_household", "approvals_pending", "approval_detail", "approval_decide", "driver_reports", "driver_query_result", "driver_action_result"];
 const tools = toolsRaw.map((t) => ({
   id: t.id, wire: t.wire, risk: t.risk, household: t.household, feature: t.feature ?? null, verb: t.verb ?? null, audience: t.audience ?? "everyone", description: t.description,
   required: t.schema.required ?? [],
@@ -180,6 +185,8 @@ const routes = [
   ["GET", "/api/monitoring/ai-core/service/driver-health", "monitoring:view", "Driver module health", "Completed (8.6)"],
   ["GET", "/api/monitoring/ai-core/service/playbook", "monitoring:view", "Service playbooks", "Completed (8.6)"],
   ["GET/POST", "/api/monitoring/ai-core/service/ticket", "monitoring:view (+ tickets:create to create)", "Ticket draft; staff-confirmed ticket", "Completed (8.6)"],
+  ["GET", "/api/monitoring/ai-core/drivers", "monitoring:view (events and state: + homecontrol:view)", "Studio Connected drivers: every SmartBuildOS driver of the property's system, whether the Agent verified it, what it described (declared queries and actions), latest state, recent events and diagnostics, drop counts", "Tested (12.12); browser walk in fixture mode (worker-reported)"],
+  ["GET/PATCH", "/api/monitoring/ai-core/touchscreen", "monitoring:view / monitoring:manage + homecontrol:manage", "The homeowner's two touchscreen switches as staff see them; staff can only switch one off (enabled: true is refused 403 homeowner_only)", "Tested (11.6; worker-reported)"],
   ["GET/PATCH", "/api/monitoring/ai-core/concierge", "monitoring:view / manage + homecontrol:manage; AI_CONCIERGE", "Read-only requests; turn the SIMULATION sandbox on/off", "Sandbox Completed in simulation (9.2)"],
   ["GET/PATCH/DELETE", "/api/portal/ai-core/learning", "homeowner portal", "Pause, exclusions, export, erase", "Completed in simulation (6.2); portal screen browser-verified (9.4)"],
   ["GET/PATCH/DELETE", "/api/portal/ai-core/memories", "homeowner portal", "Review, correct, accept, assign, delete", "Completed in simulation (6.2); portal screen browser-verified (9.4)"],
@@ -189,6 +196,7 @@ const routes = [
   ["GET/POST", "/api/portal/ai-core/rules", "homeowner portal; AI_ACTIONS to consent", "Consent / revoke pre-approved rules", "Completed in simulation (7.4); portal screen browser-verified (9.4)"],
   ["GET/POST", "/api/portal/ai-core/conversations (+ [id], [id]/messages)", "homeowner portal; AI_CONCIERGE", "Homeowner conversation threads (persona homeowner)", "Built; no live model answer; portal screen browser-verified (9.4)"],
   ["GET/POST", "/api/portal/ai-core/concierge", "homeowner portal; AI_CONCIERGE except the safe direction", "The homeowner's own concierge steps", "Recovery Completed in simulation (9.5); state machine Tested (9.1); SIMULATION sandbox only"],
+  ["GET/PATCH", "/api/portal/ai-core/touchscreen", "homeowner portal; turning on needs the licence (AI_ACTIONS for approvals)", "The homeowner's two touchscreen switches for their own property (approvals; answers using household activity), both off by default; the only route that can switch one on", "Tested (11.6; worker-reported)"],
   ["GET/PATCH/DELETE", "/api/portal/ai-core/calendar (+ connect/[provider], callback/[provider])", "homeowner portal", "Calendar connections, read consent, disconnect", "Tested against wire fixtures (9.3); blocked on OAuth credentials (9.7)"],
 ].map(([method, path, gate, does, state]) => ({ method, path, gate, does, state }));
 const envelope = [
