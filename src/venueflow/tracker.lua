@@ -392,7 +392,9 @@ end
 --- as stopped.
 ---
 --- Left alone, on purpose:
----   * a command already sent: it happened, and its outcome is still reported;
+---   * a command already sent: it happened, and its outcome is still reported
+---     (also when the run asked for the same value again and that second,
+---     unsent request is the one being stopped);
 ---   * a command another request also wants (the same value, asked for by
 ---     someone else and folded into this one): they did not stop anything.
 ---
@@ -412,7 +414,49 @@ function Tracker:cancelExecution(executionId, code, detail)
           shared = true
         end
       end
+      -- The same run may have asked for this value before, and that earlier
+      -- command may already have been SENT (it then follows this one). It
+      -- happened: it must not be reported as "stopped before it was sent",
+      -- and it still owns the cell until its outcome is known.
+      local keep, sentBefore, unsent = nil, {}, {}
       if not shared then
+        for _, f in ipairs(action.followers or {}) do
+          if f.target.sent and not f.settled then
+            sentBefore[#sentBefore + 1] = f
+            if keep == nil or f.seq > keep.seq then
+              keep = f
+            end
+          else
+            unsent[#unsent + 1] = f
+          end
+        end
+      end
+      if not shared and keep ~= nil then
+        self.deps.queue:drop(key)
+        -- No state restore: the cell already shows the value the sent
+        -- command asked for, and that command is still being confirmed.
+        action.followers = unsent
+        self:_settle(action, "superseded", code or "VF_CANCELLED", detail or "stopped before it was sent")
+        stopped = stopped + 1
+        local others = {}
+        for _, f in ipairs(sentBefore) do
+          if f ~= keep then
+            others[#others + 1] = f
+          end
+        end
+        keep.following = false
+        keep.followers = #others > 0 and others or nil
+        self.active[key] = keep
+        if keep.confirm ~= nil then
+          local roomId = keep.confirm.roomId
+          self.waiting[roomId] = self.waiting[roomId] or {}
+          table.insert(self.waiting[roomId], keep)
+          self:_armSweep()
+          self:_checkNow(keep, false)
+        else
+          self:_settle(keep, "commanded")
+        end
+      elseif not shared then
         self.deps.queue:drop(key)
         -- Back to what was known before the command was queued. Not through
         -- state:set: nothing changed on the device, and a device-state rule

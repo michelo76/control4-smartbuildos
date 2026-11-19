@@ -88,8 +88,10 @@ cfg.scenes[1].name = "Doors Open"
 cfg.sources[1].name = "Game of the Week"
 cfg.sources[1].channel = "ESPN 206"
 cfg.audioZones[1].presets[1].level = 30
-cfg.profiles[2].name = "Bar Team"
-cfg.profiles[2].permissions.audio = false
+-- profiles[3] is the host: a staff profile no screen opens with (the default
+-- profile, the bartender, stays the installer's: see below).
+cfg.profiles[3].name = "Front Desk"
+cfg.profiles[3].permissions.audio = false
 for _, rule in ipairs(cfg.rules) do
   if rule.trigger.type == "schedule" then
     rule.trigger.time = "10:30"
@@ -301,6 +303,341 @@ eq("the installer takes the permission away", env.send("DRAFT_SAVE", { config = 
 eq("...publishes", env.send("PUBLISH", { acknowledged = acks(env, installer) }, I).ok, true)
 eq("the same session is now refused", env.send("DRAFT_GET", {}, C).errorCode, "VF_FORBIDDEN")
 eq("...but still runs the venue", env.send("GET_STATE", {}, C).ok, true)
+
+-- ── the profiles a screen opens with ────────────────────────────────────────
+-- A tile opens as the default profile without a PIN, and a station opens as
+-- its profile by a LAN address: whatever those profiles may do, anyone on the
+-- LAN may do. Their whole records stay as the installer left them.
+print("the profiles a screen or station opens with")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local ic, ir = (function()
+    local d = e.send("DRAFT_GET", {}, inst).data.draft
+    return copy(d.config), d.revision
+  end)()
+  ic.stations = { { id = "host-stand", name = "Host station", address = "10.0.0.31", profileId = "host" } }
+  eq(
+    "the installer adds a station that opens as the host",
+    e.send("DRAFT_SAVE", { config = ic, baseRevision = ir }, inst).ok,
+    true
+  )
+  eq("...and publishes", e.send("PUBLISH", { acknowledged = acks(e, inst.session) }, inst).ok, true)
+  local TILE, STATION = { tile = true }, { tile = true, client = "10.0.0.31" }
+  eq("a tile may not run All Off", e.send("ALL_OFF", { confirm = true }, TILE).errorCode, "VF_FORBIDDEN")
+  eq("nor may the station", e.send("ALL_OFF", { confirm = true }, STATION).errorCode, "VF_FORBIDDEN")
+  local mgr = { session = e.login("manager", "2580") }
+  local function clientSave(mutate)
+    local d = e.send("DRAFT_GET", {}, mgr).data.draft
+    local c = copy(d.config)
+    mutate(c)
+    return e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, mgr), d.revision
+  end
+  local function profile(c, id)
+    for _, p in ipairs(c.profiles) do
+      if p.id == id then
+        return p
+      end
+    end
+  end
+  local widened, before = clientSave(function(c)
+    for k, v in pairs(profile(c, c.defaultProfileId).permissions) do
+      if k ~= "studio" then
+        profile(c, c.defaultProfileId).permissions[k] = (type(v) == "boolean") and true or "all"
+      end
+    end
+  end)
+  eq("a client cannot widen the default profile", widened.errorCode, "VF_FORBIDDEN")
+  eq(
+    "...refused as installer-only",
+    widened.data and widened.data.installerOnly,
+    "the profile a screen or station opens with"
+  )
+  eq("...the draft is untouched", e.send("DRAFT_GET", {}, mgr).data.draft.revision, before)
+  eq(
+    "a client cannot rename it either",
+    clientSave(function(c)
+      profile(c, "bartender").name = "Anyone"
+    end).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq(
+    "nor remove it",
+    clientSave(function(c)
+      for i, p in ipairs(c.profiles) do
+        if p.id == "bartender" then
+          table.remove(c.profiles, i)
+          break
+        end
+      end
+    end).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq(
+    "a client cannot widen a station's profile",
+    clientSave(function(c)
+      profile(c, "host").permissions.allOff = true
+    end).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq(
+    "nor change the station profile's areas",
+    clientSave(function(c)
+      profile(c, "host").permissions.areas = { "patio" }
+    end).errorCode,
+    "VF_FORBIDDEN"
+  )
+  -- Any other staff profile is still the client's.
+  local staff, _ = clientSave(function(c)
+    local p = copy(profile(c, "host"))
+    p.id, p.name, p.permissions.allOff = "floor-lead", "Floor lead", true
+    p.hasPin = nil
+    c.profiles[#c.profiles + 1] = p
+  end)
+  eq("a client may add a staff profile no screen opens with", staff.ok, true)
+  eq(
+    "...and change it",
+    clientSave(function(c)
+      profile(c, "floor-lead").permissions.routeVideo = true
+      profile(c, "manager").name = "Head manager"
+    end).ok,
+    true
+  )
+  eq("...and publish it", e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).ok, true)
+  eq("the tile still may not run All Off", e.send("ALL_OFF", { confirm = true }, TILE).errorCode, "VF_FORBIDDEN")
+  eq("nor may the station", e.send("ALL_OFF", { confirm = true }, STATION).errorCode, "VF_FORBIDDEN")
+  -- A PIN on the default profile (PROFILE_PIN_SET) is refused to a client
+  -- (more below), so every tile keeps working.
+  local dr = e.send("DRAFT_GET", {}, mgr).data.draft.revision
+  local pinSet = e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "9999", baseRevision = dr }, mgr)
+  eq("a client cannot put a PIN on the default profile", pinSet.errorCode, "VF_FORBIDDEN")
+  eq("...and tiles still open without one", e.send("HELLO", {}, TILE).data.profile.id, "bartender")
+  -- The installer still may change them.
+  local d = e.send("DRAFT_GET", {}, inst).data.draft
+  local c = copy(d.config)
+  profile(c, "bartender").name = "Bar tablet"
+  eq(
+    "the installer may change the default profile",
+    e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, inst).ok,
+    true
+  )
+end
+
+-- ── whose work is in the draft ──────────────────────────────────────────────
+-- The installer's (or the dealer's) unfinished work is theirs even in a part
+-- a client may change: a half-built schedule must not go live, or be thrown
+-- away, because a client pressed Publish or Discard.
+print("whose work is in the draft")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  local function save(o, mutate)
+    local d = e.send("DRAFT_GET", {}, o).data.draft
+    local c = copy(d.config)
+    mutate(c)
+    return e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, o)
+  end
+  local function wip(c)
+    c.rules[#c.rules + 1] = {
+      id = "wip-sched",
+      name = "WIP: everything on at 12:01",
+      enabled = true,
+      trigger = { type = "schedule", days = { 1, 2, 3, 4, 5, 6, 7 }, time = "12:01" },
+      program = { steps = { { type = "display_power", target = { all = true }, power = "on" } } },
+    }
+  end
+  local function live(id)
+    for _, r in ipairs(e.core.config.rules) do
+      if r.id == id then
+        return true
+      end
+    end
+    return false
+  end
+  eq("the installer saves an unfinished schedule", save(inst, wip).ok, true)
+  local st = e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client
+  eq("the client is told the installer has unfinished work", type(st.installerPending), "string")
+  eq("...and cannot publish", st.canPublish, false)
+  local pub = e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr)
+  eq("a client's publish is refused", pub.errorCode, "VF_FORBIDDEN")
+  eq("...as the installer's unfinished work", pub.data and pub.data.installerPending, true)
+  eq("...and the schedule is not live", live("wip-sched"), false)
+  eq("a client's discard is refused", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
+  eq(
+    "...and the schedule is still in the draft",
+    e.core.store:draft().config.rules[#e.core.store:draft().config.rules].id,
+    "wip-sched"
+  )
+  eq(
+    "a client may edit on top",
+    save(mgr, function(c)
+      c.scenes[1].name = "Client's name"
+    end).ok,
+    true
+  )
+  eq(
+    "...and it is still the installer's to publish",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq("the installer publishes both", e.send("PUBLISH", { acknowledged = acks(e, inst.session) }, inst).ok, true)
+  eq("...the schedule is live", live("wip-sched"), true)
+  eq("...and the draft is nobody's unfinished work", #(e.core.store:draft().savedBy or {}), 0)
+  eq("the client may publish again", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, true)
+
+  -- A client's own save is the client's: the installer may publish it.
+  eq(
+    "a client saves",
+    save(mgr, function(c)
+      c.scenes[1].name = "Doors"
+    end).ok,
+    true
+  )
+  eq("...the client could publish it", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, true)
+  eq(
+    "the installer publishes the client's work",
+    e.send("PUBLISH", { acknowledged = acks(e, inst.session) }, inst).ok,
+    true
+  )
+
+  -- The dealer's remote save is the installer's side too.
+  local snap = e.core:remote("snapshot", {}, "draft")
+  local rc = copy(snap.data.draft.config)
+  rc.scenes[1].name = "Dealer's scene"
+  local rs = e.core:remote("save_draft", { config = rc, baseRevision = snap.data.draft.revision }, "draft")
+  eq("the dealer saves remotely", rs.ok, true)
+  eq(
+    "a client cannot publish the dealer's work",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq("nor discard it", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
+  eq("the installer discards it", e.send("DRAFT_DISCARD", { confirm = true }, inst).ok, true)
+  eq("...and a discard clears it too", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, true)
+
+  -- An optional baseRevision: Publish and Discard of exactly what was loaded.
+  eq(
+    "a client saves again",
+    save(mgr, function(c)
+      c.scenes[1].name = "Doors again"
+    end).ok,
+    true
+  )
+  local now = e.send("DRAFT_GET", {}, mgr).data.draft.revision
+  eq(
+    "a publish naming an older revision is refused as stale",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session), baseRevision = now - 1 }, mgr).errorCode,
+    "VF_STALE_DRAFT"
+  )
+  eq(
+    "so is a discard",
+    e.send("DRAFT_DISCARD", { confirm = true, baseRevision = now - 1 }, mgr).errorCode,
+    "VF_STALE_DRAFT"
+  )
+  eq(
+    "...the installer's too",
+    e.send("PUBLISH", { acknowledged = acks(e, inst.session), baseRevision = now + 5 }, inst).errorCode,
+    "VF_STALE_DRAFT"
+  )
+  eq("...and nothing was published", e.core.config.scenes[1].name, "Doors")
+  eq(
+    "a publish naming the current revision goes through",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session), baseRevision = now }, mgr).ok,
+    true
+  )
+  local after = e.send("DRAFT_GET", {}, mgr).data.draft.revision
+  eq("so does a discard naming it", e.send("DRAFT_DISCARD", { confirm = true, baseRevision = after }, mgr).ok, true)
+end
+
+-- ── PINs, templates and whose work is in the draft ─────────────────────────
+print("PINs and templates: refused or attributed")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local d = e.send("DRAFT_GET", {}, inst).data.draft
+  local c = copy(d.config)
+  c.stations = { { id = "host-stand", name = "Host station", address = "10.0.0.31", profileId = "host" } }
+  eq(
+    "the installer adds a station that opens as the host",
+    e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, inst).ok,
+    true
+  )
+  eq("...and publishes", e.send("PUBLISH", { acknowledged = acks(e, inst.session) }, inst).ok, true)
+  local mgr = { session = e.login("manager", "2580") }
+  local function rev()
+    return e.send("DRAFT_GET", {}, mgr).data.draft.revision
+  end
+  local function pinOf(id)
+    for _, p in ipairs(e.core.store:draft().config.profiles) do
+      if p.id == id then
+        return p.pinHash
+      end
+    end
+  end
+  for _, case in ipairs({
+    { "a client's PIN on the default profile", "bartender", "9999" },
+    { "a client's PIN on a station's profile", "host", "9999" },
+    { "a client clearing the default profile's PIN", "bartender", "" },
+    { "a client clearing a station profile's PIN", "host", "" },
+  }) do
+    local before = rev()
+    local r = e.send("PROFILE_PIN_SET", { profileId = case[2], pin = case[3], baseRevision = before }, mgr)
+    eq(case[1] .. ": refused there and then", r.errorCode, "VF_FORBIDDEN")
+    eq(case[1] .. ": as installer-only", r.data and r.data.installerOnly, "the profile a screen or station opens with")
+    eq(case[1] .. ": the draft is untouched", rev(), before)
+  end
+  eq("...no PIN reached the default profile", pinOf("bartender"), nil)
+  eq("...nor the station's", pinOf("host"), nil)
+
+  -- A client's PIN on an ordinary staff profile is the client's work.
+  local own = e.send("PROFILE_PIN_SET", { profileId = "manager", pin = "2468", baseRevision = rev() }, mgr)
+  eq("a client sets a PIN on an ordinary staff profile", own.ok, true)
+  eq("...the draft records the client", e.core.store:draft().savedBy[1], "profile:manager")
+  eq("...and the client may still publish", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, true)
+  eq("...and does", e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).ok, true)
+  mgr = { session = e.login("manager", "2468") }
+  check("the new PIN signs in", mgr.session ~= nil)
+
+  -- The installer's PIN is the installer's work, wherever it is set.
+  local ip = e.send("PROFILE_PIN_SET", { profileId = "manager", pin = "1357", baseRevision = rev() }, inst)
+  eq("the installer sets a staff PIN", ip.ok, true)
+  local st = e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client
+  eq("...the client may not publish it", st.canPublish, false)
+  eq(
+    "...a client's publish is refused",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq("...and so is a client's discard", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
+  eq(
+    "the installer may set the default profile's PIN",
+    e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "8642", baseRevision = rev() }, inst).ok,
+    true
+  )
+  eq(
+    "...and clear it",
+    e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "", baseRevision = rev() }, inst).ok,
+    true
+  )
+  eq("the installer discards", e.send("DRAFT_DISCARD", { confirm = true }, inst).ok, true)
+end
+do
+  -- A template or sample applied by the installer is installer work, even
+  -- when it changes nothing an installer-owned comparison would see (the
+  -- published sample, applied again: only the staff PIN salts differ).
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  eq(
+    "the installer re-applies the published sample",
+    e.send("TEMPLATE_APPLY", { venueType = "sports_bar", sample = true, confirm = true }, inst).ok,
+    true
+  )
+  eq("...the draft records the installer", e.core.store:draft().savedBy[1], "installer")
+  eq("...a client may not publish it", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, false)
+  eq("...nor discard it", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
+end
 
 -- ── the schema ──────────────────────────────────────────────────────────────
 print("schema")

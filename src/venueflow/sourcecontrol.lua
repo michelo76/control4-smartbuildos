@@ -137,9 +137,11 @@ function M.new(deps)
   local self = setmetatable({}, Engine)
   self.deps = deps
   self.spacingMs = deps.spacingMs or M.KEY_SPACING_MS
-  self.pending = {} -- { deviceId, command, source }
+  self.pending = {} -- { deviceId, command, source, sourceId, seq }
   self.busy = false
   self.sent = 0
+  self.seq = 0 -- one number per key press or channel being dialled
+  self.mode = nil -- the control mode the waiting keys were pressed in
   return self
 end
 
@@ -167,11 +169,54 @@ function Engine:_source(sourceId, opts)
   return source
 end
 
+--- Drops every waiting key of sequence `seq` (the rest of a channel number)
+--- and says so in diagnostics: a box is never left half-dialled in silence.
+function Engine:_stop(seq, sourceName, why)
+  local kept, dropped = {}, 0
+  for _, job in ipairs(self.pending) do
+    if job.seq == seq then
+      dropped = dropped + 1
+    else
+      kept[#kept + 1] = job
+    end
+  end
+  self.pending = kept
+  self.deps.diag:add(
+    "warning",
+    "source",
+    "VF_CANCELLED",
+    string.format("%s: %d key(s) not sent: %s", tostring(sourceName), dropped, why)
+  )
+end
+
+--- Is the source a waiting key was pressed for still the same Control4 device
+--- in the configuration that runs now? nil when yes, otherwise why not.
+function Engine:_changed(job)
+  local ix = self.deps.index()
+  local source = ix and ix.sources and ix.sources[job.sourceId or ""] or nil
+  if source == nil or source.enabled == false then
+    return "the source is no longer in the configuration"
+  end
+  if source.c4DeviceId ~= job.deviceId then
+    return "the source's Control4 device changed"
+  end
+  return nil
+end
+
 function Engine:_pump()
   if self.busy then
     return
   end
   local job = table.remove(self.pending, 1)
+  while job ~= nil do
+    local why = self:_changed(job)
+    if why == nil then
+      break
+    end
+    table.insert(self.pending, 1, job)
+    self:_stop(job.seq, job.source, why)
+    job = table.remove(self.pending, 1)
+  end
   if job == nil then
     return
   end
@@ -200,8 +245,15 @@ function Engine:_send(source, commands, label, opts)
   if #self.pending + #commands > 64 then
     return refuse("VF_UNSUPPORTED", "too many keys are waiting; try again in a moment")
   end
+  self.seq = self.seq + 1
   for _, command in ipairs(commands) do
-    self.pending[#self.pending + 1] = { deviceId = source.c4DeviceId, command = command, source = source.name }
+    self.pending[#self.pending + 1] = {
+      deviceId = source.c4DeviceId,
+      command = command,
+      source = source.name,
+      sourceId = source.id,
+      seq = self.seq,
+    }
   end
   self.deps.diag:add(
     "info",
@@ -263,9 +315,33 @@ function Engine:tune(sourceId, target, opts)
   )
 end
 
---- Drops keys that have not left yet (All Off, a new configuration).
+--- Drops keys that have not left yet.
 function Engine:clear()
   self.pending = {}
+end
+
+--- A new configuration is being loaded (Core:load), in control mode `mode`.
+--- A channel already being dialled finishes: cutting it off would leave a
+--- partial number typed into the box, after the page was told how many keys
+--- were sent. Each waiting key is checked again just before it leaves
+--- (`_pump`): if its source is no longer the same Control4 device in the new
+--- configuration, the rest of that sequence stops. If the control mode
+--- changed (Simulation <-> Live), every waiting key stops: they were pressed
+--- for the other mode's devices. Either way diagnostics say what was dropped.
+function Engine:reconfigure(mode)
+  if self.mode ~= nil and mode ~= self.mode then
+    local order, names = {}, {}
+    for _, job in ipairs(self.pending) do
+      if names[job.seq] == nil then
+        order[#order + 1] = job.seq
+        names[job.seq] = job.source
+      end
+    end
+    for _, seq in ipairs(order) do
+      self:_stop(seq, names[seq], "the control mode changed")
+    end
+  end
+  self.mode = mode
 end
 
 return M
