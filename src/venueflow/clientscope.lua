@@ -37,7 +37,7 @@ M.SOURCE_FIELDS = { "name", "channel", "favorites" }
 M.MAY_CHANGE = {
   "Scenes",
   "Schedules",
-  "Staff profiles and PINs",
+  "Staff profiles and PINs (not the profiles screens and stations open with)",
   "Source names, channel labels and favourite channels",
   "Volume presets",
 }
