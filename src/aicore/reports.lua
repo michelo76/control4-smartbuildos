@@ -115,8 +115,12 @@ M.RISKS = { low = true, medium = true, high = true }
 M.PARAM_TYPES = { enum = true, integer = true, number = true, boolean = true, string = true }
 --- The answer's ai_core.state values (what aireport understands).
 M.STATES = { ready = true, unlicensed = true, agent_unpaired = true, cloud_unreachable = true }
---- driver_query_result / driver_action_result status.
+--- driver_query_result status.
 M.RESULT_STATUSES = { "completed", "failed" }
+--- driver_action_result status (ruling 23): `started` = the driver's handler
+--- began work that finishes later (ai.action answered in_progress); never
+--- recorded as completed.
+M.ACTION_STATUSES = { "started", "completed", "failed" }
 
 local KEYS = {
   describe = { "driver", "summary", "controls", "vocabulary", "queries", "actions", "hash" },
@@ -1048,9 +1052,11 @@ function M.queryResultBody(requestId, queryRef, answer)
 end
 
 --- driver_action_result body from the declaring driver's REAL ai.action
---- answer. Only { ok = true } from the driver is `completed`; a refusal, a
---- changed declaration, an unverified target and no answer are `failed`
---- with the reason as result_text. "Sent" is never "completed".
+--- answer. Only { ok = true } from the driver is `completed`;
+--- { ok = true, in_progress = true } is `started` (ruling 23: begun, the
+--- outcome follows as the driver's event); a refusal, a changed
+--- declaration, an unverified target and no answer are `failed` with the
+--- reason as result_text. "Sent" is never "completed".
 function M.actionResultBody(requestId, aiActionId, answer, localReason)
   answer = type(answer) == "table" and answer or {}
   local body = { request_id = requestId, ai_action_id = aiActionId }
@@ -1060,7 +1066,7 @@ function M.actionResultBody(requestId, aiActionId, answer, localReason)
     return (c ~= nil and c ~= "") and c or nil
   end
   if answer.status == "ok" and r.ok == true then
-    body.status = "completed"
+    body.status = r.in_progress == true and "started" or "completed"
     body.result_text = text(r.result_text)
     return body
   end

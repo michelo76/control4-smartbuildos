@@ -1069,12 +1069,20 @@ local function relayDriverOp(op, request, spec)
       gReports:refuseOp()
     end
     local body = spec.build(answer, localReason)
-    local done = body.status == "completed"
+    -- `started` (ruling 23): the driver began work that ends later; the
+    -- command is done, the action is not, and the text says so.
+    local done = body.status == "completed" or body.status == "started"
+    local said = ": failed (" .. tostring(body.error_code) .. ")"
+    if body.status == "started" then
+      said = ": started (the outcome follows as the driver's event)"
+    elseif done then
+      said = ": completed"
+    end
     client.commandResult(
       request.request_id,
       done and "Completed" or "Failed",
       spec.label
-        .. (done and ": completed" or (": failed (" .. tostring(body.error_code) .. ")"))
+        .. said
         .. ((body.result_text or localReason) and (" " .. tostring(body.result_text or localReason)):sub(1, 200) or "")
     )
     client.cloudRequest(spec.result_op, body, { idempotency_key = newRequestId() }, function(a)

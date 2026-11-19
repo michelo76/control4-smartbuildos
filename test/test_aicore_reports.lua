@@ -637,6 +637,23 @@ end
 states = invoke({ ai_action_id = "3d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
 ab = lastOp("driver_action_result")
 check("the driver's refusal: failed, its words as result_text", H.finalState(states) == "Failed" and ab.status == "failed" and ab.error_code == "internal_error" and ab.result_text == "Provider refused the refresh")
+-- Ruling 23: a handler that began work finishing later answers in_progress.
+nextAnswer = function()
+  ran = ran + 1
+  return "ok", { ok = true, in_progress = true, result_text = "Activation started" }
+end
+states = invoke({ ai_action_id = "8d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
+ab = lastOp("driver_action_result")
+check(
+  "an in-progress answer: driver_action_result status started (never completed), its words, no error_code",
+  ab.ai_action_id == "8d6f9a2e-5b1c-4c8e-9f00-123456789abc" and ab.status == "started" and ab.result_text == "Activation started" and ab.error_code == nil
+)
+check("…the command itself is done (Completed), its text says started", H.finalState(states) == "Completed")
+check(
+  "pure: actionResultBody in_progress → started; plain ok → completed",
+  Reports.actionResultBody("r", AID, { status = "ok", result = { ok = true, in_progress = true } }).status == "started"
+    and Reports.actionResultBody("r", AID, { status = "ok", result = { ok = true } }).status == "completed"
+)
 nextAnswer = function()
   ran = ran + 1
   return false -- never answers

@@ -700,15 +700,16 @@ do
   local qOk = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "ok", result = { ok = true, data = { a = 1 } } })
   local qFail = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "error", error_code = "invalid_args" })
   local aOk = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "ok", result = { ok = true, result_text = "done" } })
+  local aStarted = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "ok", result = { ok = true, in_progress = true, result_text = "begun" } })
   local aFail = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "error", error_code = "not_permitted" }, "target_unverified")
   driverBodies.driver_reports = { full = keysOf(withDropped), minimal = keysOf(plain or {}), max = {} }
   driverBodies.driver_query_result = { full = keysOf(qOk, qFail), minimal = keysOf(qFail), max = {}, enums = resultEnums }
   driverBodies.driver_action_result = {
-    full = keysOf(aOk, aFail),
+    full = keysOf(aOk, aStarted, aFail),
     minimal = keysOf(aOk),
     max = {},
     guard = { result_text = Reports.LIMITS.result_text },
-    enums = resultEnums,
+    enums = { status = set(Reports.ACTION_STATUSES), error_code = errorCodes },
   }
 end
 for _, op in ipairs(keys(V.CLOUD_OPS)) do
