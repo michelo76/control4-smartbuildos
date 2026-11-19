@@ -38,8 +38,20 @@
 ---       "variables": [ { "device_id": 12, "variable": "LIGHT_STATE" } ],
 ---       "max_events_per_minute": 60
 ---     },
----     "property_id": "…", "controller_id": "…"
+---     "property_id": "…", "controller_id": "…",
+---     "touchscreen": { "presets": [ "Is the wine cellar at the right temperature?" ] }
 ---   }
+---
+--- `touchscreen.presets` (round two, D-R2b): the dealer's preset questions
+--- for the touchscreen chat, set by staff in System Studio. At most 6, each
+--- 3–120 characters (≤ 360 bytes) of plain single-line text: no control, C1,
+--- line-separator or bidi character, no `<` or `>`, no `://` or `www.`,
+--- no leading or trailing space, nothing credential-shaped (the same rule as
+--- every display string here), no two alike ignoring case and spacing. One
+--- bad preset refuses the WHOLE document, like every other bad value. The
+--- platform sends the key only to a driver that registers read_device_state
+--- (round two); a document without it is accepted exactly as before, with
+--- no presets.
 
 local Envelope = require("sbos.envelope")
 local V = require("aicore.vocab")
@@ -56,6 +68,10 @@ M.LIMITS = {
   credential_status = 96,
   id = 64,
   events_per_minute_max = 300,
+  presets = 6,
+  preset_chars_min = 3,
+  preset_chars_max = 120,
+  preset_bytes = 360,
 }
 
 local TOP = {
@@ -68,6 +84,7 @@ local TOP = {
   collection = true,
   property_id = true,
   controller_id = true,
+  touchscreen = true,
 }
 
 function M.default()
@@ -89,6 +106,7 @@ function M.default()
     },
     property_id = nil,
     controller_id = nil,
+    touchscreen = { presets = {} }, -- no presets until System Studio sends some
   }
 end
 
@@ -124,6 +142,61 @@ local function displayString(v, max, path, refusals)
     return nil
   end
   return v
+end
+
+-- C0 controls and DEL, C1, line/paragraph separators, bidi controls and
+-- marks, and the byte-order mark.
+local function unprintable(s)
+  return s:find("[%z\1-\31\127]") ~= nil
+    or s:find("\194[\128-\159]") ~= nil
+    or s:find("\226\128[\142\143\168-\174]") ~= nil
+    or s:find("\226\129[\166-\169]") ~= nil
+    or s:find("\216\156") ~= nil
+    or s:find("\239\187\191") ~= nil
+end
+
+--- The characters of a UTF-8 string (bytes that do not continue one).
+local function chars(s)
+  local n = 0
+  for _ in s:gmatch("[^\128-\191]") do
+    n = n + 1
+  end
+  return n
+end
+
+--- One preset question, or nil (a refusal added).
+local function presetText(v, path, refusals)
+  local L = M.LIMITS
+  if type(v) ~= "string" then
+    refusals[#refusals + 1] = { path = path, reason = "must be text" }
+    return nil
+  end
+  local n = chars(v)
+  if n < L.preset_chars_min or n > L.preset_chars_max or #v > L.preset_bytes then
+    refusals[#refusals + 1] = {
+      path = path,
+      reason = "must be " .. L.preset_chars_min .. "-" .. L.preset_chars_max .. " characters",
+    }
+    return nil
+  end
+  if unprintable(v) then
+    refusals[#refusals + 1] = { path = path, reason = "must be one line of plain text (no control characters)" }
+    return nil
+  end
+  if v:find("^%s") or v:find("%s$") then
+    refusals[#refusals + 1] = { path = path, reason = "must not start or end with a space" }
+    return nil
+  end
+  if v:find("[<>]") then
+    refusals[#refusals + 1] = { path = path, reason = "must be plain text (no markup)" }
+    return nil
+  end
+  local lower = v:lower()
+  if lower:find("://", 1, true) or lower:find("www.", 1, true) then
+    refusals[#refusals + 1] = { path = path, reason = "must not carry a link" }
+    return nil
+  end
+  return displayString(v, L.preset_bytes, path, refusals)
 end
 
 --- Any key anywhere that names a credential refuses the whole document.
@@ -283,6 +356,36 @@ function M.validate(raw)
                   { path = p .. ".variable", reason = "a code- or credential-named variable is never collected" }
               else
                 cfg.collection.variables[#cfg.collection.variables + 1] = { device_id = id, variable = name }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  if raw.touchscreen ~= nil then
+    local t = raw.touchscreen
+    if type(t) ~= "table" or (isList(t) and next(t) ~= nil) then
+      refusals[#refusals + 1] = { path = "touchscreen", reason = "must be an object" }
+    else
+      onlyKeys(t, { presets = true }, "touchscreen.", refusals)
+      local list = t.presets
+      if list ~= nil then
+        if not isList(list) or #list > M.LIMITS.presets then
+          refusals[#refusals + 1] =
+            { path = "touchscreen.presets", reason = "must be a list of at most " .. M.LIMITS.presets }
+        else
+          local seen = {}
+          for i, v in ipairs(list) do
+            local p = "touchscreen.presets[" .. i .. "]"
+            local text = presetText(v, p, refusals)
+            if text ~= nil then
+              local key = text:lower():gsub("%s+", " ")
+              if seen[key] then
+                refusals[#refusals + 1] = { path = p, reason = "the same question twice" }
+              else
+                seen[key] = true
+                cfg.touchscreen.presets[#cfg.touchscreen.presets + 1] = text
               end
             end
           end

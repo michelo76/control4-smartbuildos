@@ -32,6 +32,7 @@
 --   [9] raise_event detail: the platform's bound (characters) against the
 --       driver's (bytes) — never refused, cut between characters
 --  [10] the configuration document: every golden the platform publishes
+--       (round two: `with-presets`, when the platform has it)
 --       (tests/unit/fixtures/ai-core-driver-config/*.json, written from
 --       settings.ts driverConfigDocument) is accepted WHOLE by config.lua
 --       and lands in the golden's `expect`; deliberately wrong documents
@@ -1111,11 +1112,40 @@ table.sort(goldens)
 if #goldens == 0 then
   print("  SKIP the platform checkout has no " .. goldenDir .. " (older platform); nothing compared here")
 else
+  -- The six round-one goldens, plus (round two, P-R2b) `with-presets`
+  -- once the platform has it; any other name is a golden nobody mapped here.
+  local known = { "learning-on", "learning-paused", "maximum", "minimum", "typical", "with-exclusions" }
+  local present, extra, hasPresets = {}, {}, false
+  for _, g in ipairs(goldens) do
+    present[g] = true
+  end
+  local missing = {}
+  for _, g in ipairs(known) do
+    if not present[g] then
+      missing[#missing + 1] = g
+    end
+  end
+  for _, g in ipairs(goldens) do
+    if g == "with-presets" then
+      hasPresets = true
+    else
+      local ok = false
+      for _, k in ipairs(known) do
+        ok = ok or k == g
+      end
+      if not ok then
+        extra[#extra + 1] = g
+      end
+    end
+  end
   check(
-    "the six goldens are present",
-    same(goldens, { "learning-on", "learning-paused", "maximum", "minimum", "typical", "with-exclusions" }),
-    table.concat(goldens, ",")
+    "the six goldens are present (and nothing unmapped)",
+    #missing == 0 and #extra == 0,
+    "missing " .. table.concat(missing, ",") .. "; unmapped " .. table.concat(extra, ",")
   )
+  if not hasPresets then
+    print("  SKIP with-presets: the platform has no presets golden yet (P-R2b); the driver side is unit-tested")
+  end
   local function list(t)
     local out = {}
     for _, v in ipairs(t or {}) do
@@ -1148,6 +1178,14 @@ else
         want("collection." .. k, cfg.collection[k], e.collection[k])
       end
       want("collection.variables", #cfg.collection.variables, e.collection.variables)
+      -- Presets (round two): what the driver keeps = what the document sent
+      -- (or the golden's `expect.presets` when it states one).
+      local sent = type(g.document.touchscreen) == "table" and g.document.touchscreen.presets or {}
+      local expected = type(e.presets) == "table" and e.presets or sent
+      want("touchscreen.presets", list(cfg.touchscreen.presets), list(expected))
+      if name == "with-presets" then
+        want("with-presets carries at least one preset", #cfg.touchscreen.presets > 0, true)
+      end
       check(name .. ": lands in the expected state", #wrong == 0, table.concat(wrong, "; "))
     end
   end
