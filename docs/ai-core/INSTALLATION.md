@@ -7,6 +7,13 @@ see `TEST-MATRIX.md`). Where hardware may behave differently, the
 [hardware validation plan](TEST-MATRIX.md#hardware-validation-plan) says how
 to check.
 
+**Round two** (the live device read, battery and sensor health, the
+dealer's preset questions: §10 items 6–8) exists only on the unpushed branch
+`feat/ai-core-round2` and the platform's `codex/ai-core-round2`; a build from
+`feat/ai-core` (pull request #49) has none of it. Round two also needs the
+platform's round-two migration `20261119120000` (`RELEASE.md` §3), which is
+not applied anywhere.
+
 Property and variable texts are quoted exactly as the driver writes them
 (`drivers/smartbuildos-ai-core/driver.lua`, `src/aicore/state.lua`,
 `src/sbos/license.lua`). The full reference is `DRIVER.md`.
@@ -222,7 +229,7 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    ready for this screen*. Press *Unlock with owner PIN*, enter the owner
    PIN, ask a question; the answer appears on that page only. The chat locks
    again after 5 minutes without use, when the tile is closed, and on *Lock*.
-6. **Preset questions (optional).** In System Studio, the AI Core settings
+6. **Preset questions (optional; round two).** In System Studio, the AI Core settings
    take up to **6** preset questions for the touchscreen chat (3–120
    characters each, plain text, no links). They reach the controller with
    the AI Core configuration, and only once the controller runs the AI Core
@@ -233,5 +240,27 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    buttons at the next page refresh; a button from the old list is refused
    (*That suggestion is not available*), never answered as another question.
    Homeowners cannot edit them. How a long question wraps on a real
-   touchscreen has not been checked.
+   touchscreen has not been checked. A preset may contain a word such as
+   *desk-lamp*; text shaped like a key (`sk-` at the start or after any
+   character that is not an ASCII letter or digit, then 8 or more letters,
+   digits, `_` or `-`) is refused.
+7. **What the tile can tell about devices (round two).** With the
+   homeowner's *Household answers at the touchscreen* switch **off** (the
+   default), the chat can tell a device's temperature, humidity, battery,
+   signal quality, online status and temperature scale; it refuses locks,
+   security, doors, motion, contacts, relays, lights and cameras before
+   anything is read out — an owner PIN alone does not change that. With the
+   switch on, the homeowner's usual household rules decide. Cameras are
+   always refused. There is no energy data, and the chat says so rather than
+   guess. A live read needs the round-two Agent **and** the round-two AI Core
+   on the controller; until both run, the platform answers that the
+   controller cannot do it yet.
+8. **Battery and sensor health: switch on System Studio monitoring (round
+   two).** Battery levels, low-battery flags, signal quality and offline
+   sensors come from the samples the SmartBuildOS Agent uploads every 5
+   minutes **only while monitoring is switched on for this system in System
+   Studio**. It is **off by default**, and nothing switches it on for you;
+   with it off, the AI says plainly that nothing is known. The Agent samples
+   at most 200 sensors, and a battery is called low only when the device
+   itself says so.
 

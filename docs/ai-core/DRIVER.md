@@ -1,6 +1,11 @@
 # SmartBuildOS AI Core — driver reference
 
-Status: built on branch `feat/ai-core`. **No physical controller has run this
+Status: built on branch `feat/ai-core` (frozen at `09d138b` in pull request
+#49 for the owner); **round two** — the live device read (§7c,
+`read_device_state` → `device_state_result`), the dealer's preset questions
+(§7b, §9 `touchscreen.presets`) — exists **only on `feat/ai-core-round2`**,
+which is not pushed; on `feat/ai-core` there are eight restricted operations,
+eighteen cloud ops and no presets. **No physical controller has run this
 driver.** Everything below is verified by unit tests under the C4 shim and by
 a Director-emulator scenario (simulation); see [Verification](#13-verification)
 and [Not verified on hardware](#14-not-verified-on-hardware).
@@ -418,6 +423,21 @@ delivered is logged, not stored (KNOWN-ISSUES KI-44).
 
 ## 7c. Live device read (`read_device_state` → `device_state_result`)
 
+**Round two: on `feat/ai-core-round2` only** (not in pull request #49).
+
+**What a touchscreen can be told, in short.** The touchscreen chat reads at
+scope `system` unless the homeowner's portal switch for household answers is
+on (an owner PIN alone does not widen it). At `system` only temperature,
+humidity, battery, signal quality, online status and the temperature scale
+(`SCALE`) leave the home, through the allow-lists below; locks, security,
+doors (opening), motion, contacts, relays, lights and cameras are refused
+before anything is read out. Cameras are refused in every scope. No energy
+value exists anywhere (the platform holds the AI to saying so). With the
+switch on, or in the portal for a signed-in homeowner, the existing household
+rules decide (scope `full`). The platform's tools over this read are
+`devices.get_state` and `devices.health` (fixed tool set 39 on the
+platform's round-two branch, 37 on the frozen one).
+
 The platform's tool `devices.get_state` asks for ONE device's current
 values. AI Core reads them once and decides, **on the controller, before
 anything leaves the home**, what may be sent. Code:
@@ -625,7 +645,8 @@ just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
 
-**The dealer's preset questions (round two, D-R2b).** Staff set up to 6 in
+**The dealer's preset questions (round two, D-R2b; on `feat/ai-core-round2`
+only — on `feat/ai-core` the suggestions are the three built-ins).** Staff set up to 6 in
 System Studio; they arrive as `touchscreen.presets` in the configuration
 document (§9). They are shown **in addition to** the three built-in
 questions — first, then the built-ins — and **only to an unlocked chat

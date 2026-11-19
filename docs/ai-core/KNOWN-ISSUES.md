@@ -7,6 +7,11 @@ simulation (unit tests under the C4 shim, the Director emulator) or from
 reading the code: **no physical controller and no live AI provider** has run
 any of it.
 
+**Branches.** KI-63 to KI-74 (round two: the live device read and the
+dealer's preset questions) concern only `feat/ai-core-round2`, which is not
+pushed; the frozen pull request #49 (`feat/ai-core` at `09d138b`) has none of
+that code.
+
 Sources: `DRIVER.md`, `TEST-MATRIX.md`, `RELEASE.md`, `INSTALLATION.md` (this
 folder); the platform's `docs/ai-core/MIGRATIONS.md` and
 `docs/ai-core/DRIVER-CONTRACT.md`; the code named per item.
@@ -169,6 +174,7 @@ Unit and emulator tests only; no Navigator has shown a preset.
 | --- | --- | --- | --- |
 | KI-70 | How a preset button wraps a long (up to 120-character) question on a real touch screen or the phone app is **unmeasured**: the page lets the label wrap inside the button (`max-width: 100%`, `white-space: normal`, `overflow-wrap: anywhere`), checked only by a static test of the CSS and a fake DOM | open (bench) | `www/app/index.html` `#suggestions button`; `test/test_aicore_page.lua` [1] |
 | KI-71 | A preset id carries a revision that moves whenever the list changes, so an old button is refused (`unknown_suggestion`) rather than mapped to another question; after a driver restart the revision restarts from the controller clock, and the page's session is gone anyway (KI-59). A list changed and changed back still refuses the ids issued before the change | by design | `src/aicore/webui.lua` `currentPresets` |
+| KI-73 | The preset text rule and the other display strings treat `sk-` differently, on purpose: a preset is refused only for `(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}` (so "Is the desk-lamp on?" passes), while `provider.name`, `provider.model` and `credential_status` keep the stricter rule (any `sk-` followed by a letter, digit, `_` or `-`). The live-read value filter has no `sk-` rule of its own (its token-shape rule drops 20+ key-alphabet characters). The platform implements the same preset rule; until both sides carry it, the platform's older, stricter rule refuses such a preset at save time in Studio, so it never reaches the controller (the stricter side wins, nothing is refused on the controller) | by design / open until the platform's rule lands | `src/aicore/config.lua` `presetLooksLikeSk`, `displayString`; platform `settings/presets.ts` |
 | KI-72 | One malformed preset refuses the whole configuration document (as every other bad value does), and a refused document switches learning off until a valid one arrives (§9). The platform validates the same rules before it publishes; a disagreement between the two validators would show as `Configuration vN refused: touchscreen.presets[…]` in `Last Error` | by design (whole-document rule) | `src/aicore/config.lua` `presetText`; platform `settings/driver-config.ts` (P-R2b) |
 
 ## Driver: the live device read (round two, D-R2a)
@@ -184,6 +190,7 @@ emulator tests only; no controller has read a device for it.
 | KI-66 | Control4 keeps a device's last value and says nothing about its age: a sleeping or dead battery sensor may answer a value Director cached long ago. `read_at` is only when the controller read it; whether a dead Zigbee / Z-Wave sensor keeps its value indefinitely is unmeasured | by design (honest age) / open (bench) | `DRIVER.md` §7c |
 | KI-67 | ~~A variable outside its class's allow-list is not sent and not counted: the six `omitted` counters have no bucket for it.~~ Closed: a seventh counter, `not_allowed` (a whole number ≥ 0, never a name), counts what an allow-list withheld; the platform takes it as an optional key | closed (conductor ruling) | `src/aicore/devicestate.lua` `OMITTED_KEYS`, `filter`; `test/test_aicore_devicestate.lua` [11] |
 | KI-68 | ~~Any `TEMPERATURE*` / `HUMIDITY*` name makes a device `climate_sensor`, which was answered with the deny-lists only, so a non-signature name on such a device (e.g. a wine fridge's `DOOR_AJAR`) was sent in scope `system`.~~ Closed: in scope `system` a `climate_sensor` gets the same allow-list as `unknown`, and `thermostat`, `leak`, `power` and `battery` — the other classes that were answered with deny-lists only — get the base list plus their own signature names (`DRIVER.md` §7c). Scope `full` is unchanged. The allow-lists themselves are candidates (KI-64) | closed (conductor ruling) | `src/aicore/devicestate.lua` `ALLOW_SYSTEM`; `test/test_aicore_devicestate.lua` [6] |
+| KI-74 | The temperature scale is sent only when the device has a variable whose joined name is exactly `SCALE` (the name the Agent's thermostat reader uses); a driver that names its unit differently sends no unit (a name beginning `TEMPERATURE`, such as `TEMPERATURE_SCALE`, is already let through by `TEMPERATURE*`), and the platform then says the unit was not reported rather than guess one. Which names real climate sensors use is unmeasured (KI-64) | open (bench) | `src/aicore/devicestate.lua` `SCALE_NAME`, `ALLOW.unknown` |
 | KI-69 | `device_state_result` goes once per read; the module client re-sends a lost one twice under the same key and then only logs it (as KI-44). The read itself is never repeated, so the platform's tool then reports `pending` with no value | by design | `drivers/smartbuildos-ai-core/driver.lua` `OPS.read_device_state` |
 
 ## Licensing

@@ -7,7 +7,8 @@ ordered AI Core release across the driver repo and the platform, with a
 rollback for each step. Steps marked **owner action** are not an engineer's
 to take (tags, releases, store publication, production migrations,
 deploys). Nothing here has been done for AI Core: no tag, no release, no
-store package, no production migration.
+store package, no production migration — and round two (§3a) exists only
+on unpushed branches.
 
 ## 1. How a build is made
 
@@ -96,6 +97,25 @@ earlier one is undone.
 Recommended shape: steps 3–5 are **one build** (one version stamp, one
 release) published first as a **pre-release** (store `BETA`), bench-validated
 (§5), then promoted.
+
+### 3a. Round two (only if and when the owner ships it)
+
+Round two (the live device read, `devices.get_state` / `devices.health`, the
+dealer's preset questions) is on the unpushed branches `feat/ai-core-round2`
+(this repo) and `codex/ai-core-round2` (platform). The frozen pull requests
+(#49 at `09d138b`, the platform's #435 at `e30367901`) do not contain it, and
+the order above is the whole release without it. Shipping it adds:
+
+| # | Step | Who | Done means | Rollback |
+| --- | --- | --- | --- | --- |
+| R1 | Apply the **round-two migration** `20261119120000_ai_core_round2.sql` — NOT one of the twelve — **after file 12 and before the round-two platform is deployed**, under the conditions of the platform's `docs/ai-core/MIGRATIONS.md` "Round two" (as `postgres`, one transaction, a quiet window; version recorded under its file stamp) | **owner action** | `ai_core_device_state_reads` and `ai_core_settings.touchscreen_presets` exist; the nightly retention job is unchanged | `ROLLBACK-20261119120000.sql`, **before** file 11's rollback and after rolling the round-two platform back; it **deletes every home's preset questions** (export them first, MIGRATIONS.md) |
+| R2 | Deploy the round-two platform | **owner action** | live reads and presets are offered; without R1 they fail closed (`unavailable`; a save that sets presets is refused, every other setting saves) | redeploy the previous platform |
+| R3 | Release the round-two **Agent and AI Core** together (one build, as steps 3–5) | build: engineer; tag, release, store: **owner action** | the controller's `ai_core` row lists `read_device_state`; only then does the platform send presets in the configuration document and live reads | reinstall the previous `.c4z` files by hand; the platform stops sending presets and live reads to a driver that does not register the operation |
+
+Battery and sensor health needs System Studio monitoring switched on per
+system (off by default; `INSTALLATION.md` §10 item 8). Nothing in round two
+has run on a controller or a touchscreen; the bench items are in
+`TEST-MATRIX.md` and `KNOWN-ISSUES.md` KI-63 – KI-66, KI-70.
 
 ## 4. Pre-release checklist
 
