@@ -94,20 +94,36 @@ equipment; there is no step that sends an arbitrary Control4 command.
 - A snapshot carries no PIN salt or hash and no passcode. It does carry the
   whole configuration (names, Control4 device and room ids, staff profile
   names): that is the data the dealer's platform account will hold.
-- **A remote draft can replace the whole configuration, and "Draft and
-  publish" can put it live.** A remote draft is checked against the schema
-  and the revision, not against an installer-owned part: it can replace
-  device mapping and device commands, including a display's custom route
-  command (one command, with its device id, name and parameters, sent to a
-  device on every route) and a lighting preset's command. With "Draft and
-  publish" the platform can then publish it with nobody on site; with
-  "Draft only" someone on site must. The commands remain bound to the
-  venue's own vocabulary (a route, a preset), and Remote Management never
-  runs one by itself, but what a route or a preset sends afterwards is what
-  the dealer's platform account wrote. Whether a remote publish may replace
-  device mapping and device commands is an open owner decision; until it is
-  made, give "Draft and publish" only where the dealer's platform account is
-  trusted as much as the Installer Passcode.
+- **Device mapping and device commands are on site only** (owner
+  decision, 19 November 2026; `src/venueflow/remotescope.lua`). A remote
+  `save_draft` that would change which Control4 room or device a display,
+  source, audio zone, lighting preset, shade or a rule's or scene's
+  Control4-variable trigger or condition addresses, or which command a
+  custom route or a lighting preset sends, is refused whole with
+  `VF_ONSITE_ONLY`, and nothing is stored. The comparison is with the draft
+  when there is one (so the installer's own unpublished mapping work can be
+  neither undone nor altered remotely), otherwise with what is published. A
+  remote `publish` is refused when the draft's mapping differs from what is
+  live, even when the installer put it in the draft on site, and a remote
+  `rollback` when the target version's mapping differs from what is live:
+  making a mapping live is on-site work. An entity added remotely must be
+  unmapped (no room, device or command; default strategies); removing one is
+  allowed. The installer on site is not affected. Simulator and test shim
+  only (`test_venueflow_remote.lua`); never run with a real Agent.
+- **What a remote dealer can still do.** Through scenes, rules and
+  schedules, which stay remote-editable, a dealer with "Draft and publish"
+  can still route any already-mapped source to any already-mapped display,
+  switch already-mapped displays and zones, change volumes within the limits
+  (which are themselves remote-editable, as are presets), run an
+  already-configured lighting preset or shade, and tune an already-mapped
+  source's box to any channel through the closed key list. A source's name
+  is remote-editable, and a custom route the installer wrote with
+  `${sourceName}` as a parameter sends that name. Staff profiles and stations
+  are remote-editable too (a PIN is not: it cannot be set remotely). No
+  remote command acts on equipment by itself; a scene or schedule written
+  remotely acts when it runs. Give "Draft and publish" only where the
+  dealer's platform account is trusted to run the venue's equipment as it
+  is mapped.
 - The server side was merged and deployed in the web repository on 15
   November 2026 (its `docs/venueflow/README.md`): the route requires
   `monitoring:manage`, resolves the system inside the caller's company, and
@@ -121,6 +137,13 @@ source's own mapped device. A channel is digits with at most one dash or
 dot, eight characters at most. At most 64 keys wait at once. The permission
 is separate (`sourceControl`), and a client may edit favourites but not which
 controls a source has.
+
+**The "Tune a channel" step** (19 November 2026) dials through the same
+closed key list to the source's own mapped device; a program cannot name a
+command. Like every step it runs with system access, so a staff member who
+may run a scene tunes the scene's sources without holding `sourceControl`:
+who may run which scene is the control. A client may add the step in the
+Venue Studio, as for any scene step.
 
 ## Residual risks, stated plainly
 
@@ -158,8 +181,9 @@ These are real and are not closed by this build.
    without knowing who sent it, and adopts the token in it. Code that can
    already send commands to drivers on the controller can therefore pose as
    the Agent and, with Remote Management at "Draft and publish", save,
-   publish and roll back the configuration. A page on the LAN cannot do
-   this: it reaches only the protocol. Not fixed: the fix changes the module contract for every
+   publish and roll back the configuration, within the same limits as the
+   dealer (no change to device mapping or device commands). A page on the
+   LAN cannot do this: it reaches only the protocol. Not fixed: the fix changes the module contract for every
    module driver. Confirmed by a reviewer on 18 November 2026.
 9. **Switching Remote Management Off during a registration (shared module
    client).** If the property is set to Off before the Agent has answered a
@@ -196,4 +220,5 @@ repository's `make test`, the VenueFlow suites, `stylua --check`, `node
 | A draft revision could repeat after a discard, a publish or a restore | adversarial review; `test_venueflow_store.lua` | a stored counter that never goes back and travels in a backup; `baseRevision` on `PUBLISH` and `DRAFT_DISCARD` |
 | An operation partly outside a profile's access told its original label and who asked (`origin`) | adversarial review; `test_venueflow_permissions.lua` | label counted over what the profile sees; no `origin` for a profile |
 | `SCENE_ACTIVATE` accepted an area outside the profile's access; `ALERT_DISMISS` removed an alert the profile is not shown | adversarial review; `test_venueflow_permissions.lua` | both refused |
+| A remote draft could replace device mapping and device commands (a display's custom route command, a lighting preset's command) and, with "Draft and publish", put them live with nobody on site | owner decision after the review, 19 Nov 2026; `test_venueflow_remote.lua` | mapping and commands are on site only (`VF_ONSITE_ONLY`) |
 | *Trigger the VenueFlow event* reported success under a restricted licence while no rule ran | gap audit; `test_venueflow_driver.lua` | refused, with the reason in Last Error |

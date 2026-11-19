@@ -88,8 +88,52 @@ a T4 or a phone, and WebKit and Gecko were not available:
 - `driver.xml`: the description of event 3, *Alert Raised*, now says when it
   fires; `schema/protocol.json` was regenerated with `baseRevision`.
 
-The manual now has ten screenshots, all taken from the simulator in desktop
+The manual now has eleven screenshots, all taken from the simulator in desktop
 Chromium, each captioned so. There is still no Composer screenshot.
+
+**Two owner decisions, built on 19 November 2026** (simulator and test
+shim only):
+
+- *Device mapping and device commands are on site only.* A remote
+  `save_draft` that would change which Control4 room or device a display,
+  source, audio zone, lighting preset, shade or a Control4-variable rule or
+  condition addresses, or which command a custom route or a lighting preset
+  sends, is refused whole with the new code `VF_ONSITE_ONLY`, and nothing is
+  stored. A remote `publish` is refused when the draft's mapping differs
+  from what is live (even a change the installer made on site), and a remote
+  `rollback` when the target version's mapping does. The detail names what
+  was touched, at most 380 bytes ("Remote Management cannot change device
+  mapping or device commands: Display 'TV 03' room; Lighting preset 'Game
+  Day' command. Change these on site in Installer Studio."); the platform
+  receives it as a Failed operation whose detail starts with
+  `VF_ONSITE_ONLY:`. A new entity added remotely must be unmapped; removing
+  one is allowed. While a mapping change sits unpublished in the draft, the
+  dealer can save other edits on top but cannot publish until the installer
+  publishes on site. smartbuildos.io has not been changed to match
+  (SMARTBUILDOS_INTEGRATION.md, platform follow-up). Replaces the open
+  question of earlier notes; the remaining remote risk is in
+  SECURITY_REVIEW.md.
+- *A "Tune a channel" step* for scenes, rules and schedules:
+  `{ type = "tune", sourceId, favoriteId }` or `{ ..., channel }`. It dials
+  through the source controls' closed key list to the source's own device,
+  is "sent", never confirmed, and the program does not wait for the last
+  digit. Stopping the run stops the rest of the number and logs it; a
+  publish lets it finish. After a channel number is cut off, or on a box
+  that dials without Enter, the next number for that box waits about 3 s so
+  the digits do not run together; keys for other boxes are not held up (the
+  3 s are an assumption, never seen on a box). Two runs tuning one source
+  stop the older; a run that only routes the source is not stopped. Staff
+  need permission to run the scene, not "Use source controls". Validation
+  at save and publish names the scene, schedule or rule: a missing,
+  switched-off or keypad-less source, a favourite no longer on the source
+  (removing a favourite a step uses blocks the publish), a bad channel,
+  both a favourite and a channel (an error) or neither (a warning). In the
+  Studio it is "Tune a channel" under Displays in Add step, for the
+  installer and the client. Never seen on a real box: that a command sent
+  by this driver to a source's device reaches the box is still unproven.
+- A shade's `openLevel` and `closedLevel` are optional numbers from 0 to
+  100 (defaults 100 and 0); anything else is an error at save and publish
+  (`RANGE`, "Open level must be between 0 and 100.").
 
 **What an installer will notice.** A client signed in to the Venue Studio
 can no longer touch the tile's profile or a station's profile. Saving a
@@ -116,12 +160,8 @@ VenueFlow event* writes Last Error; *Mark the venue* under a restricted
 licence sets the status and writes Last Error for the rules it did not run;
 dismissing an alert lowers ALERT_COUNT at once.
 
-**Known and not changed.** Scenes and schedules cannot tune a channel.
-A remote draft can replace the whole configuration, device mapping and
-device commands included, and with "Draft and publish" put it live; whether
-it should be able to is an open owner decision (SECURITY_REVIEW.md). Two weaknesses of the
-shared module client are recorded in SECURITY_REVIEW.md, residual risks 8
-and 9. The manual has no Composer screenshot (its
+**Known and not changed.** Two weaknesses of the shared module client
+are recorded in SECURITY_REVIEW.md, residual risks 8 and 9. The manual has no Composer screenshot (its
 screenshots are of the pages, from the simulator).
 
 **Still not verified.** Everything above on a controller, in Composer
@@ -277,7 +317,8 @@ only, in Simulation mode first.
     to a source's device reaches the box is not documented and has not been
     seen on a controller. There is no feedback: VenueFlow never knows what
     channel a box is on, and a key changes every screen showing that source.
-    Scenes and schedules cannot change a channel yet.
+    (Since 19 November 2026 scenes, rules and schedules can change a
+    channel with the "Tune a channel" step: top section.)
 
 ### Changed since build 20261114.191046
 

@@ -282,6 +282,9 @@ of 15 November 2026, the last with the review and audit fixes of 18 November
 | Remote Management, registration | With a build from current source and the bench Agent (built from `main` on 18 November 2026), set the property to Draft only. Remote Management Status must reach "On - draft only" once the Agent answers, and the module must appear for the system in System Studio. Then set it to Off and back | Not run. The Agent allows the `venueflow` module; a VenueFlow registration with it has never been watched |
 | Remote Management, end to end | From smartbuildos.io (System Studio, Drivers & Licenses, VenueFlow): Refresh from controller; the module's row must show the one-line summary and the live version (`config_version`, the published version id, or `none`). Change a channel label, Send as draft, check the draft on the local Studio (a client signed in there must now be told the installer has unfinished changes), Publish, Roll back: after each, the live version shown must be the new one. Time each step. Then edit the draft on site and send a remote draft made from the older copy: it must be refused as stale | Not run. The platform side is deployed; it has never been run with a controller |
 | Remote Management, a large venue | Send a draft near the size limit (about 170 kB of JSON) and watch the controller: Agent check-in time, driver responsiveness | Not run |
+| Remote Management, a mapping change refused (19 November) | From smartbuildos.io (Whole configuration), change a display's Control4 room and send it as a draft. The operation must end Failed, System Studio must show the sentence ("Remote Management cannot change device mapping or device commands: Display '...' room. Change these on site in Installer Studio."), the controller's draft revision (Draft property) must be unchanged, and Diagnostics must log the refusal | Not run |
+| Remote Management, an on-site remap not published (same) | On site, change a display's room in Installer Studio and leave it unpublished. From the platform, publish: refused with `VF_ONSITE_ONLY` ("cannot put device mapping or device commands live"); the live mapping (Configuration property, Query Status) is unchanged. Then save another edit remotely on top of it: accepted | Not run |
+| Remote Management, a long refusal (same) | Send a remote draft that changes the mapping of many displays with long names: the detail must arrive whole on the platform (the code, then at most 380 bytes, ending "... and N more. Change these on site in Installer Studio.") | Not run. The Agent's 400-byte limit for a result's detail is from its code, not seen end to end |
 | Two rules on one Control4 variable (review fixes of 15 November) | **Live.** Two enabled rules triggered by the same device variable, each doing something visible; change the variable in Composer. Both must run. Then one rule on a mapped room's `POWER_STATE`: switch that room from a Control4 remote; the rule runs AND the display's state on the tile follows | Not run. Simulated Director only (`test_venueflow_adapter.lua`); whether Director calls a listener at once when it is set, and what a rule does with that first call after a publish, is unobserved |
 | Stopping a scene mid-queue (same) | **Live, a scene routing to at least eight displays.** Activate it and press Stop in Executions within a second. Count the displays that changed: no more should change after the stop. Repeat with All Off instead of Stop: no display comes back on | Not run |
 | A sample draft in Live (same) | In Simulation load a sample without publishing, switch Control Mode to Live, open a display's inspector and press Test Power Off and Query Status. Both must answer "simulation only" and the Lua tab must show no command | Not run |
@@ -299,6 +302,9 @@ of 15 November 2026, the last with the review and audit fixes of 18 November
 | Long names and touch sizes on real screens (same) | On a T3, a T4 and a phone, open each operator screen with a long display or zone name ("Boardroom A Main"), the Venue Studio, and the Installer Studio on a tablet: names take two lines, switches and icon buttons can be pressed, the Studio header and its Sections drawer work on the phone | Not run. Desktop Chromium only, at the sizes in `ui/venueflow/README.md` |
 | Publish and Discard from two windows (same) | On a laptop, open the Studio in two windows. Save a change in one, then press Publish (and, another time, Discard) in the other: nothing is published or discarded, the page says the draft changed since it loaded it and reloads it. Repeat signed in as the client | Not run on a controller |
 | The client's reason and read-only screen profiles (same) | As the client, with the installer's saved change pending: the header, Home and Publish and Rollback say "Your installer saved changes that are not live yet" and Publish and Discard are disabled. In Staff Profiles, the tile's profile (and a station's, if the venue has stations) is read-only. Then with a remote draft from the dealer: the wording names the dealer | Not run. The dealer wording was seen only with the page's state set by hand; the station case not at all |
+| A scene that tunes a box (19 November) | **Live, one real box.** A scene with a route of that box to a display, then a "Tune a channel" step to a favourite. Run it: the box must land on the channel, and Diagnostics (debug level) must show each key, in order, with no other source's key between them | Not run. That `C4:SendToDevice(sourceDevice, "NUMBER_2")` from another driver reaches a real box has never been seen |
+| The pause after a cut-off number (same) | **Live, one real box.** Run a scene that tunes a four-digit number and press Stop after the first or second digit. Then at once press a favourite on the remote: after about 3 seconds its digits must land as that channel, not joined to the unfinished ones. Try a shorter wait if the box drops digits sooner; record what the box needs. While the box pauses, press a key for another source: it must act at once | Not run. The 3 seconds are an assumption |
+| A box that dials without Enter (same) | Switch "Press Enter after the digits" off for a box that tunes by itself, and run a scene with two tune steps to two channels: both must land, as two channels | Not run |
 | A channel dialled across a publish (same) | **Live, one real box.** Press a favourite with three or four digits and publish a change from the Studio at once: every digit must land and Diagnostics must show no stop. Then press it again and change the source's Control4 device (or Control Mode) at once: the rest of the digits stop, and Diagnostics says so (`VF_CANCELLED`) | Not run |
 
 ## Order of the remaining runs
@@ -318,7 +324,9 @@ Import a build from current source first (`make venueflow`, then import
    publish.
 2. **The same, plus the SmartBuildOS Agent in the project and a dealer
    account on smartbuildos.io that holds the bench system.** Remote
-   Management registration, then end to end, then a large venue.
+   Management registration, then end to end, then a large venue, then
+   a mapping change refused, an on-site remap not published and a long
+   refusal.
 3. **The same, plus a T3 or T4 touch screen and a phone and a tablet with
    the Control4 app.** H2 on Navigators, the Venue Studio on a touch screen
    and in the app, the floor plan by touch on a 7-inch T3, long names and
@@ -330,7 +338,8 @@ Import a build from current source first (`make venueflow`, then import
    variable, H5.
 5. **Live, plus one real cable or satellite box** (and a streaming box and a
    media player, when available). Source controls, other kinds, one box on
-   many screens, a channel dialled across a publish.
+   many screens, a channel dialled across a publish, a scene that tunes a
+   box, the pause after a cut-off number, a box that dials without Enter.
 6. **Someone at the controller for a service evening.** H9 including a
    restart of the controller itself, and the H3 network drop.
 7. **After the owner applies the `SBOS_VENUEFLOW` catalogue-row migration,

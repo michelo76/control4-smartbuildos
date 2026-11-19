@@ -36,6 +36,7 @@ Start with three places:
 | "This feature needs a SmartBuildOS licence" on Publish | See Licensing below |
 | A floor plan is refused as too large | The picture is over 600 kB after the Studio reduced it. Use a simpler image |
 | A sample venue cannot be loaded | Samples load only in Simulation |
+| On smartbuildos.io a VenueFlow operation fails with `VF_ONSITE_ONLY: Remote Management cannot change device mapping or device commands: ...` (or "cannot put ... live", "cannot roll back ...") | The remote change touched device mapping or device commands (a room, a device, power, feedback, a route, a lighting preset's command, a Control4-variable rule), which only the installer changes, on site. Nothing was stored. Make that change in Installer Studio; save the other edits remotely without it. A remote publish is also refused while the draft holds an on-site mapping change that is not live: the installer publishes it on site first |
 | A Venue Studio client is told "only the installer can change ..." | That part is the installer's. "The profile a screen or station opens with" means the profile a tile opens as, or a station's profile: only the installer can change those, PINs included |
 | A Venue Studio client cannot publish or discard: "Your installer has unfinished changes" | The installer saved something in the draft (a change, a PIN, a template, a restored backup), or the dealer sent a draft through Remote Management. The installer publishes or discards it first |
 
@@ -75,6 +76,9 @@ Things that surprise people:
 | --- | --- |
 | "The scene's condition is not met right now" | The scene's IF is false (often: the venue is marked closed) |
 | A scene ends "partial" | A device did not confirm. The run names the step and the display (Visual Programming, Execution log; Diagnostics, category "scene") |
+| A scene or schedule cannot be published: "... tunes ... to a favourite channel that no longer exists" | A favourite that a "Tune a channel" step uses was removed (Sources, or Channels and Names in the Venue Studio). Choose another favourite or type the number in the step |
+| "... which has no number keypad, so the step can never dial a channel" | Give the source the number keypad (Sources > Basic controls), or remove the step |
+| A "Tune a channel" step ran but the box is on another channel | The step is sent, never confirmed. Check the box, the source's Control4 device, and "Press Enter after the digits". Diagnostics (debug level) list each key sent. The scene does not wait for the last digit: put a Wait before a step that needs the channel |
 | A step says "Not set up yet" | A template step with no source, zone or display chosen, or one whose subject was deleted |
 | "This scene runs itself in a loop" | Scenes that run each other in a circle; also a rule triggered by a scene that runs that scene |
 | A scene stopped half way, with an alert "... was interrupted" | Another scene or rule that changes the same devices started. That is deliberate |

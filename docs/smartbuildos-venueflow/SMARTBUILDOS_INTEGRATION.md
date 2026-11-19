@@ -95,9 +95,30 @@ Still needed before a dealer can use it:
    round trip takes on the Agent's check-in cadence.
 3. The owner applies the catalogue-row migration (section 1) and decides
    pricing and tier; nothing invents them.
-4. An owner decision on whether "Draft and publish" may replace device
-   mapping and device commands (today a remote draft can replace the whole
-   configuration; SECURITY_REVIEW.md).
+4. The platform follow-up below.
+
+**Owner decision, built 19 November 2026: device mapping and device
+commands are on site only.** The driver refuses a remote `save_draft` that
+would change which Control4 room or device something addresses or which
+command a custom route or a lighting preset sends, a remote `publish` while
+the draft's mapping differs from what is live, and a remote `rollback` to a
+version with another mapping (PROTOCOL.md, "Remote commands"; driver side
+in `src/venueflow/remotescope.lua`, `test_venueflow_remote.lua`, simulator
+and test shim only). The refusal reaches the platform as a `Failed`
+operation whose detail starts with `VF_ONSITE_ONLY:` and names what was
+touched, at most 380 bytes after the code.
+
+**Platform follow-up (smartbuildos.io has not been changed to match):**
+
+1. The "Whole configuration" editor still lets a dealer edit mapping
+   fields; a save that changes one will be refused. Show those fields
+   read-only (the list is in PROTOCOL.md).
+2. Explain `VF_ONSITE_ONLY` in the platform's own words where the failure
+   appears (that the installer makes these changes on site). Today the
+   platform shows the driver's detail as it is, prefixed with the code.
+3. On Publish, say when the draft holds a mapping change made on site that
+   is not live yet: the remote publish will be refused until the installer
+   publishes on site.
 
 Not built on the platform: full editors for scenes' steps, the floor layout,
 device mapping and staff profiles (the platform has focused editors for
