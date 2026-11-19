@@ -399,7 +399,12 @@ register the command: an AI Core older than round two does not register
 `read_device_state` (args `state_ref`, `device_id`, `scope`, `variables`)
 reads ONE device's variables once with `C4:GetDeviceVariables` and answers
 with cloud op `device_state_result`, filtered on the controller before
-anything leaves the home (`docs/ai-core/DRIVER.md` §7c). Both the Agent
+anything leaves the home (`docs/ai-core/DRIVER.md` §7c). A completed
+result carries `omitted`, seven whole-number counters of what the filter
+withheld — `secret`, `personal`, `occupancy`, `non_scalar`, `too_long`,
+`over_limit` and `not_allowed` (outside the class's allow-list for the
+scope; the platform takes it as an optional key) — and never a withheld
+name or value. Both the Agent
 (these tables) and AI Core must be released for it: an older Agent refuses
 the operation (`… is not a restricted operation`) and refuses the cloud op
 locally (`not_permitted`).

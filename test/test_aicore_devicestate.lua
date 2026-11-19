@@ -13,7 +13,8 @@
 --   [7]  cameras refused in both scopes
 --   [8]  bounds: 40 variables / 4,096 bytes, dropped whole, never cut
 --   [9]  G: TEMPERATURE passed raw; narrowing; typed outcomes
---  [10]  the body shapes (closed keys, six counters, no dropped name)
+--  [10]  the body shapes (closed keys, seven counters, no dropped name)
+--  [11]  not_allowed: what an allow-list withheld, counted, never named (KI-67)
 
 require("drivers-common-public.global.lib") -- the JSON encoder's number formatter
 JSON = require("JSON")
@@ -458,8 +459,12 @@ do
     JSON:encode(b.variables)
   )
   check(
-    "lock (full): user code (secret) and last user / labels (personal) counted; AUTO_LOCK_TIME not sent",
-    b.omitted.secret == 1 and b.omitted.personal == 1 and n.AUTO_LOCK_TIME == nil and n["Slot 3 Label"] == nil,
+    "lock (full): user code (secret) and last user (personal) counted; AUTO_LOCK_TIME and the slot label not sent (not_allowed 2)",
+    b.omitted.secret == 1
+      and b.omitted.personal == 1
+      and b.omitted.not_allowed == 2
+      and n.AUTO_LOCK_TIME == nil
+      and n["Slot 3 Label"] == nil,
     JSON:encode(b.omitted)
   )
   check("lock (full): class lock, restricted true", b.device.class == "lock" and b.device.restricted == true)
@@ -473,7 +478,8 @@ do
       and sn.TROUBLE_STATE == "None"
       and sn.BATTERY_LOW == "false"
       and s.omitted.secret == 1
-      and s.omitted.personal == 1,
+      and s.omitted.personal == 1
+      and s.omitted.not_allowed == 1,
     JSON:encode(s.variables) .. JSON:encode(s.omitted)
   )
   local u = read(FX.unknown, "system")
@@ -487,7 +493,8 @@ do
       and un.BATTERY_VOLTAGE == "3.0"
       and un.LINK_QUALITY == "88"
       and u.device.class == "unknown"
-      and u.device.restricted == false,
+      and u.device.restricted == false
+      and u.omitted.not_allowed == 2,
     JSON:encode(u.variables)
   )
   -- KI-68 (closed): a climate_sensor in scope system gets the SAME allow-list
@@ -506,7 +513,10 @@ do
   )
   check(
     "the wine fridge (system): DOOR_AJAR is NOT sent (outside the allow-list)",
-    fn.DOOR_AJAR == nil and count(fn) == 2 and not JSON:encode(fridge):find("DOOR", 1, true),
+    fn.DOOR_AJAR == nil
+      and count(fn) == 2
+      and fridge.omitted.not_allowed == 1
+      and not JSON:encode(fridge):find("DOOR", 1, true),
     JSON:encode(fridge.variables)
   )
   local fridgeFull = read(FX.fridge, "full")
@@ -527,7 +537,7 @@ do
   )
   check(
     "the room sensor (system): neither occupancy flag sent (OCCUPANCY_SENSED by C, IN_USE by the allow-list)",
-    on.OCCUPANCY_SENSED == nil and on.IN_USE == nil and occ.omitted.occupancy == 1,
+    on.OCCUPANCY_SENSED == nil and on.IN_USE == nil and occ.omitted.occupancy == 1 and occ.omitted.not_allowed == 1,
     JSON:encode(occ.omitted)
   )
   check(
@@ -547,8 +557,10 @@ do
       sys.status == "completed"
         and sys.device.class == c
         and names(sys).DOOR_AJAR == nil
+        and sys.omitted.not_allowed >= 1
         and full.status == "completed"
-        and names(full).DOOR_AJAR == "1",
+        and names(full).DOOR_AJAR == "1"
+        and full.omitted.not_allowed == 0,
       JSON:encode(sys.variables)
     )
   end
@@ -743,11 +755,11 @@ do
     table.concat(keys, ",") == "device,omitted,read_at,request_id,state_ref,status,variables",
     table.concat(keys, ",")
   )
-  local ok6 = count(b.omitted) == 6
+  local ok6 = count(b.omitted) == 7 and #D.OMITTED_KEYS == 7
   for _, k in ipairs(D.OMITTED_KEYS) do
     ok6 = ok6 and type(b.omitted[k]) == "number"
   end
-  check("omitted: all six counters, numbers", ok6)
+  check("omitted: all seven counters, numbers", ok6)
   local raw = JSON:encode(b)
   check(
     "no dropped secret or personal NAME or VALUE is in the body",
@@ -778,6 +790,34 @@ do
     end
   end
   check("a fixture exists for every class (camera by file and variables)", all)
+end
+
+print("[11] not_allowed: counted, never named (KI-67)")
+do
+  local b = read(FX.fridge, "system")
+  local raw = JSON:encode(b)
+  check(
+    "the wine fridge (system): omitted.not_allowed = 1, a whole number",
+    b.omitted.not_allowed == 1 and math.floor(b.omitted.not_allowed) == b.omitted.not_allowed
+  )
+  check("the withheld NAME and VALUE are nowhere in the body", not raw:find("DOOR", 1, true) and not raw:find("AJAR", 1, true), raw)
+  check("omittedTotal counts not_allowed", D.omittedTotal(b.omitted) == 1)
+  local n = read(FX.fridge, "system", nil, { "HUMIDITY", "DOOR_AJAR" })
+  check(
+    "narrowed to a withheld name: still not sent, counted once; a name not asked for is not counted",
+    #n.variables == 1 and n.omitted.not_allowed == 1 and D.omittedTotal(n.omitted) == 1,
+    JSON:encode(n)
+  )
+  local s = read(vars({ { "TEMPERATURE_F", "70" }, { "OWNER_NAME", "x" }, { "AWAY_FLAG", "1" } }), "system")
+  check(
+    "a name A or C drops is counted there first, never also as not_allowed",
+    s.omitted.personal == 1 and s.omitted.occupancy == 1 and s.omitted.not_allowed == 0,
+    JSON:encode(s.omitted)
+  )
+  local r = read(FX.lock, "system")
+  check("a refused class carries no counter at all (not_allowed included)", r.omitted == nil)
+  local t = read(FX.thermostat, "full")
+  check("scope full, deny-list class: not_allowed is 0", t.omitted.not_allowed == 0)
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

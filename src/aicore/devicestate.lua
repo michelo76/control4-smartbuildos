@@ -30,7 +30,8 @@
 ---      leaves the home), except `unknown`, which gets the small allow-list
 ---   F  allow-lists where a deny-list is unsafe: lock and security in scope
 ---      `full`, and EVERY class answered in scope `system` (ALLOW_SYSTEM;
----      KI-68); cameras are refused in every scope
+---      KI-68); a name outside them is counted `not_allowed` (KI-67);
+---      cameras are refused in every scope
 ---   G  values are passed as Director holds them; TEMPERATURE is never
 ---      converted
 ---
@@ -99,8 +100,10 @@ M.REASONS = {
   read_failed = "internal_error",
 }
 
---- The omitted counters, always all six, in every completed body.
-M.OMITTED_KEYS = { "secret", "personal", "occupancy", "non_scalar", "too_long", "over_limit" }
+--- The omitted counters, always all seven, in every completed body (whole
+--- numbers; never a name). `not_allowed`: outside the class's allow-list for
+--- the scope (KI-67 closed; the platform takes it as an optional key).
+M.OMITTED_KEYS = { "secret", "personal", "occupancy", "non_scalar", "too_long", "over_limit", "not_allowed" }
 
 -- ── A: names that never leave the home ─────────────────────────────────────
 
@@ -694,19 +697,17 @@ function M.filter(vars, scope, class, wanted)
       if why == nil and scope ~= "full" and M.occupancyName(name) then
         why = "occupancy"
       end
-      local skip = false
       if why == nil and allow ~= nil and not allowed(allow, name) then
-        -- Outside the class's allow-list: not part of the answer at all.
-        -- Not counted: the six counters have no bucket for it (round-two
-        -- report, open decision), and the platform states the allow-list.
-        skip = true
+        -- Outside the class's allow-list for this scope: not sent, counted
+        -- (the count only; the name never leaves the home).
+        why = "not_allowed"
       end
-      if why == nil and not skip then
+      if why == nil then
         why = M.deniedValue(e.value)
       end
       if why ~= nil then
         omitted[why] = omitted[why] + 1
-      elseif not skip then
+      else
         kept[#kept + 1] = { name = name, value = e.value }
       end
     end

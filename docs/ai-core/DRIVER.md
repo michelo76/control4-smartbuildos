@@ -471,6 +471,7 @@ allow-list (F).
 | B — a string over 64 bytes (dropped whole, never cut); a name over 48 bytes | every | `too_long` |
 | B — `://`, `www.`, an `@` with a dot after it, IPv4, a MAC, a phone shape (≥ 7 digits once spaces, `+`, `-`, `(`, `)` are removed, when it is not a plain number) | every | `personal` |
 | B — a token shape (20+ characters of `[A-Za-z0-9+/=_-]` with no space) | every | `secret` |
+| F — outside the class's allow-list for the scope (below) | `full` (lock, security); `system` (every class answered) | `not_allowed` |
 | bound — beyond 40 variables or 4,096 bytes of `variables` JSON (a conservative estimate: non-ASCII bytes ×3, `"` and `\` ×2) | every | `over_limit` |
 
 Tokens come from two splits of the name — on non-alphanumerics, and also at
@@ -492,7 +493,8 @@ setpoints, `HVAC_MODE` / `HVAC_STATE`, fan and humidity modes, `SCALE`, …;
 `battery` add their own signature lists (battery: the battery, low-battery
 and link lists). A class without an entry gets the base list. So a name
 nobody reviewed for that class — a wine fridge's `DOOR_AJAR`, a sensor's
-`IN_USE` — never reaches the touchscreen. Scope `full` is unchanged: deny-lists
+`IN_USE` — never reaches the touchscreen; it is counted `not_allowed`
+(the count only, never the name; KI-67 closed). Scope `full` is unchanged: deny-lists
 for every class except `lock` and `security`. A name that A or C drops is
 counted first.
 
@@ -517,7 +519,7 @@ rule drops is still dropped and counted.
 
 | Outcome | Keys |
 | --- | --- |
-| completed | `request_id`, `state_ref`, `status: "completed"`, `read_at` (controller epoch seconds of the read), `device: {id, class, restricted}`, `variables: [{name, value}]` (possibly `[]`), `omitted: {secret, personal, occupancy, non_scalar, too_long, over_limit}` (all six, always) |
+| completed | `request_id`, `state_ref`, `status: "completed"`, `read_at` (controller epoch seconds of the read), `device: {id, class, restricted}`, `variables: [{name, value}]` (possibly `[]`), `omitted: {secret, personal, occupancy, non_scalar, too_long, over_limit, not_allowed}` (all seven, always; whole numbers, never a name; the platform takes `not_allowed` as an optional key) |
 | failed after a read (`restricted_class`, `camera_not_supported`) | `request_id`, `state_ref`, `status: "failed"`, `read_at`, `device: {id, class, restricted: true}`, `reason`, `error_code` |
 | failed after a read attempt (`read_failed`, `no_variables`) | `request_id`, `state_ref`, `status: "failed"`, `read_at`, `reason`, `error_code` |
 | failed before a read (`not_licensed`, `busy`, `not_found`) | `request_id`, `state_ref`, `status: "failed"`, `reason`, `error_code` |
