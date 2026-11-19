@@ -49,6 +49,17 @@ Rebuilt on start, hourly, on action and on a programming command. No cloud.
    exactly this; if it fails the URL falls back to `controller://` with the
    relay in the query and the page still fetches the manual.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `user_manual` (guide §9 `start`) and reports: a describe
+(the Home Guide tile), a state from `paint()` (guide status, rooms and
+devices counted; never the home name, dealer contact, notes or device
+names) and the diagnostics `guide.unavailable` / `guide.restored` beside
+the existing Guide Unavailable / Guide Restored events. No events,
+queries or actions. Without AI Core nothing is sent. Unit tests only
+(`test/test_usermanual_aicore.lua`); nothing here has run on a controller.
+
 ## Not included (v1)
 
 - No project-change trigger from the Agent (this driver is not a module);
