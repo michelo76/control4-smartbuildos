@@ -699,6 +699,16 @@ check(
     and prop("Last Error"):find("licence", 1, true) ~= nil,
   prop("Last Error")
 )
+-- SET_VENUE_STATUS is manual control: it still works, but a rule waiting for
+-- the change (the sample's patio signage) does not run, and Last Error says so.
+ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Closed" })
+ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Open" })
+eq("SET_VENUE_STATUS under a restricted licence still sets the status", vars.VENUE_STATUS, "open")
+eq(
+  "...and Last Error names the rule not run",
+  prop("Last Error"),
+  "SET_VENUE_STATUS: status set; 1 rule(s) not run: licence restricted"
+)
 check(
   "no device was switched off or commanded by the licence change",
   #commands(nil, "ROOM_OFF") == 0 and #commands(nil, "OFF") == 0
