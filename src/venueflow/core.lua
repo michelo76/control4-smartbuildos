@@ -25,6 +25,7 @@ local Rules = require("venueflow.rules")
 local Scheduler = require("venueflow.scheduler")
 local Access = require("venueflow.access")
 local ClientScope = require("venueflow.clientscope")
+local RemoteScope = require("venueflow.remotescope")
 local Auth = require("venueflow.auth")
 local Diag = require("venueflow.diag")
 local Discovery = require("venueflow.discovery")
@@ -2933,7 +2934,12 @@ end
 --   level "publish"  the above, plus publish and rollback
 --
 -- A remote change is made as the installer would make it (the dealer is the
--- installer), and is recorded as "remote".
+-- installer), and is recorded as "remote", with one exception: device
+-- mapping and device commands are ON-SITE ONLY (remotescope.lua). A remote
+-- save_draft that would change them is refused whole, before anything is
+-- stored; so are a remote publish and a remote rollback that would make a
+-- different mapping live. The refusal is VF_ONSITE_ONLY, its detail names
+-- what differs.
 
 M.REMOTE_COMMANDS = {
   draft = { "snapshot", "save_draft", "refresh_status" },
@@ -3011,6 +3017,15 @@ function REMOTE.refresh_status(core)
   return { ok = true, data = core:summary() }
 end
 
+--- The refusal of a remote change to device mapping or commands.
+local function onSiteOnly(changes, verb)
+  return fail(
+    "VF_ONSITE_ONLY",
+    RemoteScope.detail(changes, verb),
+    { data = { onSiteOnly = RemoteScope.items(changes, 10) } }
+  )
+end
+
 function REMOTE.save_draft(core, args, ctx)
   -- The configuration arrives as an object, or as JSON text in parts (the
   -- same form a snapshot leaves in).
@@ -3036,10 +3051,21 @@ function REMOTE.save_draft(core, args, ctx)
     return fail("VF_INVALID_PAYLOAD", "save_draft needs a config")
   end
   local base = tonumber(args.baseRevision)
-  if base == nil and core.store:draft() ~= nil then
+  local draft = core.store:draft()
+  if base == nil and draft ~= nil then
     -- A remote editor must say which draft it started from, so it can never
     -- silently overwrite work done on site in the meantime.
     return fail("VF_STALE_DRAFT", "save_draft needs the baseRevision it was edited from")
+  end
+  -- Mapping and commands must stay what the DRAFT holds (it may carry the
+  -- installer's unpublished mapping work), or what is live when there is no
+  -- draft. A stale base is left to DRAFT_SAVE: "refresh" is the useful answer.
+  if draft == nil or base == draft.revision then
+    local current = draft or core.store:published()
+    local changes = RemoteScope.changes(current and current.config, args.config)
+    if #changes > 0 then
+      return onSiteOnly(changes, "save")
+    end
   end
   return H.DRAFT_SAVE(core, { config = args.config, baseRevision = base }, ctx)
 end
@@ -3056,6 +3082,13 @@ function REMOTE.publish(core, args, ctx)
       "the draft changed since it was reviewed (revision " .. tostring(draft.revision) .. ")"
     )
   end
+  -- Putting a mapping live is on-site work, even one the installer saved
+  -- into the draft on site.
+  local live = core.store:published()
+  local changes = RemoteScope.changes(live and live.config, draft.config)
+  if #changes > 0 then
+    return onSiteOnly(changes, "publish")
+  end
   local acknowledged = {}
   for _, id in ipairs(type(args.acknowledged) == "table" and args.acknowledged or {}) do
     acknowledged[#acknowledged + 1] = tostring(id)
@@ -3068,7 +3101,17 @@ function REMOTE.publish(core, args, ctx)
 end
 
 function REMOTE.rollback(core, args, ctx)
-  return H.ROLLBACK(core, { versionId = tostring(args.versionId or ""), confirm = true }, ctx)
+  local versionId = tostring(args.versionId or "")
+  local target = core.store:version(versionId)
+  if target ~= nil then
+    -- Going back to another mapping is putting a mapping live: on site.
+    local live = core.store:published()
+    local changes = RemoteScope.changes(live and live.config, target.config)
+    if #changes > 0 then
+      return onSiteOnly(changes, "rollback")
+    end
+  end
+  return H.ROLLBACK(core, { versionId = versionId, confirm = true }, ctx)
 end
 
 --- Runs one remote command. level = "draft" | "publish" (anything else: off).
@@ -3092,7 +3135,9 @@ function Core:remote(command, args, level)
     "config",
     out.errorCode,
     "Remote " .. tostring(command) .. (out.ok and " done" or " refused"),
-    { detail = out.detail }
+    -- The detail is cut at 200 characters in the log; what was on-site only
+    -- is kept as its own short items.
+    { detail = out.detail, onSiteOnly = not out.ok and out.data and out.data.onSiteOnly or nil }
   )
   if out.ok and command ~= "snapshot" and command ~= "refresh_status" then
     self:_hook("record", "remote " .. command, out.data and (out.data.versionId or out.data.revision) or "")
