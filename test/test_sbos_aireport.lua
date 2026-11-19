@@ -8,7 +8,7 @@
 --       is a directory in drivers/, every directory is a root, a child or
 --       exempt
 --   [2] the closed property value list (and nothing else is ever painted)
---   [3] passive mode (children): no frame of any kind
+--   [3] (passive mode moved to sbos.aipresence: test/test_sbos_aipresence.lua)
 --   [4] start with no Agent; [5] start with a v1-only Agent
 --   [6] start with AI Core absent: zero requests (SendToDevice counted)
 --   [7] re-discovery on DIRECTORY_CHANGED: added, report answers, removed,
@@ -127,6 +127,7 @@ local Modules = require("sbos.modules")
 local ModuleBus = require("sbos.modulebus")
 local client = require("sbos.moduleclient")
 local aireport = require("sbos.aireport")
+local aipresence = require("sbos.aipresence")
 
 -- ── the Agent (real registry + bus) and a fake AI Core on it ────────────────
 local agent = {}
@@ -455,7 +456,7 @@ do
   check("every MODULE_IDS / RESERVED_MODULES file is a directory in drivers/", #missing == 0, table.concat(missing, "; "))
 
   local unknown = {}
-  for file, root in pairs(aireport.CHILDREN) do
+  for file, root in pairs(aipresence.CHILDREN) do
     if not isDir(file) then
       unknown[#unknown + 1] = file
     end
@@ -473,13 +474,13 @@ do
   for name in pairs(dirs) do
     local file = name .. ".c4z"
     local n = (aireport.MODULE_IDS[file] and 1 or 0)
-      + (aireport.CHILDREN[file] and 1 or 0)
+      + (aipresence.CHILDREN[file] and 1 or 0)
       + (aireport.EXEMPT[file] and 1 or 0)
     if n ~= 1 then
       unclassified[#unclassified + 1] = file .. " x" .. n
     end
     nRoots = nRoots + (aireport.MODULE_IDS[file] and 1 or 0)
-    nChildren = nChildren + (aireport.CHILDREN[file] and 1 or 0)
+    nChildren = nChildren + (aipresence.CHILDREN[file] and 1 or 0)
   end
   check("every driver directory is exactly one of root / child / exempt", #unclassified == 0, table.concat(unclassified, "; "))
   check("21 roots + 30 children + the Agent", nRoots == 21 and nChildren == 30, nRoots .. "/" .. nChildren)
@@ -545,12 +546,13 @@ do
     "Found — reporting, cloud offline (v%s)",
     "Found — reporting (v%s)",
     "Installed — reports through %s",
+    "Installed — this driver does not report",
   }
   local same = #aireport.VALUES == #SPEC
   for i, v in ipairs(SPEC) do
     same = same and aireport.VALUES[i] == v
   end
-  check("VALUES is exactly the spec §3.6 list, in order", same)
+  check("VALUES is exactly the spec §3.6 list plus ruling 20's value, in order", same)
   check("each plain value is accepted", aireport.isValue("Not installed") and aireport.isValue("Searching…"))
   check(
     "templates accept a bounded version / a known root label",
@@ -576,7 +578,6 @@ do
   end
   check("anything else is refused", #leaked == 0, table.concat(leaked, " | "))
   fresh()
-  aireport.passive({ file = "bond-light.c4z" })
   local before = value()
   local refusedBefore = aireport.counters().values_refused
   aireport._paint("Connected")
@@ -585,47 +586,6 @@ do
     value() == before and aireport.counters().values_refused == refusedBefore + 1,
     value()
   )
-end
-
--- ── [3] passive mode ────────────────────────────────────────────────────────
-print("[3] passive (child) mode: no frame of any kind")
-do
-  fresh()
-  local chained = 0
-  OSE.OnDriverAdded = function()
-    chained = chained + 1
-  end
-  OSE.OnItemRemoved = nil
-  systemEvents = {}
-  local ok = aireport.passive({ file = "bond-light.c4z" })
-  check("passive starts for a child", ok and aireport.mode() == "passive")
-  check("AI Core absent -> Not installed", value() == V.not_installed, value())
-  check("system events 13 and 11 registered", systemEvents[1] == 13 and systemEvents[2] == 11)
-  c4i["smartbuildos-ai-core.c4z"] = { [AICORE] = {} }
-  OSE.OnDriverAdded("<event name=\"OnDriverAdded\"/>")
-  check("OnDriverAdded chains the driver's own handler", chained == 1)
-  check("value waits for the 5 s debounce", value() == V.not_installed)
-  fire("SbosAiReportPassive")
-  check(
-    "AI Core added -> Installed — reports through the root",
-    value() == "Installed — reports through Bond Bridge Gateway (SBOS)",
-    value()
-  )
-  c4i["smartbuildos-ai-core.c4z"] = nil
-  OSE.OnItemRemoved("<event name=\"OnItemRemoved\"/>")
-  fire("SbosAiReportPassive")
-  check("AI Core removed -> Not installed", value() == V.not_installed, value())
-  aireport.passive({ file = "bond-light.c4z" })
-  OSE.OnDriverAdded("x")
-  check("a second passive() does not wrap its own hook again", chained == 2)
-  check("zero SendToDevice in passive mode", #frames == 0, #frames)
-  check("reports are refused in passive mode", aireport.event("x.y", "t") == false and #frames == 0)
-  check("a root file is refused in passive mode", aireport.passive({ file = "bond-bridge.c4z" }) == false)
-  check("an unknown file is refused", aireport.passive({ file = "other.c4z" }) == false)
-  fresh()
-  Properties["AI Core"] = nil
-  aireport.passive({ file = "unifi-protect-camera.c4z" })
-  check("an undeclared property is never written", #painted == 0)
 end
 
 -- ── [4] no Agent ────────────────────────────────────────────────────────────
@@ -1605,12 +1565,14 @@ do
     end
   end
   local missing = {}
+  -- The two "Installed — …" values are painted by sbos.aipresence only.
+  local presenceOnly = { [V.passive_installed] = true, [V.no_report] = true }
   for i, template in ipairs(aireport.VALUES) do
-    if not reached[i] then
+    if not reached[i] and not presenceOnly[template] then
       missing[#missing + 1] = template
     end
   end
-  check("all 12 values of §3.6 were painted at least once", #missing == 0, table.concat(missing, " | "))
+  check("all 11 helper values of §3.6 were painted at least once", #missing == 0, table.concat(missing, " | "))
   check("no painted value is outside the closed list", #outside == 0, table.concat(outside, " | "))
 end
 
