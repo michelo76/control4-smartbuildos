@@ -91,7 +91,14 @@
   var drag = null;
   var lives = [];                                   // repaint-in-place functions of the current render
 
-  function live(el, paint) { lives.push(function () { paint(el); }); paint(el); return el; }
+  /* A repaint (after each save, run update or soft edit) paints a fresh copy and patches it in
+     (VF.patch): the tabs and buttons that did not change stay the same elements, so a tap that has
+     begun on one is not lost when the save acknowledgement arrives under the finger. */
+  function live(el, paint) {
+    lives.push(function () { var next = el.cloneNode(false); paint(next); VF.patch(el, next); });
+    paint(el);
+    return el;
+  }
   function refreshLive() {
     var keep = focusMark();
     lives.forEach(function (f) { try { f(); } catch (e) { console.error(e); } });

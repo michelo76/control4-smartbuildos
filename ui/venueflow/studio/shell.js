@@ -379,6 +379,22 @@ var Studio = (function () {
   };
   /* Favourite channels of one source (the installer's Sources section and the client's
      Channels and Names both use it). ed(label, fn) applies fn to the source in the draft. */
+  /* The scenes and rules with a tune step naming favourite `favoriteId` of source `sourceId`, as
+     "Scene 'Game Day'" / "Schedule 'Morning news'" / "Rule 'Doorbell'" (the driver's own words). */
+  S.favoriteUsers = function (sourceId, favoriteId) {
+    var out = [];
+    if (!config) return out;
+    eachProgram(config, function (item, kind) {
+      var uses = false;
+      eachStep(VF.asMap(item.program).steps, function (st) { if (st && st.type === 'tune' && st.sourceId === sourceId && st.favoriteId === favoriteId) uses = true; });
+      if (!uses) return;
+      var word = kind === 'scene' ? 'Scene' : (VF.asMap(item.trigger).type === 'schedule' ? 'Schedule' : 'Rule');
+      out.push(word + " '" + item.name + "'");
+    });
+    return out;
+  };
+  /* "A", "A and B", "A, B and C". */
+  S.joinNames = function (list) { return list.length < 2 ? list.join('') : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1]; };
   S.favoritesEditor = function (source, ed) {
     var sc = (S.boot && S.boot.schema && S.boot.schema.sourceControl) || {};
     var max = sc.favoritesMax || 24, list = VF.asList(source.favorites);
@@ -387,15 +403,21 @@ var Studio = (function () {
       list.length ? list.map(function (f) {
         return h('div.cl-row',
           S.text('Name', f.name, function (v) {
-            if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+            if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
             ed('Rename favourite', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.name = v; });
           }, { max: sc.favoriteNameMax || 24 }),
           S.text('Channel', f.channel, function (v) {
-            if (!valid(v) || v.length > (sc.channelMax || 8)) { VF.toast('A channel is digits, with at most one dash or dot (206, 5-1).', 'warn'); S.refresh(); return; }
+            if (!valid(v) || v.length > (sc.channelMax || 8)) { VF.toast('A channel is digits, with at most one dash or dot (206, 5-1).', 'warn'); S.refreshSoon(); return; }
             ed('Favourite channel', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.channel = v; });
           }, { max: sc.channelMax || 8, inputmode: 'decimal', placeholder: '206' }),
           h('button.btn.sm.ghost.icon', { type: 'button', 'aria-label': 'Remove favourite ' + f.name, onclick: function () {
-            ed('Remove favourite', function (x) { x.favorites = VF.asList(x.favorites).filter(function (q) { return q.id !== f.id; }); });
+            function go() { ed('Remove favourite', function (x) { x.favorites = VF.asList(x.favorites).filter(function (q) { return q.id !== f.id; }); }); }
+            var users = S.favoriteUsers(source.id, f.id);
+            if (!users.length) { go(); return; }
+            /* The driver refuses the publish while a step names a removed favourite; say so now. */
+            VF.modal({ title: 'Remove favourite ' + f.name + '?', icon: 'alert',
+              body: h('div.col', h('p', 'Used by ' + S.joinNames(users) + '.'), h('p', 'Removing it blocks publishing until those steps are changed.')),
+              actions: [{ label: 'Cancel', kind: 'ghost', value: false }, { label: 'Remove', kind: 'danger', value: true }] }).then(function (ok) { if (ok === true) go(); });
           } }, icon('trash')));
       }) : h('p.small.muted', 'No favourite channels yet.'),
       list.length < max ? h('div', h('button.btn.sm', { type: 'button', onclick: function () {
@@ -427,6 +449,80 @@ var Studio = (function () {
     els.main.scrollTop = keep;
   }
   S.refresh = rerender;
+  /* A re-render after an edit that keeps the person's place. It waits while a finger or the mouse is
+     down (and 60 ms after it is released), so the control being tapped is not replaced under the tap;
+     a pick list opened by touch is left open; keyboard focus, text typed and not yet committed, and
+     the scroll of [data-en-scroll] boxes are put back. Only for the section that asked. Sections that
+     change the draft from a text field use this after Studio.update(..., { silent: true }). */
+  S.refreshSoon = function () { wanted = current ? current.id : null; later(0); };
+  var wanted = null, soonTimer = null, downAt = 0, downEl = null, changedEl = null;
+  document.addEventListener('pointerdown', function (e) { downAt = Date.now(); downEl = e.target; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (n) { document.addEventListener(n, function () { downAt = 0; if (wanted) later(60); }, true); });
+  document.addEventListener('click', function () { downAt = 0; }, true);
+  /* A change from the element being pressed (a pick list chosen by touch) ends the press. A change
+     fired because pressing ANOTHER control took the focus away (a text field committed by the tap
+     itself) does not: that tap is still on its way and must not see its button replaced. */
+  document.addEventListener('change', function (e) { changedEl = e.target; if (!downEl || downEl === e.target || (e.target.contains && e.target.contains(downEl))) downAt = 0; }, true);
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) t._enInit = t.value; }, true);
+  function later(ms) { clearTimeout(soonTimer); soonTimer = setTimeout(runSoon, ms || 0); }
+
+  function labelOf(el) {
+    var own = el.getAttribute('aria-label'); if (own) return own;
+    var wrap = el.closest('label, .en-fld');
+    if (wrap) {
+      for (var i = 0; i < wrap.childNodes.length; i++) {
+        var n = wrap.childNodes[i];
+        if (n.nodeType === 3 && n.textContent.trim()) return n.textContent.trim();
+        if (n.nodeType === 1 && n.tagName === 'SPAN') return n.textContent.trim();
+      }
+    }
+    return el.tagName === 'BUTTON' ? el.textContent.trim().slice(0, 40) : '';
+  }
+  function focusKey(el) { var scope = el.closest('[data-fk]'); return (scope ? scope.dataset.fk : '') + '|' + el.tagName + '|' + (el.type || '') + '|' + labelOf(el); }
+  function findByKey(root, key) {
+    var all = root.querySelectorAll('input, select, textarea, button');
+    for (var i = 0; i < all.length; i++) { if (focusKey(all[i]) === key) return all[i]; }
+    return null;
+  }
+  function runSoon() {
+    if (!wanted) return;
+    if (S.currentSection() !== wanted) { wanted = null; return; }
+    if (downAt && Date.now() - downAt < 700) { later(90); return; }   /* let the click land first */
+    var main = document.getElementById('main'); if (!main) return;
+    var a = document.activeElement, inside = !!(a && a !== document.body && main.contains(a));
+    if (inside && a.tagName === 'SELECT' && a !== changedEl && a === downEl) {   /* a pick list opened by touch or mouse would close */
+      if (!a._enWait) {
+        a._enWait = true;
+        var go = function () { a._enWait = false; a.removeEventListener('blur', go); a.removeEventListener('change', go); later(0); };
+        a.addEventListener('blur', go); a.addEventListener('change', go);
+      }
+      return;
+    }
+    var keep = null;
+    if (inside) {
+      keep = { key: focusKey(a), value: null, s: null, e: null };
+      if ((a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio') || a.tagName === 'TEXTAREA') {
+        if (a !== changedEl && a._enInit !== undefined && a.value !== a._enInit) keep.value = a.value;   /* typed, not committed yet */
+        try { keep.s = a.selectionStart; keep.e = a.selectionEnd; } catch (e) { /* number fields have no selection */ }
+      }
+    }
+    var scrolls = {};
+    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { scrolls[el.dataset.enScroll] = el.scrollTop; });
+    wanted = null; changedEl = null; downEl = null;
+    rerender();
+    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { var v = scrolls[el.dataset.enScroll]; if (v) el.scrollTop = v; });
+    if (!keep) return;
+    var el = findByKey(main, keep.key); if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    if (keep.value !== null && el.value !== keep.value) {
+      el.value = keep.value;
+      var fired = false;
+      el.addEventListener('change', function () { fired = true; });
+      el.addEventListener('blur', function () { if (!fired) el.dispatchEvent(new Event('change', { bubbles: true })); });
+    }
+    if (keep.s !== null && keep.s !== undefined) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
+  }
+
   /* A section opened from the Setup Wizard (S.go(id, {wizard: {step, title}})) gets a bar to go back or on. */
   function wizardBar() {
     var w = currentParams && currentParams.wizard; if (!w || !current || current.id === 'wizard') return null;
