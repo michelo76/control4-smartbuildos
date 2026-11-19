@@ -1,8 +1,8 @@
 # SmartBuildOS AI Core — Implementation Report
 
-Date: 2026-11-18 (evening) · Author: the conductor · Companion documents: `ARCHITECTURE.md`, `IMPLEMENTATION_CHECKLIST.md` (same folder). Source of truth for decisions and verification: the conductor's facts file `STATUS-2026-11-18-evening.md` and `SPEC-webview-and-driver-reporting.md` §8.
+Date: 2026-11-18 (close-out) · Author: the conductor · Companion documents: `ARCHITECTURE.md`, `IMPLEMENTATION_CHECKLIST.md` (same folder). Source of truth for decisions and verification: the conductor's facts file `STATUS-2026-11-18-evening.md` and `SPEC-webview-and-driver-reporting.md` §8.
 
-Final heads: driver `feat/ai-core` ⟨conductor: final head⟩; platform `codex/ai-core` ⟨conductor: final head⟩.
+Final heads at the time of the conductor's final rerun: driver `feat/ai-core` at `26a3d44`, plus documents-only commits after it; platform `codex/ai-core` at `2ebbd5bd2`.
 
 ## Summary
 
@@ -11,6 +11,7 @@ AI Core is built and passes its automated tests **in simulation only**. Nothing 
 - **Pull requests are open, not merged:** driver `michelo76/control4-smartbuildos#49` (`feat/ai-core`) and platform `michelo76/smartbuildos#435` (`codex/ai-core`), opened on 2026-11-18 with the owner's go-ahead. Commits made after that first push stay local until the conductor pushes them.
 - **No migration has been applied to any remote database.**
 - **Nothing has been published to the Driver Store.** No `.c4z` has been built for the drivers changed after the first push.
+- **A second round is agreed and not started** (section 8): live device answers, dealer-set preset questions on the touchscreen, battery and sensor health in homeowner answers. It begins after the migrations are shown.
 
 The owner took nine decisions on 2026-11-18 (price, the ninth Studio destination, Flight Recorder retention, household-analysis scheduling, a touchscreen page, driver reporting from every driver, PIN approvals, a PIN-locked chat, all 52 drivers). They were built the same day as two new phases (11 and 12 in the checklist).
 
@@ -69,7 +70,34 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 - **Cloud:** ingest and stores for driver reports, query results and action results; three new tools (`drivers.list`, `drivers.run_query`, `drivers.propose_action`; 37 tools in all); a staff-only "Connected drivers" page in System Studio.
 - **A packaging check that needs no packager:** for every driver, the module list the build would squish into the `.c4z` is generated with the repo's own steps and compared with every module the driver can load; no child carries the report helper or the module client.
 
-**Migrations.** Eleven files with rollbacks, plus a twelfth that carries the price so it can be applied after the new app is deployed. An independent review found them "ready with conditions"; its fixes are being applied. Final list: ⟨conductor: final migration list⟩.
+**Migrations.** Twelve files, each with a rollback, each a single transaction with a 5-second lock limit, with the order enforced both ways (a file refuses to run before the one it needs, and a rollback refuses while a later file depends on it):
+
+| # | File stamp | Content |
+| --- | --- | --- |
+| 1 | `20261118120000` | foundation |
+| 2 | `20261118120100` | driver catalogue row for `SBOS_AI_CORE`, without a price |
+| 3 | `20261118140000` | credentials and usage |
+| 4 | `20261118150000` | learning |
+| 5 | `20261118160000` | conversations |
+| 6 | `20261118170000` | actions |
+| 7 | `20261118180000` | concierge |
+| 8 | `20261118190000` | integration |
+| 9 | `20261118200000` | Flight Recorder retention schedule |
+| 10 | `20261118210000` | touchscreen approvals |
+| 11 | `20261118211000` | driver reports |
+| 12 | `20261118220000` | the price — applied only AFTER the new app is deployed |
+
+An independent reviewer (a separate worker that wrote none of it) ran two passes on a local database. Second-pass verdict, on platform `2ebbd5bd2`: **"ready with conditions"**. Every first-pass finding is closed. One new medium finding: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits; the fix — moving policies to the end of each file — was in progress at the time of writing. ⟨conductor: state of the last migration lock fix and re-review⟩.
+
+The reviewer's conditions for applying them:
+
+1. Files 1–11, then deploy the AI Core app, then file 12 (the price). Roll file 12 back before rolling the app back; with today's production app, file 12 would make the $150 dealer price public.
+2. Run `PREFLIGHT.sql` first and clear every stop it reports.
+3. Back up the Flight Recorder history before file 9: its first nightly run deletes the whole backlog beyond the windows (30 days events, 90 days traces) in one pass.
+4. Use a quiet window (the lock finding above can stall sign-in, token refresh and Storage for up to the 5-second limit; a file that hits it can be run again).
+5. Record the versions under their file stamps (eleven rows, then the twelfth after file 12).
+
+The reviewer's documents (`REVIEW.md`, `PREFLIGHT.sql`, `POSTCHECK.sql`, `APPLY-ORDER.md`) are in `ai-core-program/migrations-review/`, not in either repository.
 
 ### Documents and deliverables
 
@@ -83,7 +111,7 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 | Driver reference, installation, release, test matrix, known issues | driver repo `docs/ai-core/` |
 | How any driver reports to AI Core | driver repo `docs/DRIVER_PLATFORM_GUIDE.md` §9 |
 | Developer API, operations, migrations, driver contract, test matrix | platform repo `docs/ai-core/` |
-| Interactive guide | driver repo `docs/ai-core/guide/` — describes the state before the 2026-11-18 additions; to be rebuilt from these documents |
+| Interactive guide | driver repo `docs/ai-core/guide/` — rebuilt for the 2026-11-18 additions and the final numbers |
 | Screenshots from browser passes | `ai-core-program/screenshots/` |
 
 ---
@@ -94,21 +122,35 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 
 | Check | Result |
 | --- | --- |
-| Driver unit suite (`make test`) | ⟨conductor: final totals⟩ |
-| Driver lint | ⟨conductor: final totals⟩ |
-| Director emulator — AI Core scenarios | ⟨conductor: final totals⟩ |
-| Director emulator — module contract v2 | ⟨conductor: final totals⟩ |
-| Director emulator — driver reports, reference drivers, webview with the real PIN Lock | ⟨conductor: final totals⟩ |
-| Platform unit suite, typecheck, lint | ⟨conductor: final totals⟩ |
-| Platform browser smoke spec | ⟨conductor: final totals⟩ |
+Run on 2026-11-18 at driver `26a3d44` and platform `2ebbd5bd2`.
 
-Earlier on 2026-11-18, at the heads before the first push (driver `1a99e24`, platform `4e86ca3c6`), the conductor reran every gate in both repositories; the driver work added after the push was verified by the conductor rerunning the driver gates on a snapshot. Those intermediate numbers are not repeated here as final.
+| Check | Result |
+| --- | --- |
+| Driver unit suite (`make test`, run with the platform repo) | 192 test files, 13,350 checks, 0 failed |
+| Driver lint | 0 warnings and 0 errors in 429 files |
+| Director emulator through the real Agent — AI Core | 126 of 126 |
+| Director emulator — module contract v2 | 24 of 24 |
+| Director emulator — driver reporting | 47 of 47 |
+| Director emulator — reference drivers | 39 of 39 |
+| Director emulator — touchscreen webview with the real PIN Lock | 34 of 34 |
+| Platform unit suite (run with the driver repo, so the cross-repo comparisons are included) | 12,632 of 12,632, 0 skipped |
+| Platform typecheck | 0 errors |
+| Platform lint | 0 errors; 1,432 warnings that predate this work |
+| Platform browser tests (`npm run test:e2e:ai-core`) | 22 of 22 |
+| Interactive guide — consistency test | 946 assertions, passing |
+| Interactive guide — browser test | 831 controls exercised, 2,435,469 assertions, 0 failures, 0 network requests |
+| Counted: driver directories that declare the `AI Core` property | 51 of 52 (the exception is AI Core itself); only Mode Composer declares an action |
+
+The conductor also reran each driver brief's gates on a snapshot as it landed (bus foundations, helper, PIN Lock, report hub, hardening, reference drivers, rollout to the root drivers, webview, children / Agent / VenueFlow, documents) and the platform's gates at each platform brief. Earlier on 2026-11-18, at the heads before the first push (driver `1a99e24`, platform `4e86ca3c6`), the conductor reran every gate in both repositories. One browser-test failure on the way was traced to a test helper that waited four seconds per page for a cookie banner that never reappears; it was fixed in the test, and it was not a product slowdown.
+
+After the final rerun, the documents-only close-out commits changed only documents and the guide. On those commits the documents worker reran, worker-reported and not rerun by the conductor: `make test` without the platform repo 192 files, 13,183 checks, 0 failed (the cross-repo parity checks skip without `SBOS_PLATFORM_REPO`, which accounts for the difference from 13,350); `make lint` 0 warnings and 0 errors in 429 files; the guide's consistency test 994 assertions, 0 failures, and its browser test 835 controls exercised, 2,435,473 assertions, 0 failures, 0 network requests.
 
 ### Reported by workers, not rerun by the conductor
 
-- The platform tests for the work added after the first push (touchscreen approvals, driver reports, tools, schedule, price), until the conductor's rerun above.
-- The two driver changes made last: the Agent's two new `AI Core` values and the all-driver packaging check (worker-run on 2026-11-18; each proven by breaking what it guards).
-- The migrations applied, rolled back and re-applied on a local Postgres (original eight by the platform workers; all eleven by the independent reviewer).
+- The migrations applied, QA'd, rolled back and re-applied on a local Postgres (the original eight by the platform workers; all twelve, in two passes, by the independent reviewer), including pg_cron firing the retention job locally.
+- The defect-reintroduction proofs (each new guard shown to fail when the defect it guards is put back).
+- The offline packaging check's per-driver results (all 52 pass) beyond its inclusion in the 192 files the conductor ran.
+- Source-size growth figures (section 6).
 - Facts taken from vendor web documentation on 2026-11-18 (model ids and prices, DriverWorks behaviour).
 - Prose accuracy beyond what the automated consistency checks cover.
 
@@ -116,7 +158,8 @@ Earlier on 2026-11-18, at the heads before the first push (driver `1a99e24`, pla
 
 - Anything on a physical Control4 controller or Navigator: driver load in Composer, the touchscreen tile, the PIN posted from AI Core's page to PIN Lock's port, page-close events, system events reaching child drivers, Director's answer for identity binding, sizes at a 48-module registry, bus latency against the 15 s query wait, an approved action changing a real device.
 - A real call to Anthropic or OpenAI; a real calendar, places or booking call.
-- A `.c4z` build of the changed drivers; package size growth is unmeasured (see section 6).
+- A `.c4z` build of the changed drivers; real package sizes are unmeasured (see section 6).
+- Any migration on a remote database.
 
 ---
 
@@ -130,8 +173,8 @@ Earlier on 2026-11-18, at the heads before the first push (driver `1a99e24`, pla
 | Real calendar and places use (9.7) | No OAuth client credentials or API key |
 | `.c4z` for the changed drivers (10.8, 12.19) | No packager in this worktree |
 | New versions of all 52 drivers (12.20) | Owner decision and go-ahead |
-| Migration fixes from the independent review (10.14) | Being applied |
-| Interactive guide refresh (10.3, 10.4) | Rebuilt by a later brief from these documents |
+| The last migration fix from the independent review (lock ordering, 10.14) | In progress at the time of writing |
+| Second round (13.1): live device answers, preset questions, battery and sensor health | Agreed by the owner 2026-11-18; begins after the migrations are shown |
 | "Rarely used scenes", seasonal patterns, away-mode recommendations | The data does not support them: about 30 days of history and no scene inventory |
 | Automatic acceptance of a programming recommendation into a blueprint | Composer Studio has no per-project programming field |
 | Driver-side licence transfer workflow | Transfer is a platform staff action today |
@@ -179,7 +222,7 @@ Design limits worth knowing:
 - AI Core's report hub and the touchscreen state are memory only: a restart drops waiting reports and locks every page.
 - A declared action that gets no answer in 20 s is reported failed with "outcome unknown"; the driver may have run it. Actions are never retried.
 - The first Flight Recorder retention run deletes the whole backlog past its windows in one pass.
-- Package growth is unmeasured as `.c4z` sizes. Offline, the uncompressed source fed to the squish step grows by about 15 KB per child driver (the passive module and the value list) and about 70–155 KB per reporting root driver (the helper, the module client and their dependencies), and about 20 KB for the Agent; about 3.1 MB across all 52 drivers, before squish strips comments and before zip compression; one earlier scratch measurement put a child's compressed growth at about 2.7 KB.
+- **Size growth (worker-reported, not rerun by the conductor; source before compression):** each reporting root driver gains about 134 KB of source, each child driver about 15 KB; all drivers together go from 17.7 MB to 20.8 MB. Squish strips comments and the `.c4z` is a zip, so packages grow less — but real `.c4z` sizes are unmeasured.
 - The Agent's main Lua chunk is at 198 of Lua's 200 top-level locals (unchanged by this work).
 
 ---
@@ -196,20 +239,21 @@ The driver repo's `docs/ai-core/KNOWN-ISSUES.md` holds 62 numbered entries (KI-1
 - **Licensing:** a tampered licence assertion is dropped and the driver keeps running, as for every SmartBuildOS driver (KI-24, KI-25).
 - **Release:** nothing is released (KI-26); the store workflow does not deliver the Flight Recorder (KI-27); tag and version gaps in `release.yml` (KI-28).
 - **Database:** the repo's migration history cannot be replayed from empty (KI-33); a rollback deletes certain memories (KI-34).
-- Some entries describe the state before the platform's driver-report handlers and the later migrations landed (KI-32 still says eight migrations; KI-46 still says the platform answers `unsupported`); they need a refresh: ⟨conductor: confirm KI-32 and KI-46 wording⟩.
+- KI-46 says the platform's driver-report handlers have landed (built and tested in simulation, not deployed); KI-32 names the twelve migration files and the reviewer's verdict.
 
 ---
 
 ## 8. Next steps
 
-1. Finish the migration fixes from the independent review; apply to a staging or branch database first, then production, using the platform's `docs/ai-core/MIGRATIONS.md` and `migrations-review/APPLY-ORDER.md`. Back up the Flight Recorder history the owner wants before retention's first run.
-2. Review and merge the two pull requests.
-3. **Hardware pass:** load the drivers on a real controller and run the hardware column of the test matrix, including the touchscreen page, the PIN post to PIN Lock, identity binding, child system events and a declared action. Treat everything as unproven until then.
-4. Build the `.c4z` files where the packager is available, measure their sizes, and decide whether to publish new versions of all 52 drivers.
-5. One live AI call per provider with a real key.
-6. Start the vendor conversations for calendar OAuth and reservation partners if the concierge is to go beyond the sandbox.
-7. Rebuild the interactive guide from these documents.
-8. Work through the open owner decisions.
+1. The conductor pushes the follow-up commits to the two open pull requests after the final rerun.
+2. Finish the last migration fix (lock ordering) and its re-review; then apply to a staging or branch database first, then production, under the reviewer's conditions (section 1), using the platform's `docs/ai-core/MIGRATIONS.md` and `migrations-review/APPLY-ORDER.md`. Back up the Flight Recorder history before file 9.
+3. Review and merge the two pull requests.
+4. **Hardware pass:** load the drivers on a real controller and run the hardware column of the test matrix, including the touchscreen page, the PIN post to PIN Lock, identity binding, child system events and a declared action. Treat everything as unproven until then.
+5. Build the `.c4z` files where the packager is available, measure their sizes, and decide whether to publish new versions of all 52 drivers.
+6. One live AI call per provider with a real key.
+7. Start the vendor conversations for calendar OAuth and reservation partners if the concierge is to go beyond the sandbox.
+8. The second round, once the migrations are shown, in this order: live device answers (a read-only tool that reads a device's current values through the AI Core driver), dealer-set preset questions in the touchscreen page, battery and sensor health in homeowner answers. Camera snapshot descriptions are on hold for an owner decision on privacy.
+9. Work through the open owner decisions, including 24 (pre-existing database permissions) and 25 (owner PIN and household answers).
 
 ---
 
@@ -220,4 +264,5 @@ The full list is at the end of `IMPLEMENTATION_CHECKLIST.md`.
 - **Decided on 2026-11-18:** 1 (ninth Studio destination), 2 (price; plan inclusion still open under 13), 4 (Flight Recorder retention), and the scheduling part of 7. 8 was resolved earlier.
 - **Still open:** 3 (one-click import of plaintext company AI keys), 5 (store category), 6 (default limits, budget month, unknown-cost rollups), 7 without scheduling (detector thresholds, re-raising a dismissed recommendation, whether a subscription grants `AI_LEARNING`), 9 (email notices; action limits), 10 (no per-project programming field in Composer Studio), 11 (tampered-licence policy), 12 (pre-existing release gaps), 13 (plan inclusion), 14 (staff route scope), 15 (erase semantics).
 - **New, for the owner to confirm or change (16–23):** the touchscreen ceiling (low and medium); homeowner-only opt-in; owner PINs only; no PIN name recorded; the freshness window and rate caps; the driver-report limits (64 live drivers, 2,000 events a day, 30-day retention); whether to build and publish new versions of all 52 drivers; whether to add PIN-protected approval of recommendations later.
+- **New at the close-out (24–25):** 24 — pre-existing database permissions found during the review, outside these migrations and not changed by them: the signed-out and ordinary signed-in roles hold TRUNCATE on `companies` and `profiles`, and TRIGGER / MAINTAIN / REFERENCES on `ai_usage_events` (the migrations revoke only TRUNCATE on `ai_usage_events`); 25 — whether an owner PIN alone should unlock household answers on the touchscreen (today a separate homeowner portal switch, default off).
 - The conductor's 24 rulings (each reversible) are in `SPEC-webview-and-driver-reporting.md` §8.
