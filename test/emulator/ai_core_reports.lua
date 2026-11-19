@@ -113,7 +113,13 @@ local reporterIds = {}
 local reportFrames = 0
 local realSend = d.sendToDevice
 d.sendToDevice = function(self, from, id, command, params)
-  if from ~= nil and reporterIds[from.id] and command == "SBOS_MODULE_REQUEST" and params and params.capability == "ai_core.report" then
+  if
+    from ~= nil
+    and reporterIds[from.id]
+    and command == "SBOS_MODULE_REQUEST"
+    and params
+    and params.capability == "ai_core.report"
+  then
     reportFrames = reportFrames + 1
   end
   return realSend(self, from, id, command, params)
@@ -124,7 +130,10 @@ local repA = assert(d:addDevice(OUT .. "/rep-a/smartbuildos-atmosphere", { roomI
 local repB = assert(d:addDevice(OUT .. "/rep-b/smartbuildos-mode-composer", { roomId = room, name = "Reporter B" }))
 reporterIds[repA.id], reporterIds[repB.id] = true, true
 d:advance(15000)
-check("both reporters started (helper start mode)", repA.env.FIXTURE.started == true and repB.env.FIXTURE.started == true)
+check(
+  "both reporters started (helper start mode)",
+  repA.env.FIXTURE.started == true and repB.env.FIXTURE.started == true
+)
 d:executeCommand(repA, "EMIT_EVENT", { TEXT = "while absent" })
 d:executeCommand(repB, "SET_STATE", { VALUE = "3" })
 d:advance(5000)
@@ -150,7 +159,11 @@ check(
   repA.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")",
   repA.Properties["AI Core"] .. " / " .. ver
 )
-check("reporter B too", repB.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")", repB.Properties["AI Core"])
+check(
+  "reporter B too",
+  repB.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")",
+  repB.Properties["AI Core"]
+)
 local aRow
 for _, e in ipairs(agent.env.gModules:instances("atmosphere")) do
   aRow = e
@@ -163,21 +176,33 @@ local function from(mod, dev, kind)
 end
 check("a describe from atmosphere@A reached the cloud", #items(0, from("atmosphere", repA, "describe")) >= 1)
 check("a describe from mode_composer@B reached the cloud", #items(0, from("mode_composer", repB, "describe")) >= 1)
-check("their states too", #items(0, from("atmosphere", repA, "state")) >= 1 and #items(0, from("mode_composer", repB, "state")) >= 1)
+check(
+  "their states too",
+  #items(0, from("atmosphere", repA, "state")) >= 1 and #items(0, from("mode_composer", repB, "state")) >= 1
+)
 local desc = items(0, from("atmosphere", repA, "describe"))[1] or {}
 check(
   "the describe item: driver, summary, declared query and actions, 16-hex hash",
-  desc.driver and desc.driver.file == "smartbuildos-atmosphere.c4z" and desc.summary == "Test fixture reporter." and #desc.queries == 1 and #desc.actions == 2 and tostring(desc.hash):match("^%x+$") and #desc.hash == 16,
+  desc.driver
+    and desc.driver.file == "smartbuildos-atmosphere.c4z"
+    and desc.summary == "Test fixture reporter."
+    and #desc.queries == 1
+    and #desc.actions == 2
+    and tostring(desc.hash):match("^%x+$")
+    and #desc.hash == 16,
   json.encode(desc)
 )
-check("every driver_reports call is AI Core's (module_id ai_core)", (function()
-  for _, c in ipairs(ops("driver_reports")) do
-    if c.module_id ~= "ai_core" then
-      return false
+check(
+  "every driver_reports call is AI Core's (module_id ai_core)",
+  (function()
+    for _, c in ipairs(ops("driver_reports")) do
+      if c.module_id ~= "ai_core" then
+        return false
+      end
     end
-  end
-  return #ops("driver_reports") > 0
-end)())
+    return #ops("driver_reports") > 0
+  end)()
+)
 
 print("[3] each kind accepted")
 local mark = #rpc
@@ -188,9 +213,17 @@ d:advance(25000)
 local ev = items(mark, from("atmosphere", repA, "event"))[1]
 local dg = items(mark, from("mode_composer", repB, "diagnostic"))[1]
 local st = items(mark, from("atmosphere", repA, "state"))[1]
-check("event uploaded, `at` in epoch seconds", ev and ev.text == "hello" and type(ev.at) == "number" and ev.at == math.floor(ev.at), ev and json.encode(ev))
+check(
+  "event uploaded, `at` in epoch seconds",
+  ev and ev.text == "hello" and type(ev.at) == "number" and ev.at == math.floor(ev.at),
+  ev and json.encode(ev)
+)
 check("diagnostic uploaded", dg and dg.code == "fixture.fault" and dg.severity == "warning")
-check("state uploaded with the driver's facts and the baseline", st and st.facts.value == 7 and st.facts.driver_status ~= nil, st and json.encode(st))
+check(
+  "state uploaded with the driver's facts and the baseline",
+  st and st.facts.value == 7 and st.facts.driver_status ~= nil,
+  st and json.encode(st)
+)
 check("the helper saw accepted answers", repA.env.FIXTURE.aireport.counters().accepted >= 3)
 
 print("[4] refused: unknown kind, oversize, a sender named in the report")
@@ -215,10 +248,21 @@ r = raw(repA, {
   actions = {},
   hash = "0123456789abcdef",
 })
-check("oversize describe (> 8 KB) → accepted false, too_large", r.accepted == false and r.reason == "too_large", json.encode(r))
+check(
+  "oversize describe (> 8 KB) → accepted false, too_large",
+  r.accepted == false and r.reason == "too_large",
+  json.encode(r)
+)
 mark = #rpc
-r = raw(repA, { v = 1, kind = "event", type = "x.y", text = "spoof", data = {}, at = os.time(), from_module_id = "pin_lock" })
-check("a report naming its sender → accepted false, invalid", r.accepted == false and r.reason == "invalid", json.encode(r))
+r = raw(
+  repA,
+  { v = 1, kind = "event", type = "x.y", text = "spoof", data = {}, at = os.time(), from_module_id = "pin_lock" }
+)
+check(
+  "a report naming its sender → accepted false, invalid",
+  r.accepted == false and r.reason == "invalid",
+  json.encode(r)
+)
 -- Refusals alone do not trigger a batch; the next accepted report does, and
 -- that batch carries the count.
 d:advance(61000)
@@ -286,9 +330,17 @@ for _, c in ipairs(ops("driver_query_result")) do
     qr = c.body
   end
 end
-check("driver_query_result completed with the driver's data", qr and qr.status == "completed" and qr.data and qr.data.value == 42, qr and json.encode(qr))
+check(
+  "driver_query_result completed with the driver's data",
+  qr and qr.status == "completed" and qr.data and qr.data.value == 42,
+  qr and json.encode(qr)
+)
 check("the reporter's handler ran once", repA.env.FIXTURE.queries == 1, repA.env.FIXTURE.queries)
-check("the Agent's command record ended Completed", agent.env.gModuleCommands["emu-op-" .. cmdSeq].state == "Completed", tostring(state))
+check(
+  "the Agent's command record ended Completed",
+  agent.env.gModuleCommands["emu-op-" .. cmdSeq].state == "Completed",
+  tostring(state)
+)
 
 print("[7] an action round trip with its real outcome")
 local function actionResult(id)
@@ -311,8 +363,15 @@ moduleCommand("invoke_driver_action", {
 })
 d:advance(5000)
 local ar = actionResult(aid)
-check("completed, with the driver's result_text", ar and ar.status == "completed" and ar.result_text == "level set to 7", ar and json.encode(ar))
-check("the declared handler ran with the approved params", repA.env.FIXTURE.actions == 1 and repA.env.FIXTURE.level == 7)
+check(
+  "completed, with the driver's result_text",
+  ar and ar.status == "completed" and ar.result_text == "level set to 7",
+  ar and json.encode(ar)
+)
+check(
+  "the declared handler ran with the approved params",
+  repA.env.FIXTURE.actions == 1 and repA.env.FIXTURE.level == 7
+)
 aid = uuid()
 moduleCommand("invoke_driver_action", {
   ai_action_id = aid,
@@ -369,7 +428,11 @@ local bRow
 for _, e in ipairs(agent.env.gModules:instances("mode_composer")) do
   bRow = e
 end
-check("the Agent registered reporter B unverified", bRow ~= nil and bRow.verified == false, bRow and tostring(bRow.verified))
+check(
+  "the Agent registered reporter B unverified",
+  bRow ~= nil and bRow.verified == false,
+  bRow and tostring(bRow.verified)
+)
 aid = uuid()
 moduleCommand("invoke_driver_action", {
   ai_action_id = aid,
@@ -405,9 +468,16 @@ check(
   repA.env.FIXTURE.aireport.counters().describe_requested > askedA,
   repA.env.FIXTURE.aireport.counters().describe_requested
 )
-check("atmosphere's describe reached the cloud again after the restart", #items(mark, from("atmosphere", repA, "describe")) >= 1)
+check(
+  "atmosphere's describe reached the cloud again after the restart",
+  #items(mark, from("atmosphere", repA, "describe")) >= 1
+)
 check("mode_composer's too", #items(mark, from("mode_composer", repB, "describe")) >= 1)
-check("reporters still reporting", repA.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")", repA.Properties["AI Core"])
+check(
+  "reporters still reporting",
+  repA.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")",
+  repA.Properties["AI Core"]
+)
 
 print("[11] an unlicensed AI Core answers, accepting nothing")
 pending.enforcement = { SBOS_AI_CORE = "enforce" }
@@ -434,7 +504,11 @@ moduleCommand("invoke_driver_action", {
 })
 d:advance(5000)
 ar = actionResult(aid)
-check("unlicensed: invoke refused (not_permitted, not_licensed)", ar and ar.status == "failed" and ar.result_text == "not_licensed", ar and json.encode(ar))
+check(
+  "unlicensed: invoke refused (not_permitted, not_licensed)",
+  ar and ar.status == "failed" and ar.result_text == "not_licensed",
+  ar and json.encode(ar)
+)
 d:advance(60000)
 check("unlicensed: no driver_reports batch", #ops("driver_reports", mark) == 0, #ops("driver_reports", mark))
 

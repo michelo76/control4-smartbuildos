@@ -145,35 +145,35 @@ Wire the events you care about to the Notification Agent for push or email.
 Read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and **App
 Relay Address**.
 
-| Property                       | Shows                                                                                                                                  |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Driver Status                  | *Online* once started                                                                                                                  |
-| Driver Version                 | The installed build                                                                                                                    |
-| SmartBuildOS Connection Status | *Connected*, or what is wrong (no Agent, Agent update required, not responding, not paired, cloud unreachable)                         |
-| Agent Pairing Status           | Whether the Agent is paired to SmartBuildOS                                                                                            |
-| Property ID                    | The SmartBuildOS property, once System Studio delivers it                                                                              |
-| Controller ID                  | The SmartBuildOS controller id, once delivered                                                                                         |
-| AI Provider                    | The AI provider chosen in System Studio                                                                                                |
-| AI Model                       | The model chosen in System Studio                                                                                                      |
-| AI API Credential              | Status only, e.g. *Configured in System Studio · Anthropic ••••abcd*. Keys are entered in System Studio and never reach the controller |
-| AI Status                      | *Ready*, *Working*, or why not; the last refusal is added when there is one                                                            |
-| Telemetry Status               | Events sent through the Agent, or held while no Agent answers, and how many were dropped                                               |
-| Learning Status                | *Off (not switched on in System Studio)* until it is switched on; then *Active*, or who paused it and why                              |
-| Permission Mode                | *observe*, *recommend* or *execute_low_risk* — set in System Studio, not here                                                          |
-| Flight Recorder Link           | Whether a Flight Recorder is installed and read                                                                                        |
-| License Status                 | This driver's licence, as the Agent reports it                                                                                         |
-| License Source                 | Included with the subscription, or purchased                                                                                           |
-| Subscription Tier              | The company's tier                                                                                                                     |
-| SmartBuildOS Company           | The company the project is licensed to                                                                                                 |
-| Last Synchronization           | The last time SmartBuildOS was heard from                                                                                              |
-| Last Test Result               | The result of *Test Agent Link* or *Test AI Connection*                                                                                |
-| Last Error                     | The last error or refusal                                                                                                              |
+| Property                       | Shows                                                                                                                                                                                                    |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Driver Status                  | *Online* once started                                                                                                                                                                                    |
+| Driver Version                 | The installed build                                                                                                                                                                                      |
+| SmartBuildOS Connection Status | *Connected*, or what is wrong (no Agent, Agent update required, not responding, not paired, cloud unreachable)                                                                                           |
+| Agent Pairing Status           | Whether the Agent is paired to SmartBuildOS                                                                                                                                                              |
+| Property ID                    | The SmartBuildOS property, once System Studio delivers it                                                                                                                                                |
+| Controller ID                  | The SmartBuildOS controller id, once delivered                                                                                                                                                           |
+| AI Provider                    | The AI provider chosen in System Studio                                                                                                                                                                  |
+| AI Model                       | The model chosen in System Studio                                                                                                                                                                        |
+| AI API Credential              | Status only, e.g. *Configured in System Studio · Anthropic ••••abcd*. Keys are entered in System Studio and never reach the controller                                                                   |
+| AI Status                      | *Ready*, *Working*, or why not; the last refusal is added when there is one                                                                                                                              |
+| Telemetry Status               | Events sent through the Agent, or held while no Agent answers, and how many were dropped                                                                                                                 |
+| Learning Status                | *Off (not switched on in System Studio)* until it is switched on; then *Active*, or who paused it and why                                                                                                |
+| Permission Mode                | *observe*, *recommend* or *execute_low_risk* — set in System Studio, not here                                                                                                                            |
+| Flight Recorder Link           | Whether a Flight Recorder is installed and read                                                                                                                                                          |
+| License Status                 | This driver's licence, as the Agent reports it                                                                                                                                                           |
+| License Source                 | Included with the subscription, or purchased                                                                                                                                                             |
+| Subscription Tier              | The company's tier                                                                                                                                                                                       |
+| SmartBuildOS Company           | The company the project is licensed to                                                                                                                                                                   |
+| Last Synchronization           | The last time SmartBuildOS was heard from                                                                                                                                                                |
+| Last Test Result               | The result of *Test Agent Link* or *Test AI Connection*                                                                                                                                                  |
+| Last Error                     | The last error or refusal                                                                                                                                                                                |
 | Touchscreen Detail (editable)  | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (no household activity) or *Household* (only if the homeowner allows it in the portal). It can only lower what the homeowner allowed |
-| Touchscreen Approvals          | The touchscreen chat and approvals in plain words: whether PIN Lock can check an owner PIN here, and whether the homeowner switched approvals on |
-| Webview Address                | Where the AI Core page is served on the home network (port 47871)                                                                       |
-| App Relay Address (editable)   | *Auto*, or the controller's LAN address when **Webview Address** says it is unknown (set the same value on PIN Lock)                   |
-| Log Level                      | How much the driver logs                                                                                                               |
-| Log Mode                       | Where it logs                                                                                                                          |
+| Touchscreen Approvals          | The touchscreen chat and approvals in plain words: whether PIN Lock can check an owner PIN here, and whether the homeowner switched approvals on                                                         |
+| Webview Address                | Where the AI Core page is served on the home network (port 47871)                                                                                                                                        |
+| App Relay Address (editable)   | *Auto*, or the controller's LAN address when **Webview Address** says it is unknown (set the same value on PIN Lock)                                                                                     |
+| Log Level                      | How much the driver logs                                                                                                                                                                                 |
+| Log Mode                       | Where it logs                                                                                                                                                                                            |
 
 ## Actions
 
@@ -211,70 +211,68 @@ SmartBuildOS can also send nine restricted operations through the Agent:
 `apply_config`, `refresh_status`, `deliver_result` (a result: variables and AI
 Response Ready), `raise_event` (one of the events above, from a closed list;
 never Agent Disconnected; it may name what it is about, shown in
-`AI_LAST_CORRELATION_ID`), `set_learning`, `run_diagnostic`,
-`run_driver_query` and `invoke_driver_action`. None of them runs code. The
-last two pass a read-only question, or an action a person approved, to the
-SmartBuildOS driver that declared it; an action needs the Agent's Remote
-Control property at Comfort or above, goes only to a driver the Agent has
-verified, and is reported as done only when that driver says it succeeded.
+`AI_LAST_CORRELATION_ID`), `set_learning`, `run_diagnostic`, `run_driver_query`
+and `invoke_driver_action`. None of them runs code. The last two pass a
+read-only question, or an action a person approved, to the SmartBuildOS driver
+that declared it; an action needs the Agent's Remote Control property at Comfort
+or above, goes only to a driver the Agent has verified, and is reported as done
+only when that driver says it succeeded.
 
-The ninth, `read_device_state`, reads ONE device's current variables once,
-when SmartBuildOS asks a live question about it, and changes nothing: it
-writes no variable and sends no command. AI Core filters the answer here,
-before anything leaves the home: names and values that look like codes,
-passwords, keys, people's names, phone numbers, e-mail or network addresses
-are never sent; without the homeowner's permission, presence-revealing
-names are dropped and locks, security panels, doors and gates, motion and
-contact sensors, relays and lights are refused outright; cameras are always
-refused. The answer says when the device was read; Control4 does not say
-when a value last changed. Tested in the emulator only; not yet on a
-controller.
+The ninth, `read_device_state`, reads ONE device's current variables once, when
+SmartBuildOS asks a live question about it, and changes nothing: it writes no
+variable and sends no command. AI Core filters the answer here, before anything
+leaves the home: names and values that look like codes, passwords, keys,
+people's names, phone numbers, e-mail or network addresses are never sent;
+without the homeowner's permission, presence-revealing names are dropped and
+locks, security panels, doors and gates, motion and contact sensors, relays and
+lights are refused outright; cameras are always refused. The answer says when
+the device was read; Control4 does not say when a value last changed. Tested in
+the emulator only; not yet on a controller.
 
 ## Reports from other SmartBuildOS drivers
 
-Other SmartBuildOS drivers in the project report to AI Core what they are,
-their current state, events and faults (their own **AI Core** property shows
-whether that works). AI Core checks every report, keeps a small picture per
-driver in memory and sends the reports to SmartBuildOS in batches, at most
-three a minute. When SmartBuildOS does not take a batch, AI Core keeps each
-driver's description for the next one and waits longer between tries, up to
-ten minutes. Report text is treated as data and never as an instruction.
-Tested in the emulator only; not yet on a controller.
+Other SmartBuildOS drivers in the project report to AI Core what they are, their
+current state, events and faults (their own **AI Core** property shows whether
+that works). AI Core checks every report, keeps a small picture per driver in
+memory and sends the reports to SmartBuildOS in batches, at most three a minute.
+When SmartBuildOS does not take a batch, AI Core keeps each driver's description
+for the next one and waits longer between tries, up to ten minutes. Report text
+is treated as data and never as an instruction. Tested in the emulator only; not
+yet on a controller.
 
 ## The AI Core tile (touchscreen and phone app)
 
-AI Core adds an **AI Core** tile to Navigator. The page works **only on the
-home network**: a phone away from home cannot reach it, and there is no
-cloud fallback. Three parts:
+AI Core adds an **AI Core** tile to Navigator. The page works **only on the home
+network**: a phone away from home cannot reach it, and there is no cloud
+fallback. Three parts:
 
-* **Status** (no PIN): licensed or not, AI provider set up or not, online or
-  offline, learning on or off, how many items await approval (a number only)
-  and whether PIN Lock can check a PIN on this screen.
-* **Chat** (owner PIN to open it and to ask): locked until someone enters an
-  **owner** PIN from the **SmartBuildOS PIN Lock** driver. It locks again
-  after 5 minutes without use, when the page closes, when the driver
-  restarts, and when someone presses *Lock*. Each question is answered on its
-  own (no follow-ups). Answers stay on that page only: they never go to
-  `AI_LAST_RESPONSE` and never fire *AI Response Ready*.
-  Once unlocked, the chat offers the three built-in questions and, before
-  them, up to 6 **preset questions** your integrator set in System Studio
-  (they arrive with the AI Core configuration). A locked chat shows none.
-  Pressing a preset asks exactly that question; after the list changes, an
-  old button is refused rather than answered as another question.
-* **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
+- **Status** (no PIN): licensed or not, AI provider set up or not, online or
+  offline, learning on or off, how many items await approval (a number only) and
+  whether PIN Lock can check a PIN on this screen.
+- **Chat** (owner PIN to open it and to ask): locked until someone enters an
+  **owner** PIN from the **SmartBuildOS PIN Lock** driver. It locks again after
+  5 minutes without use, when the page closes, when the driver restarts, and
+  when someone presses *Lock*. Each question is answered on its own (no
+  follow-ups). Answers stay on that page only: they never go to
+  `AI_LAST_RESPONSE` and never fire *AI Response Ready*. Once unlocked, the chat
+  offers the three built-in questions and, before them, up to 6 **preset
+  questions** your integrator set in System Studio (they arrive with the AI Core
+  configuration). A locked chat shows none. Pressing a preset asks exactly that
+  question; after the list changes, an old button is refused rather than
+  answered as another question.
+- **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
   then shows the item's title, description and risk; *Approve* or *Decline*
-  within 60 seconds. Only low- and medium-risk action proposals can be
-  decided here, and only after the homeowner switches touchscreen approvals
-  on in the SmartBuildOS portal. Everything else says *use the SmartBuildOS
-  portal*.
+  within 60 seconds. Only low- and medium-risk action proposals can be decided
+  here, and only after the homeowner switches touchscreen approvals on in the
+  SmartBuildOS portal. Everything else says *use the SmartBuildOS portal*.
 
-The PIN is typed on the AI Core page but sent **only to PIN Lock** (its own
-page address on the same controller), never to AI Core. Guest, vendor and
-staff codes never work here. Wrong PINs count against PIN Lock's own lockout.
-Without PIN Lock (not installed, not licensed, no owner PIN, switched off
-there, locked out or not answering) the chat and approvals are unavailable
-and the page says to use the portal. Tested in the emulator only; the page
-has not been opened on a real touchscreen or phone.
+The PIN is typed on the AI Core page but sent **only to PIN Lock** (its own page
+address on the same controller), never to AI Core. Guest, vendor and staff codes
+never work here. Wrong PINs count against PIN Lock's own lockout. Without PIN
+Lock (not installed, not licensed, no owner PIN, switched off there, locked out
+or not answering) the chat and approvals are unavailable and the page says to
+use the portal. Tested in the emulator only; the page has not been opened on a
+real touchscreen or phone.
 
 ## What it collects
 

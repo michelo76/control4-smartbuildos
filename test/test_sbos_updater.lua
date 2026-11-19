@@ -233,5 +233,118 @@ check(
   #missing > 0 and ("publishes but never updates: " .. table.concat(missing, ", ")) or nil
 )
 
+print("\n[10] Every licensed driver in drivers/ is known to the Agent's updater")
+-- [9] only compares DRIVER_FILENAMES with the store's publish map, so a driver
+-- that is not in that map yet (VenueFlow was not) is never checked at all,
+-- and the day it is published it ships builds no install picks up. This
+-- compares with drivers/ itself: every driver that licenses through the Agent
+-- (`local SKU = "SBOS_..."` or `license.setup({ sku = "SBOS_..." })`) must be
+-- listed, or be named below as known to be missing.
+--
+-- KNOWN_UNLISTED is a list of debts, not of exemptions: these drivers license
+-- through the Agent but were never added to DRIVER_FILENAMES. Adding them is
+-- the owner's decision (each needs a store package to matter); remove a name
+-- here when it is listed. A NEW driver must not be added here to pass.
+local KNOWN_UNLISTED = {
+  ["smartbuildos-commissioning.c4z"] = true,
+  ["smartbuildos-daypart.c4z"] = true,
+  ["smartbuildos-dealer-panel.c4z"] = true,
+  ["smartbuildos-flight-recorder.c4z"] = true,
+  ["smartbuildos-guest-mode.c4z"] = true,
+  ["smartbuildos-load-shedding.c4z"] = true,
+  ["smartbuildos-logic-pack.c4z"] = true,
+  ["smartbuildos-mqtt-broker.c4z"] = true,
+  ["smartbuildos-notification-router.c4z"] = true,
+  ["smartbuildos-pin-lock.c4z"] = true,
+  ["smartbuildos-solar.c4z"] = true,
+  ["smartbuildos-usage-analytics.c4z"] = true,
+  ["smartbuildos-user-manual.c4z"] = true,
+  ["smartbuildos-variable-inspector.c4z"] = true,
+}
+local function readFile(path)
+  local h = io.open(path, "r")
+  if h == nil then
+    return nil
+  end
+  local text = h:read("*a")
+  h:close()
+  return text
+end
+local licensed = {} -- filename -> sku
+local pipe = assert(io.popen("ls drivers"))
+for name in pipe:lines() do
+  local text = readFile("drivers/" .. name .. "/driver.lua")
+  local sku = text
+    and (
+      text:match('local%s+SKU%s*=%s*"(SBOS_[%u_]+)"') or text:match('license%.setup%(%s*{%s*sku%s*=%s*"(SBOS_[%u_]+)"')
+    )
+  if sku ~= nil and sku ~= "SBOS_AGENT" then
+    licensed[name .. ".c4z"] = sku
+  end
+end
+pipe:close()
+check("licensed drivers were found in drivers/", licensed["smartbuildos-venueflow.c4z"] == "SBOS_VENUEFLOW")
+local unlisted, stale = {}, {}
+for filename in pairs(licensed) do
+  if not listed[filename] and not KNOWN_UNLISTED[filename] then
+    unlisted[#unlisted + 1] = filename
+  end
+end
+for filename in pairs(KNOWN_UNLISTED) do
+  if listed[filename] then
+    stale[#stale + 1] = filename
+  end
+end
+table.sort(unlisted)
+table.sort(stale)
+check(
+  "every licensed driver is in DRIVER_FILENAMES (or a named, known gap)",
+  #unlisted == 0,
+  #unlisted > 0 and ("not in DRIVER_FILENAMES: " .. table.concat(unlisted, ", ")) or nil
+)
+check(
+  "KNOWN_UNLISTED names no driver that is listed now",
+  #stale == 0,
+  #stale > 0 and ("remove from KNOWN_UNLISTED: " .. table.concat(stale, ", ")) or nil
+)
+
+print("\n[11] Module drivers receive their forwarded settings")
+-- SKU_FILENAMES is where the Agent looks up which installed drivers get a
+-- SKU's settings from the platform (SBOS_DRIVER_CONFIG). A driver that
+-- registers as a module through sbos.moduleclient answers those settings, so
+-- its SKU must name its file there. Known gaps as above.
+local KNOWN_UNFORWARDED = {
+  SBOS_MQTT_BROKER = true,
+  SBOS_USAGE_ANALYTICS = true,
+  -- PIN Lock joins the bus (feat/ai-core) but registers with
+  -- claim_driver_config = false and takes no platform settings, so there is
+  -- nothing to forward to it yet.
+  SBOS_PIN_LOCK = true,
+}
+local skuBlock = src:match("local%s+SKU_FILENAMES%s*=%s*(%b{})")
+check("SKU_FILENAMES was found in the source", skuBlock ~= nil)
+local forwarded = {} -- sku -> { filename = true }
+for sku, body in tostring(skuBlock or ""):gmatch("(SBOS_[%u_]+)%s*=%s*(%b{})") do
+  forwarded[sku] = {}
+  for filename in body:gmatch('"([%w%-%.]+%.c4z)"') do
+    forwarded[sku][filename] = true
+  end
+end
+local notForwarded = {}
+for filename, sku in pairs(licensed) do
+  local text = readFile("drivers/" .. filename:gsub("%.c4z$", "") .. "/driver.lua") or ""
+  if text:find('require%("sbos%.moduleclient"%)') and not KNOWN_UNFORWARDED[sku] then
+    if forwarded[sku] == nil or not forwarded[sku][filename] then
+      notForwarded[#notForwarded + 1] = sku .. " -> " .. filename
+    end
+  end
+end
+table.sort(notForwarded)
+check(
+  "every module driver's SKU names its file in SKU_FILENAMES (or a named, known gap)",
+  #notForwarded == 0,
+  #notForwarded > 0 and ("missing from SKU_FILENAMES: " .. table.concat(notForwarded, ", ")) or nil
+)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

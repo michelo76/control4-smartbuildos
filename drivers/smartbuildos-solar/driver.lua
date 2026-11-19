@@ -247,7 +247,16 @@ local function startAiCore()
       { id = "facades", label = "Sun on the building", class = "sensor" },
     },
     vocabulary = {
-      "sun", "sunrise", "sunset", "daylight", "dusk", "dawn", "golden hour", "night", "glare", "west windows",
+      "sun",
+      "sunrise",
+      "sunset",
+      "daylight",
+      "dusk",
+      "dawn",
+      "golden hour",
+      "night",
+      "glare",
+      "west windows",
     },
   })
 end

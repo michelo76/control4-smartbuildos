@@ -7,6 +7,8 @@ return [==[
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>VenueFlow Installer Studio</title>
+<!-- An empty icon: without it Firefox asks for /favicon.ico, which the relay's Content Security Policy (img-src data: blob:) refuses with a console error. -->
+<link rel="icon" href="data:,">
 <style>
 /* VenueFlow design system. Midnight navy, teal accent, large touch targets.
    One file shared by the operator page and Installer Studio.
@@ -41,6 +43,8 @@ h3 { font-size: 16px; font-weight: 650; }
 h4 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 a { color: var(--teal); }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Every button is a touch control: no double-tap zoom, no text selection when held. */
+button { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .muted { color: var(--muted); } .small { font-size: 13px; } .tiny { font-size: 11.5px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .grow { flex: 1 1 auto; min-width: 0; } .nowrap { white-space: nowrap; } .hidden { display: none !important; }
@@ -84,7 +88,7 @@ svg.ic.lg { width: 28px; height: 28px; } svg.ic.xl { width: 44px; height: 44px; 
 .btn.on, .btn[aria-pressed="true"] { background: var(--teal-soft); border-color: var(--teal-line); color: var(--teal); }
 .btn.sm { min-height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13.5px; }
 .btn.lg { min-height: 58px; padding: 0 24px; font-size: 17px; border-radius: 14px; }
-.btn.icon { padding: 0; width: var(--touch); } .btn.icon.sm { width: 36px; }
+.btn.icon { padding: 0; width: var(--touch); flex-shrink: 0; } .btn.icon.sm { width: 36px; }
 .btn.block { width: 100%; }
 .btn:disabled, .btn[disabled] { opacity: .42; cursor: default; box-shadow: none; transform: none; }
 
@@ -123,6 +127,8 @@ label.lbl > .hint, .hint { font-size: 12px; color: var(--muted); font-weight: 40
 /* toggle */
 .toggle { position: relative; width: 50px; height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel-3); cursor: pointer; flex: none; padding: 0; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c9d6ea; transition: transform .14s; }
+/* The switch is drawn 28 px high; its touch area reaches 44 px without changing the look. */
+.toggle::before { content: ""; position: absolute; left: -2px; right: -2px; top: -8px; bottom: -8px; }
 .toggle.on, .toggle[aria-checked="true"] { background: var(--teal); border-color: transparent; }
 .toggle.on::after, .toggle[aria-checked="true"]::after { transform: translateX(22px); background: #fff; }
 
@@ -157,15 +163,18 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .banner.ok { border-color: rgba(52, 211, 153, .4); background: var(--ok-soft); color: #c6f6e3; }
 .simbar { background: repeating-linear-gradient(135deg, rgba(245, 165, 36, .2) 0 12px, rgba(245, 165, 36, .1) 12px 24px); color: #ffd58a; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-align: center; padding: 3px 8px; text-transform: uppercase; }
 
-/* modal + toast */
+/* modal + toast. The modal is as tall as the backdrop at most (100%, not 100vh: in iOS Safari
+   100vh is taller than what shows while the toolbars are out, and the footer would go under them).
+   A toast holds no control and lets taps through: on a phone it sits over the
+   bottom bar (volume, scenes) for a few seconds after every command. */
 .vf-backdrop { position: fixed; inset: 0; background: rgba(3, 7, 14, .72); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-.vf-modal { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.vf-modal { width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
 .vf-modal.wide { width: min(860px, 100%); }
 .vf-modal > header { padding: 18px 20px 6px; display: flex; align-items: center; gap: 10px; }
 .vf-modal > .body { padding: 8px 20px 16px; overflow: auto; }
 .vf-modal > footer { padding: 12px 20px 18px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 .vf-toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1100; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(560px, calc(100vw - 24px)); }
-.vf-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
+.vf-toast { pointer-events: none; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
 .vf-toast.ok { border-color: rgba(52, 211, 153, .5); } .vf-toast.warn { border-color: var(--warn-line); } .vf-toast.bad { border-color: rgba(248, 113, 113, .6); }
 
 /* PIN pad */
@@ -184,7 +193,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
 .brand b { color: var(--teal); font-weight: 700; }
 .brandmark { color: var(--teal); display: inline-flex; }
-#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "top top" "nav main"; }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "pending pending" "top top" "nav main"; }
 #sim { grid-area: sim; }
 #top { grid-area: top; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: rgba(7, 13, 24, .85); min-width: 0; }
 #top .sep { width: 1px; height: 26px; background: var(--line-2); flex: none; }
@@ -206,7 +215,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .stat { display: flex; align-items: center; gap: 14px; }
 .stat .n { font-size: 30px; font-weight: 750; letter-spacing: -.02em; line-height: 1; }
 @media (max-width: 1000px) {
-  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "top" "main"; }
+  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "pending" "top" "main"; }
   #nav { position: fixed; top: 0; bottom: 0; left: 0; width: 270px; z-index: 800; transform: translateX(-100%); transition: transform .16s; background: var(--bg-2); box-shadow: 20px 0 60px rgba(0, 0, 0, .5); }
   #app.navopen #nav { transform: none; }
   #navtoggle { display: inline-flex; }
@@ -218,9 +227,14 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 @media (max-width: 1180px) { #top { gap: 8px; padding: 8px 10px; } #top #openop { display: none; } #top .brand { font-size: 18px; } }
 @media (max-width: 1060px) { #top #mode { display: none; } }
 #top > * { flex-shrink: 0; } #top > #venue { flex-shrink: 1; }
+/* Phones: the save state, the issues button and Sign out go to a second line instead of off the edge. */
+@media (max-width: 600px) { #top { flex-wrap: wrap; row-gap: 6px; } #top > #venue { flex: 1 1 120px; } #save .chip { white-space: normal; } }
+/* The open section drawer leaves the Sections button on top, so it also closes the drawer. */
+@media (max-width: 1000px) { #nav { padding-top: 84px; } #app.navopen #navtoggle { position: relative; z-index: 801; } }
 
 /* Venue Studio (a client session) */
-#pending { margin: 0; border-radius: 0; }
+/* Inside #app, between the simulation bar and the header (it was behind the fixed #app before). */
+#pending { grid-area: pending; margin: 0; border-radius: 0; }
 .sep-h { height: 1px; background: var(--line, rgba(255,255,255,.12)); margin: 6px 0; }
 .cl-tile { min-height: 64px; text-align: left; }
 .cl-tile-t { font-weight: 600; }
@@ -355,6 +369,8 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 
 /* editor on the right */
 .en-editor { gap: 14px; }
+/* A profile a client may not change (the one screens open with): shown, every control disabled. */
+.en-locked { margin: 0; padding: 0; border: 0; min-width: 0; gap: 14px; }
 .en-editor h2 { max-width: 100%; }
 .en-editor .form { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .en-card { gap: 10px; }
@@ -619,6 +635,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .vp-unset { color: var(--warn); font-weight: 650; }
 .vp-missing-field > select { border-color: rgba(248, 113, 113, .7); color: var(--bad); }
 .vp-unset-field > select { border-color: var(--warn-line); }
+.vp-unset-field > input { border-color: var(--warn-line); }
 .vp-seg button { min-height: 44px; }
 .vp-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .vp-group-label { font-size: 13px; color: var(--ink-2); font-weight: 550; }
@@ -643,6 +660,8 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .vp-rule-open { display: flex; flex-direction: column; gap: 3px; text-align: left; background: transparent; border: 0; padding: 4px 6px; border-radius: 10px; cursor: pointer; color: inherit; min-width: 0; min-height: 44px; justify-content: center; }
 .vp-rule-open:hover b { color: var(--teal); }
 .vp-rule-open > span { overflow-wrap: anywhere; }
+/* Phones: the rule name keeps the line; its state chip and buttons go under it. */
+@media (max-width: 600px) { .vp-rule { flex-wrap: wrap; } .vp-rule > .vp-rule-open { flex: 1 1 calc(100% - 70px); } .vp-rule > .row.tight { margin-left: auto; } }
 
 /* editor frame */
 .vp-ehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -783,9 +802,9 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 <body>
 <div id="offline" class="banner bad hidden">The controller is not answering. Changes are kept on this screen and saved when it is back.</div>
 <div id="login" class="hidden"></div>
-<div id="pending" class="banner warn hidden"></div>
 <div id="app" class="hidden">
   <div id="sim" class="simbar hidden">Simulation mode: nothing is sent to Control4</div>
+  <div id="pending" class="banner warn hidden" role="status"></div>
   <header id="top">
     <button id="navtoggle" class="btn ghost icon sm" type="button" aria-label="Sections"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="brand"></div>
@@ -860,6 +879,40 @@ var VF = (function () {
   };
   VF.clear = function (el) { while (el.firstChild) el.removeChild(el.firstChild); return el; };
   VF.mount = function (el) { VF.clear(el); for (var i = 1; i < arguments.length; i++) VF.append(el, arguments[i]); return el; };
+  /* Makes `el` look like `next` (a detached element painted from scratch) while keeping every node of
+     `el` that did not change: a button whose own attributes (and checked/value/disabled state) are the
+     same stays the SAME element, so a tap that has begun on it still lands; only what differs is
+     replaced. A kept element keeps its own listeners, so use this only where a listener's behaviour
+     follows from what the element shows (its attributes and text), as in a repaint of the same data.
+     The children of `next` that are used are moved into `el`. */
+  function sameShell(a, b) {
+    if (a.nodeType !== 1 || b.nodeType !== 1 || a.tagName !== b.tagName) return false;
+    var aa = a.attributes, i;
+    if (aa.length !== b.attributes.length) return false;
+    for (i = 0; i < aa.length; i++) { if (b.getAttribute(aa[i].name) !== aa[i].value) return false; }
+    if (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA') {
+      if (a.value !== b.value || a.checked !== b.checked || a.disabled !== b.disabled) return false;
+    }
+    return true;
+  }
+  function patchChildren(el, next) {
+    var have = Array.prototype.slice.call(el.childNodes), want = Array.prototype.slice.call(next.childNodes), i, a, b;
+    for (i = 0; i < Math.max(have.length, want.length); i++) {
+      a = have[i]; b = want[i];
+      if (!b) el.removeChild(a);
+      else if (!a) el.appendChild(b);
+      else if (a.nodeType === 3 && b.nodeType === 3) { if (a.data !== b.data) a.data = b.data; }
+      else if (sameShell(a, b)) patchChildren(a, b);
+      else el.replaceChild(b, a);
+    }
+  }
+  VF.patch = function (el, next) {
+    var i, at = el.attributes;
+    for (i = at.length - 1; i >= 0; i--) { if (!next.hasAttribute(at[i].name)) el.removeAttribute(at[i].name); }
+    for (i = 0; i < next.attributes.length; i++) { if (el.getAttribute(next.attributes[i].name) !== next.attributes[i].value) el.setAttribute(next.attributes[i].name, next.attributes[i].value); }
+    patchChildren(el, next);
+    return el;
+  };
 
   /* ── icons (24x24, stroke) ───────────────────────────────────────────── */
   var IC = {
@@ -1237,6 +1290,22 @@ var Studio = (function () {
   S.role = function () { return S.boot && S.boot.role === 'client' ? 'client' : 'installer'; };
   S.isClient = function () { return S.role() === 'client'; };
   S.clientStanding = function () { return (S.boot && S.boot.client) || null; };
+  /* Why a client may not publish or discard now, in a venue manager's words, or null.
+     The driver names the reason in the standing (src/venueflow/core.lua, _installerPending):
+     "changes saved by the installer", "changes saved remotely by the dealer", or the
+     installer-owned part of the venue that differs from what is published. */
+  S.pendingReason = function () {
+    var st = S.clientStanding(), p = st && st.installerPending;
+    if (!S.isClient() || !p) return null;
+    var keep = 'You can keep editing here, but you cannot publish or discard until then.';
+    if (p === 'changes saved remotely by the dealer') {
+      return { who: 'dealer', title: 'Your dealer saved changes remotely that are not live yet.', ask: 'Ask your dealer to publish or discard their changes.', keep: keep, short: 'Waiting for your dealer to publish or discard their changes.' };
+    }
+    if (p === true || p === 'changes saved by the installer') {
+      return { who: 'installer', title: 'Your installer saved changes that are not live yet.', ask: 'Ask your installer to publish or discard their changes.', keep: keep, short: 'Waiting for your installer to publish or discard their changes.' };
+    }
+    return { who: 'installer', title: 'The draft has a change to ' + p + ' that only your installer can make, and it is not live yet.', ask: 'Ask your installer to publish or discard it.', keep: keep, short: 'Waiting for your installer to publish or discard their change.' };
+  };
   function allowed(def) { return S.isClient() ? CLIENT_SECTIONS.indexOf(def.id) >= 0 : !def.clientOnly; }
   function landing() {
     if (S.isClient()) return 'home';
@@ -1252,6 +1321,8 @@ var Studio = (function () {
   S.config = function () { return config; };
   S.hasDraft = function () { return config !== null; };
   S.revision = function () { return revision; };
+  /* true when this page's last save was refused because someone else saved the draft. */
+  S.isStale = function () { return stale; };
   S.issues = function () { return issues; };
   S.summary = function () { return summary; };
   /* Issues about one entity. The driver's kinds: floor, area, source, display, audioZone, group, lighting,
@@ -1561,6 +1632,22 @@ var Studio = (function () {
   };
   /* Favourite channels of one source (the installer's Sources section and the client's
      Channels and Names both use it). ed(label, fn) applies fn to the source in the draft. */
+  /* The scenes and rules with a tune step naming favourite `favoriteId` of source `sourceId`, as
+     "Scene 'Game Day'" / "Schedule 'Morning news'" / "Rule 'Doorbell'" (the driver's own words). */
+  S.favoriteUsers = function (sourceId, favoriteId) {
+    var out = [];
+    if (!config) return out;
+    eachProgram(config, function (item, kind) {
+      var uses = false;
+      eachStep(VF.asMap(item.program).steps, function (st) { if (st && st.type === 'tune' && st.sourceId === sourceId && st.favoriteId === favoriteId) uses = true; });
+      if (!uses) return;
+      var word = kind === 'scene' ? 'Scene' : (VF.asMap(item.trigger).type === 'schedule' ? 'Schedule' : 'Rule');
+      out.push(word + " '" + item.name + "'");
+    });
+    return out;
+  };
+  /* "A", "A and B", "A, B and C". */
+  S.joinNames = function (list) { return list.length < 2 ? list.join('') : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1]; };
   S.favoritesEditor = function (source, ed) {
     var sc = (S.boot && S.boot.schema && S.boot.schema.sourceControl) || {};
     var max = sc.favoritesMax || 24, list = VF.asList(source.favorites);
@@ -1569,15 +1656,21 @@ var Studio = (function () {
       list.length ? list.map(function (f) {
         return h('div.cl-row',
           S.text('Name', f.name, function (v) {
-            if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+            if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
             ed('Rename favourite', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.name = v; });
           }, { max: sc.favoriteNameMax || 24 }),
           S.text('Channel', f.channel, function (v) {
-            if (!valid(v) || v.length > (sc.channelMax || 8)) { VF.toast('A channel is digits, with at most one dash or dot (206, 5-1).', 'warn'); S.refresh(); return; }
+            if (!valid(v) || v.length > (sc.channelMax || 8)) { VF.toast('A channel is digits, with at most one dash or dot (206, 5-1).', 'warn'); S.refreshSoon(); return; }
             ed('Favourite channel', function (x) { var q = VF.byId(x.favorites, f.id); if (q) q.channel = v; });
           }, { max: sc.channelMax || 8, inputmode: 'decimal', placeholder: '206' }),
           h('button.btn.sm.ghost.icon', { type: 'button', 'aria-label': 'Remove favourite ' + f.name, onclick: function () {
-            ed('Remove favourite', function (x) { x.favorites = VF.asList(x.favorites).filter(function (q) { return q.id !== f.id; }); });
+            function go() { ed('Remove favourite', function (x) { x.favorites = VF.asList(x.favorites).filter(function (q) { return q.id !== f.id; }); }); }
+            var users = S.favoriteUsers(source.id, f.id);
+            if (!users.length) { go(); return; }
+            /* The driver refuses the publish while a step names a removed favourite; say so now. */
+            VF.modal({ title: 'Remove favourite ' + f.name + '?', icon: 'alert',
+              body: h('div.col', h('p', 'Used by ' + S.joinNames(users) + '.'), h('p', 'Removing it blocks publishing until those steps are changed.')),
+              actions: [{ label: 'Cancel', kind: 'ghost', value: false }, { label: 'Remove', kind: 'danger', value: true }] }).then(function (ok) { if (ok === true) go(); });
           } }, icon('trash')));
       }) : h('p.small.muted', 'No favourite channels yet.'),
       list.length < max ? h('div', h('button.btn.sm', { type: 'button', onclick: function () {
@@ -1609,6 +1702,80 @@ var Studio = (function () {
     els.main.scrollTop = keep;
   }
   S.refresh = rerender;
+  /* A re-render after an edit that keeps the person's place. It waits while a finger or the mouse is
+     down (and 60 ms after it is released), so the control being tapped is not replaced under the tap;
+     a pick list opened by touch is left open; keyboard focus, text typed and not yet committed, and
+     the scroll of [data-en-scroll] boxes are put back. Only for the section that asked. Sections that
+     change the draft from a text field use this after Studio.update(..., { silent: true }). */
+  S.refreshSoon = function () { wanted = current ? current.id : null; later(0); };
+  var wanted = null, soonTimer = null, downAt = 0, downEl = null, changedEl = null;
+  document.addEventListener('pointerdown', function (e) { downAt = Date.now(); downEl = e.target; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (n) { document.addEventListener(n, function () { downAt = 0; if (wanted) later(60); }, true); });
+  document.addEventListener('click', function () { downAt = 0; }, true);
+  /* A change from the element being pressed (a pick list chosen by touch) ends the press. A change
+     fired because pressing ANOTHER control took the focus away (a text field committed by the tap
+     itself) does not: that tap is still on its way and must not see its button replaced. */
+  document.addEventListener('change', function (e) { changedEl = e.target; if (!downEl || downEl === e.target || (e.target.contains && e.target.contains(downEl))) downAt = 0; }, true);
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) t._enInit = t.value; }, true);
+  function later(ms) { clearTimeout(soonTimer); soonTimer = setTimeout(runSoon, ms || 0); }
+
+  function labelOf(el) {
+    var own = el.getAttribute('aria-label'); if (own) return own;
+    var wrap = el.closest('label, .en-fld');
+    if (wrap) {
+      for (var i = 0; i < wrap.childNodes.length; i++) {
+        var n = wrap.childNodes[i];
+        if (n.nodeType === 3 && n.textContent.trim()) return n.textContent.trim();
+        if (n.nodeType === 1 && n.tagName === 'SPAN') return n.textContent.trim();
+      }
+    }
+    return el.tagName === 'BUTTON' ? el.textContent.trim().slice(0, 40) : '';
+  }
+  function focusKey(el) { var scope = el.closest('[data-fk]'); return (scope ? scope.dataset.fk : '') + '|' + el.tagName + '|' + (el.type || '') + '|' + labelOf(el); }
+  function findByKey(root, key) {
+    var all = root.querySelectorAll('input, select, textarea, button');
+    for (var i = 0; i < all.length; i++) { if (focusKey(all[i]) === key) return all[i]; }
+    return null;
+  }
+  function runSoon() {
+    if (!wanted) return;
+    if (S.currentSection() !== wanted) { wanted = null; return; }
+    if (downAt && Date.now() - downAt < 700) { later(90); return; }   /* let the click land first */
+    var main = document.getElementById('main'); if (!main) return;
+    var a = document.activeElement, inside = !!(a && a !== document.body && main.contains(a));
+    if (inside && a.tagName === 'SELECT' && a !== changedEl && a === downEl) {   /* a pick list opened by touch or mouse would close */
+      if (!a._enWait) {
+        a._enWait = true;
+        var go = function () { a._enWait = false; a.removeEventListener('blur', go); a.removeEventListener('change', go); later(0); };
+        a.addEventListener('blur', go); a.addEventListener('change', go);
+      }
+      return;
+    }
+    var keep = null;
+    if (inside) {
+      keep = { key: focusKey(a), value: null, s: null, e: null };
+      if ((a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio') || a.tagName === 'TEXTAREA') {
+        if (a !== changedEl && a._enInit !== undefined && a.value !== a._enInit) keep.value = a.value;   /* typed, not committed yet */
+        try { keep.s = a.selectionStart; keep.e = a.selectionEnd; } catch (e) { /* number fields have no selection */ }
+      }
+    }
+    var scrolls = {};
+    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { scrolls[el.dataset.enScroll] = el.scrollTop; });
+    wanted = null; changedEl = null; downEl = null;
+    rerender();
+    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { var v = scrolls[el.dataset.enScroll]; if (v) el.scrollTop = v; });
+    if (!keep) return;
+    var el = findByKey(main, keep.key); if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    if (keep.value !== null && el.value !== keep.value) {
+      el.value = keep.value;
+      var fired = false;
+      el.addEventListener('change', function () { fired = true; });
+      el.addEventListener('blur', function () { if (!fired) el.dispatchEvent(new Event('change', { bubbles: true })); });
+    }
+    if (keep.s !== null && keep.s !== undefined) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
+  }
+
   /* A section opened from the Setup Wizard (S.go(id, {wizard: {step, title}})) gets a bar to go back or on. */
   function wizardBar() {
     var w = currentParams && currentParams.wizard; if (!w || !current || current.id === 'wizard') return null;
@@ -1621,9 +1788,11 @@ var Studio = (function () {
      Returns Promise(reply). */
   S.serverEdit = function (command, payload) {
     return S.flush().then(function (saved) {
-      if (!saved && config) return { ok: false, status: 'failed', errorCode: 'VF_STALE_DRAFT', message: saveError || 'Your last changes could not be saved, so this was not done.' };
+      if (!saved && config) return { ok: false, status: 'failed', errorCode: stale ? 'VF_STALE_DRAFT' : 'VF_NOT_SAVED', message: saveError || 'Your last changes could not be saved, so this was not done.' };
       var body = Object.assign({}, payload || {});
-      if (command === 'PROFILE_PIN_SET' && revision !== null) body.baseRevision = revision;
+      /* The draft this page shows (last loaded or saved here): the driver refuses with
+         VF_STALE_DRAFT when someone else has saved since. */
+      if ((command === 'PROFILE_PIN_SET' || command === 'DRAFT_DISCARD') && revision !== null) body.baseRevision = revision;
       return VF.api(command, body, { since: false }).then(function (r) { return S.reload().then(function () { return r; }); });
     });
   };
@@ -1692,10 +1861,10 @@ var Studio = (function () {
     if (els.title) els.title.textContent = client ? 'Venue Studio' : 'Installer Studio';
     document.title = client ? 'VenueFlow Venue Studio' : 'VenueFlow Installer Studio';
     if (els.openop) els.openop.textContent = client ? 'Back to control' : 'Operator view';
-    var st = S.clientStanding();
+    var why = S.pendingReason();
     if (els.pending) {
-      els.pending.classList.toggle('hidden', !(client && st && st.installerPending));
-      els.pending.textContent = 'Your installer has unfinished changes in this venue. You can keep editing; publishing waits until they finish.';
+      els.pending.classList.toggle('hidden', !why);
+      els.pending.textContent = why ? why.title + ' ' + why.ask : '';
     }
     VF.mount(els.mode, b.driver.simulation ? h('span.chip.warn', h('span.dot'), 'Simulation') : h('span.chip.ok', h('span.dot'), 'Live'),
       S.published ? h('span.chip', 'Published ' + S.published.versionId) : h('span.chip.warn', 'Not published'));
@@ -2053,17 +2222,43 @@ var Studio = (function () {
      a tick from moving to another entity when something above it is deleted. */
   function ackKey(i) { return i.id + '|' + i.message; }
 
+  /* The draft changed on the controller since this page loaded (or last saved) it: someone
+     else saved it. Say so, load the draft as it is now, and do NOT try again by itself.
+     verb: 'published' | 'discarded'. */
+  function staleRefusal(verb) {
+    var lost = Studio.isStale() ? ' Changes made on this screen that were not saved are not kept.' : '';
+    pub.busy = false; pub.blocking = null;
+    pub.refused = 'Nothing was ' + verb + '. The draft changed since this page loaded it: someone else saved it, in another window, on another screen or remotely. This page now shows the draft as it is on the controller.' + lost + ' Check it, then try again.';
+    VF.toast('The draft changed since this page loaded it. Nothing was ' + verb + '.', 'warn', 9000);
+    return Studio.reload().then(function () { Studio.refresh(); });
+  }
+  /* A client was refused because someone else's changes are in the draft: load the standing
+     again (it names whose) and say so. */
+  function pendingRefusal(verb) {
+    pub.busy = false;
+    return Studio.reload().then(function () {
+      var why = Studio.pendingReason();
+      pub.refused = 'Nothing was ' + verb + '. ' + (why ? why.title + ' ' + why.ask + ' ' + why.keep : 'Someone else saved changes into the draft that are not live yet. Ask your installer to publish or discard them.');
+      Studio.refresh();
+    });
+  }
+
   function doPublish() {
     if (pub.busy) return;
     pub.busy = true; pub.refused = null; pub.blocking = null;
     Studio.refresh();
-    settleDraft().then(function (saved) {
-      if (!saved) { pub.busy = false; pub.refused = 'The draft on the controller is not the one on this screen (not saved yet, or changed in another window), so nothing was published. Check the save indicator at the top.'; Studio.refresh(); return; }
+    Studio.flush().then(function (saved) {
+      if (!saved) {
+        if (Studio.isStale()) return staleRefusal('published');
+        pub.busy = false; pub.refused = 'The changes on this screen are not saved yet, so nothing was published. Check the save indicator at the top.'; Studio.refresh(); return;
+      }
       /* The save may have changed the issues: send what is ticked AND still listed. */
       var acked = Studio.issues().filter(function (i) { return !isError(i) && pub.acks[ackKey(i)]; }).map(function (i) { return i.id; });
       var payload = { acknowledged: acked }, note = pub.note.trim();
       if (note) payload.note = note;
+      /* The revision this page shows: the driver refuses (VF_STALE_DRAFT) if the draft moved on. */
       var revision = Studio.revision();
+      if (revision !== null && revision !== undefined) payload.baseRevision = revision;
       return VF.api('PUBLISH', payload, { since: false }).then(function (r) {
         pub.busy = false;
         if (r.ok && r.data) {
@@ -2072,6 +2267,8 @@ var Studio = (function () {
           VF.toast('Published ' + r.data.versionId + '. The venue runs on it now.', 'ok');
           return Studio.reload();
         }
+        if (r.errorCode === 'VF_STALE_DRAFT') return staleRefusal('published');
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) return pendingRefusal('published');
         pub.refused = (r.message || 'Not published.') + (r.detail ? ' (' + r.detail + ')' : '');
         if (r.errorCode === 'VF_VALIDATION_FAILED') { pub.blocking = VF.asList(r.data && r.data.blocking); return Studio.reload(); }
         Studio.refresh();
@@ -2107,7 +2304,10 @@ var Studio = (function () {
       actions: [CANCEL, { label: 'Discard draft changes', kind: 'danger', value: true }]
     }).then(function (ok) {
       if (ok !== true) return;
+      pub.refused = null;
       Studio.serverEdit('DRAFT_DISCARD', { confirm: true }).then(function (r) {
+        if (r.errorCode === 'VF_STALE_DRAFT') { staleRefusal('discarded'); return; }
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) { pendingRefusal('discarded'); return; }
         if (!r.ok) { VF.toastReply(r); return; }
         pub.acks = {}; pub.refused = null; pub.blocking = null;
         if (Studio.published && cfg()) known = { versionId: Studio.published.versionId, revision: Studio.revision() };
@@ -2121,6 +2321,7 @@ var Studio = (function () {
     var list = Studio.issues();
     var errors = list.filter(isError), warnings = list.filter(function (i) { return !isError(i); });
     var lic = VF.asMap(boot().license);
+    var pending = Studio.pendingReason();
     var button = h('button.btn.primary.lg', { type: 'button', onclick: doPublish }, icon('upload'), 'Publish');
     var hint = h('span.small.muted');
     var ackAll = h('button.btn.sm', { type: 'button' }, icon('check'), 'Acknowledge all warnings');
@@ -2128,7 +2329,8 @@ var Studio = (function () {
     function gate() {
       var open = warnings.filter(function (i) { return !pub.acks[ackKey(i)]; }).length;
       var why = '';
-      if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
+      if (pending) why = pending.short;
+      else if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
       else if (warnings.length > ACK_MAX) why = 'There are more warnings than one publish can acknowledge (' + ACK_MAX + '). Fix some first.';
       else if (open) why = count(open, 'warning') + ' still to tick.';
       button.disabled = pub.busy || !!why;
@@ -2155,6 +2357,7 @@ var Studio = (function () {
       errors.length ? h('span.chip.bad', count(errors.length, 'error')) : (warnings.length ? h('span.chip.warn', count(warnings.length, 'warning')) : h('span.chip.ok', 'No issues')), [
         banner('info', 'info', h('div', h('div', 'Publishing makes this draft the live configuration. The venue switches to it at once.'),
           h('div.small', 'Staff signed in with a profile that was removed, or whose PIN changed, are signed out. The version running now is kept for rollback.'))),
+        pending ? banner('warn', 'alert', h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
         lic.restricted ? banner('bad', 'shield', h('div', 'Features are restricted by the licence (' + (lic.label || 'no label') + '). Publishing and rollback need a SmartBuildOS licence. ',
           h('button.btn.sm', { type: 'button', onclick: function () { Studio.go('licensing'); } }, 'Open Licensing'))) : null,
         !list.length ? banner('ok', 'check-circle', 'The driver found nothing to fix in this draft.') : null,
@@ -2188,7 +2391,8 @@ var Studio = (function () {
         draftSavedAt() ? ['Last saved', when(draftSavedAt())] : null,
         ['Compared', rel.key === 'same' ? 'No changes since ' + p.versionId + ' was published.' : (rel.key === 'unpublished' ? 'Nothing is published yet.' : rel.text)]
       ]),
-      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', disabled: !!Studio.pendingReason(), onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      Studio.pendingReason() ? h('p.small.muted', Studio.pendingReason().short) : null,
       h('p.small.muted', p ? 'Discarding resets the draft to ' + p.versionId + '.' : 'Nothing is published: discarding deletes the draft.')
     ]);
   }
@@ -3070,80 +3274,15 @@ var Studio = (function () {
    Every section is a list on the left and an editor for the selected item on
    the right. The selection lives in a module variable, so the re-render that
    follows each change keeps the same item open. Changes go through
-   Studio.update (silently) followed by a re-render that waits for the pointer
-   to be released and puts the keyboard focus back where it was, so a click on
-   the next control right after typing is not lost. */
+   Studio.update (silently) followed by Studio.refreshSoon: a re-render that
+   waits for the pointer to be released and puts the keyboard focus back where
+   it was, so a click on the next control right after typing is not lost. */
 (function () {
   'use strict';
   var h = VF.h, icon = VF.icon, S = Studio;
-  var MINE = { devices: 1, sources: 1, zones: 1, groups: 1, ambient: 1, rooms: 1, profiles: 1 };
 
-  /* ── a re-render that keeps the installer's place ────────────────────── */
-  var wanted = false, timer = null, downAt = 0, downEl = null, changedEl = null;
-  document.addEventListener('pointerdown', function (e) { downAt = Date.now(); downEl = e.target; }, true);
-  ['pointerup', 'pointercancel'].forEach(function (n) { document.addEventListener(n, function () { downAt = 0; if (wanted) later(60); }, true); });
-  document.addEventListener('click', function () { downAt = 0; }, true);
-  document.addEventListener('change', function (e) { changedEl = e.target; downAt = 0; }, true);
-  document.addEventListener('focusin', function (e) { var t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) t._enInit = t.value; }, true);
-  function later(ms) { clearTimeout(timer); timer = setTimeout(run, ms || 0); }
-  function refresh() { wanted = true; later(0); }
-
-  function labelOf(el) {
-    var own = el.getAttribute('aria-label'); if (own) return own;
-    var wrap = el.closest('label, .en-fld');
-    if (wrap) {
-      for (var i = 0; i < wrap.childNodes.length; i++) {
-        var n = wrap.childNodes[i];
-        if (n.nodeType === 3 && n.textContent.trim()) return n.textContent.trim();
-        if (n.nodeType === 1 && n.tagName === 'SPAN') return n.textContent.trim();
-      }
-    }
-    return el.tagName === 'BUTTON' ? el.textContent.trim().slice(0, 40) : '';
-  }
-  function focusKey(el) { var scope = el.closest('[data-fk]'); return (scope ? scope.dataset.fk : '') + '|' + el.tagName + '|' + (el.type || '') + '|' + labelOf(el); }
-  function findByKey(root, key) {
-    var all = root.querySelectorAll('input, select, textarea, button');
-    for (var i = 0; i < all.length; i++) { if (focusKey(all[i]) === key) return all[i]; }
-    return null;
-  }
-  function run() {
-    if (!wanted) return;
-    if (!MINE[S.currentSection()]) { wanted = false; return; }
-    if (downAt && Date.now() - downAt < 700) { later(90); return; }   /* let the click land first */
-    var main = document.getElementById('main'); if (!main) return;
-    var a = document.activeElement, inside = !!(a && a !== document.body && main.contains(a));
-    if (inside && a.tagName === 'SELECT' && a !== changedEl && a === downEl) {   /* a pick list opened by touch or mouse would close */
-      if (!a._enWait) {
-        a._enWait = true;
-        var go = function () { a._enWait = false; a.removeEventListener('blur', go); a.removeEventListener('change', go); later(0); };
-        a.addEventListener('blur', go); a.addEventListener('change', go);
-      }
-      return;
-    }
-    var keep = null;
-    if (inside) {
-      keep = { key: focusKey(a), value: null, s: null, e: null };
-      if ((a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio') || a.tagName === 'TEXTAREA') {
-        if (a !== changedEl && a._enInit !== undefined && a.value !== a._enInit) keep.value = a.value;   /* typed, not committed yet */
-        try { keep.s = a.selectionStart; keep.e = a.selectionEnd; } catch (e) { /* number fields have no selection */ }
-      }
-    }
-    var scrolls = {};
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { scrolls[el.dataset.enScroll] = el.scrollTop; });
-    wanted = false; changedEl = null; downEl = null;
-    S.refresh();
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { var v = scrolls[el.dataset.enScroll]; if (v) el.scrollTop = v; });
-    if (!keep) return;
-    var el = findByKey(main, keep.key); if (!el) return;
-    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
-    if (keep.value !== null && el.value !== keep.value) {
-      el.value = keep.value;
-      var fired = false;
-      el.addEventListener('change', function () { fired = true; });
-      el.addEventListener('blur', function () { if (!fired) el.dispatchEvent(new Event('change', { bubbles: true })); });
-    }
-    if (keep.s !== null && keep.s !== undefined) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
-  }
+  /* ── a re-render that keeps the installer's place (Studio.refreshSoon) ── */
+  function refresh() { S.refreshSoon(); }
 
   /* ── small helpers ───────────────────────────────────────────────────── */
   function upd(label, fn) { S.update(label, fn, { silent: true }); refresh(); }
@@ -3266,7 +3405,7 @@ var Studio = (function () {
   }
   function editorHead(kicker, item, onDelete) {
     return h('div.row.between.top', h('div.col.tight.grow', h('h4', kicker), h('h2.ellipsis', item.name || '(no name)'), h('span.tiny.mono.muted', 'id ' + item.id)),
-      h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete'));
+      onDelete ? h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete') : null);
   }
   function pickFirst(list, sel) { if (sel && VF.byId(list, sel)) return sel; return list.length ? list[0].id : null; }
   function nothingSelected(text) { return h('div.empty', text); }
@@ -4310,6 +4449,14 @@ var Studio = (function () {
     });
   }
   function stationsOf(profileId) { return S.list('stations').filter(function (st) { return st && st.profileId === profileId; }); }
+  /* For a client: the profile a tile opens with and every station's profile are the
+     installer's (the driver refuses a client's change to them, src/venueflow/clientscope.lua). */
+  function screenLocked(profileId) { return S.isClient() && (S.config().defaultProfileId === profileId || stationsOf(profileId).length > 0); }
+  function lockedBox(locked) {
+    var kids = Array.prototype.slice.call(arguments, 1);
+    return locked ? h('fieldset.col.en-locked', { disabled: true }, kids) : kids;
+  }
+  var SCREEN_LOCKED = 'This is the profile screens open with. Only your installer can change it.';
   function setPin(p) {
     var isDefault = S.config().defaultProfileId === p.id, stations = stationsOf(p.id);
     var why = [];
@@ -4349,16 +4496,20 @@ var Studio = (function () {
     function ed(label, fn) { edit('profiles', id, label, fn); }
     function perm(key) { return function (v) { ed('Profile permission', function (x) { x.permissions = VF.asMap(x.permissions); x.permissions[key] = v; }); }; }
     var isDefault = S.config().defaultProfileId === id;
+    var locked = screenLocked(id);
+    /* A locked profile is shown as it is: every control inside the fieldset is disabled. */
     return h('div.panel.pad.col.en-editor', { dataset: { fk: 'pro:' + id } },
-      editorHead('Staff profile', p, function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      editorHead('Staff profile', p, locked ? null : function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      locked ? note(SCREEN_LOCKED, 'info', 'lock') : null,
       issueSlot('profile', id),
+      lockedBox(locked,
       h('div.form',
         nameField('Name', p.name, function (v) { ed('Rename staff profile', function (x) { x.name = v; }); }),
         S.select('Role', opts(schema().roles || Object.keys(ROLE_LABEL), ROLE_LABEL), p.role, function (v) { ed('Profile role', function (x) { x.role = v || 'restricted'; }); }, { hint: 'A label for the kind of staff. The switches below decide what the profile can do.' })),
       card('PIN', h('div.row.wrap.between',
         h('div.col.tight.grow', p.hasPin ? h('span.chip.ok', icon('lock', 'sm'), 'PIN set') : h('span.chip.warn', icon('unlock', 'sm'), 'No PIN'),
           h('span.hint', p.hasPin ? 'Staff choose this profile on the sign-in pad and type its PIN. The PIN is never shown and is not part of the configuration.' : (isDefault ? 'A tile opens as this profile without asking.' : 'Without a PIN staff cannot sign in as this profile. It can only be the profile a tile or a station opens with.'))),
-        h('div.row.wrap',
+        locked ? null : h('div.row.wrap',
           h('button.btn.sm', { type: 'button', onclick: function () { setPin(p); } }, icon('key', 'sm'), p.hasPin ? 'Change PIN' : 'Set PIN'),
           p.hasPin ? h('button.btn.sm.danger', { type: 'button', onclick: function () { removePin(p); } }, 'Remove PIN') : null))),
       card('Interfaces', h('div.col',
@@ -4385,7 +4536,7 @@ var Studio = (function () {
         S.idPicker('Areas', 'areas', perms.areas, perm('areas'), { items: S.list('areas').map(function (a) { return { id: a.id, name: areaText(a.id) }; }) }),
         S.idPicker('Sources', 'sources', perms.sources, perm('sources')),
         S.idPicker('Audio zones', 'audioZones', perms.zones, perm('zones')),
-        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds')))));
+        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds'))))));
   }
   function renderProfiles(container) {
     var list = S.list('profiles'), c = S.config();
@@ -4401,7 +4552,8 @@ var Studio = (function () {
     if (current && current.hasPin) tileOptions.push({ value: current.id, label: current.name + ' (has a PIN: not allowed)' });
     var tile = h('div.panel.pad.col.tight.en-tile',
       S.select('A tile opens as', tileOptions, current ? c.defaultProfileId : '', function (v) { upd('Tile profile', function (x) { if (v) x.defaultProfileId = v; else delete x.defaultProfileId; }); },
-        { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
+        S.isClient() ? { none: 'Ask everyone to sign in', disabled: true, hint: 'Only your installer can choose the profile screens open with.' }
+          : { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
     VF.mount(container,
       S.sectionHead('Staff Profiles', 'Who uses the screens, which interfaces they get and what they may do.', [h('button.btn.sm.primary', { type: 'button', onclick: addProfile }, icon('plus', 'sm'), 'Add profile')]),
       note('Permissions are enforced by the driver, not by the screens: a screen only hides what the driver would refuse. Changing the configuration is not a profile permission. It always needs the Installer Passcode.', 'info', 'shield'),
@@ -5806,6 +5958,7 @@ var Studio = (function () {
   var STEP = {
     display_power: { label: 'Power displays', icon: 'power', hint: 'Switch displays on or off', make: function () { return { type: 'display_power', power: 'on', target: {} }; } },
     route_video: { label: 'Route video', icon: 'route', hint: 'Show a source on displays', make: function () { return { type: 'route_video', target: {} }; } },
+    tune: { label: 'Tune a channel', icon: 'tv', hint: 'Put a cable or satellite box on a channel', make: function () { return { type: 'tune' }; } },
     route_audio: { label: 'Route audio', icon: 'music', hint: 'Play a source in an audio zone', make: function () { return { type: 'route_audio' }; } },
     volume: { label: 'Set volume', icon: 'volume', hint: 'Set an audio zone to a level', make: function () { return { type: 'volume', level: 50 }; } },
     mute: { label: 'Mute or unmute', icon: 'volume-x', hint: 'Mute or unmute an audio zone', make: function () { return { type: 'mute', muted: true }; } },
@@ -5820,7 +5973,7 @@ var Studio = (function () {
     notify: { label: 'Send notification', icon: 'send', hint: 'Show a message to managers', make: function () { return { type: 'notify', message: '', level: 'info' }; } }
   };
   var PALETTE = [
-    ['Displays', ['display_power', 'route_video']],
+    ['Displays', ['display_power', 'route_video', 'tune']],
     ['Audio', ['route_audio', 'volume', 'mute', 'zone_power']],
     ['Room', ['lighting', 'shade']],
     ['Flow', ['wait', 'if', 'run_scene']],
@@ -5871,7 +6024,14 @@ var Studio = (function () {
   var drag = null;
   var lives = [];                                   // repaint-in-place functions of the current render
 
-  function live(el, paint) { lives.push(function () { paint(el); }); paint(el); return el; }
+  /* A repaint (after each save, run update or soft edit) paints a fresh copy and patches it in
+     (VF.patch): the tabs and buttons that did not change stay the same elements, so a tap that has
+     begun on one is not lost when the save acknowledgement arrives under the finger. */
+  function live(el, paint) {
+    lives.push(function () { var next = el.cloneNode(false); paint(next); VF.patch(el, next); });
+    paint(el);
+    return el;
+  }
   function refreshLive() {
     var keep = focusMark();
     lives.forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
@@ -6022,11 +6182,27 @@ var Studio = (function () {
     if (p) return String(p.name);
     return isSet(st.presetId) && l ? { t: '(missing)', c: 'missing', title: String(st.presetId) } : { t: '(not set)', c: 'unset' };
   }
+  /* The tune step (rules.lua validateTune): a source with the number keypad, then a favourite of
+     that source or a typed channel number, never both. */
+  function hasKeypad(s) { return asList(s && s.controls).indexOf('keypad') >= 0; }
+  function tunable(s) { return hasKeypad(s) && s.enabled !== false; }
+  function channelMax() { var s = S.boot && S.boot.schema; return Number(asMap(s && s.sourceControl).channelMax) || 8; }
+  function validChannel(ch) { return typeof ch === 'string' && ch.length > 0 && ch.length <= channelMax() && (/^\d+$/.test(ch) || /^\d+[-.]\d+$/.test(ch)); }
+  function tuneParts(st) {
+    if (isSet(st.favoriteId)) {
+      var src = S.find('sources', st.sourceId), fav = src ? VF.byId(src.favorites, st.favoriteId) : null;
+      if (fav) return [String(fav.channel) + ' (' + String(fav.name) + ')'];
+      return src ? [{ t: '(missing favourite)', c: 'missing', title: String(st.favoriteId) }] : [{ t: '(not set)', c: 'unset' }];
+    }
+    return isSet(st.channel) ? [String(st.channel)] : [{ t: '(not set)', c: 'unset' }];
+  }
+  var tuneMode = new WeakMap();                     // tune steps whose "Channel number" tab is open with nothing typed yet
   function describeStep(st) {
     var t = st && typeof st === 'object' ? st.type : '?';
     switch (t) {
       case 'display_power': return ['Power ', val(st.power), ' '].concat(targetParts(st.target));
       case 'route_video': return ['Route ', nm('sources', st.sourceId), ' to '].concat(targetParts(st.target));
+      case 'tune': return ['Tune ', nm('sources', st.sourceId), ' to '].concat(tuneParts(st));
       case 'route_audio': return ['Play ', nm('sources', st.sourceId), ' in ', nm('audioZones', st.zoneId)];
       case 'volume': return ['Set ', nm('audioZones', st.zoneId), ' volume to ', val(st.level), '%'];
       case 'mute': return [st.muted ? 'Mute ' : 'Unmute ', nm('audioZones', st.zoneId)];
@@ -6110,6 +6286,12 @@ var Studio = (function () {
       if (asList(t.displayIds).some(function (id) { return !S.find('displays', id); }) || asList(t.groupIds).some(function (id) { return !S.find('groups', id); }) || asList(t.areaIds).some(function (id) { return !S.find('areas', id); })) return 'bad';
     }
     if (partsHave(parts, 'missing')) return 'bad';
+    if (st.type === 'tune') {
+      var ts = S.find('sources', st.sourceId);
+      if (isSet(st.favoriteId) && isSet(st.channel)) return 'bad';
+      if (isSet(st.channel) && !validChannel(st.channel)) return 'bad';
+      if (ts && !tunable(ts)) return 'bad';
+    }
     if (st.type === 'wait' && !(typeof st.seconds === 'number' && st.seconds > 0 && st.seconds <= maxWait())) return 'bad';
     if (st.type === 'volume' && isSet(st.zoneId) && !(typeof st.level === 'number' && st.level >= 0 && st.level <= 100)) return 'bad';
     if (st.type === 'notify' && !isSet(String(st.message || '').trim())) return 'bad';
@@ -6408,6 +6590,9 @@ var Studio = (function () {
         f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) { full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; }); }, { filter: function (s) { return s.video !== false; }, filterNote: '(no video)' }));
         f.appendChild(targetPicker(st));
         break;
+      case 'tune':
+        tuneFields(f, st, full, softly, k);
+        break;
       case 'route_audio':
         f.appendChild(refPick('Audio zone', 'audioZones', st.zoneId, function (v) { full(function () { if (v === undefined) delete st.zoneId; else st.zoneId = v; }); }));
         f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) { full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; }); }, { filter: function (s) { return s.audio !== false; }, filterNote: '(no audio)' }));
@@ -6462,6 +6647,44 @@ var Studio = (function () {
         break;
     }
     return f;
+  }
+
+  function tuneFields(f, st, full, softly, k) {
+    var src = S.find('sources', st.sourceId), usable = S.list('sources').filter(tunable);
+    var hint;
+    if (!usable.length) hint = S.isClient() ? 'No source has a number keypad, so none can be tuned. Your installer gives a cable or satellite box one.' : 'No source has a number keypad, so none can be tuned. Give a cable or satellite box one under Sources > Basic controls.';
+    else if (src && src.enabled === false) hint = src.name + ' is switched off, so it cannot be tuned. Switch it on or choose another source.';
+    else if (src && !hasKeypad(src)) hint = src.name + ' has no number keypad, so this step can never dial a channel.' + (S.isClient() ? ' Choose another source.' : ' Give it one under Sources > Basic controls, or choose another source.');
+    else hint = 'Only sources with a number keypad are listed. Every display showing the source changes channel.';
+    f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) {
+      /* A favourite belongs to one source: it does not follow the step to another. */
+      full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; var ns = S.find('sources', v); if (isSet(st.favoriteId) && !(ns && VF.byId(ns.favorites, st.favoriteId))) delete st.favoriteId; });
+    }, { filter: tunable, filterNote: '(cannot be tuned)', hint: hint, none: usable.length ? 'Choose...' : 'None can be tuned' }));
+    var mode = st.channel !== undefined ? 'channel' : (tuneMode.get(st) || 'favorite');
+    f.appendChild(group('Channel', seg([['favorite', 'Favourite'], ['channel', 'Number']], mode, function (v) {
+      full(function () { tuneMode.set(st, v); if (v === 'channel') delete st.favoriteId; else delete st.channel; });
+    }, k + ':tm')));
+    if (mode === 'favorite') {
+      var favs = asList(src && src.favorites).map(function (x) { return { value: x.id, label: x.name + ' (' + x.channel + ')' }; });
+      var gone = isSet(st.favoriteId) && src && !VF.byId(src.favorites, st.favoriteId);
+      if (gone) favs.unshift({ value: st.favoriteId, label: '(missing) ' + st.favoriteId });
+      var fs = S.select('Favourite channel', favs, st.favoriteId, function (v) { full(function () { if (v === undefined) delete st.favoriteId; else st.favoriteId = v; delete st.channel; }); },
+        { none: 'Choose...', disabled: !src, hint: !src ? 'Choose the source first.' : (gone ? 'This favourite was removed. Choose another, or type the channel number.' : (!asList(src.favorites).length ? src.name + ' has no favourite channels yet. Type the channel number instead.' : undefined)) });
+      if (gone) fs.classList.add('vp-missing-field'); else if (!isSet(st.favoriteId)) fs.classList.add('vp-unset-field');
+      f.appendChild(fs);
+    } else {
+      var ch = textField('Channel number', st.channel, function (v) { softly(function () { if (v) st.channel = v; else delete st.channel; }); }, { max: channelMax(), placeholder: '206' });
+      var input = ch.querySelector('input'); if (input) input.setAttribute('inputmode', 'decimal');
+      ch.appendChild(live(h('span.hint'), function (el) {
+        var bad = isSet(st.channel) && !validChannel(st.channel);
+        el.classList.toggle('vp-missing', bad);
+        el.textContent = bad ? 'A channel is digits, with at most one dash or dot (206, 5-1).' : 'Digits, with at most one dash or dot (206, 5-1).';
+      }));
+      if (!isSet(st.channel)) ch.classList.add('vp-unset-field');
+      f.appendChild(ch);
+    }
+    f.appendChild(h('div.banner.info.vp-span', icon('info', 'sm'), h('div.small',
+      'The digits' + (src && src.tuneEnter === false ? '' : ' and Enter') + ' go to the box a third of a second apart, and the program goes on at once: add a Wait after this step if the next one needs the new channel. Nothing comes back from the box, so this step is "sent", never confirmed.')));
   }
 
   /* ── step cards and lists ────────────────────────────────────────────── */
@@ -7271,12 +7494,12 @@ var Studio = (function () {
 
   /* ── home ────────────────────────────────────────────────────────────── */
   function renderHome(container) {
-    var st = S.clientStanding() || {}, pub = S.published, c = S.config();
+    var pub = S.published, c = S.config(), pending = S.pendingReason();
     var sum = S.summary();
     var schedules = c ? S.list('rules').filter(function (r) { return r.trigger && r.trigger.type === 'schedule'; }).length : 0;
     VF.mount(container,
       S.sectionHead('Your venue', 'Signed in as ' + ((S.boot && S.boot.who) || 'staff') + '. Changes are kept as a draft until you publish them.'),
-      st.installerPending ? h('div.banner.warn', icon('alert'), h('div', h('b', 'Your installer has unfinished changes. '), 'You can keep editing here. Publishing waits until they publish or discard their work.')) : null,
+      pending ? h('div.banner.warn', icon('alert'), h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
       !c ? h('div.empty', h('p', 'There is nothing to edit yet. Your installer sets the venue up first.')) :
         h('div.col',
           h('div.list',
@@ -7300,7 +7523,7 @@ var Studio = (function () {
       return h('div.cl-row',
         h('div.cl-row-ic', icon(VF.SOURCE_ICON[src.kind] || 'monitor')),
         S.text('Name', src.name, function (v) {
-          if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+          if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
           ed('Rename source', function (x) { x.name = v; });
         }, { max: 40 }),
         S.text('Channel label', src.channel || '', function (v) {
@@ -7311,7 +7534,7 @@ var Studio = (function () {
     /* Favourite channels, for the sources whose installer gave them a keypad. */
     var favs = S.list('sources').filter(function (src) { return VF.asList(src.controls).indexOf('keypad') >= 0; }).map(function (src) {
       return h('div.card.col', h('div.row.between', h('h3', src.name), h('span.small.muted', VF.asList(src.favorites).length + ' favourite' + (VF.asList(src.favorites).length === 1 ? '' : 's'))),
-        S.favoritesEditor(src, function (label, fn) { S.update(label, function (c) { var x = VF.byId(c.sources, src.id); if (x) fn(x); }); }));
+        S.favoritesEditor(src, function (label, fn) { S.update(label, function (c) { var x = VF.byId(c.sources, src.id); if (x) fn(x); }, { silent: true }); S.refreshSoon(); }));
     });
     VF.mount(container,
       S.sectionHead('Channels and source names', 'What staff see on each source button. The channel label is a note for staff: it does not change the channel.'),
@@ -7323,7 +7546,9 @@ var Studio = (function () {
   function renderPresets(container) {
     if (!S.hasDraft()) { VF.mount(container, S.sectionHead('Volume presets'), h('div.empty', h('p', 'There is no draft to edit.'))); return; }
     var zones = S.list('audioZones');
-    function edZone(id, label, fn) { S.update(label, function (c) { var z = VF.byId(c.audioZones, id); if (z) { z.presets = VF.asList(z.presets); fn(z); } }); }
+    /* Saved silently, then redrawn once the finger is up (Studio.refreshSoon): a tap on the next
+       control right after typing a name or a level is not lost to the redraw. */
+    function edZone(id, label, fn) { S.update(label, function (c) { var z = VF.byId(c.audioZones, id); if (z) { z.presets = VF.asList(z.presets); fn(z); } }, { silent: true }); S.refreshSoon(); }
     var cards = zones.map(function (z) {
       var lo = typeof z.minVolume === 'number' ? z.minVolume : 0, hi = typeof z.maxVolume === 'number' ? z.maxVolume : 100;
       var presets = VF.asList(z.presets);
@@ -7332,7 +7557,7 @@ var Studio = (function () {
         presets.length ? presets.map(function (p) {
           return h('div.cl-row',
             S.text('Name', p.name, function (v) {
-              if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+              if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
               edZone(z.id, 'Rename preset', function (x) { var q = VF.byId(x.presets, p.id); if (q) q.name = v; });
             }, { max: 24 }),
             S.number('Level', p.level, function (v) {

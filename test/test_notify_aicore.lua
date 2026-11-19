@@ -41,7 +41,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -209,7 +211,10 @@ OnPropertyChanged("Telegram")
 EC.REFRESH_STATUS()
 dg = H.reports("diagnostic")
 last = dg[#dg] and dg[#dg].args
-check("a target again: router.restored (info)", last ~= nil and last.code == "router.restored" and last.severity == "info")
+check(
+  "a target again: router.restored (info)",
+  last ~= nil and last.code == "router.restored" and last.severity == "info"
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

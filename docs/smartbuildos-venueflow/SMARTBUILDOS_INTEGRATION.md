@@ -15,66 +15,110 @@ built, and what is not.
 | Fail open | No Agent, unreachable cloud, unauthenticated Agent, grace, unknown status: nothing is restricted | `test_venueflow_license.lua` "when the licensing SDK enforces" |
 | Activity in the project's common history | Markers to the Flight Recorder (`RECORD_EVENT`, channel `venueflow`) when one is in the project: driver start, publish, rollback, scene and rule runs, venue open and close, All Off, control mode, notifications | `test_venueflow_driver.lua` [1] |
 | Alerts and notifications into Control4 programming | Events Scene Activated, Notification, Alert Raised, Configuration Published, Venue Opened, Venue Closed, Licence Restricted, Licence Restored; variables VENUE_STATUS, ACTIVE_SCENE, NOTIFICATION_TEXT, ALERT_COUNT. A dealer wires them to the Notification Router or any agent in Composer | `test_venueflow_driver.lua` [7] |
-| Same repository, build and update conventions | `drivers/smartbuildos-venueflow`, `DRIVER_FILENAMES`, the monorepo's build, guards and manuals | `make test` |
+| Same repository, build and update conventions | `drivers/smartbuildos-venueflow`, the monorepo's build, guards and manuals; the Agent's `DRIVER_FILENAMES` (its updater) and `SKU_FILENAMES` (`SBOS_VENUEFLOW`) name `smartbuildos-venueflow.c4z` | `make test`, `test_sbos_updater.lua` |
 
 Local operation never needs SmartBuildOS: the operator page, selection,
 routing, audio, scenes, the configuration and state updates are all on the
 controller (`test_venueflow_license.lua` "cloud outage").
 
-## Not built: needs the Agent, the web repository, or both
+## Not finished: needs the Agent, the web repository, or both
 
 These are outside this repository's driver, or change contracts that other
-components own. Nothing here was touched in production.
+components own.
 
 ### 1. Entitlement issuing (blocks selling, not running)
 
-- Web repository: a SKU catalogue row for `SBOS_VENUEFLOW` (name, price,
-  whether it is included in a subscription tier), and the Driver Store
-  listing.
-- Agent (`drivers/smartbuildos/driver.lua`): add `smartbuildos-venueflow.c4z`
-  to the Agent's `DRIVER_FILENAMES` so the Agent's updater carries it.
+- Web repository: a catalogue-row migration for `SBOS_VENUEFLOW` exists
+  (merged 15 November 2026) and **has not been applied by the owner**. Until
+  it is, no licence can be issued for the SKU, and there is no store listing
+  or product page. Its price and tier are the owner's decision.
+- Agent (`drivers/smartbuildos/driver.lua`): `smartbuildos-venueflow.c4z` is
+  in `DRIVER_FILENAMES` and in `SKU_FILENAMES` under `SBOS_VENUEFLOW` (source
+  of 18 November 2026). The store's publish workflow
+  (`.github/workflows/publish-to-store.yml`) does not name VenueFlow yet, so
+  the Agent's updater has nothing to fetch until a package is published to
+  the store.
 
-Until the SKU exists the Agent answers for an unknown SKU as it does today;
-with enforcement off (the default) the driver works fully.
+Until the SKU can be issued the Agent answers for VenueFlow as for any SKU
+without an entitlement; with enforcement off (the default) the driver works
+fully.
 
 ### 2. Remote management from smartbuildos.io
 
-**Driver side: built and tested against the simulator. Platform side: built
-on the web repository's branch `codex/venueflow-studio`, unit-tested, not
-merged. The two have never talked to each other: nothing can be managed
-remotely until both are merged and a bench run passes.**
+**Driver side: built and tested against the simulator and the test shim.
+Platform side: merged and deployed on 15 November 2026. The two have never
+been run together with a controller: nothing has been managed remotely yet.**
 
-Built in this repository (build 20261114.233926):
+Built in this repository (on `main`; the driver's part was first built as
+`20261114.233926`, the status and version reporting below is source of 18
+November 2026 and has not been built for a controller):
 
 | Piece | Where | Evidence |
 | --- | --- | --- |
 | "Remote Management" property (Off, Draft only, Draft and publish) and its status | `driver.xml`, `driver.lua` | `test_venueflow_driver.lua` [10b] |
 | Registration with the Agent as module `venueflow`, only while the property is on | `driver.lua`, `src/sbos/moduleclient.lua` | same |
-| Commands `snapshot`, `save_draft`, `refresh_status`, and with the higher level `publish`, `rollback` | `Core:remote` in `src/venueflow/core.lua` | `test_venueflow_remote.lua` |
+| Commands `snapshot`, `save_draft`, `refresh_status`, and with the higher level `publish`, `rollback` | `Core:remote` in `src/venueflow/core.lua` | `test_venueflow_remote.lua`, `test_venueflow_driver.lua` |
 | The configuration as one snapshot document (no PIN material) | `driver.lua` (`SBOS_MODULE_SNAPSHOT`) | same |
-| Event `venueflow.config.published` | `driver.lua` | `test_venueflow_remote.lua` |
+| `refresh_status` answers with a one-line summary (at most 200 characters) and sends a module status frame at once: that line, counters (`alerts`, `displays`, `zones`, `scenes`, `venue_open`, `simulation`) and `config_version` | `driver.lua` | `test_venueflow_driver.lua` |
+| `config_version`: the published version id the controller runs, or `none`; also sent after every publish and rollback | `driver.lua` | same |
+| Event `venueflow.config.published` with `versionId` (the new live version), `how`, and on a rollback `restoredFrom` | `driver.lua` | `test_venueflow_remote.lua`, `test_venueflow_driver.lua` |
 | Envelope prefix `venueflow.` | `src/sbos/envelope.lua` | same |
 | Agent allowlist entry `MODULE_COMMANDS.venueflow` | `drivers/smartbuildos/driver.lua` | `make test` |
 
-Built on the web repository's branch (see its `docs/venueflow/README.md`):
-the `venueflow` prefix and operations, closed operation arguments, a 200 kB
-ceiling for `save_draft`, a status route that decodes the newest snapshot,
-and a VenueFlow section in System Studio (Overview, Sources, Audio,
-Schedules, Whole configuration, Publish, Driver). No new table or migration.
-Its tests read this repository to check that the Agent, the driver and the
-platform list the same five operations, and run a snapshot produced by this
-driver's code through both of the platform's redactors.
+Merged and deployed in the web repository on 15 November 2026 (see its
+`docs/venueflow/README.md`): the module contract for module `venueflow`
+(operations `snapshot`, `save_draft`, `publish`, `rollback`,
+`refresh_status`, closed operation arguments, up to 200 kB for
+`save_draft`), a status route that decodes the newest snapshot, a VenueFlow
+section in the dealer's System Studio under Drivers & Licenses (Overview,
+Sources, Audio, Schedules, Whole configuration, Publish, Driver), and one
+catalogue-row migration for `SBOS_VENUEFLOW` (not yet applied; section 1).
+No other table. Its tests read this repository to check that the Agent, the
+driver and the platform list the same five operations, and run a snapshot
+produced by this driver's code through both of the platform's redactors.
+None of it has been run end to end with a controller.
+
+On the controller side, the Agent on `main` allows the `venueflow` module,
+and the bench controller runs an Agent built from `main` on 18 November
+2026. That it accepts a VenueFlow registration has not been watched: the
+VenueFlow build on the bench (`20261114.191046`) has no Remote Management.
 
 Still needed before a dealer can use it:
 
-1. Both branches merged, and the bench Agent updated to a build from this
-   branch (it carries the allowlist entry).
-2. **A bench run of the whole path** (HARDWARE_VALIDATION.md). Unmeasured:
-   whether a controller handles a 200 kB `save_draft` comfortably (the sample
-   venue is about 40 kB), and how long a round trip takes on the Agent's
-   check-in cadence.
-3. A `driver_catalog` row for `SBOS_VENUEFLOW` (pricing and tier are the
-   owner's decision; nothing invents them).
+1. A VenueFlow build from current source on the bench controller, and
+   Remote Management registration seen with the bench Agent.
+2. **A bench run of the whole path** from System Studio
+   (HARDWARE_VALIDATION.md, "Not yet run"), including `refresh_status`
+   showing the summary and the live version. Unmeasured: whether a
+   controller handles a large `save_draft` comfortably (the sample venue is
+   about 40 kB; the driver refuses more than 170 kB of JSON), and how long a
+   round trip takes on the Agent's check-in cadence.
+3. The owner applies the catalogue-row migration (section 1) and decides
+   pricing and tier; nothing invents them.
+4. The platform follow-up below.
+
+**Owner decision, built 19 November 2026: device mapping and device
+commands are on site only.** The driver refuses a remote `save_draft` that
+would change which Control4 room or device something addresses or which
+command a custom route or a lighting preset sends, a remote `publish` while
+the draft's mapping differs from what is live, and a remote `rollback` to a
+version with another mapping (PROTOCOL.md, "Remote commands"; driver side
+in `src/venueflow/remotescope.lua`, `test_venueflow_remote.lua`, simulator
+and test shim only). The refusal reaches the platform as a `Failed`
+operation whose detail starts with `VF_ONSITE_ONLY:` and names what was
+touched, at most 380 bytes after the code.
+
+**Platform follow-up (smartbuildos.io has not been changed to match):**
+
+1. The "Whole configuration" editor still lets a dealer edit mapping
+   fields; a save that changes one will be refused. Show those fields
+   read-only (the list is in PROTOCOL.md).
+2. Explain `VF_ONSITE_ONLY` in the platform's own words where the failure
+   appears (that the installer makes these changes on site). Today the
+   platform shows the driver's detail as it is, prefixed with the code.
+3. On Publish, say when the draft holds a mapping change made on site that
+   is not live yet: the remote publish will be refused until the installer
+   publishes on site.
 
 Not built on the platform: full editors for scenes' steps, the floor layout,
 device mapping and staff profiles (the platform has focused editors for

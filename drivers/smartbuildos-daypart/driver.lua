@@ -450,7 +450,15 @@ local function startAiCore()
       { id = "display_power", label = "Display power schedule", class = "media" },
     },
     vocabulary = {
-      "schedule", "background music", "volume", "daypart", "opening hours", "lunch", "dinner", "zone", "displays",
+      "schedule",
+      "background music",
+      "volume",
+      "daypart",
+      "opening hours",
+      "lunch",
+      "dinner",
+      "zone",
+      "displays",
     },
   })
 end

@@ -373,21 +373,21 @@ Commands:
 
 ## Properties
 
-| Property                                                                                | What it shows or sets                                             |
-| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **Driver Status**, **Driver Version**                                                   | `Online` once started; the build                                  |
-| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | The driver's standing with the Agent                              |
-| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
-| **Inspector Mode**                                                                      | Writable or read-only, and why                                    |
-| **App Data Relay**                                                                      | Whether the relay listens and which address the tile is given     |
-| **Watched**                                                                             | Watched variables, for example `1 of 64`                          |
-| **Last Change**                                                                         | The last watched change and its time; `none yet` before the first |
-| **Last Error**                                                                          | The last refusal or fault. It stays until the driver restarts     |
-| **Dealer PIN**                                                                          | The PIN Set asks for. Empty means read-only                       |
-| **App Relay Address**                                                                   | `Auto`, or the controller's LAN address to use as written         |
-| **History Size**                                                                        | Changes kept per watched variable, 50 to 200, default 50          |
-| **Inspect Device ID**                                                                   | The device id *Print Variables For Inspect Device* prints         |
-| **Log Level**, **Log Mode**                                                             | Logging to the Lua tab and the controller log                     |
+| Property                                                                                | What it shows or sets                                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Driver Status**, **Driver Version**                                                   | `Online` once started; the build                                             |
+| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | The driver's standing with the Agent                                         |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
+| **Inspector Mode**                                                                      | Writable or read-only, and why                                               |
+| **App Data Relay**                                                                      | Whether the relay listens and which address the tile is given                |
+| **Watched**                                                                             | Watched variables, for example `1 of 64`                                     |
+| **Last Change**                                                                         | The last watched change and its time; `none yet` before the first            |
+| **Last Error**                                                                          | The last refusal or fault. It stays until the driver restarts                |
+| **Dealer PIN**                                                                          | The PIN Set asks for. Empty means read-only                                  |
+| **App Relay Address**                                                                   | `Auto`, or the controller's LAN address to use as written                    |
+| **History Size**                                                                        | Changes kept per watched variable, 50 to 200, default 50                     |
+| **Inspect Device ID**                                                                   | The device id *Print Variables For Inspect Device* prints                    |
+| **Log Level**, **Log Mode**                                                             | Logging to the Lua tab and the controller log                                |
 
 ## Actions
 
@@ -458,44 +458,44 @@ written to the log with its device and variable.
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it, over the SmartBuildOS Agent, what the inspector is and
-how it is set up. Without AI Core it sends nothing more than before.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what the inspector is and how it is set
+up. Without AI Core it sends nothing more than before.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: a dealer tool showing Control4 variables on a phone,
-  with a watch list and a PIN-guarded Set.
+- **What it is**: a dealer tool showing Control4 variables on a phone, with a
+  watch list and a PIN-guarded Set.
 - **State**: how many variables are watched and the limit, whether Set is
-  read-only, and whether the page relay is listening. Never a device name,
-  a variable name or a value: what the variables say is household
-  activity, and some are codes.
+  read-only, and whether the page relay is listening. Never a device name, a
+  variable name or a value: what the variables say is household activity, and
+  some are codes.
 
-What it will answer when asked: nothing beyond the reports. It reports no
-faults of its own.
+What it will answer when asked: nothing beyond the reports. It reports no faults
+of its own.
 
 What it can be asked to do: nothing. Set stays behind the Dealer PIN.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in unit tests only: nothing here has run on a
-physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

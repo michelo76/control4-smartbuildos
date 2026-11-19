@@ -968,7 +968,10 @@ do
   check("(two instances of one module registered)", a1 ~= nil and a2 ~= nil and a1.token ~= a2.token)
   sent = {}
   local p1 = req(bus, a1, { request_id = "i-1", idempotency_key = "shared-key" })
-  bus:response(registry:find("flight_recorder", "501"), { request_id = p1.request_id, status = "ok", result = '{"who":1}' })
+  bus:response(
+    registry:find("flight_recorder", "501"),
+    { request_id = p1.request_id, status = "ok", result = '{"who":1}' }
+  )
   sent = {}
   req(bus, a2, { request_id = "i-2", idempotency_key = "shared-key" })
   check(
@@ -1005,13 +1008,14 @@ do
   local c2 = cloud(a2, "ci-2")
   check(
     "cloud relay: the same key from two instances posts twice, each answered its own",
-    #posts == nPosts + 2
-      and JSON:decode(c1.params.result).from == "601"
-      and JSON:decode(c2.params.result).from == "602",
+    #posts == nPosts + 2 and JSON:decode(c1.params.result).from == "601" and JSON:decode(c2.params.result).from == "602",
     #posts - nPosts
   )
   local c3 = cloud(a1, "ci-3")
-  check("…and an instance's own repeat is replayed, not posted", #posts == nPosts + 2 and JSON:decode(c3.params.result).from == "601")
+  check(
+    "…and an instance's own repeat is replayed, not posted",
+    #posts == nPosts + 2 and JSON:decode(c3.params.result).from == "601"
+  )
   cloudAnswer = nil
 end
 

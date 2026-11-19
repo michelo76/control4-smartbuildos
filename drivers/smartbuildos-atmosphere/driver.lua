@@ -901,8 +901,37 @@ end
 --- event. "Expected" predictions, gusts, fog, sun times and simulation
 --- markers stay local (the state facts carry the predictions).
 local AI_EVENT_IDS = {
-  1, 2, 7, 8, 16, 17, 22, 23, 25, 26, 27, 28, 29, 30, 31,
-  32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+  1,
+  2,
+  7,
+  8,
+  16,
+  17,
+  22,
+  23,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  36,
+  37,
+  38,
+  39,
+  40,
+  41,
+  42,
+  43,
+  44,
+  45,
+  46,
+  47,
 }
 --- The engine's data-health events, reported as diagnostics.
 local AI_DIAGNOSTICS = {
@@ -1041,7 +1070,8 @@ local function aiForecast(params)
     if #alerts >= 10 then
       break
     end
-    alerts[#alerts + 1] = { event = a.event, severity = a.severity, headline = a.headline, ends_at = a.ends or a.expires }
+    alerts[#alerts + 1] =
+      { event = a.event, severity = a.severity, headline = a.headline, ends_at = a.ends or a.expires }
   end
   return { periods = periods, alerts = alerts, forecast_at = finiteOrNil(gFetched.forecast) }
 end
@@ -1072,9 +1102,25 @@ local function startAiCore()
       { id = "outdoor_humidity", label = "Outdoor humidity", class = "sensor" },
     },
     vocabulary = {
-      "weather", "forecast", "temperature", "outside", "rain", "snow", "wind", "storm",
-      "thunderstorm", "freeze", "frost", "heat", "humidity", "weather alert", "warning", "watch",
-      "tornado", "hurricane", "flood",
+      "weather",
+      "forecast",
+      "temperature",
+      "outside",
+      "rain",
+      "snow",
+      "wind",
+      "storm",
+      "thunderstorm",
+      "freeze",
+      "frost",
+      "heat",
+      "humidity",
+      "weather alert",
+      "warning",
+      "watch",
+      "tornado",
+      "hurricane",
+      "flood",
     },
   })
   if gSnapshot ~= nil then

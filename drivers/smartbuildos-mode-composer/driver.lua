@@ -2485,14 +2485,22 @@ aiOnEngineEvent = function(name, detail)
   elseif name == "countdown_begin" then
     aireport.event(
       "mode.countdown_started",
-      string.format("%s starts in %d seconds (departure countdown)", modeName(detail.mode_id), tonumber(detail.seconds) or 0),
+      string.format(
+        "%s starts in %d seconds (departure countdown)",
+        modeName(detail.mode_id),
+        tonumber(detail.seconds) or 0
+      ),
       { mode = modeName(detail.mode_id), seconds = tonumber(detail.seconds) or 0 }
     )
   elseif name == "activation_failed" then
     aireport.diagnostic(
       "warning",
       "activation.failed",
-      string.format("Activating %s failed (%d device command(s) failed)", modeName(detail.mode_id), #(detail.failures or {}))
+      string.format(
+        "Activating %s failed (%d device command(s) failed)",
+        modeName(detail.mode_id),
+        #(detail.failures or {})
+      )
     )
   elseif name == "activation_blocked" then
     aireport.diagnostic(
@@ -2504,11 +2512,7 @@ aiOnEngineEvent = function(name, detail)
     aireport.diagnostic(
       "warning",
       "activation.partial",
-      string.format(
-        "%s is active, but %d device command(s) failed",
-        modeName(detail.mode_id),
-        #(detail.failures or {})
-      )
+      string.format("%s is active, but %d device command(s) failed", modeName(detail.mode_id), #(detail.failures or {}))
     )
   end
 end
@@ -2634,8 +2638,20 @@ local function startAiCore()
       { id = "lifestyle_mode", label = "Lifestyle mode", class = "mode" },
     },
     vocabulary = {
-      "mode", "house mode", "scene", "home", "away", "vacation", "sleep", "goodnight",
-      "movie", "party", "morning", "night", "leaving", "arriving",
+      "mode",
+      "house mode",
+      "scene",
+      "home",
+      "away",
+      "vacation",
+      "sleep",
+      "goodnight",
+      "movie",
+      "party",
+      "morning",
+      "night",
+      "leaving",
+      "arriving",
     },
   })
   aiReportState()

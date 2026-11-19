@@ -41,7 +41,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -154,14 +156,23 @@ package.preload["lib.http"] = function()
               rejected = {},
               inbound = {},
               next_seq = relay.seq,
-              snapshot = (data.since_seq == 0 or data.snapshot) and {
-                peer_items = {
-                  { id = "ny-occ", name = "Occupied", type = "BOOLEAN", owner = "ep-ny", schema_rev = 0, order = 1 },
-                },
-                peer_state = { { id = "ny-occ", gen = 1, rev = 3, value = { s = "current", v = true }, seq = 1 } },
-                own_committed = {},
-                head_seq = relay.seq,
-              } or nil,
+              snapshot = (data.since_seq == 0 or data.snapshot)
+                  and {
+                    peer_items = {
+                      {
+                        id = "ny-occ",
+                        name = "Occupied",
+                        type = "BOOLEAN",
+                        owner = "ep-ny",
+                        schema_rev = 0,
+                        order = 1,
+                      },
+                    },
+                    peer_state = { { id = "ny-occ", gen = 1, rev = 3, value = { s = "current", v = true }, seq = 1 } },
+                    own_committed = {},
+                    head_seq = relay.seq,
+                  }
+                or nil,
             }),
           })
         end,
@@ -293,7 +304,13 @@ EC.REFRESH_LINK()
 advance(200)
 -- Exactly the engine's own fault events, mirrored: 1 Link Connected,
 -- 2 Link Disconnected, 3 Peer Online, 4 Peer Offline, 20 Loop Suspended.
-local MIRROR = { [1] = "link.connected", [2] = "link.disconnected", [3] = "peer.online", [4] = "peer.offline", [20] = "item.loop_suspended" }
+local MIRROR = {
+  [1] = "link.connected",
+  [2] = "link.disconnected",
+  [3] = "peer.online",
+  [4] = "peer.offline",
+  [20] = "item.loop_suspended",
+}
 local expected = {}
 for _, id in ipairs(firedIds) do
   if MIRROR[id] then

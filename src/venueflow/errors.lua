@@ -21,6 +21,9 @@ M.CODES = {
   VF_STUDIO_DISABLED = { http = 403, operator = "Installer Studio is off until an Installer Passcode is set." },
   VF_CONFIRM_REQUIRED = { http = 409, operator = "Please confirm this action." },
   VF_LICENSE_RESTRICTED = { http = 403, operator = "This feature needs a SmartBuildOS licence." },
+  -- Remote Management may not change device mapping or device commands
+  -- (remotescope.lua); the detail names what differs.
+  VF_ONSITE_ONLY = { http = 403, operator = "That can only be changed on site." },
   -- configuration
   VF_NO_PUBLISHED_CONFIG = { http = 409, operator = "This venue has not been set up yet." },
   VF_VALIDATION_FAILED = { http = 422, operator = "The configuration has problems to fix first." },

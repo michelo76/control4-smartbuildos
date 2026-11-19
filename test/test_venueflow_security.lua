@@ -258,6 +258,167 @@ else
     "the packaged version is stamped",
     xml ~= nil and xml:match("<version>%d%d%d%d%d%d%d%d%.%d%d%d%d%d%d</version>") ~= nil
   )
+  -- A package built before a source changed still holds every module by
+  -- name, so the checks above pass against stale code (a real case: a shared
+  -- module changed after the package was built). Compare what each squished
+  -- module SAYS with its source: Lua tokens with comments and whitespace
+  -- dropped, the two things the build's minifier removes. Contents, not
+  -- timestamps (a checkout touches every file).
+  do
+    local function luaTokens(src)
+      local out, i, n = {}, 1, #src
+      local twoChar = { [".."] = true, ["=="] = true, ["~="] = true, ["<="] = true, [">="] = true, ["::"] = true }
+      twoChar["//"], twoChar["<<"], twoChar[">>"] = true, true, true
+      while i <= n do
+        local c = src:sub(i, i)
+        if c:find("%s") then
+          i = i + 1
+        elseif src:sub(i, i + 1) == "--" then
+          local level = src:match("^%[(=*)%[", i + 2)
+          if level ~= nil then
+            local close = "]" .. level .. "]"
+            local stop = src:find(close, i + 4 + #level, true)
+            i = (stop or n) + #close
+          else
+            i = (src:find("\n", i, true) or n) + 1
+          end
+        elseif c == "[" and src:find("^%[=*%[", i) then
+          local level = src:match("^%[(=*)%[", i)
+          local close = "]" .. level .. "]"
+          local stop = src:find(close, i + 2 + #level, true)
+          stop = (stop or n) + #close - 1
+          out[#out + 1] = src:sub(i, stop)
+          i = stop + 1
+        elseif c == '"' or c == "'" then
+          local j = i + 1
+          while j <= n do
+            local d = src:sub(j, j)
+            if d == "\\" then
+              j = j + 2
+            elseif d == c then
+              break
+            else
+              j = j + 1
+            end
+          end
+          out[#out + 1] = src:sub(i, j)
+          i = j + 1
+        elseif c:find("[%a_]") then
+          local _, stop = src:find("^[%w_]+", i)
+          out[#out + 1] = src:sub(i, stop)
+          i = stop + 1
+        elseif c:find("%d") or (c == "." and src:sub(i + 1, i + 1):find("%d")) then
+          local _, stop = src:find("^0[xX]%x+", i)
+          if stop == nil then
+            _, stop = src:find("^%d*%.?%d*[eE][%+%-]?%d+", i)
+          end
+          if stop == nil then
+            _, stop = src:find("^%d*%.?%d*", i)
+          end
+          out[#out + 1] = src:sub(i, stop)
+          i = stop + 1
+        elseif src:sub(i, i + 2) == "..." then
+          out[#out + 1] = "..."
+          i = i + 3
+        elseif twoChar[src:sub(i, i + 1)] then
+          out[#out + 1] = src:sub(i, i + 1)
+          i = i + 2
+        else
+          out[#out + 1] = c
+          i = i + 1
+        end
+      end
+      return out
+    end
+    -- The OSS build's preprocessing (tools/preprocess.py --oss): keep what
+    -- is under OSS or under no condition.
+    local function preprocessOss(src)
+      local kept, stack, including = {}, {}, true
+      for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+        local ifdef = line:match("^%s*%-%-%s*#ifdef%s+(%w+)%s*$")
+        local ifndef = line:match("^%s*%-%-%s*#ifndef%s+(%w+)%s*$")
+        if ifdef or ifndef then
+          stack[#stack + 1] = including
+          local holds = (ifdef or ifndef) == "OSS"
+          if ifndef then
+            holds = not holds
+          end
+          including = including and holds
+        elseif line:match("^%s*%-%-%s*#else%s*$") then
+          local parent = stack[#stack]
+          including = parent and not including
+        elseif line:match("^%s*%-%-%s*#endif%s*$") then
+          including = table.remove(stack)
+        elseif including then
+          kept[#kept + 1] = line
+        end
+      end
+      return table.concat(kept, "\n")
+    end
+    local function sourceOf(module)
+      local path = module:gsub("%.", "/")
+      for _, candidate in ipairs({
+        "src/" .. path .. ".lua",
+        "src/" .. path .. "/init.lua",
+        "vendor/" .. path .. ".lua",
+        "vendor/" .. path .. "/init.lua",
+      }) do
+        local text = read(candidate)
+        if text ~= nil then
+          return preprocessOss(text), candidate
+        end
+      end
+      return nil
+    end
+    local function sameTokens(a, b, from)
+      from = from or 1
+      for k = 1, #b do
+        if a[from + k - 1] ~= b[k] then
+          return false
+        end
+      end
+      return true
+    end
+    local heads = {}
+    local text = lua or ""
+    for at, name, bodyAt in ("\n" .. text):gmatch("()\npackage%.preload%['([^']+)'%] = %(function %(%.%.%.%)\n()") do
+      heads[#heads + 1] = { at = at - 1, name = name, bodyAt = bodyAt - 1 }
+    end
+    local stale, unknown = {}, {}
+    for k, head in ipairs(heads) do
+      local source = sourceOf(head.name)
+      if source == nil then
+        unknown[#unknown + 1] = head.name
+      else
+        local want = luaTokens(source)
+        want[#want + 1] = "end"
+        want[#want + 1] = ")"
+        local nextAt = heads[k + 1] and heads[k + 1].at or (#text + 1)
+        local got = luaTokens(text:sub(head.bodyAt, nextAt - 1))
+        local ok
+        if heads[k + 1] ~= nil then
+          ok = #got == #want and sameTokens(got, want)
+        else
+          -- The last module is followed by the main chunk: driver.lua itself.
+          local main = luaTokens(preprocessOss(read("drivers/smartbuildos-venueflow/driver.lua") or ""))
+          ok = sameTokens(got, want)
+          if not (#got == #want + #main and sameTokens(got, main, #want + 1)) then
+            stale[#stale + 1] = "driver.lua (the main chunk)"
+          end
+        end
+        if not ok then
+          stale[#stale + 1] = head.name
+        end
+      end
+    end
+    check("the squished driver's modules were found", #heads >= 30, #heads)
+    check("every squished module has a source in src/ or vendor/", #unknown == 0, table.concat(unknown, ", "))
+    check(
+      "the package's Lua is the current source (rebuild with `make venueflow` if not)",
+      #heads > 0 and #stale == 0,
+      #stale > 0 and ("the package was built from older sources than: " .. table.concat(stale, ", ")) or nil
+    )
+  end
   check("the packaged operator page is the built one", read(dir .. "/www/app/index.html") == pages.app)
   check("the packaged Studio page is the built one", read(dir .. "/www/studio/index.html") == pages.studio)
   check(

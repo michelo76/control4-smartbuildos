@@ -87,7 +87,11 @@ R.lifecycle({
     env.advance(6000)
   end,
   describe = function(d)
-    check("ONE registration: the driver's own client", H.count("SBOS_MODULE_REGISTER") == 1, H.count("SBOS_MODULE_REGISTER"))
+    check(
+      "ONE registration: the driver's own client",
+      H.count("SBOS_MODULE_REGISTER") == 1,
+      H.count("SBOS_MODULE_REGISTER")
+    )
     check(
       "describe: the MQTT bridge (class network)",
       #d.controls == 1 and d.controls[1].id == "mqtt_bridge" and d.controls[1].class == "network"
@@ -140,7 +144,10 @@ check(
   codes(d1)
 )
 env.advance(6000) -- the next status paint
-check("…the state follows (broker_connected false)", H.reports("state")[#H.reports("state")].args.facts.broker_connected == false)
+check(
+  "…the state follows (broker_connected false)",
+  H.reports("state")[#H.reports("state")].args.facts.broker_connected == false
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

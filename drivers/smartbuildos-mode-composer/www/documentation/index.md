@@ -560,7 +560,7 @@ run `Set Mode Schedule` once with `NAME` `Sleep`, `TIME` `23:30`, `DAYS`
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Driver Status**, **Driver Version**                                                             | See [Reading the status](#reading-the-status)                                                                                                                 |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company**           | The licence, as the Agent reports it                                                                                                                          |
-| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
+| **AI Core**                                                                                       | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                                                  |
 | **Presence Mode**, **Lifestyle Mode**                                                             | The active modes; **Lifestyle Mode** shows `-` when there is none                                                                                             |
 | **Selected Mode**                                                                                 | The mode that the mode properties and the "Selected Mode" actions work on                                                                                     |
 | **Devices In Selected Mode**                                                                      | How many devices that mode sets, its own and inherited                                                                                                        |
@@ -625,61 +625,59 @@ run `Set Mode Schedule` once with `NAME` `Sleep`, `TIME` `23:30`, `DAYS`
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it about the house modes so a person can ask the assistant
-about them, and lets the assistant *propose* activating a mode. Without AI
-Core it sends nothing, and modes work exactly as described above.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it about the house modes so a person can ask the assistant about them, and
+lets the assistant *propose* activating a mode. Without AI Core it sends
+nothing, and modes work exactly as described above.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: house modes, one presence mode and one lifestyle mode at
-  a time, and the words people use (away, vacation, movie, goodnight…).
-- **State**: the active presence and lifestyle modes, whether a transition
-  is running, how many modes exist, occupancy, the last activation and how
-  it went.
+- **What it is**: house modes, one presence mode and one lifestyle mode at a
+  time, and the words people use (away, vacation, movie, goodnight…).
+- **State**: the active presence and lifestyle modes, whether a transition is
+  running, how many modes exist, occupancy, the last activation and how it went.
 - **Events**: a mode changed; a departure countdown started.
-- **Faults**: an activation that failed, was blocked by its preflight
-  checks, or finished with some devices failing.
+- **Faults**: an activation that failed, was blocked by its preflight checks, or
+  finished with some devices failing.
 
 What it will answer when asked (read-only):
 
 - *Which modes exist and which is active?*
-- *What were the last mode activations?* (which mode, when, from where —
-  keypad, schedule, sensor… — and how it went; 1 to 10 of them)
+- *What were the last mode activations?* (which mode, when, from where — keypad,
+  schedule, sensor… — and how it went; 1 to 10 of them)
 
 What it can be asked to do: **activate a mode by name**, exactly as the
-*Activate Mode* command does (same preflight checks, countdown and
-priorities). The assistant can only *propose* it: **a person must approve
-every activation** in the SmartBuildOS portal, the homeowner's Remote
-Control setting must allow it, and it is declared high risk because a mode
-can lock doors or arm security. The driver runs it only for an AI Core the
-SmartBuildOS Agent has verified, and only if the driver's declaration has
-not changed since the approval. The answer says what really happened: the
-mode is active, a countdown started, the commands are being sent (the
-outcome follows as an event), or why it did not run (unknown or switched-off
-mode, blocked by a preflight check). A countdown or an activation still
-sending commands is reported as *started*, never as completed.
+*Activate Mode* command does (same preflight checks, countdown and priorities).
+The assistant can only *propose* it: **a person must approve every activation**
+in the SmartBuildOS portal, the homeowner's Remote Control setting must allow
+it, and it is declared high risk because a mode can lock doors or arm security.
+The driver runs it only for an AI Core the SmartBuildOS Agent has verified, and
+only if the driver's declaration has not changed since the approval. The answer
+says what really happened: the mode is active, a countdown started, the commands
+are being sent (the outcome follows as an event), or why it did not run (unknown
+or switched-off mode, blocked by a preflight check). A countdown or an
+activation still sending commands is reported as *started*, never as completed.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in the emulator and in unit tests only: nothing here
-has run on a physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in the emulator and in unit tests only: nothing here has run
+on a physical controller.
 
 ## What is not claimed
 

@@ -42,7 +42,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -156,7 +158,13 @@ package.preload["drivers-common-public.module.websocket"] = function()
   function FakeWs:new(url)
     return setmetatable({ url = url }, FakeWs)
   end
-  for _, m in ipairs({ "SetProcessMessageFunction", "SetEstablishedFunction", "SetClosedByRemoteFunction", "SetOfflineFunction", "Start" }) do
+  for _, m in ipairs({
+    "SetProcessMessageFunction",
+    "SetEstablishedFunction",
+    "SetClosedByRemoteFunction",
+    "SetOfflineFunction",
+    "Start",
+  }) do
     FakeWs[m] = function(self)
       return self
     end
@@ -234,7 +242,16 @@ R.lifecycle({
       JSON:encode(facts)
     )
   end,
-  forbid = { "Whitfield", "Driveway", "Garage", "Dream Machine", "192.168", "secret-key", "webhooksecret77", "60223263" },
+  forbid = {
+    "Whitfield",
+    "Driveway",
+    "Garage",
+    "Dream Machine",
+    "192.168",
+    "secret-key",
+    "webhooksecret77",
+    "60223263",
+  },
 })
 
 print("[5] the console offline / online diagnostics")
@@ -257,7 +274,10 @@ consoleUp = true
 advance(5 * 60000)
 dg = H.reports("diagnostic")
 last = dg[#dg] and dg[#dg].args
-check("it answers again: console.online (info)", last ~= nil and last.code == "console.online" and last.severity == "info")
+check(
+  "it answers again: console.online (info)",
+  last ~= nil and last.code == "console.online" and last.severity == "info"
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

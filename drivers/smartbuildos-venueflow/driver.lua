@@ -485,6 +485,73 @@ local function remoteEvent(eventType, payload)
   end)
 end
 
+--- The live configuration version the module reports to the Agent (the
+--- registry's config_version): the published version this controller runs,
+--- "none" when nothing runs (nothing published, or a sample venue held back
+--- in Live mode).
+local function configVersion()
+  local meta = gCore ~= nil and gCore.config ~= nil and gCore.publishedMeta or nil
+  if meta ~= nil and meta.versionId ~= nil then
+    return tostring(meta.versionId)
+  end
+  return "none"
+end
+
+local STATUS_LINE_MAX = 200 -- the Agent keeps a module's detail to 200 characters (src/sbos/modules.lua)
+
+local function oneLine(v, max)
+  local text = tostring(v or ""):gsub("[%c]", " "):gsub("%s+", " ")
+  if #text > max then
+    text = text:sub(1, max - 3) .. "..."
+  end
+  return text
+end
+
+--- One line for the platform: what runs, in which mode, and what is wrong.
+--- Never a name of a person, a PIN, an address or a token; the venue's name
+--- is left out too (the configuration snapshot carries it when asked for).
+local function statusLine()
+  if gCore == nil then
+    return oneLine("not running: " .. tostring(gLastError), STATUS_LINE_MAX)
+  end
+  local ok, s = pcall(function()
+    return gCore:summary()
+  end)
+  if not ok or type(s) ~= "table" then
+    return "running; summary unavailable"
+  end
+  local line = string.format(
+    "%s; %s; venue %s; scene %s; %d alert%s; draft %s",
+    oneLine(s.configuration, 70),
+    tostring(s.mode),
+    tostring(s.status),
+    oneLine(s.scene, 30),
+    tonumber(s.alerts) or 0,
+    tonumber(s.alerts) == 1 and "" or "s",
+    tostring(s.draft)
+  )
+  if gLastError ~= "none" then
+    line = line .. "; last error: " .. oneLine(gLastError, 60)
+  end
+  return oneLine(line, STATUS_LINE_MAX)
+end
+
+--- Numbers only (the Studio lists every counter as key=value).
+local function venueCounters()
+  if gCore == nil then
+    return {}
+  end
+  local config = gCore.config
+  return {
+    alerts = gCore:alertCount(),
+    displays = config and #config.displays or 0,
+    zones = config and #config.audioZones or 0,
+    scenes = config and #config.scenes or 0,
+    venue_open = gCore.runtime.venueStatus == "open" and 1 or 0,
+    simulation = controlMode() == "simulation" and 1 or 0,
+  }
+end
+
 --- A restricted command from the platform, already authenticated by the
 --- Agent's token (moduleclient drops anything else).
 function VenueFlowRemoteCommand(request)
@@ -504,8 +571,9 @@ function VenueFlowRemoteCommand(request)
   local detail = ""
   if command == "snapshot" then
     -- The configuration travels as one document, not as events (an event's
-    -- payload is limited to 4 kB), and as JSON text in parts, which the
-    -- Agent's snapshot redaction leaves intact (Core.snapshotDocument).
+    -- payload is limited to 4 kB), as base64 in comma-separated groups: the
+    -- one form neither the Agent's redaction nor the platform's rewrites
+    -- (Core.snapshotDocument).
     local document, why = Core.snapshotDocument(out.data, function(t)
       return JSON:encode(t)
     end)
@@ -520,6 +588,13 @@ function VenueFlowRemoteCommand(request)
     detail = "revision " .. tostring(out.data and out.data.revision)
   elseif command == "publish" or command == "rollback" then
     detail = "version " .. tostring(out.data and out.data.versionId)
+  elseif command == "refresh_status" then
+    -- The summary, twice: in this result (the platform's list of recent
+    -- operations shows it) and in a status frame sent now, so the module's
+    -- row (status, detail, counters, configuration version) is current at
+    -- the Agent's next heartbeat instead of up to five minutes later.
+    detail = statusLine()
+    pcall(moduleclient.sendStatus, { config_version = configVersion() })
   end
   gRemoteLast = command .. " " .. os.date("%H:%M")
   -- The Agent's closed list of states: Accepted, Executing, Completed, Failed,
@@ -608,11 +683,9 @@ local function startRemote()
     event_types = { "venueflow." },
     singleton = true,
     status = function()
-      return "running", gLastError ~= "none" and gLastError or "", {}
+      return "running", statusLine(), venueCounters()
     end,
-    configVersion = function()
-      return "0"
-    end,
+    configVersion = configVersion,
     onRegistered = function(reply)
       paintRemote()
       aireport.onRegistered(reply)
@@ -726,12 +799,25 @@ local function buildCore()
       end,
     },
     passcode = passcode,
-    record = function(name, detail)
-      record(name, detail)
+    record = function(name, detail, restoredFrom)
+      -- A rollback names the NEW live version first, then the version whose
+      -- content it restored.
+      record(
+        name,
+        restoredFrom ~= nil and (tostring(detail) .. " (restored from " .. tostring(restoredFrom) .. ")") or detail
+      )
       -- The platform hears about a new live version (a small event; the
-      -- configuration itself only travels when the platform asks for it).
+      -- configuration itself only travels when the platform asks for it),
+      -- and the module's registry row learns the version at once.
       if name == "configuration published" or name == "configuration rolled back" then
-        remoteEvent("venueflow.config.published", { versionId = tostring(detail or ""), how = name })
+        remoteEvent("venueflow.config.published", {
+          versionId = tostring(detail or ""),
+          how = name,
+          restoredFrom = restoredFrom ~= nil and tostring(restoredFrom) or nil,
+        })
+        if gRemoteLevel ~= nil and moduleclient.isRegistered() then
+          pcall(moduleclient.sendStatus, { config_version = tostring(detail or "") })
+        end
       end
     end,
     fireEvent = function(key)
@@ -739,7 +825,22 @@ local function buildCore()
       -- Every event marks a change the property page should show at once.
       pcall(paint)
     end,
-    setVariable = setVar,
+    setVariable = function(name, value)
+      -- ALERT_COUNT is always the venue's whole count (Core:alertCount), the
+      -- number the Alerts property and HAS_ALERTS use, whoever writes it.
+      if name == "ALERT_COUNT" and gCore ~= nil then
+        local ok, count = pcall(function()
+          return gCore:alertCount()
+        end)
+        if ok then
+          value = count
+        end
+        setVar(name, value)
+        pcall(paint) -- the Alerts property shows the same number at once
+        return
+      end
+      setVar(name, value)
+    end,
     log = log,
     info = function()
       return {
@@ -1004,7 +1105,7 @@ local function composer(command, tParams)
   if gCore == nil then
     return
   end
-  local ok, done, message = pcall(function()
+  local ok, done, message, warned = pcall(function()
     return gCore:composer(command, tParams or {})
   end)
   if not ok then
@@ -1012,6 +1113,11 @@ local function composer(command, tParams)
     log:error("%s", gLastError)
   elseif not done then
     gLastError = command .. " refused: " .. tostring(message)
+    log:warn("%s", gLastError)
+  elseif warned then
+    -- Done, but something it would have started did not run (for example
+    -- SET_VENUE_STATUS under a restricted licence: the rules waiting for it).
+    gLastError = command .. ": " .. tostring(message)
     log:warn("%s", gLastError)
   end
   paint()
@@ -1039,18 +1145,38 @@ end
 
 -- ─── Conditionals (TestCondition name, tParams{VALUE, LOGIC}) ──────────────
 
-function TC.VENUE_OPEN()
-  return gCore ~= nil and gCore.runtime.venueStatus == "open"
+--- A BOOL conditional: Composer passes the true_text or false_text the
+--- programmer chose (driver.xml) as VALUE, as in the DriverWorks sample; the
+--- vendored TestCondition hands tParams over untouched, so the driver answers
+--- the question that was asked. No VALUE (or one not recognised) asks the
+--- true_text question; NOT_EQUAL inverts.
+local function boolAnswer(tParams, falseText, answer)
+  tParams = type(tParams) == "table" and tParams or {}
+  local value = trim(tParams.VALUE):lower()
+  if value == falseText or value == "false" or value == "0" then
+    answer = not answer
+  end
+  if tostring(tParams.LOGIC or "EQUAL"):upper() == "NOT_EQUAL" then
+    answer = not answer
+  end
+  return answer
 end
 
-function TC.HAS_ALERTS()
-  if gCore == nil then
-    return false
+--- "Venue is open" (true_text open, false_text closed).
+function TC.VENUE_OPEN(_, tParams)
+  return boolAnswer(tParams, "closed", gCore ~= nil and gCore.runtime.venueStatus == "open")
+end
+
+--- "VenueFlow has alerts" (true_text showing alerts, false_text clear).
+function TC.HAS_ALERTS(_, tParams)
+  local has = false
+  if gCore ~= nil then
+    local ok, count = pcall(function()
+      return gCore:alertCount()
+    end)
+    has = ok and (tonumber(count) or 0) > 0
   end
-  local ok, s = pcall(function()
-    return gCore:summary()
-  end)
-  return ok and (tonumber(s.alerts) or 0) > 0
+  return boolAnswer(tParams, "clear", has)
 end
 
 --- "= name" is true when that scene is the active one; "!= name" when not.

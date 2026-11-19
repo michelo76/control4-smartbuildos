@@ -33,10 +33,13 @@ function OnDriverLateInit()
     FIXTURE.level = params.level
     return "level set to " .. tostring(params.level)
   end)
-  aireport.declareAction({ id = "jam", title = "Jam", description = "Always refuses.", params = {}, risk = "medium" }, function()
-    FIXTURE.jams = FIXTURE.jams + 1
-    return nil, "the fixture is jammed"
-  end)
+  aireport.declareAction(
+    { id = "jam", title = "Jam", description = "Always refuses.", params = {}, risk = "medium" },
+    function()
+      FIXTURE.jams = FIXTURE.jams + 1
+      return nil, "the fixture is jammed"
+    end
+  )
   FIXTURE.started = aireport.start({ file = file, summary = "Test fixture reporter." })
 end
 
@@ -45,7 +48,8 @@ function OnDriverDestroyed()
 end
 
 function EC.EMIT_EVENT(t)
-  FIXTURE.lastEvent = { aireport.event("fixture.tick", tostring((t or {}).TEXT or "tick"), { n = tonumber((t or {}).N) or 0 }) }
+  FIXTURE.lastEvent =
+    { aireport.event("fixture.tick", tostring((t or {}).TEXT or "tick"), { n = tonumber((t or {}).N) or 0 }) }
 end
 
 function EC.EMIT_DIAGNOSTIC(t)

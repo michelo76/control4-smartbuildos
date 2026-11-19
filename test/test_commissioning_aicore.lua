@@ -40,7 +40,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end

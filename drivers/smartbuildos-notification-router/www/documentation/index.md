@@ -568,48 +568,48 @@ on the variable changing, and test what it says:
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it, over the SmartBuildOS Agent, what it is and whether
-notifications are getting through. Health and counts only. Without AI
-Core it sends nothing more than before.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what it is and whether notifications are
+getting through. Health and counts only. Without AI Core it sends nothing more
+than before.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: one Notify command routed to Telegram, Pushover, Slack
-  or Discord, a webhook or SMS, and the words people use (alert, message,
-  quiet hours…).
+- **What it is**: one Notify command routed to Telegram, Pushover, Slack or
+  Discord, a webhook or SMS, and the words people use (alert, message, quiet
+  hours…).
 - **State**: the router status, how many targets are ready, how many
-  notifications were sent, failed and received today, and how many are
-  waiting. Never a title or message, a sender, a chat id or phone number,
-  a target address, a token or any other credential.
+  notifications were sent, failed and received today, and how many are waiting.
+  Never a title or message, a sender, a chat id or phone number, a target
+  address, a token or any other credential.
 - **Faults**: delivery degraded (Router Degraded) and restored (Router
   Restored).
 
 What it will answer when asked: nothing beyond the reports.
 
-What it can be asked to do: nothing. Sending a notification stays with
-Composer programming.
+What it can be asked to do: nothing. Sending a notification stays with Composer
+programming.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in unit tests only: nothing here has run on a
-physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is NOT claimed
 

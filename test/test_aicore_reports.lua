@@ -42,7 +42,12 @@ local function describe(over)
   local d = {
     v = 1,
     kind = "describe",
-    driver = { name = "SmartBuildOS Atmosphere", version = "20261118.1", sku = "SBOS_ATMOSPHERE", file = "smartbuildos-atmosphere.c4z" },
+    driver = {
+      name = "SmartBuildOS Atmosphere",
+      version = "20261118.1",
+      sku = "SBOS_ATMOSPHERE",
+      file = "smartbuildos-atmosphere.c4z",
+    },
     summary = "Weather for the home.",
     controls = { { id = "forecast", label = "Forecast", class = "weather" } },
     vocabulary = { "forecast" },
@@ -73,7 +78,8 @@ local function state(facts)
   return { v = 1, kind = "state", facts = facts or { temperature_f = 71 } }
 end
 local function event(over)
-  local e = { v = 1, kind = "event", type = "weather.alert", text = "Wind advisory", data = { level = "advisory" }, at = EPOCH }
+  local e =
+    { v = 1, kind = "event", type = "weather.alert", text = "Wind advisory", data = { level = "advisory" }, at = EPOCH }
   for k, v in pairs(over or {}) do
     e[k] = v
   end
@@ -129,13 +135,28 @@ do
   check("a state within its bounds is not too_large", V("atmosphere", "321", state(facts)) ~= nil)
   facts.k33 = 1
   check("33 facts → invalid", select(2, V("atmosphere", "321", state(facts))) == "invalid")
-  check("a missing required key → invalid", select(2, V("atmosphere", "321", { v = 1, kind = "event", type = "a.b", text = "x", at = EPOCH })) == "invalid")
-  check("`at` as ISO text → invalid (epoch seconds only)", select(2, V("atmosphere", "321", event({ at = "2027-01-01T00:00:00Z" }))) == "invalid")
+  check(
+    "a missing required key → invalid",
+    select(2, V("atmosphere", "321", { v = 1, kind = "event", type = "a.b", text = "x", at = EPOCH })) == "invalid"
+  )
+  check(
+    "`at` as ISO text → invalid (epoch seconds only)",
+    select(2, V("atmosphere", "321", event({ at = "2027-01-01T00:00:00Z" }))) == "invalid"
+  )
   check("`at` fractional → invalid", select(2, V("atmosphere", "321", event({ at = EPOCH + 0.5 }))) == "invalid")
   check("event type pattern", select(2, V("atmosphere", "321", event({ type = "Bad Type" }))) == "invalid")
-  check("diagnostic severity closed", select(2, V("atmosphere", "321", diagnostic({ severity = "critical" }))) == "invalid")
-  check("hash must be 16 lower-case hex", select(2, V("atmosphere", "321", describe({ hash = string.rep("a", 64) }))) == "invalid")
-  check("…upper case refused", select(2, V("atmosphere", "321", describe({ hash = "0123456789ABCDEF" }))) == "invalid")
+  check(
+    "diagnostic severity closed",
+    select(2, V("atmosphere", "321", diagnostic({ severity = "critical" }))) == "invalid"
+  )
+  check(
+    "hash must be 16 lower-case hex",
+    select(2, V("atmosphere", "321", describe({ hash = string.rep("a", 64) }))) == "invalid"
+  )
+  check(
+    "…upper case refused",
+    select(2, V("atmosphere", "321", describe({ hash = "0123456789ABCDEF" }))) == "invalid"
+  )
   -- text is data: cleaned, never refused for it
   local dirty = V("atmosphere", "321", event({ text = "line1\nline2\t\226\128\174rtl\226\128\168end\1" }))
   check(
@@ -144,7 +165,10 @@ do
     dirty and dirty.text
   )
   local long = V("atmosphere", "321", event({ text = string.rep("\195\169", 300) }))
-  check("free text cut to 240 code points between characters", long and Reports._encode(long.text) and #long.text == 480)
+  check(
+    "free text cut to 240 code points between characters",
+    long and Reports._encode(long.text) and #long.text == 480
+  )
   -- identifiers are refused, not repaired
   local d = describe()
   d.controls[1].id = "fore\ncast"
@@ -153,7 +177,10 @@ do
   d.queries[1].params[1].values = { "f", "c\1" }
   check("an enum value with a control character is refused", select(2, V("atmosphere", "321", d)) == "invalid")
   -- the platform's shapes (wire.ts): what it would refuse is refused here
-  check("empty summary refused (the platform requires text)", select(2, V("atmosphere", "321", describe({ summary = "" }))) == "invalid")
+  check(
+    "empty summary refused (the platform requires text)",
+    select(2, V("atmosphere", "321", describe({ summary = "" }))) == "invalid"
+  )
   d = describe()
   d.queries[1].description = ""
   check("empty query description refused (platform requires it)", select(2, V("atmosphere", "321", d)) == "invalid")
@@ -169,9 +196,16 @@ do
   d = describe()
   d.actions[1].risk = "critical"
   check("risk closed (low|medium|high)", select(2, V("atmosphere", "321", d)) == "invalid")
-  check("sku may be empty", V("atmosphere", "321", describe({ driver = { name = "n", version = "1", sku = "", file = "f.c4z" } })) ~= nil)
+  check(
+    "sku may be empty",
+    V("atmosphere", "321", describe({ driver = { name = "n", version = "1", sku = "", file = "f.c4z" } })) ~= nil
+  )
   local s = V("atmosphere", "321", state({}))
-  check("an empty facts object encodes as {} (not [])", s and Reports._encode(s.facts) == "{}", s and Reports._encode(s.facts))
+  check(
+    "an empty facts object encodes as {} (not [])",
+    s and Reports._encode(s.facts) == "{}",
+    s and Reports._encode(s.facts)
+  )
 end
 
 -- ── [2] ─────────────────────────────────────────────────────────────────────
@@ -184,7 +218,10 @@ local CTX = { state = "ready", version = "20261118.000000" }
 do
   local hub = Reports.new({ now = now })
   local a = hub:receive("atmosphere", "321", state(), CTX)
-  check("answer shape: accepted, ai_core{state, version}", a.accepted == true and a.ai_core.state == "ready" and a.ai_core.version == CTX.version)
+  check(
+    "answer shape: accepted, ai_core{state, version}",
+    a.accepted == true and a.ai_core.state == "ready" and a.ai_core.version == CTX.version
+  )
   check("need_describe while no describe is held", a.need_describe == true)
   a = hub:receive("atmosphere", "321", describe(), CTX)
   check("describe accepted; need_describe no longer", a.accepted == true and a.need_describe == nil)
@@ -195,7 +232,10 @@ do
   a = hub:receive("atmosphere", "321", describe({ hash = "fedcba9876543210" }), CTX)
   check("a changed describe (new hash) is accepted at once", a.accepted == true)
   clock = clock + 601
-  check("the same hash after 10 min is accepted", hub:receive("atmosphere", "321", describe({ hash = "fedcba9876543210" }), CTX).accepted)
+  check(
+    "the same hash after 10 min is accepted",
+    hub:receive("atmosphere", "321", describe({ hash = "fedcba9876543210" }), CTX).accepted
+  )
   local p = hub:picture("atmosphere", "321")
   check(
     "picture: hash, driver, declared ids, latest facts",
@@ -238,7 +278,10 @@ do
   local u = hub:receive("pin_lock", "400", state(), { state = "unlicensed", version = CTX.version })
   check(
     "unlicensed AI Core: answers accepted=false, state unlicensed, nothing kept",
-    u.accepted == false and u.ai_core.state == "unlicensed" and hub:picture("pin_lock", "400") == nil and u.need_describe == nil
+    u.accepted == false
+      and u.ai_core.state == "unlicensed"
+      and hub:picture("pin_lock", "400") == nil
+      and u.need_describe == nil
   )
   -- the ring
   local ring = Reports.new({ now = now })
@@ -254,8 +297,14 @@ do
     clock = clock + 1
     many:receive("mod_" .. i, tostring(i), state(), CTX)
   end
-  check("48 instances held; the least recently heard is evicted (counted)", many.count == 48 and many.counters.evicted == 1 and many:picture("mod_1", "1") == nil)
-  check("an evicted module is asked for its describe again", many:receive("mod_1", "1", state(), CTX).need_describe == true)
+  check(
+    "48 instances held; the least recently heard is evicted (counted)",
+    many.count == 48 and many.counters.evicted == 1 and many:picture("mod_1", "1") == nil
+  )
+  check(
+    "an evicted module is asked for its describe again",
+    many:receive("mod_1", "1", state(), CTX).need_describe == true
+  )
 end
 
 -- ── [3] ─────────────────────────────────────────────────────────────────────
@@ -269,7 +318,14 @@ do
     hub:receive("atmosphere", "321", event({ text = "e" .. i }), CTX)
   end
   local b = hub:takeBatch("aic-1")
-  check("one batch: describe, state, then events oldest first", b and #b.reports == 12 and b.reports[1].kind == "describe" and b.reports[2].kind == "state" and b.reports[3].text == "e1")
+  check(
+    "one batch: describe, state, then events oldest first",
+    b
+      and #b.reports == 12
+      and b.reports[1].kind == "describe"
+      and b.reports[2].kind == "state"
+      and b.reports[3].text == "e1"
+  )
   check("no `dropped` key when nothing was dropped", b.dropped == nil)
   check("body = {request_id, reports}", b.request_id == "aic-1")
   check("one in flight at a time", hub:takeBatch("aic-2") == nil)
@@ -316,17 +372,33 @@ do
   big:settle("refused")
   check(
     "refused: events are dropped and counted; states wait again (ruling 23)",
-    states > 0 and others > 0 and big.counters.items_dropped == others and big.dropped == others and big:pendingCount() == before + states,
+    states > 0
+      and others > 0
+      and big.counters.items_dropped == others
+      and big.dropped == others
+      and big:pendingCount() == before + states,
     big.dropped
   )
   clock = clock + 61
   local nb = big:takeBatch("aic-next")
-  check("the next batch says how many were dropped since the last delivered one", nb and nb.dropped == others, nb and nb.dropped)
+  check(
+    "the next batch says how many were dropped since the last delivered one",
+    nb and nb.dropped == others,
+    nb and nb.dropped
+  )
   big:settle("delivered")
   check("…and a delivered batch settles it", big.dropped == 0)
   check("cloud answers: ok → delivered", Reports.outcome({ status = "ok" }) == "delivered")
-  check("cloud_unreachable / rate_limited → retry", Reports.outcome({ status = "error", error_code = "cloud_unreachable" }) == "retry" and Reports.outcome({ status = "error", error_code = "rate_limited" }) == "retry")
-  check("unsupported / invalid_args → refused", Reports.outcome({ status = "error", error_code = "unsupported" }) == "refused" and Reports.outcome({ status = "error", error_code = "invalid_args" }) == "refused")
+  check(
+    "cloud_unreachable / rate_limited → retry",
+    Reports.outcome({ status = "error", error_code = "cloud_unreachable" }) == "retry"
+      and Reports.outcome({ status = "error", error_code = "rate_limited" }) == "retry"
+  )
+  check(
+    "unsupported / invalid_args → refused",
+    Reports.outcome({ status = "error", error_code = "unsupported" }) == "refused"
+      and Reports.outcome({ status = "error", error_code = "invalid_args" }) == "refused"
+  )
 end
 
 -- ── [3a] ────────────────────────────────────────────────────────────────────
@@ -343,7 +415,11 @@ do
   local m = hub:picture("atmosphere", "321")
   check(
     "refused: the describe and the state wait again (ruling 23); the event is dropped and counted",
-    m.pendingDescribe ~= nil and m.pendingState ~= nil and #hub.ring == 0 and hub.dropped == 1 and hub.counters.items_dropped == 1,
+    m.pendingDescribe ~= nil
+      and m.pendingState ~= nil
+      and #hub.ring == 0
+      and hub.dropped == 1
+      and hub.counters.items_dropped == 1,
     hub.dropped
   )
   check("…and pendingCount says so", hub:pendingCount() == 2)
@@ -354,7 +430,11 @@ do
   local again = hub:takeBatch("aic-r2")
   check(
     "at 60 s the next batch carries the same describe and state again, and the drop count",
-    again and again.reports[1].kind == "describe" and again.reports[1].hash == HASH and again.reports[2].kind == "state" and again.dropped == 1,
+    again
+      and again.reports[1].kind == "describe"
+      and again.reports[1].hash == HASH
+      and again.reports[2].kind == "state"
+      and again.dropped == 1,
     again and #again.reports
   )
   hub:settle("retry")
@@ -380,11 +460,17 @@ do
     "a newer state that arrived meanwhile is kept, not the refused older one (latest per instance)",
     m.pendingState ~= nil and m.pendingState.facts.temperature_f == 99
   )
-  check("AI Core still holds the describe hash (no need_describe while it waits)", hub:receive("atmosphere", "321", state(), CTX).need_describe == nil)
+  check(
+    "AI Core still holds the describe hash (no need_describe while it waits)",
+    hub:receive("atmosphere", "321", state(), CTX).need_describe == nil
+  )
   clock = clock + 600
   hub:takeBatch("aic-r4")
   hub:settle("delivered")
-  check("delivered: nothing waits, the drop count is settled", hub:pendingCount() == 0 and m.pendingDescribe == nil and hub.dropped == 0)
+  check(
+    "delivered: nothing waits, the drop count is settled",
+    hub:pendingCount() == 0 and m.pendingDescribe == nil and hub.dropped == 0
+  )
   hub:receive("atmosphere", "321", event({ text = "two" }), CTX)
   check("delivered resets the backoff: the next batch may go at once", hub:takeBatch("aic-r5") ~= nil)
   hub:settle("delivered")
@@ -451,25 +537,39 @@ end
 check("the manifest advertises ai_core.report v1 (request)", advertises, reg.params.manifest)
 check(
   "registers run_driver_query and invoke_driver_action",
-  tostring(reg.params.commands):find("run_driver_query", 1, true) and tostring(reg.params.commands):find("invoke_driver_action", 1, true)
+  tostring(reg.params.commands):find("run_driver_query", 1, true)
+    and tostring(reg.params.commands):find("invoke_driver_action", 1, true)
 )
 local sup = EC.suppressDebug or {}
 check(
   "EC.suppressDebug covers the SBOS_MODULE_* frames AI Core receives",
-  sup.SBOS_MODULE_REQUEST and sup.SBOS_MODULE_RESPONSE and sup.SBOS_MODULE_COMMAND and sup.SBOS_MODULE_CLOUD_RESPONSE and sup.SBOS_MODULE_DIRECTORY
+  sup.SBOS_MODULE_REQUEST
+    and sup.SBOS_MODULE_RESPONSE
+    and sup.SBOS_MODULE_COMMAND
+    and sup.SBOS_MODULE_CLOUD_RESPONSE
+    and sup.SBOS_MODULE_DIRECTORY
 )
 
 local r = H.request("atmosphere", 321, "ai_core.report", state())
 check("a report is answered ok", r and r.status == "ok", r and r.error_code)
 local ans = r and r.result or {}
 check("accepted, state ready", ans.accepted == true and ans.ai_core and ans.ai_core.state == "ready")
-check("ai_core.version = the driver_version AI Core registered with", ans.ai_core and ans.ai_core.version == reg.params.driver_version, ans.ai_core and ans.ai_core.version)
+check(
+  "ai_core.version = the driver_version AI Core registered with",
+  ans.ai_core and ans.ai_core.version == reg.params.driver_version,
+  ans.ai_core and ans.ai_core.version
+)
 check("need_describe: AI Core holds no describe for this module", ans.need_describe == true)
 r = H.request("atmosphere", 321, "ai_core.report", describe())
 check("the describe is accepted; need_describe gone", r.result.accepted == true and r.result.need_describe == nil)
 r = H.request("atmosphere", 321, "ai_core.report", { v = 1, kind = "telemetry" })
 check("unknown kind refused (invalid)", r.result.accepted == false and r.result.reason == "invalid")
-r = H.request("atmosphere", 321, "ai_core.report", describe({ summary = string.rep("x", 9000), hash = "1111111111111111" }))
+r = H.request(
+  "atmosphere",
+  321,
+  "ai_core.report",
+  describe({ summary = string.rep("x", 9000), hash = "1111111111111111" })
+)
 check("oversize describe refused (too_large)", r.result.accepted == false and r.result.reason == "too_large")
 local spoof = event()
 spoof.from_module_id = "pin_lock"
@@ -491,21 +591,29 @@ for _, b in ipairs(batches) do
 end
 local bySender, spoofed = {}, false
 for _, it in ipairs(items) do
-  bySender[it.from_module_id .. "@" .. it.from_instance_id] = (bySender[it.from_module_id .. "@" .. it.from_instance_id] or 0) + 1
+  bySender[it.from_module_id .. "@" .. it.from_instance_id] = (
+    bySender[it.from_module_id .. "@" .. it.from_instance_id] or 0
+  ) + 1
   spoofed = spoofed or it.from_module_id == "pin_lock"
 end
-check("items carry the Agent's stamp (atmosphere@321, mode_composer@322)", bySender["atmosphere@321"] and bySender["mode_composer@322"])
+check(
+  "items carry the Agent's stamp (atmosphere@321, mode_composer@322)",
+  bySender["atmosphere@321"] and bySender["mode_composer@322"]
+)
 check("no item under a sender a report named", not spoofed)
 check("every accepted report is in a batch (2 describes, 1 state, 5 events, 5 diagnostics)", #items == 13, #items)
 check("the batch body says what was dropped (3 refused reports)", batches[1].body.dropped == 3, batches[1].body.dropped)
-check("the body keys are request_id, reports, dropped only", (function()
-  for k in pairs(batches[1].body) do
-    if k ~= "request_id" and k ~= "reports" and k ~= "dropped" then
-      return false
+check(
+  "the body keys are request_id, reports, dropped only",
+  (function()
+    for k in pairs(batches[1].body) do
+      if k ~= "request_id" and k ~= "reports" and k ~= "dropped" then
+        return false
+      end
     end
-  end
-  return true
-end)())
+    return true
+  end)()
+)
 -- the budget, over five minutes of steady reporting from two modules
 batchTimes = {}
 for _ = 1, 30 do
@@ -523,20 +631,30 @@ for i = 1, #batchTimes do
   end
   worst = math.max(worst, n)
 end
-check("at most 3 driver_reports batches in any 60 s (budget)", worst <= 3 and #batchTimes >= 10, worst .. " in a minute, " .. #batchTimes .. " batches")
+check(
+  "at most 3 driver_reports batches in any 60 s (budget)",
+  worst <= 3 and #batchTimes >= 10,
+  worst .. " in a minute, " .. #batchTimes .. " batches"
+)
 -- AI Core restart: nothing persisted → need_describe
 H.load("DIT_UPDATING")
 H.advance(31000)
 r = H.request("atmosphere", 321, "ai_core.report", state({ temperature_f = 90 }))
-check("after an AI Core restart: need_describe on the next report", r.result.accepted == true and r.result.need_describe == true)
-check("no describe was persisted", (function()
-  for k in pairs(H.persisted) do
-    if tostring(k):find("report") then
-      return false
+check(
+  "after an AI Core restart: need_describe on the next report",
+  r.result.accepted == true and r.result.need_describe == true
+)
+check(
+  "no describe was persisted",
+  (function()
+    for k in pairs(H.persisted) do
+      if tostring(k):find("report") then
+        return false
+      end
     end
-  end
-  return true
-end)())
+    return true
+  end)()
+)
 
 -- ── [5] run_driver_query ────────────────────────────────────────────────────
 print("[5] run_driver_query")
@@ -550,13 +668,17 @@ local ROW = {
   status = "ready",
   stale = false,
   verified = true,
-  capabilities = { { id = "ai.query", version = 1, kind = "request" }, { id = "ai.action", version = 1, kind = "request" } },
+  capabilities = {
+    { id = "ai.query", version = 1, kind = "request" },
+    { id = "ai.action", version = 1, kind = "request" },
+  },
 }
 A.modules = { ROW }
 local asked = {}
 local nextAnswer
 A.busAnswer = function(to, capability, args, p)
-  asked[#asked + 1] = { to = to, capability = capability, args = args, to_instance = p.to_instance, key = p.idempotency_key }
+  asked[#asked + 1] =
+    { to = to, capability = capability, args = args, to_instance = p.to_instance, key = p.idempotency_key }
   return nextAnswer(capability, args)
 end
 local function lastOp(op)
@@ -566,7 +688,16 @@ end
 nextAnswer = function()
   return "ok", { ok = true, data = { temperature = 71, condition = "Clear" } }
 end
-local states = H.operation("run_driver_query", { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = { units = "f" } })
+local states = H.operation(
+  "run_driver_query",
+  {
+    query_ref = QREF,
+    module_id = "atmosphere",
+    instance_id = "321",
+    query_id = "current_conditions",
+    params = { units = "f" },
+  }
+)
 check(
   "Executing, then Completed on the driver's answer",
   #states >= 2 and states[#states - 1].state == "Executing" and H.finalState(states) == "Completed",
@@ -580,40 +711,71 @@ check(
 )
 check(
   "ai.query sent to the named instance with {query_id, params}",
-  asked[#asked].capability == "ai.query" and asked[#asked].to == "atmosphere" and asked[#asked].to_instance == "321" and asked[#asked].args.query_id == "current_conditions" and asked[#asked].args.params.units == "f"
+  asked[#asked].capability == "ai.query"
+    and asked[#asked].to == "atmosphere"
+    and asked[#asked].to_instance == "321"
+    and asked[#asked].args.query_id == "current_conditions"
+    and asked[#asked].args.params.units == "f"
 )
 local qb = lastOp("driver_query_result")
-check("driver_query_result {query_ref, status completed, data}", qb and qb.query_ref == QREF and qb.status == "completed" and qb.data.temperature == 71 and qb.error_code == nil)
-check("…its keys: request_id, query_ref, status, data", (function()
-  for k in pairs(qb) do
-    if k ~= "request_id" and k ~= "query_ref" and k ~= "status" and k ~= "data" then
-      return false
+check(
+  "driver_query_result {query_ref, status completed, data}",
+  qb and qb.query_ref == QREF and qb.status == "completed" and qb.data.temperature == 71 and qb.error_code == nil
+)
+check(
+  "…its keys: request_id, query_ref, status, data",
+  (function()
+    for k in pairs(qb) do
+      if k ~= "request_id" and k ~= "query_ref" and k ~= "status" and k ~= "data" then
+        return false
+      end
     end
-  end
-  return true
-end)())
+    return true
+  end)()
+)
 nextAnswer = function()
   return "ok", { ok = false, reason = "feed_down" }
 end
-states = H.operation("run_driver_query", { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} })
+states = H.operation(
+  "run_driver_query",
+  { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} }
+)
 qb = lastOp("driver_query_result")
-check("the driver could not answer → failed internal_error, no data", H.finalState(states) == "Failed" and qb.status == "failed" and qb.error_code == "internal_error" and qb.data == nil)
+check(
+  "the driver could not answer → failed internal_error, no data",
+  H.finalState(states) == "Failed" and qb.status == "failed" and qb.error_code == "internal_error" and qb.data == nil
+)
 nextAnswer = function()
   return "error", { ok = false, reason = "unknown_query" }, "invalid_args"
 end
-H.operation("run_driver_query", { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "nope", params = {} })
+H.operation(
+  "run_driver_query",
+  { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "nope", params = {} }
+)
 qb = lastOp("driver_query_result")
 check("the helper's refusal code is relayed (invalid_args)", qb.status == "failed" and qb.error_code == "invalid_args")
 nextAnswer = function()
   return "ok", { ok = true, data = { blob = string.rep("x", 20000) } }
 end
-H.operation("run_driver_query", { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} })
+H.operation(
+  "run_driver_query",
+  { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} }
+)
 qb = lastOp("driver_query_result")
-check("a 20 KB answer (bus ok, cloud body 16 KB) → failed payload_too_large, never cut", qb.status == "failed" and qb.error_code == "payload_too_large" and qb.data == nil)
+check(
+  "a 20 KB answer (bus ok, cloud body 16 KB) → failed payload_too_large, never cut",
+  qb.status == "failed" and qb.error_code == "payload_too_large" and qb.data == nil
+)
 local n0 = #asked
-H.operation("run_driver_query", { query_ref = QREF, module_id = "usage_analytics", instance_id = "999", query_id = "x", params = {} })
+H.operation(
+  "run_driver_query",
+  { query_ref = QREF, module_id = "usage_analytics", instance_id = "999", query_id = "x", params = {} }
+)
 qb = lastOp("driver_query_result")
-check("a module not in the directory → failed unknown_target, nothing asked", qb.error_code == "unknown_target" and #asked == n0)
+check(
+  "a module not in the directory → failed unknown_target, nothing asked",
+  qb.error_code == "unknown_target" and #asked == n0
+)
 
 -- ── [6] invoke_driver_action ────────────────────────────────────────────────
 print("[6] invoke_driver_action")
@@ -626,7 +788,14 @@ nextAnswer = function(_, args)
   return "ok", { ok = true, result_text = "Refresh started" }
 end
 local function invoke(over)
-  local args = { ai_action_id = AID, module_id = "atmosphere", instance_id = "321", action_id = "refresh_now", params = { level = 5 }, declaration_hash = HASH }
+  local args = {
+    ai_action_id = AID,
+    module_id = "atmosphere",
+    instance_id = "321",
+    action_id = "refresh_now",
+    params = { level = 5 },
+    declaration_hash = HASH,
+  }
   for k, v in pairs(over or {}) do
     args[k] = v
   end
@@ -637,19 +806,32 @@ local ab = lastOp("driver_action_result")
 check("Completed only after the driver said ok", H.finalState(states) == "Completed" and ran == 1)
 check(
   "ai.action sent with {action_id, params, ai_action_id, declaration_hash}",
-  asked[#asked].capability == "ai.action" and asked[#asked].args.action_id == "refresh_now" and asked[#asked].args.params.level == 5 and asked[#asked].args.ai_action_id == AID and asked[#asked].args.declaration_hash == HASH
+  asked[#asked].capability == "ai.action"
+    and asked[#asked].args.action_id == "refresh_now"
+    and asked[#asked].args.params.level == 5
+    and asked[#asked].args.ai_action_id == AID
+    and asked[#asked].args.declaration_hash == HASH
 )
 check("…idempotency key = ai_action_id", asked[#asked].key == AID)
-check("driver_action_result completed with the driver's result_text", ab.ai_action_id == AID and ab.status == "completed" and ab.result_text == "Refresh started" and ab.error_code == nil)
+check(
+  "driver_action_result completed with the driver's result_text",
+  ab.ai_action_id == AID and ab.status == "completed" and ab.result_text == "Refresh started" and ab.error_code == nil
+)
 local nOps = #H.cloudOps("driver_action_result")
 states = invoke()
-check("the same ai_action_id is never run twice (duplicate_request)", H.finalState(states) == "Failed" and ran == 1 and lastOp("driver_action_result").error_code == "duplicate_request")
+check(
+  "the same ai_action_id is never run twice (duplicate_request)",
+  H.finalState(states) == "Failed" and ran == 1 and lastOp("driver_action_result").error_code == "duplicate_request"
+)
 check("…and its refusal is reported too", #H.cloudOps("driver_action_result") == nOps + 1)
 states = invoke({ ai_action_id = "2d6f9a2e-5b1c-4c8e-9f00-123456789abc", declaration_hash = "ffffffffffffffff" })
 ab = lastOp("driver_action_result")
 check(
   "a changed declaration: failed not_permitted, result_text declaration_changed",
-  H.finalState(states) == "Failed" and ab.status == "failed" and ab.error_code == "not_permitted" and ab.result_text == "declaration_changed"
+  H.finalState(states) == "Failed"
+    and ab.status == "failed"
+    and ab.error_code == "not_permitted"
+    and ab.result_text == "declaration_changed"
 )
 nextAnswer = function()
   ran = ran + 1
@@ -657,7 +839,13 @@ nextAnswer = function()
 end
 states = invoke({ ai_action_id = "3d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
 ab = lastOp("driver_action_result")
-check("the driver's refusal: failed, its words as result_text", H.finalState(states) == "Failed" and ab.status == "failed" and ab.error_code == "internal_error" and ab.result_text == "Provider refused the refresh")
+check(
+  "the driver's refusal: failed, its words as result_text",
+  H.finalState(states) == "Failed"
+    and ab.status == "failed"
+    and ab.error_code == "internal_error"
+    and ab.result_text == "Provider refused the refresh"
+)
 -- Ruling 23: a handler that began work finishing later answers in_progress.
 nextAnswer = function()
   ran = ran + 1
@@ -667,7 +855,10 @@ states = invoke({ ai_action_id = "8d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
 ab = lastOp("driver_action_result")
 check(
   "an in-progress answer: driver_action_result status started (never completed), its words, no error_code",
-  ab.ai_action_id == "8d6f9a2e-5b1c-4c8e-9f00-123456789abc" and ab.status == "started" and ab.result_text == "Activation started" and ab.error_code == nil
+  ab.ai_action_id == "8d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+    and ab.status == "started"
+    and ab.result_text == "Activation started"
+    and ab.error_code == nil
 )
 check("…the command itself is done (Completed), its text says started", H.finalState(states) == "Completed")
 check(
@@ -680,12 +871,19 @@ nextAnswer = function()
   return false -- never answers
 end
 states = invoke({ ai_action_id = "4d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
-check("while the driver has not answered: Executing, nothing reported", H.finalState(states) == "Executing" and lastOp("driver_action_result").ai_action_id ~= "4d6f9a2e-5b1c-4c8e-9f00-123456789abc")
+check(
+  "while the driver has not answered: Executing, nothing reported",
+  H.finalState(states) == "Executing"
+    and lastOp("driver_action_result").ai_action_id ~= "4d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+)
 H.advance(21000)
 ab = lastOp("driver_action_result")
 check(
   "no answer: failed deadline_exceeded, 'outcome is unknown' — never completed",
-  ab.ai_action_id == "4d6f9a2e-5b1c-4c8e-9f00-123456789abc" and ab.status == "failed" and ab.error_code == "deadline_exceeded" and ab.result_text:find("unknown") ~= nil
+  ab.ai_action_id == "4d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+    and ab.status == "failed"
+    and ab.error_code == "deadline_exceeded"
+    and ab.result_text:find("unknown") ~= nil
 )
 local ranBefore, askedBefore = ran, #asked
 ROW.verified = false
@@ -693,22 +891,44 @@ states = invoke({ ai_action_id = "5d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
 ab = lastOp("driver_action_result")
 check(
   "an unverified module: refused before anything is sent (not_permitted, target_unverified)",
-  H.finalState(states) == "Failed" and ab.error_code == "not_permitted" and ab.result_text == "target_unverified" and #asked == askedBefore and ran == ranBefore
+  H.finalState(states) == "Failed"
+    and ab.error_code == "not_permitted"
+    and ab.result_text == "target_unverified"
+    and #asked == askedBefore
+    and ran == ranBefore
 )
 ROW.verified = true
 ROW.stale = true
 invoke({ ai_action_id = "6d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
-check("a stale module: target_unavailable, nothing sent", lastOp("driver_action_result").error_code == "target_unavailable" and #asked == askedBefore)
+check(
+  "a stale module: target_unavailable, nothing sent",
+  lastOp("driver_action_result").error_code == "target_unavailable" and #asked == askedBefore
+)
 ROW.stale = false
 H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "BASE" })
 states = invoke({ ai_action_id = "7d6f9a2e-5b1c-4c8e-9f00-123456789abc" })
 ab = lastOp("driver_action_result")
-check("licence without AI_ACTIONS (enforced): refused, nothing sent", H.finalState(states) == "Failed" and ab.error_code == "not_permitted" and ab.result_text == "not_licensed" and #asked == askedBefore)
+check(
+  "licence without AI_ACTIONS (enforced): refused, nothing sent",
+  H.finalState(states) == "Failed"
+    and ab.error_code == "not_permitted"
+    and ab.result_text == "not_licensed"
+    and #asked == askedBefore
+)
 H.entitlement({ status = "ENTITLEMENT_EXPIRED", enforcement = "enforce", features = "" })
 r = H.request("atmosphere", 321, "ai_core.report", state({ temperature_f = 1 }))
-check("an unlicensed AI Core still answers: accepted=false, state unlicensed", r.result.accepted == false and r.result.ai_core.state == "unlicensed")
-H.operation("run_driver_query", { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} })
-check("an unlicensed AI Core refuses queries (BASE), nothing sent", lastOp("driver_query_result").error_code == "not_permitted" and #asked == askedBefore)
+check(
+  "an unlicensed AI Core still answers: accepted=false, state unlicensed",
+  r.result.accepted == false and r.result.ai_core.state == "unlicensed"
+)
+H.operation(
+  "run_driver_query",
+  { query_ref = QREF, module_id = "atmosphere", instance_id = "321", query_id = "current_conditions", params = {} }
+)
+check(
+  "an unlicensed AI Core refuses queries (BASE), nothing sent",
+  lastOp("driver_query_result").error_code == "not_permitted" and #asked == askedBefore
+)
 local nb0 = #H.cloudOps("driver_reports")
 H.advance(70000)
 check("…and uploads no batch while unlicensed", #H.cloudOps("driver_reports") == nb0)
@@ -731,16 +951,38 @@ do
   check("module_id ai_core refused", P("run_driver_query", with(q, "module_id", "ai_core")) == nil)
   check("query_ref must be a lower-case uuid", P("run_driver_query", with(q, "query_ref", QREF:upper())) == nil)
   check("instance_id digits only", P("run_driver_query", with(q, "instance_id", "12a")) == nil)
-  check("params: 7 keys refused", P("run_driver_query", with(q, "params", { a = 1, b = 1, c = 1, d = 1, e = 1, f = 1, g = 1 })) == nil)
+  check(
+    "params: 7 keys refused",
+    P("run_driver_query", with(q, "params", { a = 1, b = 1, c = 1, d = 1, e = 1, f = 1, g = 1 })) == nil
+  )
   check("params: a nested table refused", P("run_driver_query", with(q, "params", { a = { 1 } })) == nil)
-  check("params: a string with a control character refused", P("run_driver_query", with(q, "params", { a = "x\n" })) == nil)
-  check("params: a string over 64 characters refused", P("run_driver_query", with(q, "params", { a = string.rep("x", 65) })) == nil)
+  check(
+    "params: a string with a control character refused",
+    P("run_driver_query", with(q, "params", { a = "x\n" })) == nil
+  )
+  check(
+    "params: a string over 64 characters refused",
+    P("run_driver_query", with(q, "params", { a = string.rep("x", 65) })) == nil
+  )
   check("params absent → {}", next(P("run_driver_query", with(q, "params", nil)).params) == nil)
-  local a = { ai_action_id = AID, module_id = "atmosphere", instance_id = "321", action_id = "a", params = {}, declaration_hash = HASH }
+  local a = {
+    ai_action_id = AID,
+    module_id = "atmosphere",
+    instance_id = "321",
+    action_id = "a",
+    params = {},
+    declaration_hash = HASH,
+  }
   check("invoke_driver_action parses", P("invoke_driver_action", a) ~= nil)
-  check("declaration_hash: 64 hex refused (16, the helper's fingerprint)", P("invoke_driver_action", with(a, "declaration_hash", string.rep("a", 64))) == nil)
+  check(
+    "declaration_hash: 64 hex refused (16, the helper's fingerprint)",
+    P("invoke_driver_action", with(a, "declaration_hash", string.rep("a", 64))) == nil
+  )
   check("action_id pattern", P("invoke_driver_action", with(a, "action_id", "Refresh")) == nil)
-  check("no shell, no Lua, no device id: an extra key refuses it", P("invoke_driver_action", with(a, "device_id", 12)) == nil)
+  check(
+    "no shell, no Lua, no device id: an extra key refuses it",
+    P("invoke_driver_action", with(a, "device_id", 12)) == nil
+  )
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

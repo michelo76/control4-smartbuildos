@@ -207,11 +207,7 @@ check(
 )
 check("= AI_CORE_OPERATIONS (protocol.ts)", same(agentAiCore, opsTs), show(agentAiCore, opsTs))
 local driverOps = sorted(V.OPERATIONS)
-check(
-  "= the driver's registered vocab.OPERATIONS, exactly",
-  same(agentAiCore, driverOps),
-  show(agentAiCore, driverOps)
-)
+check("= the driver's registered vocab.OPERATIONS, exactly", same(agentAiCore, driverOps), show(agentAiCore, driverOps))
 
 print("[2] cloud ops")
 local cloudTs = sorted(strings(literal(protocolTs, "AI_CORE_CLOUD_OPS")))
@@ -715,11 +711,25 @@ do
     end
   end
   local resultEnums = { status = set(Reports.RESULT_STATUSES), error_code = errorCodes }
-  local qOk = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "ok", result = { ok = true, data = { a = 1 } } })
+  local qOk =
+    Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "ok", result = { ok = true, data = { a = 1 } } })
   local qFail = Reports.queryResultBody("aic-1", SAMPLE.query_ref, { status = "error", error_code = "invalid_args" })
-  local aOk = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "ok", result = { ok = true, result_text = "done" } })
-  local aStarted = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "ok", result = { ok = true, in_progress = true, result_text = "begun" } })
-  local aFail = Reports.actionResultBody("aic-1", SAMPLE.ai_action_id, { status = "error", error_code = "not_permitted" }, "target_unverified")
+  local aOk = Reports.actionResultBody(
+    "aic-1",
+    SAMPLE.ai_action_id,
+    { status = "ok", result = { ok = true, result_text = "done" } }
+  )
+  local aStarted = Reports.actionResultBody(
+    "aic-1",
+    SAMPLE.ai_action_id,
+    { status = "ok", result = { ok = true, in_progress = true, result_text = "begun" } }
+  )
+  local aFail = Reports.actionResultBody(
+    "aic-1",
+    SAMPLE.ai_action_id,
+    { status = "error", error_code = "not_permitted" },
+    "target_unverified"
+  )
   driverBodies.driver_reports = { full = keysOf(withDropped), minimal = keysOf(plain or {}), max = {} }
   -- read_device_state's answer, built by src/aicore/devicestate.lua exactly
   -- as the driver sends it (OPS.read_device_state): completed, refused after
@@ -756,7 +766,8 @@ do
     enums = { status = set({ "completed", "failed" }), reason = reasons, error_code = reasonCodes },
     subset = { error_code = true },
   }
-  driverBodies.driver_query_result = { full = keysOf(qOk, qFail), minimal = keysOf(qFail), max = {}, enums = resultEnums }
+  driverBodies.driver_query_result =
+    { full = keysOf(qOk, qFail), minimal = keysOf(qFail), max = {}, enums = resultEnums }
   driverBodies.driver_action_result = {
     full = keysOf(aOk, aStarted, aFail),
     minimal = keysOf(aOk),
@@ -787,7 +798,8 @@ do
   local detail = Webui.detailBody("aic-1", ref, proof)
   driverBodies.approval_detail = { full = detail, minimal = detail, max = {} }
   local decide = Webui.decideBody("aic-1", ref, "approve", string.rep("b", 64), proof)
-  driverBodies.approval_decide = { full = decide, minimal = decide, max = {}, enums = { decision = set(Webui.DECISIONS) } }
+  driverBodies.approval_decide =
+    { full = decide, minimal = decide, max = {}, enums = { decision = set(Webui.DECISIONS) } }
 end
 for _, op in ipairs(keys(V.CLOUD_OPS)) do
   local d = driverBodies[op]
@@ -1037,7 +1049,11 @@ do
   local vFields = platformFields(vLit:match("fields:%s*(%b{})") or "{}")
   local sent = Webui.verification({ nonce = string.rep("a", 32), verified_at = 1800000000, role = "owner" })
   check("rpc/ops.ts VERIFICATION is readable", next(vFields) ~= nil)
-  check("verification: the driver sends exactly VERIFICATION's fields", same(keys(sent), keys(vFields)), show(keys(sent), keys(vFields)))
+  check(
+    "verification: the driver sends exactly VERIFICATION's fields",
+    same(keys(sent), keys(vFields)),
+    show(keys(sent), keys(vFields))
+  )
   local roles = set(strings(literal(protocolTs, "AI_CORE_PIN_ROLES")))
   local methods = set(strings(literal(protocolTs, "AI_CORE_VERIFICATION_METHODS")))
   check("verification.role owner is in AI_CORE_PIN_ROLES", roles.owner == true)
@@ -1051,14 +1067,22 @@ do
       missing[#missing + 1] = r
     end
   end
-  check("every refusal reason the platform can answer has plain words on the page (webui.TEXT)", #missing == 0, table.concat(missing, ","))
+  check(
+    "every refusal reason the platform can answer has plain words on the page (webui.TEXT)",
+    #missing == 0,
+    table.concat(missing, ",")
+  )
   local noWords = {}
   for _, st in ipairs({ "queued", "denied", "failed", "expired" }) do
     if Webui.OUTCOME_TEXT[st] == nil then
       noWords[#noWords + 1] = st
     end
   end
-  check("every approval_decide status (queued, denied, failed, expired) has plain words", #noWords == 0, table.concat(noWords, ","))
+  check(
+    "every approval_decide status (queued, denied, failed, expired) has plain words",
+    #noWords == 0,
+    table.concat(noWords, ",")
+  )
 end
 
 print("[9] raise_event detail: platform ≤ RAISE_EVENT_DETAIL_MAX characters, driver keeps ≤ event_detail bytes")
@@ -1281,7 +1305,11 @@ do
     show(sorted(DeviceState.OMITTED_KEYS), omittedTs)
   )
   local scopesTs = sorted(strings(literal(protocolTs, "AI_CORE_DEVICE_STATE_SCOPES")))
-  check("scopes: system, full on both sides", same(keys(DeviceState.SCOPES), scopesTs), show(keys(DeviceState.SCOPES), scopesTs))
+  check(
+    "scopes: system, full on both sides",
+    same(keys(DeviceState.SCOPES), scopesTs),
+    show(keys(DeviceState.SCOPES), scopesTs)
+  )
   local lim = {}
   for k, v in tostring(literal(protocolTs, "AI_CORE_DEVICE_STATE_LIMITS")):gmatch("([%w_]+): ([%d_]+)") do
     lim[k] = tonumber((v:gsub("_", "")))

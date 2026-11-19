@@ -4,7 +4,7 @@
 .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
 .brand b { color: var(--teal); font-weight: 700; }
 .brandmark { color: var(--teal); display: inline-flex; }
-#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "top top" "nav main"; }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "pending pending" "top top" "nav main"; }
 #sim { grid-area: sim; }
 #top { grid-area: top; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: rgba(7, 13, 24, .85); min-width: 0; }
 #top .sep { width: 1px; height: 26px; background: var(--line-2); flex: none; }
@@ -26,7 +26,7 @@
 .stat { display: flex; align-items: center; gap: 14px; }
 .stat .n { font-size: 30px; font-weight: 750; letter-spacing: -.02em; line-height: 1; }
 @media (max-width: 1000px) {
-  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "top" "main"; }
+  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "pending" "top" "main"; }
   #nav { position: fixed; top: 0; bottom: 0; left: 0; width: 270px; z-index: 800; transform: translateX(-100%); transition: transform .16s; background: var(--bg-2); box-shadow: 20px 0 60px rgba(0, 0, 0, .5); }
   #app.navopen #nav { transform: none; }
   #navtoggle { display: inline-flex; }
@@ -38,9 +38,14 @@
 @media (max-width: 1180px) { #top { gap: 8px; padding: 8px 10px; } #top #openop { display: none; } #top .brand { font-size: 18px; } }
 @media (max-width: 1060px) { #top #mode { display: none; } }
 #top > * { flex-shrink: 0; } #top > #venue { flex-shrink: 1; }
+/* Phones: the save state, the issues button and Sign out go to a second line instead of off the edge. */
+@media (max-width: 600px) { #top { flex-wrap: wrap; row-gap: 6px; } #top > #venue { flex: 1 1 120px; } #save .chip { white-space: normal; } }
+/* The open section drawer leaves the Sections button on top, so it also closes the drawer. */
+@media (max-width: 1000px) { #nav { padding-top: 84px; } #app.navopen #navtoggle { position: relative; z-index: 801; } }
 
 /* Venue Studio (a client session) */
-#pending { margin: 0; border-radius: 0; }
+/* Inside #app, between the simulation bar and the header (it was behind the fixed #app before). */
+#pending { grid-area: pending; margin: 0; border-radius: 0; }
 .sep-h { height: 1px; background: var(--line, rgba(255,255,255,.12)); margin: 6px 0; }
 .cl-tile { min-height: 64px; text-align: left; }
 .cl-tile-t { font-weight: 600; }

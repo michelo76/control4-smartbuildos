@@ -338,4 +338,286 @@ eq(
   "VF_FORBIDDEN"
 )
 
+-- ── a channel being dialled when a new configuration is published ───────────
+print("a publish while a channel is being dialled")
+do
+  local e = H.new()
+  local EI = { session = e.publishSample("sports_bar") }
+  local EM = { session = e.login("manager", "2580") }
+  local function acksFor(o)
+    local out = {}
+    for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, o).data.issues) do
+      out[#out + 1] = i.id
+    end
+    return out
+  end
+  local function keysTo(sims, dev)
+    local got = {}
+    for _, sim in ipairs(sims) do
+      for _, c in ipairs(sim.calls) do
+        if c.target == dev then
+          got[#got + 1] = c.command
+        end
+      end
+    end
+    return table.concat(got, " ")
+  end
+  local function stoppedLogged()
+    for _, entry in ipairs(e.send("DIAG_GET", { category = "source" }, EI).data.entries or {}) do
+      if entry.code == "VF_CANCELLED" then
+        return true
+      end
+    end
+    return false
+  end
+  local dev = e.core.ix.sources["sports-1"].c4DeviceId
+  e.core.sim.calls = {}
+  local tune = e.send("SOURCE_TUNE", { sourceId = "sports-1", channel = "206" }, EM)
+  eq("the page is told four keys are sent", tune.data.sent, 4)
+  local oldSim = e.core.sim
+  eq("a client publishes 100 ms later", e.send("PUBLISH", { acknowledged = acksFor(EM) }, EM).ok, true)
+  e.clock.advance(5000)
+  eq("the whole number still reaches the box", keysTo({ oldSim, e.core.sim }, dev), "NUMBER_2 NUMBER_0 NUMBER_6 ENTER")
+  eq("...and nothing was reported stopped", stoppedLogged(), false)
+
+  -- The source's Control4 device changes in the new configuration: the rest
+  -- of the number must not go to another device. It stops, and says so.
+  e.core.sim.calls = {}
+  e.send("SOURCE_TUNE", { sourceId = "sports-1", channel = "206" }, EM)
+  local d = e.send("DRAFT_GET", {}, EI).data.draft
+  local c = copy(d.config)
+  for _, src in ipairs(c.sources) do
+    if src.id == "sports-1" then
+      src.c4DeviceId = e.core.ix.sources["sports-2"].c4DeviceId
+    end
+  end
+  e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, EI)
+  local before = e.core.sim
+  eq("the installer moves the source to another device", e.send("PUBLISH", { acknowledged = acksFor(EI) }, EI).ok, true)
+  e.clock.advance(5000)
+  eq("only the key already sent reached the old device", keysTo({ before, e.core.sim }, dev), "NUMBER_2")
+  local newDev = e.core.ix.sources["sports-1"].c4DeviceId
+  eq("...and nothing of it reached the new one", keysTo({ e.core.sim }, newDev), "")
+  eq("...and the stop is in the diagnostic log", stoppedLogged(), true)
+end
+
+print("the control mode changes while a channel is being dialled")
+do
+  local calls, timers, logged = {}, {}, {}
+  local ix = { sources = { box = { id = "box", name = "Box", c4DeviceId = 55, controls = { "keypad" } } } }
+  local engine = SourceControl.new({
+    index = function()
+      return ix
+    end,
+    adapter = function()
+      return {
+        deviceCommand = function(_, command)
+          calls[#calls + 1] = command
+          return true
+        end,
+      }
+    end,
+    timers = {
+      set = function(id, _, fn)
+        timers[id] = fn
+      end,
+      cancel = function() end,
+    },
+    diag = {
+      add = function(_, level, _, code, text)
+        logged[#logged + 1] = { level = level, code = code, text = text }
+      end,
+    },
+  })
+  local function step()
+    local fn = timers.VfSourceKeys
+    timers.VfSourceKeys = nil
+    if fn then
+      fn()
+    end
+  end
+  local everything = {
+    source = function()
+      return true
+    end,
+    flag = function()
+      return true
+    end,
+  }
+  engine:reconfigure("simulation")
+  eq("a tune is accepted", engine:tune("box", { channel = "42" }, { access = everything }).ok, true)
+  engine:reconfigure("simulation")
+  step()
+  eq("the same mode: the next key still leaves", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
+  engine:reconfigure("live")
+  step()
+  step()
+  eq("a mode change: the rest stops", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
+  local said = false
+  for _, l in ipairs(logged) do
+    if l.code == "VF_CANCELLED" and tostring(l.text):find("control mode", 1, true) then
+      said = true
+    end
+  end
+  check("...and says so", said)
+end
+
+-- ── a scene's tune step reaches the engine with system access ──────────────
+print("the tune step's way into the engine")
+do
+  local e = H.new()
+  local EI = { session = e.publishSample("sports_bar") }
+  local d = e.send("DRAFT_GET", {}, EI).data.draft
+  local c = copy(d.config)
+  for _, scene in ipairs(c.scenes) do
+    if scene.id == "happy-hour" then -- a scene the host may run
+      scene.condition = nil
+      table.insert(scene.program.steps, 2, { type = "tune", sourceId = "sports-1", favoriteId = "sports-b" })
+    end
+  end
+  local saved = e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, EI)
+  e.send("PROFILE_PIN_SET", { profileId = "host", pin = "4321", baseRevision = saved.data.revision }, EI)
+  local acks = {}
+  for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, EI).data.issues) do
+    acks[#acks + 1] = i.id
+  end
+  eq("a scene with a tune step publishes", e.send("PUBLISH", { acknowledged = acks }, EI).ok, true)
+  e.clock.advance(10000)
+  local host = { session = e.login("host", "4321") }
+  local dev = e.core.ix.sources["sports-1"].c4DeviceId
+  eq(
+    "the host may not use source controls",
+    e.send("SOURCE_TUNE", { sourceId = "sports-1", favoriteId = "sports-b" }, host).errorCode,
+    "VF_FORBIDDEN"
+  )
+  e.core.sim.calls = {}
+  local run = e.send("SCENE_ACTIVATE", { sceneId = "happy-hour" }, host)
+  eq("...but runs a scene that tunes (the scene's steps have system access)", run.ok, true)
+  eq("...and the tune step is done", run.data.execution.steps[2].status, "ok")
+  e.clock.advance(10000)
+  local got = {}
+  for _, call in ipairs(e.core.sim.calls) do
+    if call.target == dev and call.command ~= "SELECT_VIDEO_DEVICE" then
+      got[#got + 1] = call.command
+    end
+  end
+  eq("the simulator records the keys, in order", table.concat(got, " "), "NUMBER_2 NUMBER_1 NUMBER_2 ENTER")
+  local logged = {}
+  for _, entry in ipairs(e.send("DIAG_GET", { category = "source" }, EI).data.entries) do
+    local key = entry.message:match("^Sports 1: (%u[%u%d_]*) sent %(%d/4%)$")
+    if key and entry.level == "debug" and entry.data.device == dev then
+      table.insert(logged, 1, key) -- newest first in the log
+    end
+  end
+  eq(
+    "...and the installer's diagnostics list each key sent, in order",
+    table.concat(logged, " "),
+    "NUMBER_2 NUMBER_1 NUMBER_2 ENTER"
+  )
+end
+
+print("the engine: dry runs, runs, a source without a keypad")
+do
+  local calls, timers, logged = {}, {}, {}
+  local ix = {
+    sources = {
+      box = {
+        id = "box",
+        name = "Box",
+        c4DeviceId = 55,
+        controls = { "keypad" },
+        tuneEnter = false,
+        favorites = { { id = "news", name = "News", channel = "42" } },
+      },
+      stick = { id = "stick", name = "Stick", c4DeviceId = 56, controls = { "navigation" } },
+    },
+  }
+  local engine = SourceControl.new({
+    index = function()
+      return ix
+    end,
+    adapter = function()
+      return {
+        deviceCommand = function(_, command)
+          calls[#calls + 1] = command
+          return true
+        end,
+      }
+    end,
+    timers = {
+      set = function(id, ms, fn)
+        timers[id] = { ms = ms, fn = fn }
+      end,
+      cancel = function(id)
+        timers[id] = nil
+      end,
+    },
+    diag = {
+      add = function(_, level, _, code, text)
+        logged[#logged + 1] = { level = level, code = code, text = text }
+      end,
+    },
+  })
+  local function fire(id)
+    local t = timers[id]
+    timers[id] = nil
+    if t then
+      t.fn()
+    end
+    return t and t.ms
+  end
+  local Access = require("venueflow.access")
+  local system = Access.system("program")
+  local plan = engine:tune("box", { favoriteId = "news" }, { access = system, dry = true })
+  eq("a dry tune is planned", plan.status, "planned")
+  eq("...says which keys", plan.data.keys, "4, 2")
+  eq("...and sends nothing", #calls, 0)
+  eq("...nor queues anything", #engine.pending, 0)
+  eq(
+    "a source without a keypad is refused, dry or not",
+    engine:tune("stick", { channel = "4" }, { access = system, dry = true }).errorCode,
+    "VF_UNSUPPORTED"
+  )
+  eq(
+    "an unknown favourite is refused in a dry run too",
+    engine:tune("box", { favoriteId = "hbo" }, { access = system, dry = true }).errorCode,
+    "VF_NOT_FOUND"
+  )
+  local r = engine:tune("box", { channel = "42" }, { access = system, executionId = "x7", origin = "scene" })
+  eq("system access may tune (no sourceControl permission needed)", r.ok, true)
+  eq("...the reply says what is dialled", r.data.keys .. "/" .. r.data.sent, "4, 2/2")
+  eq("the first key leaves at once", table.concat(calls, " "), "NUMBER_4")
+  -- This box tunes without Enter: a second number must not run into "42".
+  engine:tune("box", { favoriteId = "news" }, { access = system })
+  fire("VfSourceKeys")
+  eq("the rest of the first number", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
+  eq("the next number waits for the box to take the first", fire("VfSourceKeys"), SourceControl.KEY_SPACING_MS)
+  eq("...nothing yet", #calls, 2)
+  eq("...nothing is due to send it before the box gives up on the digits", timers.VfSourceKeys, nil)
+  eq("...which takes a pause long enough for it", timers.VfSourceOpen_55.ms, SourceControl.UNFINISHED_PAUSE_MS)
+  -- The pause is the box's alone: a key for another box goes out at once.
+  eq("a key for another box meanwhile", engine:key("stick", "UP", { access = system }).ok, true)
+  eq("...leaves at once, not after the pause", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP")
+  fire("VfSourceKeys")
+  fire("VfSourceOpen_55")
+  eq("...then the second number", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP NUMBER_4")
+  -- cancelExecution drops only the stopped run's keys.
+  engine:tune("box", { channel = "123" }, { access = system, executionId = "x8" })
+  engine:tune("box", { channel = "9" }, { access = system })
+  eq("another run's keys are not touched", engine:cancelExecution("x7", "stopped"), 0)
+  eq("the stopped run's waiting keys are dropped", engine:cancelExecution("x8", "'Test' was stopped"), 3)
+  local said = false
+  for _, l in ipairs(logged) do
+    if l.code == "VF_CANCELLED" and l.text == "Box: 3 key(s) not sent: 'Test' was stopped" then
+      said = true
+    end
+  end
+  check("...and says so", said)
+  for _ = 1, 6 do
+    fire("VfSourceOpen_55")
+    fire("VfSourceKeys")
+  end
+  eq("the manual number still goes out", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP NUMBER_4 NUMBER_2 NUMBER_9")
+end
+
 T.done()

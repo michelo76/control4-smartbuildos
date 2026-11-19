@@ -47,7 +47,7 @@
   <events>
     <event><id>1</id><name>Scene Activated</name><description>A VenueFlow scene started (ACTIVE_SCENE says which)</description></event>
     <event><id>2</id><name>Notification</name><description>A scene or rule sent a notification (NOTIFICATION_TEXT holds it)</description></event>
-    <event><id>3</id><name>Alert Raised</name><description>VenueFlow raised an alert for the manager (ALERT_COUNT changed)</description></event>
+    <event><id>3</id><name>Alert Raised</name><description>Fires for each stored alert, and once when a detected condition appears (a display that does not confirm, a display offline, a restricted licence)</description></event>
     <event><id>4</id><name>Configuration Published</name><description>The installer published a new venue configuration</description></event>
     <event><id>5</id><name>Venue Opened</name><description>The venue was marked open</description></event>
     <event><id>6</id><name>Venue Closed</name><description>The venue was marked closed</description></event>

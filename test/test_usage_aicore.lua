@@ -41,7 +41,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -117,7 +119,12 @@ local devices = {
   [3] = { deviceName = "Kitchen", driverFileName = "roomdevice.c4i", roomId = 3, roomName = "Kitchen" },
   [12] = { deviceName = "Kitchen Pendants", driverFileName = "light_v2.c4i", roomId = 3, roomName = "Kitchen" },
   [40] = { deviceName = "Hall Keypad", driverFileName = "keypad.c4z", roomId = 3, roomName = "Kitchen" },
-  [SELF] = { deviceName = "Usage Analytics", driverFileName = "smartbuildos-usage-analytics.c4z", roomId = 3, roomName = "Kitchen" },
+  [SELF] = {
+    deviceName = "Usage Analytics",
+    driverFileName = "smartbuildos-usage-analytics.c4z",
+    roomId = 3,
+    roomName = "Kitchen",
+  },
 }
 local variables = {
   [3] = {
@@ -168,7 +175,11 @@ R.lifecycle({
     advance(61000)
   end,
   describe = function(d)
-    check("ONE registration: the driver's own client", H.count("SBOS_MODULE_REGISTER") == 1, H.count("SBOS_MODULE_REGISTER"))
+    check(
+      "ONE registration: the driver's own client",
+      H.count("SBOS_MODULE_REGISTER") == 1,
+      H.count("SBOS_MODULE_REGISTER")
+    )
     check(
       "describe: the usage meter (class other)",
       #d.controls == 1 and d.controls[1].id == "usage_meter" and d.controls[1].class == "other"
@@ -196,7 +207,12 @@ OnDriverInit()
 OnDriverLateInit()
 H.aiRegister()
 H.pushDirectory()
-EC.SBOS_ENTITLEMENT({ sku = "SBOS_USAGE_ANALYTICS", status = "NOT_ENTITLED", registered = "true", enforcement = "enforce" })
+EC.SBOS_ENTITLEMENT({
+  sku = "SBOS_USAGE_ANALYTICS",
+  status = "NOT_ENTITLED",
+  registered = "true",
+  enforcement = "enforce",
+})
 local dg = H.reports("diagnostic")
 local last = dg[#dg] and dg[#dg].args
 check(

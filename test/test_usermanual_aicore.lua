@@ -41,7 +41,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -114,7 +116,12 @@ local devices = {
   [12] = { deviceName = "Kitchen Pendants", driverFileName = "light_v2.c4i", roomId = 3, roomName = "Kitchen" },
   [20] = { deviceName = "Front Door", driverFileName = "lock_yale_zwave.c4z", roomId = 1, roomName = "Entry" },
   [30] = { deviceName = "Apple TV", driverFileName = "appleTV.c4z", roomId = 5, roomName = "Living" },
-  [SELF] = { deviceName = "Home Guide", driverFileName = "smartbuildos-user-manual.c4z", roomId = 9, roomName = "Equipment Room" },
+  [SELF] = {
+    deviceName = "Home Guide",
+    driverFileName = "smartbuildos-user-manual.c4z",
+    roomId = 9,
+    roomName = "Equipment Room",
+  },
 }
 C4.GetDevices = function()
   return devices
@@ -199,7 +206,10 @@ check(
   #dg > before and last.code == "guide.unavailable" and last.severity == "warning",
   last and JSON:encode(last)
 )
-check("…and the state follows (unlicensed)", H.reports("state")[#H.reports("state")].args.facts.manual_status == "unlicensed")
+check(
+  "…and the state follows (unlicensed)",
+  H.reports("state")[#H.reports("state")].args.facts.manual_status == "unlicensed"
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

@@ -23,7 +23,16 @@ everything off, a push notification when a display does not confirm.
 Commands from Composer run with full access: whoever programs the controller
 already controls it. A command that is refused (an unknown scene, a scene
 whose condition is not met, a restricted licence) writes the reason to the
-**Last Error** property and the Lua tab; it never fails silently.
+**Last Error** property and the Lua tab; it never fails silently. Under a
+restricted licence, **Trigger the VenueFlow event** starts no rule and is
+refused: Last Error reads, for example,
+`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`. A
+command that runs some rules and not others is done, and still writes Last
+Error: `TRIGGER_EVENT: 1 rule(s) run, 1 not run`. **Mark the venue** always
+sets the status (it is manual control and works under any licence); rules
+waiting for that change do not run under a restricted licence, and Last
+Error reads `SET_VENUE_STATUS: status set; 2 rule(s) not run: licence
+restricted`.
 
 ### Events (Programming, the VenueFlow driver's events)
 
@@ -31,9 +40,9 @@ whose condition is not met, a restricted licence) writes the reason to the
 | --- | --- | --- |
 | Scene Activated | a scene starts, from anywhere | variable ACTIVE_SCENE |
 | Notification | a scene or rule runs a "Send notification" step | variable NOTIFICATION_TEXT |
-| Alert Raised | VenueFlow raises an alert that stays until dismissed (a notification, an interrupted scene, a missed schedule) | variable ALERT_COUNT |
-| Configuration Published | the installer publishes or rolls back | |
-| Venue Opened, Venue Closed | the venue status changes | variable VENUE_STATUS |
+| Alert Raised | once for each stored alert (a notification, an interrupted scene, a missed schedule), and once when a detected alert appears (a display or zone change not confirmed, a display offline, a restricted licence); again for a detected alert only after it cleared and came back | variable ALERT_COUNT |
+| Configuration Published | a publish, by the installer, a client in the Venue Studio or Remote Management, and every rollback | |
+| Venue Opened, Venue Closed | the venue status changes, also under a restricted licence | variable VENUE_STATUS |
 | Licence Restricted, Licence Restored | the SmartBuildOS licence starts or stops restricting scenes and publishing | |
 
 Typical wiring: on **Notification**, send NOTIFICATION_TEXT through the
@@ -45,8 +54,23 @@ VenueFlow display and audio zone**.
 Variables (read-only): `VENUE_STATUS` (open, closed), `ACTIVE_SCENE`,
 `NOTIFICATION_TEXT`, `ALERT_COUNT`.
 
-Conditionals: *Venue is open*; *Active scene* = or != a scene name;
-*VenueFlow has alerts*.
+Conditionals: *Venue is open* (choose open or closed); *Active scene* = or
+!= a scene name; *VenueFlow has alerts* (choose showing alerts or clear).
+The driver answers the choice made: "Venue is open: closed" is true when the
+venue is closed, "VenueFlow has alerts: clear" when there is none. It reads
+the choice from the `VALUE` Composer passes, as in the DriverWorks sample;
+how Composer passes it has been checked under the test shim only, not on a
+controller (HARDWARE_VALIDATION.md, "Not yet run").
+
+**One count of alerts.** `ALERT_COUNT`, the **Alerts** property and
+*VenueFlow has alerts* all count every current alert of the whole venue:
+each stored alert until someone dismisses it, and each detected alert until
+its cause clears. A muted zone is shown on the Manager screen but is not an
+alert here: muting is something staff do on purpose. A detected alert is
+noticed within about a quarter of a second of the change behind it, and
+dismissing a stored alert lowers the count at once. What a staff profile is
+shown on the Manager screen is narrower (PROTOCOL.md, `ALERT_DISMISS` and
+the state document); the count in Composer never is.
 
 ### Sending Control4 events into VenueFlow rules
 
@@ -68,8 +92,9 @@ See DATA_MODEL.md for every field. In short:
   condition and a "confirm first" flag.
 - A **rule** is a trigger, an optional condition, and a program.
 - A **program** is an ordered list of steps from a fixed vocabulary (power
-  displays, route video, route audio, volume, mute, zone off, lighting preset,
-  shade, wait, run scene, set variable, mark venue, notify, IF/ELSE).
+  displays, route video, tune a channel, route audio, volume, mute, zone off,
+  lighting preset, shade, wait, run scene, set variable, mark venue, notify,
+  IF/ELSE).
 - Nothing an installer types is executed as code. An unknown step or
   condition is refused at validation and skipped by the runner.
 
@@ -81,7 +106,9 @@ Guarantees worth knowing when you design scenes:
 | Confirmation | A step is "ok" only when its devices confirmed (or cannot give feedback). One display that does not confirm makes the step and the run "partial", and names the display |
 | Waits | 1 to 600 seconds. A wait holds one timer, not a busy loop |
 | Nesting | IF inside IF four deep; a scene may run another scene four deep; a scene that would run itself is refused at publish and stopped at run time |
-| Overlap | A run that changes a device another running program also changes stops that older run, logs it and raises an alert. A rule started by a scene's own step does not stop that scene |
+| Overlap | A run that changes a device another running program also changes stops that older run, logs it and raises an alert. A rule started by a scene's own step does not stop that scene. A "Tune a channel" step changes its source: two runs tuning one source stop the older one; a run that only routes the source is not stopped |
+| Tune a channel | Dials a favourite or a number on a source's box through the source controls' closed key list, to the source's own device, about 350 ms between keys. The step is "sent", never confirmed (a box gives no feedback), and the program does not wait for the last key: add a Wait if the next step needs the channel. Steps run with system access, so staff need permission to run the scene, not "Use source controls". Never seen on a real box |
+| Stop | Stopping a run (Stop, All Off, a newer run that changes the same devices or source) stops its queued commands and the rest of a channel number it was dialling, and Diagnostics say so. A publish lets a number finish, as for one typed by hand. After a channel number is cut off, or on a box that dials without Enter, the next number for that box waits about 3 s so the digits do not run together. Keys for other boxes are not held up. The 3 s are an assumption, never seen on a box |
 | Conditions | A fact that cannot be read is false |
 | Dry run | Validates and plans against the published configuration; sends nothing |
 | Schedules | Controller local time; once per day and time; see the Scheduling section in the Studio for the daylight-saving rules |

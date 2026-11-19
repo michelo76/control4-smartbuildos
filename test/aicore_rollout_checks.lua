@@ -43,7 +43,8 @@ function R.finish()
   end
 end
 
-R.XML = '<property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>'
+R.XML =
+  "<property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>"
 
 --- Reads the driver's driver.xml property defaults into the global
 --- Properties table (adding, never removing) and checks the AI Core
@@ -110,7 +111,11 @@ function R.lifecycle(o)
     OnDriverLateInit()
   end)
   check("the driver starts with no error", okStart, startErr)
-  check("helper in " .. o.mode .. " mode for " .. o.file, aireport.mode() == o.mode and aireport._state().file == o.file, aireport.mode())
+  check(
+    "helper in " .. o.mode .. " mode for " .. o.file,
+    aireport.mode() == o.mode and aireport._state().file == o.file,
+    aireport.mode()
+  )
   local row = H.registry:find(o.moduleId, tostring(H.selfId))
   check(
     "registered as " .. o.moduleId .. " with its own instance id, verified",
@@ -159,7 +164,11 @@ function R.lifecycle(o)
   if o.describe then
     o.describe(d, check)
   end
-  check("property: Found — reporting", Properties["AI Core"] == "Found — reporting (v20261118.2)", Properties["AI Core"])
+  check(
+    "property: Found — reporting",
+    Properties["AI Core"] == "Found — reporting (v20261118.2)",
+    Properties["AI Core"]
+  )
   local facts = (lastOf(H, "state") or {}).facts or {}
   check(
     "state: the helper's baseline (driver status, licence)",
@@ -198,7 +207,11 @@ function R.lifecycle(o)
         and H.registry:find(o.moduleId, tostring(H.selfId)) ~= nil,
       reply and reply.reason
     )
-    check("this instance registered non-singleton", row ~= nil and row.singleton == false, row and tostring(row.singleton))
+    check(
+      "this instance registered non-singleton",
+      row ~= nil and row.singleton == false,
+      row and tostring(row.singleton)
+    )
     H.registry:remove(o.moduleId, second)
     H.c4i[o.file][H.selfId + 1] = nil
   end
@@ -214,7 +227,11 @@ function R.lifecycle(o)
   check("no report frame while it is gone", H.reportFrames() == frames)
   H.aiRegister()
   H.pushDirectory()
-  check("back: Found — reporting", Properties["AI Core"] == "Found — reporting (v20261118.2)", Properties["AI Core"])
+  check(
+    "back: Found — reporting",
+    Properties["AI Core"] == "Found — reporting (v20261118.2)",
+    Properties["AI Core"]
+  )
   check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
   local outside = {}
   for _, v in ipairs(R.painted) do

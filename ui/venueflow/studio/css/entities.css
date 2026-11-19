@@ -18,6 +18,8 @@
 
 /* editor on the right */
 .en-editor { gap: 14px; }
+/* A profile a client may not change (the one screens open with): shown, every control disabled. */
+.en-locked { margin: 0; padding: 0; border: 0; min-width: 0; gap: 14px; }
 .en-editor h2 { max-width: 100%; }
 .en-editor .form { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .en-card { gap: 10px; }

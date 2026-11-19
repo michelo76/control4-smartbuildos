@@ -84,7 +84,11 @@ turned into open or closed.
 
 ## AI Core
 
-The read-only **AI Core** property shows `Installed — reports through SmartBuildOS MQTT Broker` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the MQTT Broker driver is the one that reports), and it shows `Searching…` until Director first answers.
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS MQTT Broker` when SmartBuildOS AI Core
+is in the project and `Not installed` when it is not; this driver never talks to
+AI Core itself (the MQTT Broker driver is the one that reports), and it shows
+`Searching…` until Director first answers.
 
 ## Limits
 

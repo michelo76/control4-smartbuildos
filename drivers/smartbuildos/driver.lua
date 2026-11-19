@@ -41,6 +41,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-insights.c4z",
   "smartbuildos-ai-core.c4z",
+  "smartbuildos-venueflow.c4z",
   "bond-bridge.c4z",
   "bond-color-light.c4z",
   "bond-fan.c4z",
@@ -2804,6 +2805,7 @@ local SKU_FILENAMES = {
     "unifi-protect-sensor.c4z",
     "unifi-protect-viewport.c4z",
   },
+  SBOS_VENUEFLOW = { "smartbuildos-venueflow.c4z" },
 }
 
 --- Forwards ONE driver's remote settings from the heartbeat response to

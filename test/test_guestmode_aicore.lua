@@ -40,7 +40,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -189,7 +191,10 @@ R.lifecycle({
   state = function(facts)
     check(
       "state: calendar health only",
-      facts.calendars == 1 and facts.calendars_loaded == 1 and facts.calendars_failing == 0 and facts.halted_by_licence == false,
+      facts.calendars == 1
+        and facts.calendars_loaded == 1
+        and facts.calendars_failing == 0
+        and facts.halted_by_licence == false,
       JSON:encode(facts)
     )
     local keys = {}
@@ -205,10 +210,16 @@ R.lifecycle({
   end,
   forbid = { "Jane", "cal.example", "private-token", "sunny-beach", "occupied", "vacant", "2027-01" },
 })
-check("a guest really was in (the driver's own variables)", vars["GUEST_STATUS"] ~= "vacant" and vars["GUEST_STATUS"] ~= nil, vars["GUEST_STATUS"])
+check(
+  "a guest really was in (the driver's own variables)",
+  vars["GUEST_STATUS"] ~= "vacant" and vars["GUEST_STATUS"] ~= nil,
+  vars["GUEST_STATUS"]
+)
 check(
   "…and the per-stay PIN never reached a report",
-  type(vars["GUEST_PIN"]) == "string" and #vars["GUEST_PIN"] >= 4 and JSON:encode(H.reports()):find(vars["GUEST_PIN"], 1, true) == nil,
+  type(vars["GUEST_PIN"]) == "string"
+    and #vars["GUEST_PIN"] >= 4
+    and JSON:encode(H.reports()):find(vars["GUEST_PIN"], 1, true) == nil,
   vars["GUEST_PIN"]
 )
 
@@ -230,7 +241,10 @@ routes[CAL] = FEED
 EC.POLL_NOW()
 dg = H.reports("diagnostic")
 last = dg[#dg] and dg[#dg].args
-check("loading again: calendars.restored (info)", last ~= nil and last.code == "calendars.restored" and last.severity == "info")
+check(
+  "loading again: calendars.restored (info)",
+  last ~= nil and last.code == "calendars.restored" and last.severity == "info"
+)
 check("no calendar address in any report", JSON:encode(H.reports()):find("cal.example", 1, true) == nil)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
