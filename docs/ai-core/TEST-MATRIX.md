@@ -136,6 +136,53 @@ checks fail (2026-11-18, then restored):
 | an unknown kind accepted | unit [1] "an unknown kind is refused (invalid)", [2], [4] "unknown kind refused (invalid)"; emulator [4] "unknown kind → accepted false, invalid" |
 | `need_describe` skipped | unit [2] "need_describe while no describe is held", [4] "after an AI Core restart: need_describe on the next report"; emulator [10] "reporter A was told need_describe and re-sent its describe", "atmosphere's describe reached the cloud again after the restart", "mode_composer's too" |
 
+## Touchscreen page: PIN-gated chat and PIN approvals (D5)
+
+Unit = `test/test_aicore_webui.lua` (the real driver under the scripted Agent,
+a fake PIN Lock on PIN Lock's real challenge store, a scripted cloud; plus
+white-box checks on `src/aicore/webui.lua`) and `test/test_aicore_page.lua`
+(static guards; the page's pure script under `node` with a fake DOM that
+throws on `innerHTML`); emulator = `test/emulator/ai_core_webview.lua` (run by
+`test/emulator/run-ai-core.sh`): the real Agent, the real PIN Lock and the
+real AI Core, the page's requests through the emulator's server sockets.
+Nothing here has run on a controller or a Navigator.
+
+| Item | Test | Class |
+| --- | --- | --- |
+| The tile: proxy, no combo, URL with install token, republished at 60 s, `/ping` tokenless, 403 on a bad token, 413 over 4 KB, ≤ 4 sessions, 401 without a session | unit [1]; `test/test_driver_xml_guard.lua`; emulator [1] "AI Core published its page (relay, install token)" | unit, emulator |
+| CSP: `default-src 'none'`, `connect-src 'self'` plus PIN Lock's port on this host only; no third-party resource, no storage, no `innerHTML` | unit [1] "the page's CSP allows only its own relay and PIN Lock's port on this host"; page [1] | unit |
+| Locked: status in words and an approvals count only (no refs) | unit [2]; emulator [1] "locked: status and a count only" | unit, emulator |
+| Unlock with an owner PIN (chat_view challenge, subject = session id, redeem with the same nonce) | unit [3]; emulator [2] "PIN Lock's /verify accepted the owner PIN (200), on this controller", "the chat is unlocked" | unit, emulator |
+| Ask → touchscreen ask (`channel`, `detail`) → answer via `deliver_result`; never `AI_LAST_RESPONSE`, never persisted, no AI Response Ready; suggestions and explain only when unlocked | unit [4]; emulator [2] "a touchscreen ask reached the cloud (channel, detail)", "the answer arrived through deliver_result", "…not in AI_LAST_RESPONSE" | unit, emulator |
+| Idle expiry (5 min without interaction; polls are not interaction), held answers, 10 exchanges, 15-minute clear, 5-minute unanswered | unit [5]; emulator [2] "five minutes without interaction: locked again", "…and the locked body carries no conversation" | unit, emulator |
+| Lock, page close (`/session/close`, 75 s silence), driver restart | unit [6] | unit |
+| A locked session gets no conversation bytes from ANY route (response bodies) | unit [7] "no route returned any conversation content to the locked session" | unit |
+| Guest PIN, non-owner role, a challenge the session was not given | unit [8]; emulator [3] "PIN Lock refused the guest PIN (401) and the chat stays locked" | unit, emulator |
+| Approvals: one PIN per item, detail with `{nonce, verified_at, role, method}`, decide with the detail's `args_hash` and the same verification, single use, 60 s, one ref per proof | unit [9]; emulator [5] "approval_detail with an owner-PIN verification", "approval_decide: approve, the detail's args_hash, the same nonce", "decline REF_B with its own PIN entry" | unit, emulator |
+| A chat unlock never approves; an approval PIN never unlocks the chat | unit [9] "an approval PIN never unlocks the chat", [10] "a chat_view unlock is refused for approval_decide", "pure: an unlocked chat never stands in for an approval proof", "pure: an approval proof never unlocks the chat"; emulator [5] "the item is shown; the chat stays locked" | unit, emulator |
+| Every cloud refusal reason in plain words, none as a code | unit [11]; `test/test_aicore_platform_parity.lua` [8b] "every refusal reason the platform can answer has plain words on the page"; emulator [6] "above_ceiling: no item, plain words, the portal" | unit, emulator |
+| Fail closed for each PIN Lock state (not installed, unverified, stale, no capabilities, not answering, starting, off, unlicensed, no_owner_pin, relay_unavailable, locked with its time) | unit [12]; emulator [4] "five wrong PINs: PIN Lock's page lockout, the chat is unavailable here", "…and PIN Lock's own page is locked by the same count" | unit, emulator |
+| No PIN in any AI Core request, Lua path or log (400 on a `pin` key; scan of log lines, bus frames, cloud bodies, relay replies, persisted values with a positive control; grep guard over `src/aicore` and the driver) | unit [13]; emulator [7] "no AI Core frame and no cloud body carries a PIN" | unit, emulator |
+| Detail level (Basic / Household), a `verify_url` on another host, rate limits (4 asks a minute, 500 characters) | unit [14] | unit |
+| Text only through `textContent` (a fake DOM that fails on `innerHTML` with cloud text) | page [2] | unit |
+| The touchscreen ask and the three approval ops against `rpc/ops.ts` | `test/test_aicore_platform_parity.lua` [8] (ask.channel, ask.detail, approvals_pending, approval_detail, approval_decide), [8b] (verification fields) | unit |
+
+Each guard was proved by reintroducing its defect once and seeing the named
+checks fail (2026-11-18, then restored):
+
+| Defect reintroduced | Failed |
+| --- | --- |
+| conversation served to a locked session (`chatView` without its proof check) | unit [7] "no route returned any conversation content to the locked session" (GET /state), [2] "locked: no conversation, no suggestions, no explain", [5] "an answer that arrives while locked is held: not in any locked body", and 10 more |
+| idle expiry skipped (chat proofs never expire) | unit [5] "polling alone does not keep it open: locked after 5 minutes" |
+| a chat_view proof accepted for `approval_decide` | unit [10] "pure: an unlocked chat never stands in for an approval proof (no_grant, nothing sent)" |
+| an approval proof accepted as a chat unlock | unit [9] "an approval PIN never unlocks the chat" |
+| an approval proof reused for the next ref | unit [9] "Review next item again: a new PIN challenge, the proof is not reused", "…no approval_detail without that new PIN" |
+| text rendered with `innerHTML` | page [1] "no innerHTML, …", [2] "pure helpers pass under node (fake DOM refuses innerHTML)" |
+| chat offered when PIN Lock is unverified | unit [12] "PIN Lock not verified by the Agent: chat unavailable, no approval offered, use the portal" |
+| a PIN passed through an AI Core route (`/pin/done` accepting `pin` and forwarding it in the redeem) | unit [13] "a body with a pin key is refused (400) before anything reads it", "grep guard: no `pin` field is read, written or sent in src/aicore or the driver" |
+| `started` reported as `completed` | `test/test_aicore_reports.lua` [6] "an in-progress answer: driver_action_result status started (never completed)…"; `started` dropped from the list: parity [8] "driver_action_result.status: the same closed list" |
+| a refused batch's state dropped (not kept pending) | `test/test_aicore_reports.lua` [3] "refused: events are dropped and counted; states wait again (ruling 23)", [3a] "refused: the describe and the state wait again…" |
+
 ## Known gaps the tests pin rather than hide
 
 * An assertion that fails verification is dropped and the SKU answers

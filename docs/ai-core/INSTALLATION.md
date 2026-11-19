@@ -182,3 +182,44 @@ What to expect:
 * Other refusals name their reason in `AI Status` and `Last Error`:
   `learning_not_allowed`, `not_licensed`, `already_running`, `not_permitted`,
   `invalid_args` (table in §8).
+
+## 10. The AI Core tile (touchscreen and phone app)
+
+AI Core adds a Navigator tile (a `uibutton` proxy with a web view, like PIN
+Lock and Atmosphere). **It has not been opened on a real touch screen or
+phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
+
+1. **Add the tile.** After adding AI Core, its **AI Core** tile appears in the
+   room the driver was added to; move or hide it in Composer like any other
+   tile. **Webview Address** shows `http://<controller>:47871/app (home
+   network only)`. If it says the controller address is unknown, set **App
+   Relay Address** to the controller's LAN address — and the **same** value
+   on PIN Lock. After changing it, run *Republish App URL* and close and
+   reopen the tile (Navigator does not change the address of an open page).
+2. **Add PIN Lock (required for the chat and approvals).** Install
+   **SmartBuildOS PIN Lock** in the same project, licence it, and create an
+   **owner** code with a PIN on its own page. Leave its *AI Core PIN
+   Verification* property on. Only owner PINs work on the AI Core tile; staff,
+   vendor and guest codes never do. Wrong PINs count against PIN Lock's own
+   lockout (*Clear Lockouts* on PIN Lock clears it). Without PIN Lock the tile
+   still shows the status and the number of items awaiting approval, and says
+   to use the SmartBuildOS portal for the rest. **Touchscreen Approvals**
+   says in plain words what is missing.
+3. **The homeowner's two switches (SmartBuildOS portal).** Nothing here turns
+   them on: the homeowner does, in the portal. *Approvals at the touchscreen*
+   (off by default) lets an owner PIN approve or decline low- and medium-risk
+   action proposals on the tile; everything else stays portal only.
+   *Household answers at the touchscreen* (off by default) lets the chat use
+   household activity. **Touchscreen Detail** can only lower this: *Basic*
+   switches the chat off, *Standard* never asks for household activity,
+   *Household* asks for it but the cloud answers with it only when the
+   homeowner's switch is on.
+4. **What works only on the home network.** The whole page: a touch screen or
+   a phone on the home Wi-Fi reaches the controller; a phone away from home
+   does not (the page says *Available on the home network only*). There is
+   no cloud fallback.
+5. **Check it.** Open the tile: the status shows *Online* and *PIN Lock is
+   ready for this screen*. Press *Unlock with owner PIN*, enter the owner
+   PIN, ask a question; the answer appears on that page only. The chat locks
+   again after 5 minutes without use, when the tile is closed, and on *Lock*.
+
