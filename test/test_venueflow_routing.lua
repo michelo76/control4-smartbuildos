@@ -10,6 +10,7 @@
 -- Run from the driver root: make test
 
 local H = require("venueflow_harness")
+local Tracker = require("venueflow.tracker")
 local T = H.checker()
 local check, eq = T.check, T.eq
 
@@ -281,5 +282,110 @@ eq("bad power value refused by the protocol", r.errorCode, "VF_INVALID_PAYLOAD")
 r = env.send("QUERY_STATUS", { displayIds = { "tv-06" } }, M)
 eq("query status reads the room", r.results[1].status, "read")
 eq("the stale failure is replaced by what Control4 reports", env.cell("display", "tv-06", "source").status, "confirmed")
+
+-- ── stopping a run whose earlier, identical command was already sent ────────
+-- A run asks for the same value twice: the first command is SENT, the second
+-- (not yet sent) takes it over as a follower. Stopping the run stops the
+-- second; the first happened and must still be reported as it ends.
+print("stopping a run: a command already sent is not 'stopped'")
+do
+  local cells, q, now = {}, {}, 0
+  local state = {
+    cell = function(_, k, id, f)
+      return cells[k .. ":" .. id .. ":" .. f]
+    end,
+    set = function(_, k, id, f, v, st)
+      cells[k .. ":" .. id .. ":" .. f] = { value = v, status = st }
+    end,
+    restore = function(_, k, id, f, prev)
+      cells[k .. ":" .. id .. ":" .. f] = prev
+    end,
+    touch = function() end,
+  }
+  local queue = {
+    enqueue = function(_, job)
+      q[#q + 1] = job
+    end,
+    drop = function(_, key)
+      for i = #q, 1, -1 do
+        if q[i].key == key then
+          table.remove(q, i)
+        end
+      end
+    end,
+  }
+  local roomSource = "other"
+  local tr = Tracker.new({
+    timers = {
+      set = function() end, -- the confirmation sweep is not run here
+      cancel = function() end,
+    },
+    now = function()
+      return now
+    end,
+    state = state,
+    queue = queue,
+    adapter = function()
+      return {
+        readRoom = function()
+          return { source = roomSource }
+        end,
+      }
+    end,
+    confirmMs = 5000,
+  })
+  local sent = 0
+  local function action()
+    return {
+      kind = "display",
+      id = "tv-1",
+      name = "TV 1",
+      field = "source",
+      desired = "s1",
+      dispatch = function()
+        sent = sent + 1
+        return true
+      end,
+      confirm = {
+        roomId = 1,
+        want = "s1",
+        matches = function(room)
+          return room.source == "s1"
+        end,
+        describe = function(room)
+          return room.source
+        end,
+      },
+    }
+  end
+  local op1 = tr:begin("route_video", "first", { executionId = "x1" })
+  local t1 = tr:submit(op1, action())
+  tr:close(op1)
+  table.remove(q, 1).run()
+  eq("the first command is sent", t1.sent, true)
+  local op2 = tr:begin("route_video", "second", { executionId = "x1" })
+  local t2 = tr:submit(op2, action())
+  tr:close(op2)
+  eq(
+    "the run is stopped: one command withdrawn",
+    tr:cancelExecution("x1", "VF_CANCELLED", "stopped before it was sent"),
+    1
+  )
+  eq("the second, never sent, is stopped", t2.status, "superseded")
+  eq("...and never leaves", #q, 0)
+  check(
+    "the first, already sent, is not reported as stopped before it was sent",
+    t1.detail ~= "stopped before it was sent",
+    tostring(t1.detail)
+  )
+  eq("...it is still awaiting its outcome", t1.status, "pending")
+  eq("...and still owns the cell", tr:isActive("display", "tv-1", "source"), true)
+  roomSource = "s1"
+  tr:roomChanged(1)
+  eq("Control4 confirms it: the first is confirmed", t1.status, "confirmed")
+  eq("...the cell says so", cells["display:tv-1:source"].status, "confirmed")
+  eq("...and its operation is done", op1.done, true)
+  eq("only one command ever reached Control4", sent, 1)
+end
 
 T.done()

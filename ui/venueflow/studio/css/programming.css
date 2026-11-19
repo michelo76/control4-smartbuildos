@@ -15,6 +15,7 @@
 .vp-unset { color: var(--warn); font-weight: 650; }
 .vp-missing-field > select { border-color: rgba(248, 113, 113, .7); color: var(--bad); }
 .vp-unset-field > select { border-color: var(--warn-line); }
+.vp-unset-field > input { border-color: var(--warn-line); }
 .vp-seg button { min-height: 44px; }
 .vp-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .vp-group-label { font-size: 13px; color: var(--ink-2); font-weight: 550; }
@@ -39,6 +40,8 @@
 .vp-rule-open { display: flex; flex-direction: column; gap: 3px; text-align: left; background: transparent; border: 0; padding: 4px 6px; border-radius: 10px; cursor: pointer; color: inherit; min-width: 0; min-height: 44px; justify-content: center; }
 .vp-rule-open:hover b { color: var(--teal); }
 .vp-rule-open > span { overflow-wrap: anywhere; }
+/* Phones: the rule name keeps the line; its state chip and buttons go under it. */
+@media (max-width: 600px) { .vp-rule { flex-wrap: wrap; } .vp-rule > .vp-rule-open { flex: 1 1 calc(100% - 70px); } .vp-rule > .row.tight { margin-left: auto; } }
 
 /* editor frame */
 .vp-ehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }

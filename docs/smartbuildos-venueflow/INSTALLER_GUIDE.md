@@ -6,8 +6,10 @@ it does not replace the project's AV design.
 
 > **This build is simulation verified, not hardware validated.** On a bench
 > controller, installation, the pages, Installer Studio and publishing have
-> been walked through in Simulation (HARDWARE_VALIDATION.md, Results). The
-> Live-mode steps below, everything that touches real equipment, have not.
+> been walked through in Simulation, on a build of 14 November 2026
+> (HARDWARE_VALIDATION.md, Results). The Live-mode steps below, everything
+> that touches real equipment, have not; nor have sections 10 to 12 (the
+> Venue Studio, Remote Management, source controls), which came later.
 > Work through HARDWARE_VALIDATION.md on a bench before a venue relies on it.
 
 ## 1. What the project needs
@@ -36,7 +38,7 @@ without your own remote access.
    nothing to Control4 until you set **Control Mode** to Live.
 5. Set **Installer Passcode** (six or more characters). Press Set.
 6. **Installer Studio** now shows an address like
-   `http://192.168.1.10:47861/studio`. If it does not, see
+   `http://<controller address>:47861/studio`. If it does not, see
    TROUBLESHOOTING.md, "The tile or a page does not load".
 7. In each room where staff will use it, make the VenueFlow tile visible in
    Navigator.
@@ -107,7 +109,11 @@ Opens **Devices**. For each display:
 
 Then **Sources** (name, kind, the Control4 device a room selects, video and
 audio) and **Audio Zones** (name, area, its Control4 room, allowed sources,
-minimum, maximum and default volume, presets).
+minimum, maximum and default volume, presets). **Lighting and Shades**: a
+lighting control's presets (each one Control4 command to one device) and
+each shade's device, with its open and closed levels: numbers from 0 to 100,
+100 and 0 when left empty; anything else is refused at save and publish
+("Open level must be between 0 and 100.").
 
 **Test as you go.** In the display's inspector:
 
@@ -150,7 +156,8 @@ Conference Staff, Restricted Operator) and adjust:
 
 - which screens the profile gets, and which opens first;
 - what it may do: route video, switch displays, control audio, lighting,
-  shades, run scenes, open and close the venue, All Off, see alerts;
+  shades, run scenes, open and close the venue, All Off, see alerts, use
+  source controls (section 12), open the Venue Studio (section 10);
 - where: floors, areas, sources, audio zones, scenes.
 
 Give a **PIN** (4 to 8 digits) to any profile that can run venue-wide
@@ -194,6 +201,16 @@ Before relying on a scene:
    nothing. It uses the published venue, so publish first.
 3. **Execute test**: runs it for real and shows each step and each device as
    they finish. A step is done only when its devices confirm.
+
+**Tune a channel** (under Displays in Add step) puts a source's box on a
+favourite or a channel number. Only switched-on sources with the number
+keypad are offered (section 12). The step is "sent", never confirmed, and
+the scene does not wait for the last digit: if a later step needs the
+channel, put a Wait before it. If you remove a favourite that a step uses,
+the Studio names the scene, schedule or rule and the venue cannot be
+published until the step is changed. Staff who may run the scene do not
+need "Use source controls". Like the source controls, it has never been
+seen to move a real box.
 
 **Visual Programming** holds the rules: a trigger (a schedule, a scene
 running, the venue opening or closing, a display or zone changing, a Control4
@@ -259,18 +276,40 @@ without the Installer Passcode.
    menu and chooses **Venue Studio**; or opens
    `http://<controller>:47861/studio` and picks their name.
 
-They can change scenes, schedules, staff profiles and PINs, source names and
-channel labels, and volume presets, and publish that. They cannot change
-devices, routing, the layout, groups, lighting, shades, rooms, stations,
-rules on events, the venue record, Control Mode, backups or licensing, and
-they cannot give the Venue Studio permission to anyone. The driver refuses
-those, whatever the page sends.
+They can change scenes, schedules, staff profiles and PINs, source names,
+channel labels and favourite channels, and volume presets, and publish that.
+Removing a favourite that a scene or schedule uses asks them first, as it
+asks you.
+They cannot change devices, routing, the layout, groups, lighting, shades,
+rooms, stations, rules on events, the venue record, Control Mode, backups or
+licensing, and they cannot give the Venue Studio permission to anyone. Two
+kinds of staff profile stay entirely yours: the one a tile opens as, and any
+profile a station opens as. Anyone on the venue network acts as those, so
+the client cannot change, rename or remove them, or set or clear their PIN.
+The driver refuses all of this, whatever the page sends.
 
-While your own draft changes are unfinished, the client can keep editing
-but cannot publish: publish or discard your work first.
+Every save is recorded with who made it. Once you have saved anything in
+the draft (a change, a staff PIN, a template), or the dealer has sent a
+draft through Remote Management, the draft is your unfinished work until it
+is published or discarded: the client can keep editing but cannot publish
+or discard. Their Studio says why, in plain words, in its header, on Home
+and on Publish and Rollback (where the buttons are disabled): "Your
+installer saved changes that are not live yet", "Your dealer saved changes
+remotely that are not live yet", or that the draft has a change only you can
+make; and it says who to ask. Publish or discard your work first. In the
+client's Staff Profiles, the profile a tile opens as and any station's
+profile are shown read-only ("This is the profile screens open with. Only
+your installer can change it."). The station case has not been seen in a
+browser (the samples have no stations).
 
-**Not yet tried on a touch screen or in the Control4 app** (checked in a
-desktop browser against the simulator).
+Publish and Discard, yours and the client's, name the draft revision the
+page last loaded or saved. If someone else saved the draft since, nothing is
+published or discarded: the page says the draft changed since it was
+loaded, reloads it and does not try again.
+
+**Not yet tried on a touch screen or in the Control4 app** (checked in
+desktop Chromium, WebKit and Firefox against the simulator, at 390 x 844, 820 x 1180, 1024 x 600
+and 1280 x 800).
 
 ## 11. Remote Management (smartbuildos.io)
 
@@ -285,8 +324,49 @@ do with this venue's configuration through the SmartBuildOS Agent:
 
 It never routes video, changes a volume, runs a scene or sets a PIN.
 
-**Today this switch has nothing to connect to.** The driver side is built;
-smartbuildos.io has no VenueFlow pages yet. Leave it Off.
+The smartbuildos.io side exists: in your System Studio, Drivers & Licenses,
+VenueFlow (Overview, Sources, Audio, Schedules, Whole configuration,
+Publish, Driver). **It has never been run together with a controller**, so
+keep the switch Off on a venue that relies on VenueFlow until the bench run
+in HARDWARE_VALIDATION.md has passed. The `SBOS_VENUEFLOW` licence cannot be
+issued yet either (SMARTBUILDOS_INTEGRATION.md).
+
+What to know before switching it on:
+
+- A remote draft makes the draft your unfinished work (section 10): the
+  client waits until it is published or discarded.
+- A remote draft must name the revision it was made from, and a remote
+  publish the revision that was reviewed; work done on site is never
+  overwritten silently.
+- **Device mapping is yours, on site.** Which Control4 room or device a
+  display, source, audio zone, lighting preset or shade addresses, a
+  display's power, feedback and route (its custom route command included),
+  a lighting preset's command, and the device and variable of a rule's
+  Control4-variable trigger or condition: only you change these, in
+  Installer Studio. A remote draft that would change any of them is refused
+  as a whole ("Remote Management cannot change device mapping or device
+  commands: Display 'TV 03' room. Change these on site in Installer
+  Studio."), and nothing is stored. A display or source added remotely
+  arrives unmapped, for you to map on site; one removed remotely is simply
+  gone.
+- **Making a mapping live is yours too.** A remote publish is refused while
+  the draft's mapping differs from what is live, even when you put that
+  change in the draft yourself; a remote rollback is refused when the older
+  version had another mapping. So while a mapping change of yours sits
+  unpublished in the draft, the dealer can save other edits on top of it
+  but cannot publish: publish it on site first.
+- **What the dealer can still change remotely:** names, the layout,
+  scenes, rules and schedules (including "Tune a channel" steps), groups,
+  volume limits and presets, staff profiles, channel labels, favourites, a
+  source's control groups, shade open and closed levels. With **Draft and
+  publish** that can go live with nobody on site, and a scene or schedule
+  written remotely can route any mapped source to any mapped display and
+  tune any mapped box. Choose it only where you trust the dealer's platform
+  account to run the venue's equipment as you mapped it
+  (SECURITY_REVIEW.md).
+- A refresh from the platform (`refresh_status`) asks the driver for a
+  one-line summary (what runs, the mode, the venue status, the alerts, the
+  draft) and the published version the controller runs.
 
 ## 12. Basic source controls (channel keys, keypad, favourites)
 
@@ -304,7 +384,10 @@ with the last two. Switch on only what the device really has.
 
 - The keys go to the Control4 device the source is mapped to.
 - **Favourite channels** (up to 24 per source) dial the number with one
-  press: each digit, then Enter. Switch "Press Enter after the digits" off
+  press: each digit, then Enter. Removing a favourite that a scene or
+  schedule uses asks first ("Used by Scene 'Game Day' and Schedule
+  'Morning news'. Removing it blocks publishing until those steps are
+  changed."); the same in the client's Channels and Names. Switch "Press Enter after the digits" off
   for a box that tunes by itself. The venue can edit favourites in the Venue
   Studio.
 - Give staff the permission **Use source controls** in Staff Profiles. Staff
@@ -313,6 +396,13 @@ with the last two. Switch on only what the device really has.
   says how many screens are showing the source.
 - Nothing comes back from a box. VenueFlow shows a press as sent; it does not
   know the channel.
+- Scenes, rules and schedules can tune a box too, with the **Tune a
+  channel** step (section 5). If a run that was dialling a number is
+  stopped, the rest of the number is not sent. After a number is cut off,
+  or on a box that dials without Enter, the next number for that box waits
+  about 3 seconds so the digits do not run together; other boxes are not
+  held up. That pause is an assumption about boxes, not seen on one: check
+  it on site.
 
 **Test this on site in Live mode before you rely on it** (HARDWARE_VALIDATION.md).
 It has only been run against the simulator. If a favourite drops a digit on

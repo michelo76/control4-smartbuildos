@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>VenueFlow Installer Studio</title>
+<!-- An empty icon: without it Firefox asks for /favicon.ico, which the relay's Content Security Policy (img-src data: blob:) refuses with a console error. -->
+<link rel="icon" href="data:,">
 <style>
 /*@include shared/base.css*/
 /*@include studio/studio.css*/
@@ -16,9 +18,9 @@
 <body>
 <div id="offline" class="banner bad hidden">The controller is not answering. Changes are kept on this screen and saved when it is back.</div>
 <div id="login" class="hidden"></div>
-<div id="pending" class="banner warn hidden"></div>
 <div id="app" class="hidden">
   <div id="sim" class="simbar hidden">Simulation mode: nothing is sent to Control4</div>
+  <div id="pending" class="banner warn hidden" role="status"></div>
   <header id="top">
     <button id="navtoggle" class="btn ghost icon sm" type="button" aria-label="Sections"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="brand"></div>

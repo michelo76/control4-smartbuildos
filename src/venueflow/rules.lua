@@ -16,6 +16,7 @@
 --- which validate and plan but never reach the Control4 adapter.
 
 local U = require("venueflow.util")
+local SourceControl = require("venueflow.sourcecontrol")
 
 local M = {}
 
@@ -27,6 +28,7 @@ M.MAX_NESTING = 4
 M.STEP_TYPES = {
   "display_power",
   "route_video",
+  "tune",
   "route_audio",
   "volume",
   "mute",
@@ -274,6 +276,118 @@ function M.validateCondition(cond, ix, path, issues, entity, depth)
   end
 end
 
+local function isSet(v)
+  return v ~= nil and v ~= ""
+end
+
+--- "Scene 'Game Day'" / "Schedule 'Lobby news'" / "Rule 'Doorbell'": who owns
+--- a step, for messages that must name it (the issue may be raised by a
+--- change made elsewhere, such as a favourite channel removed).
+local function ownerText(ix, entity)
+  if type(entity) ~= "table" then
+    return "This program"
+  end
+  if entity.kind == "scene" then
+    local s = ix.scenes and ix.scenes[entity.id]
+    return "Scene '" .. tostring(s and s.name or entity.id) .. "'"
+  elseif entity.kind == "rule" then
+    local r = ix.rules and ix.rules[entity.id]
+    local word = (r and type(r.trigger) == "table" and r.trigger.type == "schedule") and "Schedule" or "Rule"
+    return word .. " '" .. tostring(r and r.name or entity.id) .. "'"
+  end
+  return "This program"
+end
+
+--- tune = { type = "tune", sourceId, favoriteId } | { type = "tune", sourceId, channel }
+local function validateTune(step, ix, sp, issues, entity)
+  local hasFavorite, hasChannel = isSet(step.favoriteId), isSet(step.channel)
+  if hasFavorite and hasChannel then
+    issue(
+      issues,
+      "error",
+      "STEP_INVALID",
+      sp .. ".channel",
+      "Choose a favourite channel or type a channel number, not both.",
+      entity
+    )
+  end
+  if hasChannel and not SourceControl.validChannel(step.channel) then
+    issue(
+      issues,
+      "error",
+      "STEP_INVALID",
+      sp .. ".channel",
+      "A channel is digits, with at most one dash or dot (206, 5-1).",
+      entity
+    )
+  end
+  if hasFavorite and type(step.favoriteId) ~= "string" then
+    issue(issues, "error", "STEP_INVALID", sp .. ".favoriteId", "A favourite is named by its id.", entity)
+    hasFavorite = false
+  end
+  if not needRef(step.sourceId, ix.sources, "source", sp .. ".sourceId", issues, entity, "Source") then
+    return
+  end
+  local source = ix.sources[step.sourceId]
+  local who, name = ownerText(ix, entity), tostring(source.name)
+  if source.enabled == false then
+    issue(
+      issues,
+      "error",
+      "STEP_INVALID",
+      sp .. ".sourceId",
+      who .. " tunes " .. name .. ", which is switched off (not enabled); switch it on or remove the step.",
+      entity
+    )
+  end
+  if not SourceControl.has(source, "keypad") then
+    issue(
+      issues,
+      "error",
+      "STEP_INVALID",
+      sp .. ".sourceId",
+      who
+        .. " tunes "
+        .. name
+        .. ", which has no number keypad, so the step can never dial a channel. "
+        .. "Give the source the number keypad (Sources > Basic controls) or remove the step.",
+      entity
+    )
+  end
+  if hasFavorite then
+    local found = false
+    for _, f in ipairs(U.list(source.favorites)) do
+      if type(f) == "table" and f.id == step.favoriteId then
+        found = true
+      end
+    end
+    if not found then
+      issue(
+        issues,
+        "error",
+        "REF_UNKNOWN",
+        sp .. ".favoriteId",
+        who
+          .. " tunes "
+          .. name
+          .. " to a favourite channel that no longer exists ("
+          .. step.favoriteId
+          .. "). Choose another favourite or type the channel number in the step.",
+        entity
+      )
+    end
+  elseif not hasChannel then
+    issue(
+      issues,
+      "warning",
+      "STEP_INCOMPLETE",
+      sp,
+      "Channel is not chosen yet: pick a favourite or type a channel number.",
+      entity
+    )
+  end
+end
+
 local function validateSteps(steps, ix, path, issues, entity, nesting, counter)
   if not U.isList(steps) then
     issue(issues, "error", "NOT_A_LIST", path, "Steps must be a list.", entity)
@@ -298,6 +412,8 @@ local function validateSteps(steps, ix, path, issues, entity, nesting, counter)
             issue(issues, "error", "STEP_INVALID", sp .. ".sourceId", "That source has no video.", entity)
           end
         end
+      elseif t == "tune" then
+        validateTune(step, ix, sp, issues, entity)
       elseif t == "route_audio" then
         needRef(step.zoneId, ix.zones, "audio zone", sp .. ".zoneId", issues, entity, "Audio zone")
         if needRef(step.sourceId, ix.sources, "source", sp .. ".sourceId", issues, entity, "Source") then
@@ -566,7 +682,10 @@ function M.validateCycles(config, issues)
   end
 end
 
---- What a program can change: a set of "d:<displayId>" and "z:<zoneId>".
+--- What a program can change: a set of "d:<displayId>", "z:<zoneId>" and
+--- "s:<sourceId>" (a source a step tunes to a channel: two runs dialling one
+--- box would mix their digits; a run that only ROUTES a source does not
+--- touch it, so tuning never stops a run that routes).
 function M.touches(steps, config, ix, out, depth)
   out = out or {}
   depth = depth or 0
@@ -580,6 +699,10 @@ function M.touches(steps, config, ix, out, depth)
       elseif t == "route_audio" or t == "volume" or t == "mute" or t == "zone_power" then
         if step.zoneId ~= nil then
           out["z:" .. step.zoneId] = true
+        end
+      elseif t == "tune" then
+        if step.sourceId ~= nil then
+          out["s:" .. step.sourceId] = true
         end
       elseif t == "if" then
         M.touches(step["then"], config, ix, out, depth)
@@ -686,12 +809,30 @@ local function targetLabel(target, ix)
   return #parts > 0 and table.concat(parts, ", ") or "(no displays)"
 end
 
+--- "206 (ESPN)", "206", "(missing favourite)" or "(not set)".
+local function tuneTarget(step, ix)
+  if isSet(step.favoriteId) then
+    local source = ix.sources[step.sourceId or ""]
+    for _, f in ipairs(source and U.list(source.favorites) or {}) do
+      if type(f) == "table" and f.id == step.favoriteId then
+        return tostring(f.channel) .. " (" .. tostring(f.name) .. ")"
+      end
+    end
+    return "(missing favourite)"
+  elseif isSet(step.channel) then
+    return tostring(step.channel)
+  end
+  return "(not set)"
+end
+
 function M.describeStep(step, ix)
   local t = type(step) == "table" and step.type or "?"
   if t == "display_power" then
     return string.format("Power %s %s", tostring(step.power), targetLabel(step.target, ix))
   elseif t == "route_video" then
     return string.format("Route %s to %s", nameOf(ix.sources, step.sourceId), targetLabel(step.target, ix))
+  elseif t == "tune" then
+    return string.format("Tune %s to %s", nameOf(ix.sources, step.sourceId), tuneTarget(step, ix))
   elseif t == "route_audio" then
     return string.format("Play %s in %s", nameOf(ix.sources, step.sourceId), nameOf(ix.zones, step.zoneId))
   elseif t == "volume" then
@@ -914,8 +1055,8 @@ local Runner = {}
 Runner.__index = Runner
 
 --- deps = {
----   ops      the engines (see core.lua): displayPower, routeVideo, routeAudio, volume, mute,
----            zonePower, lighting, shade, setVariable, setVenueStatus, notify. Each takes
+---   ops      the engines (see core.lua): displayPower, routeVideo, tune, routeAudio, volume,
+---            mute, zonePower, lighting, shade, setVariable, setVenueStatus, notify. Each takes
 ---            (args..., opts) with opts = { dry, origin, executionId } and returns
 ---            { ok, status, results?, operationId?, errorCode?, message?, detail? }
 ---   env()    -> condition environment (see M.evaluate)
@@ -1175,6 +1316,24 @@ function Runner:_runStep(exec, frame, step, path)
         return nil
       end
       return ops.routeVideo(step.sourceId, ids, opts)
+    elseif t == "tune" then
+      -- Checked again here, as the publish checked it: a step reaching the
+      -- runner some other way (an inline test) is held to the same rule.
+      if not isSet(step.sourceId) or (not isSet(step.favoriteId) and not isSet(step.channel)) then
+        return nil
+      end
+      if isSet(step.favoriteId) and isSet(step.channel) then
+        return {
+          ok = false,
+          status = "failed",
+          errorCode = "VF_INVALID_PAYLOAD",
+          message = "A tune step names a favourite or a channel, not both.",
+        }
+      end
+      return ops.tune(step.sourceId, {
+        favoriteId = isSet(step.favoriteId) and step.favoriteId or nil,
+        channel = isSet(step.channel) and step.channel or nil,
+      }, opts)
     elseif t == "route_audio" then
       if step.zoneId == nil or step.sourceId == nil then
         return nil
