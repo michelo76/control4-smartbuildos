@@ -365,10 +365,11 @@ that never arrived (`cloud_unreachable`, `deadline_exceeded`,
 `target_unavailable`, `rate_limited`, `agent_not_paired`) goes again later
 (the module client already retried it twice); any other answer (today the
 platform answers `unsupported`: no handler until P3) is a refusal: its
-states, events and diagnostics are dropped, counted. **A describe counts as
-uploaded only when the cloud accepted the batch that carried it**: after a
-refusal, a timeout or an unreachable cloud it waits again for the next batch
-(latest per instance: a newer describe that arrived meanwhile replaces it).
+events and diagnostics are dropped, counted. **A describe or a state counts
+as uploaded only when the cloud accepted the batch that carried it**: after
+a refusal, a timeout or an unreachable cloud it waits again for the next
+batch (latest per instance: a newer describe or state that arrived meanwhile
+replaces it; ruling 23).
 After any batch that did not land the next one backs off: 60 s, doubling per
 consecutive failure up to 10 minutes; a delivered batch resets it. Against a
 cloud that keeps refusing, the steady state is one batch every 10 minutes

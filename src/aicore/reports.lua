@@ -29,7 +29,8 @@
 ---              A describe counts as uploaded only when the cloud ACCEPTED
 ---              the batch that carried it: after a refusal, a timeout or an
 ---              unreachable cloud it waits again (unless a newer one
----              replaced it), and the next batch backs off (60 s doubling
+---              replaced it); the same for the latest state (ruling 23);
+---              and the next batch backs off (60 s doubling
 ---              to 10 min, reset by a delivered batch).
 ---
 --- Nothing here interprets report text, runs anything a report names, or
@@ -849,9 +850,10 @@ end
 ---   "retry"     it never got there (unreachable / timeout / rate limit):
 ---               describe and state go back unless something newer replaced
 ---               them; events go back to the front of the ring (bounded)
----   "refused"   the cloud said no: describes go back (a describe is
----               uploaded only when the cloud accepted it, KI-51); state,
----               events and diagnostics are dropped and counted
+---   "refused"   the cloud said no: describes and states go back unless
+---               something newer replaced them (each is uploaded only when
+---               the cloud accepted it: KI-51, ruling 23); events and
+---               diagnostics are dropped and counted
 --- After "retry" or "refused" the next batch backs off.
 function Hub:settle(outcome)
   local f = self.inflight
@@ -891,7 +893,7 @@ function Hub:settle(outcome)
   bump(self, "batches_refused")
   local lost = 0
   for _, t in ipairs(f.taken) do
-    if t.slot == "pendingDescribe" then
+    if t.slot == "pendingDescribe" or t.slot == "pendingState" then
       putBack(self, t)
     else
       lost = lost + 1

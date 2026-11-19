@@ -305,11 +305,23 @@ do
   check("a batch holds at most 64 items", #bb.reports <= 64, #bb.reports)
   check("…and fits the 16 KB cloud body", #raw <= 16 * 1024, #raw)
   local before = big:pendingCount()
+  local states, others = 0, 0
+  for _, it in ipairs(bb.reports) do
+    if it.kind == "state" then
+      states = states + 1
+    else
+      others = others + 1
+    end
+  end
   big:settle("refused")
-  check("refused: the items are dropped and counted", big.counters.items_dropped == #bb.reports and big.dropped == #bb.reports and big:pendingCount() == before)
+  check(
+    "refused: events are dropped and counted; states wait again (ruling 23)",
+    states > 0 and others > 0 and big.counters.items_dropped == others and big.dropped == others and big:pendingCount() == before + states,
+    big.dropped
+  )
   clock = clock + 61
   local nb = big:takeBatch("aic-next")
-  check("the next batch says how many were dropped since the last delivered one", nb and nb.dropped == #bb.reports, nb and nb.dropped)
+  check("the next batch says how many were dropped since the last delivered one", nb and nb.dropped == others, nb and nb.dropped)
   big:settle("delivered")
   check("…and a delivered batch settles it", big.dropped == 0)
   check("cloud answers: ok → delivered", Reports.outcome({ status = "ok" }) == "delivered")
@@ -330,19 +342,19 @@ do
   hub:settle("refused")
   local m = hub:picture("atmosphere", "321")
   check(
-    "refused: the describe waits again; state and event are dropped and counted",
-    m.pendingDescribe ~= nil and m.pendingState == nil and #hub.ring == 0 and hub.dropped == 2 and hub.counters.items_dropped == 2,
+    "refused: the describe and the state wait again (ruling 23); the event is dropped and counted",
+    m.pendingDescribe ~= nil and m.pendingState ~= nil and #hub.ring == 0 and hub.dropped == 1 and hub.counters.items_dropped == 1,
     hub.dropped
   )
-  check("…and pendingCount says so", hub:pendingCount() == 1)
+  check("…and pendingCount says so", hub:pendingCount() == 2)
   check("refused: no batch before the backoff (60 s)", hub:takeBatch("aic-r2") == nil)
   clock = clock + 59
   check("…still none at 59 s", hub:takeBatch("aic-r2") == nil)
   clock = clock + 1
   local again = hub:takeBatch("aic-r2")
   check(
-    "at 60 s the next batch carries the same describe again, and the drop count",
-    again and again.reports[1].kind == "describe" and again.reports[1].hash == HASH and again.dropped == 2,
+    "at 60 s the next batch carries the same describe and state again, and the drop count",
+    again and again.reports[1].kind == "describe" and again.reports[1].hash == HASH and again.reports[2].kind == "state" and again.dropped == 1,
     again and #again.reports
   )
   hub:settle("retry")
@@ -358,6 +370,15 @@ do
   check(
     "a newer describe that arrived meanwhile is kept, not the refused older one",
     m.pendingDescribe ~= nil and m.pendingDescribe.hash == "fedcba9876543210"
+  )
+  -- the same for state: a newer state that arrived while one was in flight wins
+  clock = clock + 600
+  hub:takeBatch("aic-r3s")
+  hub:receive("atmosphere", "321", state({ temperature_f = 99 }), CTX)
+  hub:settle("refused")
+  check(
+    "a newer state that arrived meanwhile is kept, not the refused older one (latest per instance)",
+    m.pendingState ~= nil and m.pendingState.facts.temperature_f == 99
   )
   check("AI Core still holds the describe hash (no need_describe while it waits)", hub:receive("atmosphere", "321", state(), CTX).need_describe == nil)
   clock = clock + 600
