@@ -1,5 +1,78 @@
 # VenueFlow release notes
 
+## Source of 18 November 2026: review and audit fixes, not imported anywhere
+
+Found by an adversarial review of the driver's code (who may change what,
+whose draft it is, revisions, operations, source controls, scenes, alerts)
+and by a gap audit of the wiring between the driver, Composer programming,
+the SmartBuildOS Agent and smartbuildos.io. Each defect was reproduced by a
+test against the old code and then fixed. **All of it is verified on the
+simulator and the test shim only.** The VenueFlow suites and the whole
+repository pass on this source: 2524 checks in 16 VenueFlow suites, 9581 in
+133 test files (18 November 2026, TEST_RESULTS.md). No package built from
+this exact source exists: the one in the build folder of the working copy
+predates the last commits (the package check reports it as stale), and none
+has been imported on a controller. The bench controller still runs build
+`20261114.191046`, in Simulation.
+
+| Defect | Fix |
+| --- | --- |
+| **A client could widen what an unsigned-in tile or a station may do.** Only the pointers to the default profile and the station profiles were installer-owned; the profile records themselves (permissions, areas, interfaces) were the client's, and anyone on the LAN acts as those profiles | The default profile and every station's profile are the installer's as whole records. A client's change, rename or removal of them, or setting or clearing their PIN, is refused with `VF_FORBIDDEN` and `data.installerOnly` ("the profile a screen or station opens with"). Other staff profiles stay the client's |
+| **A client could publish or discard the installer's half-built work** when it touched only parts a client may also change (a schedule or scene the installer was still building) | Every draft save records who saved it (`installer`, `remote`, `profile:<id>`) until the next publish or discard. A client cannot publish or discard a draft holding a save by the installer or the dealer (`VF_FORBIDDEN`, "the installer has unfinished changes in the draft"; the Studio's standing gives the reason, "changes saved by the installer" or "changes saved remotely by the dealer"). A PIN set and a template applied by the installer count as installer saves |
+| A draft revision number could come back with other content after a discard, a publish or a restore, so a check against a revision could pass on a different draft | The counter is stored on its own (`vf_draft_revision_v1`), never goes back, and travels in a backup (`revision`). `PUBLISH` and `DRAFT_DISCARD` accept an optional `baseRevision` and refuse a stale one with `VF_STALE_DRAFT` |
+| A save made with no draft (the installer's or a remote one) dropped every staff PIN | PINs are taken from what is published when there is no draft |
+| An operation partly outside a profile's access kept its original label ("Sports 2 to 5 displays") and `origin`, which names a profile or a station | The label is counted over what the profile sees, and `origin` is no longer sent to a profile (state document and `OPERATION_GET`; an installer's `OPERATION_GET` is unchanged) |
+| A publish in the middle of a favourite channel cut the number off, leaving a box half-dialled | The channel finishes unless that source's Control4 device or the control mode changed; a stop is logged in Diagnostics (`VF_CANCELLED`) |
+| Stopping a run reported a command it had already sent as "stopped before it was sent" when the run had asked for the same value twice | The sent command keeps its place and its outcome is reported |
+| `SCENE_ACTIVATE` with an area outside the profile's access ran the scene's "not pressed in that area" branch | Refused with `VF_FORBIDDEN` |
+| `ALERT_DISMISS` removed any stored alert by id, also one the profile is not shown, and then set `ALERT_COUNT` to the stored alerts alone | Only an alert the profile is shown as dismissable; any other id answers `VF_NOT_FOUND`. `ALERT_COUNT` is updated at once from the one definition |
+| Every profile with View Alerts saw every stored alert, including an interrupted scene or a missed schedule about displays, zones and scenes outside its access | A stored alert is shown, and may be dismissed, only by a profile that may see every display, zone and scene it concerns (one about something since removed: only a profile whose scope is all of that kind). A notification still reaches every profile with View Alerts. Not filtered: a rule's own name in a title; lighting and shades are not recorded with an alert. Composer's count is unchanged: the whole venue |
+| Under a restricted licence, marking the venue open or closed skipped the rules waiting for it in silence | The status is always set (manual control). Last Error reads `SET_VENUE_STATUS: status set; N rule(s) not run: licence restricted`, Diagnostics log a warning, and the operator page's `VENUE_STATUS` reply carries `data.rulesNotRun` (the page does not show it yet) |
+| The Alerts property, the variable `ALERT_COUNT` and the conditional *VenueFlow has alerts* counted three different things; *Alert Raised* never fired for a display that did not confirm | One definition: every current alert, stored and detected, a muted zone excluded. *Alert Raised* fires for each stored alert and once when a detected one appears |
+| A rollback did not fire *Configuration Published*, and its record and the `venueflow.config.published` event named the version restored rather than the new live one | It fires; `versionId` is the new live version and `restoredFrom` the version whose content came back |
+| The two true-or-false conditionals ignored the choice made in Composer | They read it: "Venue is closed" and "VenueFlow has alerts: clear" work as written. How Composer passes the choice is not yet seen on a controller |
+| *Trigger the VenueFlow event* under a restricted licence reported success while no rule ran | Refused, with Last Error `TRIGGER_EVENT refused: licence restricted: N rule(s) not run`. One that runs some rules and not others is done and writes `TRIGGER_EVENT: N rule(s) run, M not run` to Last Error |
+| A comparison of alerts still pending when the driver stopped could fire *Alert Raised* afterwards | The alert timer stops with the driver |
+| `refresh_status` answered with nothing useful and the module always reported `config_version` "0" | It answers with a one-line summary (at most 200 characters) and sends a status frame at once with that line, counters and `config_version`: the published version the controller runs, or `none` |
+| The Agent's updater and its SKU-to-file list did not name VenueFlow | `smartbuildos-venueflow.c4z` is in both. The store's publish workflow does not name VenueFlow yet, so the updater has nothing to fetch until a package is published to the store |
+
+Also new: a package check that fails when a locally built package is older
+than its sources.
+
+**What an installer will notice.** A client signed in to the Venue Studio
+can no longer touch the tile's profile or a station's profile. Saving a
+change, setting a PIN, applying a template or restoring a backup makes the
+draft yours until you publish or discard it, and the client waits for you.
+A backup now carries the revision counter. A client's rollback signs every
+staff member out, the client included.
+
+**What a venue will notice.** On the Manager screen, an alert about a
+stopped scene or a missed schedule appears only for a profile that may see
+everything it concerns. In the Venue Studio, a change to a profile the
+screens open with is refused as installer-only, and "Your installer has
+unfinished changes" appears whenever the installer, or the dealer
+remotely, has saved work that is not published. A favourite being dialled is
+no longer cut short by a publish.
+
+**What a programmer will notice.** *Configuration Published* on a rollback;
+ALERT_COUNT and *VenueFlow has alerts* now include detected alerts (and no
+longer a muted zone); *Alert Raised* fires when a display stops confirming;
+the "closed" and "clear" choices work; a refused or partly run *Trigger the
+VenueFlow event* writes Last Error; *Mark the venue* under a restricted
+licence sets the status and writes Last Error for the rules it did not run;
+dismissing an alert lowers ALERT_COUNT at once.
+
+**Known and not changed.** Scenes and schedules cannot tune a channel.
+A remote draft can replace the whole configuration, device mapping and
+device commands included, and with "Draft and publish" put it live; whether
+it should be able to is an open owner decision (SECURITY_REVIEW.md). Two weaknesses of the
+shared module client are recorded in SECURITY_REVIEW.md, residual risks 8
+and 9. The manual has no screenshots.
+
+**Still not verified.** Everything above on a controller, in Composer
+programming and on a touch screen. The new hardware checks are in
+HARDWARE_VALIDATION.md, "Not yet run".
+
 ## Source after build 20261114.233926 (15 November 2026): review fixes, not built
 
 Six defects found by the automated review of the VenueFlow pull request,
@@ -115,15 +188,20 @@ only, in Simulation mode first.
 11. **Composer command parameters are typed, not picked from a list** (scene
     and source names).
 12. **Remote management has never run end to end.** The driver side is
-    tested against the simulator and the smartbuildos.io side is built on the
-    web repository's branch `codex/venueflow-studio` (unit-tested, not
-    merged), but no controller has received an operation from the platform,
-    so nothing can be managed remotely today. Multi-venue overview,
-    remote backup and fleet views are not built either. See
+    tested against the simulator. The smartbuildos.io side (System Studio,
+    Drivers & Licenses, VenueFlow, a status route and the module contract)
+    was merged and deployed on 15 November 2026. No controller has received
+    an operation from the platform: the bench controller runs build
+    `20261114.191046`, which has no Remote Management, and its Agent (built
+    from `main` on 18 November 2026) allows the `venueflow` module, but no
+    VenueFlow registration with it has been watched. Multi-venue overview,
+    remote backup and fleet views are not built. See
     SMARTBUILDOS_INTEGRATION.md.
-13. **The entitlement cannot be issued yet**: the `SBOS_VENUEFLOW` SKU is not
-    in the platform. With enforcement off (the default) the driver works
-    fully.
+13. **The entitlement cannot be issued yet**: the catalogue-row migration
+    for `SBOS_VENUEFLOW` exists on smartbuildos.io but the owner has not
+    applied it, so no licence can be issued for the SKU and there is no
+    store or product page. With enforcement off (the default) the driver
+    works fully.
 14. **The driver manual has no screenshots.** This repository takes them on
     the bench, which has not been done for VenueFlow.
 15. **No video-wall composition.** A video wall is one display with a custom
@@ -175,12 +253,13 @@ only, in Simulation mode first.
   `venueflow` module, answers `snapshot`, `save_draft`, `publish`, `rollback`
   and `refresh_status`, and reports each new live version. The configuration
   snapshot travels as base64 groups, the one form neither the Agent's nor
-  the platform's redaction rewrites. **Not connected end to end:** the
-  smartbuildos.io side is on an unmerged branch of the web repository, and
-  the bench Agent does not know the module.
+  the platform's redaction rewrites. **Not connected end to end:** when
+  this build was made the smartbuildos.io side was on a branch; it was
+  merged on 15 November 2026, and the two have still never run together
+  with a controller (limitation 12).
 - The Agent driver gains one allowlist entry for these commands and the
-  event envelope one prefix (`venueflow.`). Both are inert until the
-  platform side exists.
+  event envelope one prefix (`venueflow.`). Both are on `main`; neither has
+  been exercised with a controller.
 - The published summary records who published (`installer`, `remote` or
   `profile:<id>`).
 

@@ -6,8 +6,10 @@ it does not replace the project's AV design.
 
 > **This build is simulation verified, not hardware validated.** On a bench
 > controller, installation, the pages, Installer Studio and publishing have
-> been walked through in Simulation (HARDWARE_VALIDATION.md, Results). The
-> Live-mode steps below, everything that touches real equipment, have not.
+> been walked through in Simulation, on a build of 14 November 2026
+> (HARDWARE_VALIDATION.md, Results). The Live-mode steps below, everything
+> that touches real equipment, have not; nor have sections 10 to 12 (the
+> Venue Studio, Remote Management, source controls), which came later.
 > Work through HARDWARE_VALIDATION.md on a bench before a venue relies on it.
 
 ## 1. What the project needs
@@ -36,7 +38,7 @@ without your own remote access.
    nothing to Control4 until you set **Control Mode** to Live.
 5. Set **Installer Passcode** (six or more characters). Press Set.
 6. **Installer Studio** now shows an address like
-   `http://192.168.1.10:47861/studio`. If it does not, see
+   `http://<controller address>:47861/studio`. If it does not, see
    TROUBLESHOOTING.md, "The tile or a page does not load".
 7. In each room where staff will use it, make the VenueFlow tile visible in
    Navigator.
@@ -150,7 +152,8 @@ Conference Staff, Restricted Operator) and adjust:
 
 - which screens the profile gets, and which opens first;
 - what it may do: route video, switch displays, control audio, lighting,
-  shades, run scenes, open and close the venue, All Off, see alerts;
+  shades, run scenes, open and close the venue, All Off, see alerts, use
+  source controls (section 12), open the Venue Studio (section 10);
 - where: floors, areas, sources, audio zones, scenes.
 
 Give a **PIN** (4 to 8 digits) to any profile that can run venue-wide
@@ -259,15 +262,22 @@ without the Installer Passcode.
    menu and chooses **Venue Studio**; or opens
    `http://<controller>:47861/studio` and picks their name.
 
-They can change scenes, schedules, staff profiles and PINs, source names and
-channel labels, and volume presets, and publish that. They cannot change
-devices, routing, the layout, groups, lighting, shades, rooms, stations,
-rules on events, the venue record, Control Mode, backups or licensing, and
-they cannot give the Venue Studio permission to anyone. The driver refuses
-those, whatever the page sends.
+They can change scenes, schedules, staff profiles and PINs, source names,
+channel labels and favourite channels, and volume presets, and publish that.
+They cannot change devices, routing, the layout, groups, lighting, shades,
+rooms, stations, rules on events, the venue record, Control Mode, backups or
+licensing, and they cannot give the Venue Studio permission to anyone. Two
+kinds of staff profile stay entirely yours: the one a tile opens as, and any
+profile a station opens as. Anyone on the venue network acts as those, so
+the client cannot change, rename or remove them, or set or clear their PIN.
+The driver refuses all of this, whatever the page sends.
 
-While your own draft changes are unfinished, the client can keep editing
-but cannot publish: publish or discard your work first.
+Every save is recorded with who made it. Once you have saved anything in
+the draft (a change, a staff PIN, a template), or the dealer has sent a
+draft through Remote Management, the draft is your unfinished work until it
+is published or discarded: the client can keep editing but cannot publish
+or discard, and their Studio says "Your installer has unfinished changes".
+Publish or discard your work first.
 
 **Not yet tried on a touch screen or in the Control4 app** (checked in a
 desktop browser against the simulator).
@@ -285,8 +295,28 @@ do with this venue's configuration through the SmartBuildOS Agent:
 
 It never routes video, changes a volume, runs a scene or sets a PIN.
 
-**Today this switch has nothing to connect to.** The driver side is built;
-smartbuildos.io has no VenueFlow pages yet. Leave it Off.
+The smartbuildos.io side exists: in your System Studio, Drivers & Licenses,
+VenueFlow (Overview, Sources, Audio, Schedules, Whole configuration,
+Publish, Driver). **It has never been run together with a controller**, so
+keep the switch Off on a venue that relies on VenueFlow until the bench run
+in HARDWARE_VALIDATION.md has passed. The `SBOS_VENUEFLOW` licence cannot be
+issued yet either (SMARTBUILDOS_INTEGRATION.md).
+
+What to know before switching it on:
+
+- A remote draft makes the draft your unfinished work (section 10): the
+  client waits until it is published or discarded.
+- A remote draft must name the revision it was made from, and a remote
+  publish the revision that was reviewed; work done on site is never
+  overwritten silently.
+- A remote draft can replace the whole configuration, device mapping and
+  device commands included (a display's custom route command, a lighting
+  preset's command); with **Draft and publish** it can also be put live
+  with nobody on site. Choose that only where the dealer's platform account
+  is trusted as much as the Installer Passcode (SECURITY_REVIEW.md).
+- A refresh from the platform (`refresh_status`) asks the driver for a
+  one-line summary (what runs, the mode, the venue status, the alerts, the
+  draft) and the published version the controller runs.
 
 ## 12. Basic source controls (channel keys, keypad, favourites)
 

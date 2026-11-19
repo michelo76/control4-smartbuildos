@@ -17,7 +17,7 @@ Start with three places:
 | The tile is blank or says it cannot reach the controller | App Data Relay shows which address the driver published. If it says the address is unknown or not confirmed, set **App Relay Address** to the controller's LAN address, wait a minute, reopen the tile |
 | App Data Relay says "Not listening - port 47861 unavailable" | Another driver holds the port. Remove the conflict and restart the driver |
 | `http://<controller>:47861/ping` answers from a laptop but the page stays blank | The page is large; a Navigator on a weak wireless link may time out. Try a wired touch screen. Record it (hardware validation H2) |
-| The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN) |
+| The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN). Remote Management on smartbuildos.io changes the configuration, not the pages, and has not yet been run with a controller |
 | "This venue has not been set up yet" | Nothing is published. Open Installer Studio and publish |
 | The page says the venue is not set up, and Configuration reads "Sample venue - not run in Live mode" | A reference venue is published and Control Mode is Live. Build the real venue, or return to Simulation |
 | A screen asks for a PIN when it should open directly | No profile is chosen under Staff Profiles, "A tile opens as", or that profile has a PIN |
@@ -34,6 +34,8 @@ Start with three places:
 | "This feature needs a SmartBuildOS licence" on Publish | See Licensing below |
 | A floor plan is refused as too large | The picture is over 600 kB after the Studio reduced it. Use a simpler image |
 | A sample venue cannot be loaded | Samples load only in Simulation |
+| A Venue Studio client is told "only the installer can change ..." | That part is the installer's. "The profile a screen or station opens with" means the profile a tile opens as, or a station's profile: only the installer can change those, PINs included |
+| A Venue Studio client cannot publish or discard: "Your installer has unfinished changes" | The installer saved something in the draft (a change, a PIN, a template, a restored backup), or the dealer sent a draft through Remote Management. The installer publishes or discards it first |
 
 ## Devices and routing
 
@@ -76,8 +78,9 @@ Things that surprise people:
 | A scene stopped half way, with an alert "... was interrupted" | Another scene or rule that changes the same devices started. That is deliberate |
 | A schedule did not run | It was missed while the controller or driver was off (an alert says so: missed schedules are never run late); or the rule is disabled; or the licence is restricted; or the day is not ticked |
 | A schedule ran at the wrong hour | Schedules use the controller's clock. Check the project's time zone in Composer |
-| Dry Run says "Publish the draft first" | A dry run uses the published configuration, and the program names something that is only in the draft |
-| A Composer command did nothing | The **Last Error** property says why |
+| Dry run says "Publish the draft first" | A dry run uses the published configuration, and the program names something that is only in the draft |
+| A Composer command did nothing | The **Last Error** property says why. Under a restricted licence, *Trigger the VenueFlow event* runs no rule, and *Mark the venue* sets the status but runs no waiting rule: Last Error says how many did not run |
+| *Alert Raised* or ALERT_COUNT does not match what a staff member sees | Composer counts every alert of the venue except a muted zone; the Manager screen shows a profile only the alerts about what it may see, and shows a muted zone too |
 
 ## Licensing
 
@@ -97,7 +100,7 @@ Licensing, Check again.
 | --- | --- |
 | "That PIN is not right" after a publish | The profile's PIN was changed in that version |
 | Locked for a minute | Five wrong PINs from that device. Wait, or the action **Reset Sign-in Locks** |
-| Everyone was signed out | The driver restarted, or someone ran **End Staff Sessions**, or the version was rolled back |
+| Everyone was signed out | The driver restarted, or someone ran **End Staff Sessions**, or the version was rolled back (by the installer or a client in the Venue Studio) |
 
 ## Starting again
 

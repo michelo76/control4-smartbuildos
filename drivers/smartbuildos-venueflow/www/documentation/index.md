@@ -14,10 +14,13 @@ staff profile may see and do.
 
 > **Release standing.** This build is **simulation verified**. Its logic is
 > tested against a simulated Control4 project. On a bench controller it has been
-> installed and run in Simulation only: it has not yet controlled real
-> equipment. Start in Simulation, and follow the hardware validation list in the
-> repository (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`) before a
-> venue relies on it.
+> installed and run in Simulation only, on a build of 14 November 2026: it has
+> not yet controlled real equipment, and nothing has run on a touch screen or in
+> the Control4 apps. The Venue Studio for the client, source controls, Remote
+> Management and every later fix have run only against the simulator. Start in
+> Simulation, and follow the hardware validation list in the repository
+> (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`) before a venue relies
+> on it.
 
 ## What it is for
 
@@ -73,16 +76,16 @@ work in Composer.
    and sign in with the passcode.
 1. **Setup Wizard, step 1**: pick the business type and name the venue. The
    template brings areas, scenes and staff profiles you can change.
-1. **Step 2, Discover**: list the project's devices. The categories are a
-   suggestion; you can map anything by hand.
-1. **Step 3, Map devices**: for each display, choose its Control4 room and
-   device; add the sources; add the audio zones with their volume limits.
-1. **Step 4, Layout**: upload a floor plan or start blank, and drag each display
-   to where it hangs.
-1. **Step 5, Staff profiles**: who may see which areas, use which sources and
+1. **Step 2, Discover Devices**: list the project's devices. The categories are
+   a suggestion; you can map anything by hand.
+1. **Step 3, Map Control4 Devices**: for each display, choose its Control4 room
+   and device; add the sources; add the audio zones with their volume limits.
+1. **Step 4, Layout Design**: upload a floor plan or start blank, and drag each
+   display to where it hangs.
+1. **Step 5, Staff Profiles**: who may see which areas, use which sources and
    scenes, and which screens they get. Give managers a PIN. Choose the profile a
    tile opens with.
-1. **Step 6, Review and publish**: fix the errors, tick each warning you have
+1. **Step 6, Review and Publish**: fix the errors, tick each warning you have
    checked, publish.
 1. While still in Simulation, open the tile and try everything: the page behaves
    as it will, against a simulated project.
@@ -143,7 +146,7 @@ volume, mute, turn a zone off, lighting preset, shade, wait, IF / ELSE, run
 another scene, set a variable, mark the venue open or closed, send a
 notification. Nothing you type is run as code.
 
-**Dry Run** shows what a scene would do and sends nothing. **Execute Test** runs
+**Dry run** shows what a scene would do and sends nothing. **Execute test** runs
 it for real and shows each step and each device. A scene marked "ask first"
 shows operators a preview and waits for confirmation.
 
@@ -184,30 +187,35 @@ control screen, or pick their name at `http://<controller>:47861/studio`. They
 can change scenes, schedules, staff profiles and PINs, source names, channel
 labels and favourite channels, and volume presets, and publish that. Everything
 else needs the Installer Passcode, and only the installer can grant the
-permission. The driver enforces this.
+permission. Two kinds of staff profile stay entirely the installer's: the one a
+tile opens with, and any profile a station opens with (the client cannot change,
+rename or remove them, or set or clear their PIN). While the draft holds changes
+the installer saved, or the dealer sent through Remote Management, the client
+can keep editing but cannot publish or discard: the Studio says the installer
+has unfinished changes. The driver enforces all of this.
 
 ## Properties
 
-| Property                                                                | Meaning                                                                                                                                                                                                               |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Driver Status                                                           | Online, Online - Simulation, or an error                                                                                                                                                                              |
-| Driver Version                                                          | The build stamp                                                                                                                                                                                                       |
-| Venue                                                                   | The published venue's name                                                                                                                                                                                            |
-| Configuration                                                           | The published version and what it holds                                                                                                                                                                               |
-| Draft                                                                   | The draft's revision in Installer Studio                                                                                                                                                                              |
-| Venue Status                                                            | open or closed                                                                                                                                                                                                        |
-| Active Scene                                                            | The scene last run                                                                                                                                                                                                    |
-| Alerts                                                                  | How many alerts the manager is being shown                                                                                                                                                                            |
-| Installer Studio                                                        | Its address, or why it is off                                                                                                                                                                                         |
-| App Data Relay                                                          | The address the tile is served from, and whether it answered                                                                                                                                                          |
-| Last Error                                                              | The last refused Composer command or internal error                                                                                                                                                                   |
-| License Status, License Source, Subscription Tier, SmartBuildOS Company | From the SmartBuildOS Agent                                                                                                                                                                                           |
-| Control Mode                                                            | Simulation (nothing is sent to Control4) or Live                                                                                                                                                                      |
-| Installer Passcode                                                      | Opens Installer Studio. Hidden. Empty keeps the installer's Studio off                                                                                                                                                |
-| Remote Management                                                       | What smartbuildos.io may do with this venue's configuration through the Agent: Off (default), Draft only, or Draft and publish. It never controls equipment. The platform pages for it do not exist yet: leave it Off |
-| Remote Management Status                                                | Off, waiting for the Agent, or on, with the last remote command                                                                                                                                                       |
-| App Relay Address                                                       | Auto, or the controller's address when the tile will not load                                                                                                                                                         |
-| Log Level, Log Mode                                                     | At "3 - Info" with Print, every command sent to Control4 is printed in the Lua tab                                                                                                                                    |
+| Property                                                                | Meaning                                                                                                                                                                                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Driver Status                                                           | Online, Online - Simulation, or an error                                                                                                                                                 |
+| Driver Version                                                          | The build stamp                                                                                                                                                                          |
+| Venue                                                                   | The published venue's name                                                                                                                                                               |
+| Configuration                                                           | The published version and what it holds                                                                                                                                                  |
+| Draft                                                                   | The draft's revision in Installer Studio                                                                                                                                                 |
+| Venue Status                                                            | open or closed                                                                                                                                                                           |
+| Active Scene                                                            | The scene last run                                                                                                                                                                       |
+| Alerts                                                                  | How many alerts the venue has now (see Programming)                                                                                                                                      |
+| Installer Studio                                                        | Its address, or why it is off                                                                                                                                                            |
+| App Data Relay                                                          | The address the tile is served from, and whether it answered                                                                                                                             |
+| Last Error                                                              | The last refused Composer command or internal error                                                                                                                                      |
+| License Status, License Source, Subscription Tier, SmartBuildOS Company | From the SmartBuildOS Agent                                                                                                                                                              |
+| Control Mode                                                            | Simulation (nothing is sent to Control4) or Live                                                                                                                                         |
+| Installer Passcode                                                      | Opens Installer Studio. Hidden. Empty keeps the installer's Studio off                                                                                                                   |
+| Remote Management                                                       | What smartbuildos.io may do with this venue's configuration through the Agent: Off (default), Draft only, or Draft and publish. It never controls equipment. See Remote Management below |
+| Remote Management Status                                                | Off, waiting for the Agent, or on, with the last remote command                                                                                                                          |
+| App Relay Address                                                       | Auto, or the controller's address when the tile will not load                                                                                                                            |
+| Log Level, Log Mode                                                     | At "3 - Info" with Print, every command sent to Control4 is printed in the Lua tab                                                                                                       |
 
 ## Actions
 
@@ -239,13 +247,36 @@ Venue Opened, Venue Closed, Licence Restricted, Licence Restored.
 
 Variables: VENUE_STATUS, ACTIVE_SCENE, NOTIFICATION_TEXT, ALERT_COUNT.
 
-Conditionals: Venue is open; Active scene is (name); VenueFlow has alerts.
+Conditionals: *Venue is open* (choose open or closed); *Active scene* = or != a
+scene name; *VenueFlow has alerts* (choose showing alerts or clear). Both
+choices of the two true-or-false conditionals are honoured: "Venue is closed" is
+true when the venue is closed.
+
+**The venue's alerts.** The **Alerts** property, the variable ALERT_COUNT and
+the conditional *VenueFlow has alerts* count the same thing: every current alert
+of the venue. That is each stored alert (a notification, an interrupted scene, a
+missed schedule, until someone dismisses it) and each alert VenueFlow detects (a
+display or zone change that was not confirmed, a display Control4 reports
+offline, a restricted licence, until its cause clears). A muted zone is shown on
+the Manager screen but is not an alert here. **Alert Raised** fires once for
+each stored alert, and once when a detected alert appears; it fires again for
+that alert only after it cleared and came back. Dismissing an alert lowers
+ALERT_COUNT at once.
+
+On the Manager screen a profile sees only the alerts about what it may see: an
+interrupted scene or rule, or a missed schedule, is shown (and may be dismissed)
+only to a profile that may see every display, audio zone and scene it concerns;
+a notification is shown to every profile with View Alerts. The property, the
+variable and the conditional always count every alert of the venue.
+
+**Configuration Published** fires on every publish and on every rollback (a
+rollback makes an older version live again).
 
 **Worked example: a notification when a scene asks for one.** In the scene, add
 the step "Send notification" with the text "Keg change needed". In Composer, on
 the VenueFlow event **Notification**, add your notification driver's command and
 insert the variable NOTIFICATION_TEXT as the message. To test: run the scene
-with Execute Test; the Lua tab shows the event, and the message arrives with the
+with Execute test; the Lua tab shows the event, and the message arrives with the
 text.
 
 **Worked example: a Control4 event starts a VenueFlow rule.** In Installer
@@ -255,7 +286,67 @@ event** with NAME `Doorbell`. To test: press Execute on that programming line
 and look at the rule's last run in the Studio.
 
 A command that is refused (an unknown scene, a condition not met) says why in
-the **Last Error** property.
+the **Last Error** property. Under a restricted licence, **Trigger the VenueFlow
+event** runs no rule and is refused, for example
+`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`. When some rules
+run and others do not, the command is done and Last Error says so
+(`TRIGGER_EVENT: 1 rule(s) run, 1 not run`). **Mark the venue** always sets the
+status, even under a restricted licence; the rules waiting for that change then
+do not run, and Last Error reads, for example,
+`SET_VENUE_STATUS: status set; 2 rule(s) not run: licence restricted`.
+
+## Remote Management
+
+The property **Remote Management** decides what smartbuildos.io may do with this
+venue's configuration, through the SmartBuildOS Agent: Off (the default), Draft
+only (read the configuration and fill the draft; someone on site publishes), or
+Draft and publish (also publish a reviewed draft and roll back). It never routes
+video, changes a volume, runs a scene or sets a PIN.
+
+The smartbuildos.io side exists: in the dealer's System Studio, Drivers &
+Licenses, VenueFlow. The two sides have never been run together with a
+controller, so treat Remote Management as untested and keep it Off on a venue
+that relies on VenueFlow until the bench run in the hardware validation list has
+passed. A remote draft can replace the whole configuration, device mapping and
+device commands included, and with "Draft and publish" the platform can put it
+live with nobody on site.
+
+## What changed on 18 November 2026
+
+These changes are in the source and have been run only against the simulator and
+the test shim, not on a controller.
+
+For a programmer:
+
+- *Configuration Published* now also fires on a rollback.
+- *Venue is open* and *VenueFlow has alerts* answer the choice you made
+  ("closed", "clear"); before, the driver ignored the choice and always answered
+  the "open" and "showing alerts" question. How Composer passes the choice has
+  not been seen on a controller.
+- ALERT_COUNT, the Alerts property and *VenueFlow has alerts* now include the
+  alerts VenueFlow detects, and *Alert Raised* fires when one appears (see "The
+  venue's alerts" above). A muted zone no longer counts.
+- *Trigger the VenueFlow event* under a restricted licence is refused and writes
+  Last Error; one that runs only some of its rules says so in Last Error.
+- *Mark the venue* sets the status under a restricted licence and says in Last
+  Error which waiting rules did not run.
+- Dismissing an alert lowers ALERT_COUNT at once.
+
+For the venue's staff:
+
+- In the Venue Studio, the profile a tile opens with and the profiles stations
+  open with are the installer's.
+- The Venue Studio waits for the installer when the installer, or the dealer
+  remotely, has saved changes that are not yet published or discarded.
+- A favourite channel being dialled finishes even if someone publishes at that
+  moment, unless that source's Control4 device or the control mode changed.
+- The Manager screen shows an interrupted scene or a missed schedule only to a
+  profile that may see everything it concerns; notifications still reach every
+  profile with View Alerts.
+- A client's rollback in the Venue Studio signs every staff member out, the
+  client included.
+- A backup the installer restores is the installer's work: the client cannot
+  publish or discard it until the installer does.
 
 ## Licensing
 

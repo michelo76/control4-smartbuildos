@@ -1,26 +1,31 @@
 # VenueFlow security and release-quality review
 
 Reviewed 14 November 2026 against the eleven points of the brief (section
-22). "Evidence" names the automated check; every check runs on the simulator
-or the test shim, not on a controller.
+22); updated 18 November 2026 for the adversarial review and gap audit of
+that round (RELEASE_NOTES.md, top). "Evidence" names the automated check;
+every check runs on the simulator or the test shim, not on a controller.
+Check counts per suite are in TEST_RESULTS.md.
 
 ## The eleven points
 
 | # | Point | Finding | Evidence |
 | --- | --- | --- | --- |
 | 1 | Review all command inputs | Every request passes `protocol.lua`: a known command, a bounded request id, a typed payload with no unknown field, bounded strings (4 kB; 2 MB only for the two upload commands), lists of at most 256 ids (4000 for publish acknowledgements), finite numbers, enumerated values. HTTP bodies over 4 MB are refused at the header, before the body arrives; a header block over 16 kB is refused; a large upload is buffered in chunks and joined once | `test_venueflow_relay.lua` "invalid payloads", "request parsing" |
-| 2 | Enforce command authorization | Scope per command (public, operator, installer) is checked in `core:handle` before any handler runs; inside, each engine asks the session's Access object per request and per device | `test_venueflow_permissions.lua` (244 checks), `test_venueflow_relay.lua` "identity" |
-| 3 | Review exposed endpoints | Five routes: `/ping`, `/app`, `/studio`, `POST /api`, `OPTIONS`. The first three carry no secret and change nothing. Anything else is 404 | `test_venueflow_relay.lua` "routes" |
+| 2 | Enforce command authorization | Scope per command (public, operator, studio, installer) is checked in `core:handle` before any handler runs; inside, each engine asks the session's Access object per request and per device, and a client session's configuration changes are compared with the installer-owned part (`clientscope.lua`) | `test_venueflow_permissions.lua`, `test_venueflow_clientstudio.lua`, `test_venueflow_relay.lua` "identity" |
+| 3 | Review exposed endpoints | Six routes: `GET /ping`, `GET /app`, `GET /studio`, `POST /api`, `POST /image` (a floor-plan picture; needs an installer session in the `X-VF-Session` header) and `OPTIONS`. The first three carry no secret and change nothing. Anything else is 404 | `test_venueflow_relay.lua` "routes", "picture upload" |
 | 4 | Validate all configuration schemas | A draft is migrated, normalised and validated on every save; publishing needs zero errors and every warning acknowledged; a document from a newer schema is refused | `test_venueflow_schema.lua`, `test_venueflow_store.lua` |
 | 5 | Prevent arbitrary code execution | Programs are data from a fixed vocabulary; an unknown step, condition or trigger is refused at validation and never executed by the runner. No `loadstring`, `load`, `dofile`, `os.execute`, `io.popen`, `setfenv` or `debug.` in any engine; no `eval`, `new Function`, `document.write` or HTML built from strings in either page. Floor plans are PNG, JPEG or WebP only (SVG is refused) | `test_venueflow_security.lua`, `test_venueflow_rules.lua` "validation", "runner bounds", `test_venueflow_store.lua` "floor plan images" |
 | 6 | Check for embedded credentials | None. The Installer Passcode is a hidden property with an empty default. The development passcode and tile token exist only in the development host and the test harness, and are checked absent from the driver, the engines and both pages. The one PIN in the tree is the documented sample venues' manager PIN, usable only in Simulation | `test_venueflow_security.lua` "no credential in what ships"; gitleaks (below) |
 | 7 | Review dependency security | The driver adds no dependency: it uses the repository's vendored `JSON.lua` and `drivers-common-public`, already shipped by every driver here. The pages load nothing external (checked). Build tools are unchanged | `test_venueflow_security.lua` "pages" |
-| 8 | Remote administration requires authentication | Installer Studio needs the Installer Passcode (6+ characters; no passcode means the Studio is off). Wrong attempts lock per client address and overall. Sessions expire, idle out, and end when the passcode changes. There is no remote (cloud) administration path in this build | `test_venueflow_permissions.lua` "Installer Studio sign-in", `test_venueflow_driver.lua` [3], [9] |
+| 8 | Remote administration requires authentication | Installer Studio needs the Installer Passcode (6+ characters; no passcode means the Studio is off). Wrong attempts lock per client address and overall. Sessions expire, idle out, and end when the passcode changes. The one remote (cloud) administration path is Remote Management, Off by default and authenticated by the Agent's module token (below) | `test_venueflow_permissions.lua` "Installer Studio sign-in", `test_venueflow_driver.lua` [3], [9] |
 | 9 | No control through an unauthenticated configuration endpoint | There is no configuration endpoint outside the protocol, and every operator and installer command is refused without an identity. Looped over the whole protocol | `test_venueflow_relay.lua` "identity" (every command), `test_venueflow_permissions.lua` "unauthenticated" |
 | 10 | Local operation survives network disruption | Nothing in the core makes a network call. With no Agent, an unreachable cloud or the grace period, everything works. A page that cannot reach the controller says so and recovers | `test_venueflow_license.lua` "cloud outage"; page behaviour: browser check; a real LAN drop: hardware H3 |
 | 11 | Configuration backups can be restored | Export, restore on a second driver, publish, and the venues are equal, pictures and staff PINs included | `test_venueflow_store.lua` "backup and restore" |
 
-## The client session and Remote Management (build 20261114.233926)
+## The client session and Remote Management
+
+First built as `20261114.233926`; the rules added on 18 November 2026 are
+source only and simulator verified.
 
 **Client session.** The Studio now also opens for a staff profile whose
 `permissions.studio` is true, on a PIN session. What protects the
@@ -33,10 +38,34 @@ installation:
   included. Only an installer session can.
 - A tile's default profile and a station never get a client session: it
   takes a PIN sign-in.
+- The profile a tile opens with and every station's profile are the
+  installer's as whole records (permissions, areas, interfaces, PIN), because
+  anyone on the LAN acts as them. A client's change, rename or removal of
+  them, or setting or clearing their PIN, is refused (18 November 2026).
+- Every draft save records who saved it. A client cannot publish or discard
+  a draft that holds a save by the installer or by the dealer through Remote
+  Management since the last publish or discard (18 November 2026).
 - Installer-only commands (devices, discovery, tests, live program runs,
   pictures, backup, restore, diagnostics, licensing, session revocation, the
   simulator) answer `VF_FORBIDDEN`.
 - Taking the permission away and publishing ends the access at once.
+- A client's rollback ends every staff session, the client's own included
+  (a publish ends only the sessions whose PIN or profile changed).
+- A restored backup's draft counts as the installer's: a client cannot
+  publish or discard it until the installer does.
+
+**Alerts a profile is shown** (18 November 2026). A stored alert (an
+interrupted scene or rule, a missed schedule) is shown on the operator page,
+and may be dismissed, only by a profile that may see every display, audio
+zone and scene it concerns; one about something since removed only by a
+profile whose scope is all displays (zones, scenes). A notification is
+shown to every profile with View Alerts: its text is the installer's message
+to whoever looks after the venue. What is not filtered: a rule's own name in
+an alert's title; and lighting and shades are not part of what an alert
+records, so an alert about two rules that share only lighting or shades
+names nothing and is shown to every profile with View Alerts.
+Composer's count (Alerts, `ALERT_COUNT`, *VenueFlow has alerts*) is always
+the whole venue's: whoever programs the controller already controls it.
 
 What it costs: day-to-day configuration is now guarded by a 4 to 8 digit
 PIN, which crosses the venue network in clear like any PIN, with the same
@@ -65,12 +94,25 @@ equipment; there is no step that sends an arbitrary Control4 command.
 - A snapshot carries no PIN salt or hash and no passcode. It does carry the
   whole configuration (names, Control4 device and room ids, staff profile
   names): that is the data the dealer's platform account will hold.
-- The server side is built on the web repository's branch
-  `codex/venueflow-studio` (its `docs/venueflow/README.md`): the route
-  requires `monitoring:manage`, resolves the system inside the caller's
-  company, and every change goes through the existing command gateway with
-  its audit row. It has not been reviewed by anyone else and has not been run
-  against a controller.
+- **A remote draft can replace the whole configuration, and "Draft and
+  publish" can put it live.** A remote draft is checked against the schema
+  and the revision, not against an installer-owned part: it can replace
+  device mapping and device commands, including a display's custom route
+  command (one command, with its device id, name and parameters, sent to a
+  device on every route) and a lighting preset's command. With "Draft and
+  publish" the platform can then publish it with nobody on site; with
+  "Draft only" someone on site must. The commands remain bound to the
+  venue's own vocabulary (a route, a preset), and Remote Management never
+  runs one by itself, but what a route or a preset sends afterwards is what
+  the dealer's platform account wrote. Whether a remote publish may replace
+  device mapping and device commands is an open owner decision; until it is
+  made, give "Draft and publish" only where the dealer's platform account is
+  trusted as much as the Installer Passcode.
+- The server side was merged and deployed in the web repository on 15
+  November 2026 (its `docs/venueflow/README.md`): the route requires
+  `monitoring:manage`, resolves the system inside the caller's company, and
+  every change goes through the existing command gateway with its audit row.
+  It has not been run against a controller.
 
 **Source controls.** A page sends a key name from a closed list of 33; the
 driver maps it to a Control4 command and refuses anything else, so a page
@@ -110,6 +152,20 @@ These are real and are not closed by this build.
    pages. Control from Composer programming is unaffected.
 7. **Not verified on hardware.** How the controller's socket behaves with
    large replies and many clients is unknown (HARDWARE_VALIDATION.md H2, H5).
+8. **A forged registration reply is believed (shared module client).** The
+   module client every SmartBuildOS module driver uses
+   (`src/sbos/moduleclient.lua`) accepts an `SBOS_MODULE_REGISTERED` reply
+   without knowing who sent it, and adopts the token in it. Code that can
+   already send commands to drivers on the controller can therefore pose as
+   the Agent and, with Remote Management at "Draft and publish", save,
+   publish and roll back the configuration. A page on the LAN cannot do
+   this: it reaches only the protocol. Not fixed: the fix changes the module contract for every
+   module driver. Confirmed by a reviewer on 18 November 2026.
+9. **Switching Remote Management Off during a registration (shared module
+   client).** If the property is set to Off before the Agent has answered a
+   registration, the module stays registered with the Agent and keeps
+   sending status. Commands are still refused by the driver. Not fixed, for
+   the same reason as item 8.
 
 ## Scans
 
@@ -135,3 +191,9 @@ repository's `make test`, the VenueFlow suites, `stylua --check`, `node
 | The same source asked for twice on one display was reported as a conflict ("superseded") | `test_venueflow_rules.lua` "regressions" | a repeated request for the same value follows the newer one's outcome |
 | Cancel did nothing in the confirmation dialogs | the editor's browser test | `VF.modal` closes on any plain value |
 | A property-page summary lagged a publish by up to 30 seconds | `test_venueflow_driver.lua` [4] | the driver repaints on every event |
+| A client could change, rename or remove the profile a tile or a station opens with, or set its PIN, widening what anyone on the LAN may do | adversarial review, 18 Nov 2026; `test_venueflow_clientstudio.lua` | those profiles are installer-owned as whole records |
+| A client could publish or discard the installer's half-built work when it touched only client-owned parts | adversarial review; `test_venueflow_clientstudio.lua` | the draft records who saved it; a client is refused while it holds an installer or remote save |
+| A draft revision could repeat after a discard, a publish or a restore | adversarial review; `test_venueflow_store.lua` | a stored counter that never goes back and travels in a backup; `baseRevision` on `PUBLISH` and `DRAFT_DISCARD` |
+| An operation partly outside a profile's access told its original label and who asked (`origin`) | adversarial review; `test_venueflow_permissions.lua` | label counted over what the profile sees; no `origin` for a profile |
+| `SCENE_ACTIVATE` accepted an area outside the profile's access; `ALERT_DISMISS` removed an alert the profile is not shown | adversarial review; `test_venueflow_permissions.lua` | both refused |
+| *Trigger the VenueFlow event* reported success under a restricted licence while no rule ran | gap audit; `test_venueflow_driver.lua` | refused, with the reason in Last Error |

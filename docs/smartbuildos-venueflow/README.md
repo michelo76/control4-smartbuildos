@@ -5,8 +5,11 @@ project: `drivers/smartbuildos-venueflow`, code in `src/venueflow`, pages in
 `ui/venueflow`.
 
 **Standing: simulation verified, not hardware validated.** A bench run has
-started (installation, pages, Studio and publishing passed in Simulation; see
-HARDWARE_VALIDATION.md). See RELEASE_NOTES.md.
+started on a build of 14 November 2026 (installation, pages, Studio and
+publishing passed in Simulation; see HARDWARE_VALIDATION.md). The Venue
+Studio for the client, source controls, Remote Management and every fix
+since have run only against the simulator and the test shim. The driver is
+on `main`. See RELEASE_NOTES.md.
 
 | If you are | Read |
 | --- | --- |

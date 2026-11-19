@@ -106,14 +106,14 @@ Control4 id, route command, program or PIN data is in it.
 | `LIGHTING_PRESET` | `lightingId`, `presetId` | outcome "commanded" |
 | `SHADE` | `shadeId`, `action` open or close | outcome "commanded" |
 | `SCENE_PREVIEW` | `sceneId` | `data.execution` (a dry run: nothing is sent) |
-| `SCENE_ACTIVATE` | `sceneId`, `confirm`?, `areaId`? | `data.execution`. A scene marked `confirm` answers `VF_CONFIRM_REQUIRED` with `data.preview` until `confirm: true` |
+| `SCENE_ACTIVATE` | `sceneId`, `confirm`?, `areaId`? | `data.execution`. A scene marked `confirm` answers `VF_CONFIRM_REQUIRED` with `data.preview` until `confirm: true`. An `areaId` outside the profile's access is refused with `VF_FORBIDDEN` (it is not ignored) |
 | `ALL_OFF_PREVIEW` | | `results`, `data: { displays, zones, activeScene }` |
 | `ALL_OFF` | `confirm` | needs `confirm: true` |
-| `VENUE_STATUS` | `status` open or closed | |
+| `VENUE_STATUS` | `status` open or closed | `data: { venueStatus, rulesNotRun? }`. The status is set under any licence; `rulesNotRun` counts the rules waiting for the change that did not run (a restricted licence, or a rule that failed to start). The page does not show it yet |
 | `QUERY_STATUS` | `displayIds`? | re-reads Control4; clears a stale failure |
-| `ALERT_DISMISS` | `alertId` | only alerts marked `dismissable` |
+| `ALERT_DISMISS` | `alertId` | needs `viewAlerts`. Only an alert this profile is shown, marked `dismissable` (a stored alert); any other id, a detected alert included, answers `VF_NOT_FOUND`. `ALERT_COUNT` is updated at once |
 | `IMAGE_GET` | `key` | `data: { key, dataUrl }`. An installer session may read any stored picture, also before anything is published |
-| `OPERATION_GET` | `operationId` | `data.operation`. A profile gets only the targets it may see, with `summary` counted over those; an operation it can see nothing of is `VF_NOT_FOUND`, as if it did not exist. An installer session gets every target, with detail |
+| `OPERATION_GET` | `operationId` | `data.operation`. A profile gets only the targets it may see, with `summary` counted over those, and no `origin`; when it sees only part of the operation, `label` is rebuilt from what it sees ("Sports 2 to 3 displays"; otherwise a neutral label such as "Video change"). An operation it can see nothing of is `VF_NOT_FOUND`, as if it did not exist. An installer session gets the whole operation: every target, with detail, and `origin` |
 
 ### State document
 
@@ -128,15 +128,30 @@ Control4 id, route command, program or PIN data is in it.
   "shades":   { "shades-a": { "position": Cell } },
   "activeScene": { "id": "game-day", "name": "Game Day", "at": 1794225000 },
   "running": [ { "id": "x4", "refId": "game-day", "name": "Game Day", "kind": "scene", "status": "settling", "startedAt": 1794225000 } ],
-  "operations": [ Operation ],          // the most recent 8 that touch something this profile can see
-  "alerts": [ Alert ],                  // only for profiles with viewAlerts
+  "operations": [ Operation ],          // the most recent 8 that touch something this profile can see; filtered as for OPERATION_GET, never with `origin`
+  "alerts": [ Alert ],                  // only for profiles with viewAlerts; see "Which alerts a profile is shown" 
   "counts": { "displays": { "total", "on", "off", "unknown", "attention", "offline" }, "zones": { "total", "on", "muted" } } }
 ```
 
 `Cell` is `{ value, status, at, errorCode?, requested? }` (see DATA_MODEL.md).
 
+**Which alerts a profile is shown.** Detected alerts (a display or zone
+change not confirmed, a display offline) are listed for the displays and
+zones the profile may see; the licence alert for every profile. A stored
+alert is listed, and may be dismissed, only when the profile may see every
+display, audio zone and scene it concerns: an interrupted scene or rule
+names the devices both runs change and the scenes involved, a missed
+schedule the devices its rule changes. A notification concerns nothing in
+particular and is listed for every profile with `viewAlerts`. An alert about
+a display, zone or scene since removed from the configuration is listed only
+for a profile whose scope is all displays (zones, scenes). Not filtered: a
+rule's own name in an alert's title. Lighting and shades are not part of
+what an alert records. The installer sees every alert, and the Alerts
+property, `ALERT_COUNT` and *VenueFlow has alerts* count every alert of the
+venue.
+
 ```jsonc
-// Operation
+// Operation (`origin` only in an installer's OPERATION_GET)
 { "id": "op7", "kind": "route_video", "label": "Sports 1 to 6 displays", "origin": "profile:manager",
   "startedAt": 1794225600, "finishedAt": 1794225603, "done": true,
   "summary": { "total": 6, "confirmed": 4, "commanded": 0, "failed": 2, "unknown": 0, "superseded": 0, "pending": 0, "good": 4, "bad": 2 },
@@ -196,9 +211,10 @@ For a client session the driver narrows them (`src/venueflow/clientscope.lua`):
 
 | Command | For a client |
 | --- | --- |
-| `STUDIO_BOOTSTRAP` | `role: "client"`, `who`, and `client: { mayChange, sourceFields, liveWarnings, installerPending, canPublish }`. No controller `info`, the short licence summary |
-| `DRAFT_SAVE` | Allowed when the configuration differs from the stored draft only in: `scenes`; `rules` whose trigger is a schedule; `profiles` (except who holds `permissions.studio`); a source's `name`, `channel` and `favorites`; an audio zone's `presets`. Otherwise `VF_FORBIDDEN` with `data.installerOnly` naming the part |
-| `PUBLISH`, `DRAFT_DISCARD` | Refused with `VF_FORBIDDEN` and `data.installerPending` while the draft differs from what is published in an installer-owned part. On publish, warnings that are live already are acknowledged for the client |
+| `STUDIO_BOOTSTRAP` | `role: "client"`, `who`, and `client: { mayChange, sourceFields, liveWarnings, installerPending, canPublish }`. `installerPending` is absent, or a phrase saying why the draft is the installer's ("changes saved by the installer", "changes saved remotely by the dealer", or the installer-owned part that differs). No controller `info`, the short licence summary |
+| `DRAFT_SAVE` | Allowed when the configuration differs from what is published only in: `scenes`; `rules` whose trigger is a schedule; `profiles` (except who holds `permissions.studio`, and except the default profile and every station's profile, which are installer-owned as whole records); a source's `name`, `channel` and `favorites`; an audio zone's `presets`. Otherwise `VF_FORBIDDEN` with `data.installerOnly` naming the part |
+| `PROFILE_PIN_SET` | Refused for the default profile and any station's profile (setting and clearing), with `data.installerOnly` "the profile a screen or station opens with" |
+| `PUBLISH`, `DRAFT_DISCARD` | Refused with `VF_FORBIDDEN`, "the installer has unfinished changes in the draft", and `data.installerPending: true` while the draft holds a save by the installer or by Remote Management since the last publish or discard, or differs from what is published in an installer-owned part. On publish, warnings that are live already are acknowledged for the client |
 | `ROLLBACK` | Allowed only to a version that differs from the live one in client-owned parts |
 
 `HELLO` adds `studio` (this session may open the Studio), `studioReachable`
@@ -215,7 +231,7 @@ sets the level; Off refuses everything.
 | --- | --- | --- | --- |
 | `snapshot` | draft | none | one document (`SBOS_MODULE_SNAPSHOT`), see below. No PIN material |
 | `save_draft` | draft | `config` (object) or `configParts` (JSON text in parts), and `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved |
-| `refresh_status` | draft | none | the driver's summary |
+| `refresh_status` | draft | none | a one-line summary in the result's detail (at most 200 characters: configuration, mode, venue status, active scene, alert count, draft, and the last error when there is one; no names of people, PINs, addresses or tokens). The driver also sends a module status frame at once with the same line, counters `alerts`, `displays`, `zones`, `scenes`, `venue_open`, `simulation`, and `config_version` |
 | `publish` | publish | `baseRevision` (must equal the draft's), `acknowledged`, `note` | `versionId`, recorded as `remote` |
 | `rollback` | publish | `versionId` | `versionId` |
 
@@ -239,7 +255,15 @@ at most 3900 characters. A configuration over 170 kB of JSON is refused
 A finished operation is reported to the Agent as `Completed` or `Failed`
 (the Agent's closed list of states).
 
-Event to the platform: `venueflow.config.published` `{ versionId, how }`.
+Event to the platform: `venueflow.config.published`
+`{ versionId, how, restoredFrom? }`: `versionId` is the new live version,
+`how` is "configuration published" or "configuration rolled back", and a
+rollback adds `restoredFrom`, the version whose content it restored.
+
+The module's `config_version`, in every status frame, is the published
+version id the controller runs, or `none` when nothing runs (nothing
+published, or a sample venue held back in Live mode). A status frame is sent
+after every publish and rollback.
 
 ## Installer commands
 
@@ -251,14 +275,14 @@ All need an Installer Studio session, except the studio commands above.
 | `DRAFT_GET` | | `{ draft }` |
 | `DRAFT_SAVE` | `config`, `baseRevision`? | `{ revision, issues, summary }`; `VF_STALE_DRAFT` when `baseRevision` is behind |
 | `DRAFT_VALIDATE` | | `{ issues, summary, revision }` |
-| `DRAFT_DISCARD` | `confirm` | `{ draft }` (reset to the published version, or none) |
+| `DRAFT_DISCARD` | `confirm`, `baseRevision`? | `{ draft }` (reset to the published version, or none). With `baseRevision`, a draft that has moved on answers `VF_STALE_DRAFT` |
 | `TEMPLATE_APPLY` | `venueType`, `name`?, `sample`?, `confirm`? | `{ draft }`; needs `confirm` when a draft exists; `sample` only in Simulation mode |
 | `PROFILE_PIN_SET` | `profileId`, `pin`? (empty removes), `baseRevision`? | `{ revision, hasPin }` |
 | `IMAGE_PUT` | `dataUrl` (PNG, JPEG or WebP, up to 600 kB encoded) | `{ key }` |
-| `PUBLISH` | `acknowledged`: issue ids, `note`? | `{ versionId, published, history }`; `VF_VALIDATION_FAILED` with `data.blocking` |
+| `PUBLISH` | `acknowledged`: issue ids, `note`?, `baseRevision`? | `{ versionId, published, history }`; `VF_VALIDATION_FAILED` with `data.blocking`. With `baseRevision`, a draft that has moved on answers `VF_STALE_DRAFT` |
 | `VERSIONS` | | `{ published, history }` |
 | `ROLLBACK` | `versionId`, `confirm` | `{ versionId, published, history }` |
-| `BACKUP_EXPORT` | | `{ backup }` |
+| `BACKUP_EXPORT` | | `{ backup }`; the backup carries `revision`, the draft revision counter, so a restore never gives out a revision already used |
 | `BACKUP_RESTORE` | `backup`, `which`? published or draft, `confirm`? | `{ draft }`; restores into the draft only |
 | `DISCOVER` | | `{ devices: [ { id, name, room, roomId, driverFile, category, basis, capabilities, online? } ], counts, rooms }` |
 | `TEST_DEVICE` | `test` (power_on, power_off, source, route, status), `displayId`?, `zoneId`?, `sourceId`?, `confirm`? | `status` is immediate: `{ roomId, room, readable, online }`. Others need `confirm: true` and answer `{ testId, status }` |
@@ -276,7 +300,9 @@ All need an Installer Studio session, except the studio commands above.
 | `SIM_EXTERNAL` | `roomId`, `changes` (power, volume, muted, videoDevice, audioDevice) | Simulation mode only: a change made behind VenueFlow's back |
 
 `draft` is `{ config, revision, savedAt, basedOn, matchesPublished, issues,
-summary }` (`matchesPublished`: the draft is exactly what is published). An
+summary }` (`matchesPublished`: the draft is exactly what is published).
+Revisions never repeat for the life of the stored venue: a discard, a
+publish or a restore does not restart them. An
 issue is `{ id, severity, code, path, message, entity?, related? }`; `related`
 names a second entity the issue is also about. In it
 every profile carries `hasPin` instead of its salt and hash; what the Studio
@@ -340,6 +366,7 @@ HTTP status used only for transport-level failures.
 | `GET /app` | the operator page | none (the page holds no secret) |
 | `GET /studio` | the Installer Studio page | none (the page holds no secret) |
 | `POST /api[?k=<tile>]` | one protocol request | inside the request |
+| `POST /image` | a floor-plan picture: the body is its data URL and nothing else; the reply is small JSON | an installer session, in the `X-VF-Session` header |
 | `OPTIONS *` | CORS preflight | none |
 
 There is no other route: no configuration or control endpoint exists outside
