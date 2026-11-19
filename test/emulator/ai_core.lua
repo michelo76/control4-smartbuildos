@@ -33,14 +33,21 @@ local function newDirector(cacheSuffix)
   local S = {
     d = d,
     cloud = cloud,
-    rpc = { calls = {}, down = false, answer = nil },
+    -- calls: every AI op; reports: driver_reports batches, kept apart since
+    -- the real Flight Recorder reports to AI Core (brief D6), so the counts
+    -- below stay about the ops under test.
+    rpc = { calls = {}, reports = {}, down = false, answer = nil },
     pending = { commands = {}, driver_config = nil, enforcement = nil },
   }
   d.http = function(req, dev)
     local path = tostring(req.url):match("^https?://[^/]+(/[^?]*)")
     if path == "/api/integrations/control4/modules/rpc" then
       local body = type(req.body) == "string" and json.decode(req.body) or req.body
-      S.rpc.calls[#S.rpc.calls + 1] = body
+      if body.op == "driver_reports" then
+        S.rpc.reports[#S.rpc.reports + 1] = body
+      else
+        S.rpc.calls[#S.rpc.calls + 1] = body
+      end
       if S.rpc.down then
         return nil
       end
@@ -1159,6 +1166,13 @@ check(
 )
 
 print("[15] runtime errors")
+local frState = false
+for _, c in ipairs(S.rpc.reports) do
+  for _, it in ipairs(type(c.body) == "table" and c.body.reports or {}) do
+    frState = frState or (it.from_module_id == "flight_recorder" and it.kind == "state")
+  end
+end
+check("the real Flight Recorder reported its state to AI Core (driver_reports)", frState)
 local errs = #agent.errors + #fr.errors + #aic.errors
 check(
   "no Lua runtime errors in the Agent, Flight Recorder or AI Core",
