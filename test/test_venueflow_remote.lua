@@ -103,9 +103,31 @@ for _, r in ipairs(env.records) do
   end
 end
 check("the project's history hears about it", sawRecord)
+local function count(list, wanted)
+  local n = 0
+  for _, v in ipairs(list) do
+    if v == wanted then
+      n = n + 1
+    end
+  end
+  return n
+end
+local publishedBefore = count(env.events, "published")
 local back = core:remote("rollback", { versionId = "v1" }, "publish")
 eq("a rollback works remotely", back.ok, true)
 eq("...and v1's venue is live again", core.config.venue.name, "Riverside Sports Bar")
+check("...as a new live version", back.data.versionId ~= "v1", back.data.versionId)
+eq("...Configuration Published fires for a rollback", count(env.events, "published"), publishedBefore + 1)
+do
+  local rolled
+  for _, r in ipairs(env.records) do
+    if r.name == "configuration rolled back" then
+      rolled = r
+    end
+  end
+  -- The driver forwards this detail as the versionId of venueflow.config.published.
+  eq("...and its record names the NEW live version, not the target", rolled and rolled.detail, back.data.versionId)
+end
 eq(
   "an unknown version is refused",
   core:remote("rollback", { versionId = "v999" }, "publish").errorCode,

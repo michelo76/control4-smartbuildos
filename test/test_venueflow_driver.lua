@@ -449,6 +449,16 @@ check("no room command was sent", #commands(1101) == 0)
 do
   local draft = api("DRAFT_GET", {}, { session = studio }).data.draft
   draft.config.venue.sample = nil
+  -- A shade and a rule that waits for a Control4 event, so the wire-level
+  -- checks below have something to reach.
+  draft.config.shades = { { id = "bar-shades", name = "Bar Shades", areaId = "bar", deviceId = 7101 } }
+  table.insert(draft.config.rules, {
+    id = "doorbell",
+    name = "Doorbell",
+    enabled = true,
+    trigger = { type = "c4_event", name = "Doorbell" },
+    program = { steps = { { type = "notify", message = "Doorbell rang" } } },
+  })
   check(
     "the real venue is saved",
     api("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, { session = studio }).ok
@@ -494,6 +504,17 @@ local st = api("GET_STATE", {}, { tile = true }).data.state
 eq("confirmed by the room variable", st.displays["tv-01"].source.status, "confirmed")
 eq("power read from the room", st.displays["tv-01"].power.value, "on")
 
+-- One definition of "the alerts of this venue" behind the Alerts property,
+-- the ALERT_COUNT variable and the HAS_ALERTS conditional, and Alert Raised
+-- when a derived alert (a display that does not confirm, an offline display,
+-- a restricted licence) APPEARS.
+local function alertsAgree(label)
+  advance(500) -- the comparison runs a moment after the change (coalesced)
+  eq(label .. ": ALERT_COUNT equals the Alerts property", tostring(vars.ALERT_COUNT), tostring(prop("Alerts")))
+  eq(label .. ": HAS_ALERTS agrees with them", TestCondition("HAS_ALERTS", {}), (tonumber(prop("Alerts")) or 0) > 0)
+end
+alertsAgree("before any failure")
+local alertsBefore = firedCount(3)
 -- a room that never answers
 r = api("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-02" } }, { tile = true })
 advance(9000)
@@ -502,6 +523,9 @@ eq(
   api("GET_STATE", {}, { tile = true }).data.state.displays["tv-02"].source.status,
   "unknown"
 )
+eq("a display that does not confirm fires Alert Raised once", firedCount(3), alertsBefore + 1)
+alertsAgree("one display not confirmed")
+check("...and it is counted", (tonumber(prop("Alerts")) or 0) >= 1, prop("Alerts"))
 -- a room that answers with something else
 rooms[1103] = { POWER_STATE = "1", CURRENT_VIDEO_DEVICE = "3005" }
 r = api("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-03" } }, { tile = true })
@@ -509,6 +533,46 @@ advance(9000)
 st = api("GET_STATE", {}, { tile = true }).data.state
 eq("Control4 reports another source: failed", st.displays["tv-03"].source.status, "failed")
 eq("...showing what Control4 actually reports", st.displays["tv-03"].source.value, "news")
+eq("a second display failing fires Alert Raised again", firedCount(3), alertsBefore + 2)
+alertsAgree("two displays not confirmed")
+local twoAlerts = tonumber(prop("Alerts"))
+advance(65000)
+ExecuteCommand("LUA_ACTION", { ACTION = "REFRESH_STATUS" })
+advance(1000)
+eq("an alert that persists does not fire again on refreshes and ticks", firedCount(3), alertsBefore + 2)
+-- tv-03 is put on what Control4 reports: confirmed, its alert clears.
+r = api("ROUTE_VIDEO", { sourceId = "news", displayIds = { "tv-03" } }, { tile = true })
+OnWatchedVariableChanged(1103, 1002, "3005")
+advance(9000)
+eq("tv-03 confirmed", api("GET_STATE", {}, { tile = true }).data.state.displays["tv-03"].source.status, "confirmed")
+alertsAgree("tv-03 cleared")
+eq("a cleared alert lowers the count", tonumber(prop("Alerts")), twoAlerts - 1)
+eq("clearing fires nothing", firedCount(3), alertsBefore + 2)
+r = api("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-03" } }, { tile = true })
+advance(9000)
+eq("the same alert coming back fires Alert Raised again", firedCount(3), alertsBefore + 3)
+alertsAgree("tv-03 failed again")
+-- An offline display (Control4's link state for its device).
+do
+  local original = C4.GetBindingsByDevice
+  C4.GetBindingsByDevice = function(_, id)
+    if id == 2101 then
+      return { { status = "offline", addr = "192.0.2.201" } }
+    end
+    return {}
+  end
+  local n = firedCount(3)
+  local manager0 = api("PROFILE_LOGIN", { profileId = "manager", pin = "2580" }).data.session
+  api("QUERY_STATUS", {}, { session = manager0 })
+  advance(1000)
+  eq("a display going offline fires Alert Raised", firedCount(3), n + 1)
+  alertsAgree("tv-01 offline")
+  C4.GetBindingsByDevice = original
+  api("QUERY_STATUS", {}, { session = manager0 })
+  advance(1000)
+  alertsAgree("tv-01 back online")
+  eq("coming back online fires nothing", firedCount(3), n + 1)
+end
 
 local manager = api("PROFILE_LOGIN", { profileId = "manager", pin = "2580" }).data.session
 sent = {}
@@ -530,6 +594,30 @@ eq("the custom route command, with the source substituted", commands(2900, "SET_
 eq("the lighting preset's command", commands(4001, "ACTIVATE_SCENE")[1].params.SCENE_ID, 11)
 check("ROOM_OFF to a room-powered display", commands(1104, "ROOM_OFF")[1] ~= nil)
 check("commands were spaced by the queue, all eventually sent", #sent >= 8, #sent)
+do
+  local preset = commands(4001, "ACTIVATE_SCENE")
+  eq("the lighting preset sends exactly one command to its device", #preset, 1)
+  local keys = {}
+  for k, v in pairs(preset[1] and preset[1].params or {}) do
+    keys[#keys + 1] = tostring(k) .. "=" .. tostring(v)
+  end
+  table.sort(keys)
+  eq("...with exactly the installer's parameters", table.concat(keys, ","), "SCENE_ID=11")
+end
+sent = {}
+check("an un-mute is accepted", api("AUDIO_MUTE", { zoneId = "zone-bar", muted = false }, { session = manager }).ok)
+check("a shade close is accepted", api("SHADE", { shadeId = "bar-shades", action = "close" }, { session = manager }).ok)
+advance(2000)
+check("MUTE_OFF to the zone's room", commands(1201, "MUTE_OFF")[1] ~= nil)
+eq("...and no MUTE_ON with it", #commands(1201, "MUTE_ON"), 0)
+local shade = commands(7101, "SET_LEVEL_TARGET")[1]
+check("SET_LEVEL_TARGET to the shade's device", shade ~= nil)
+eq("...closing it: LEVEL_TARGET 0", shade and shade.params.LEVEL_TARGET, 0)
+sent = {}
+api("SHADE", { shadeId = "bar-shades", action = "open" }, { session = manager })
+advance(2000)
+eq("opening it: LEVEL_TARGET 100", (commands(7101, "SET_LEVEL_TARGET")[1] or { params = {} }).params.LEVEL_TARGET, 100)
+eq("nothing else went to the shade", #commands(7101), 1)
 
 print("[7] Composer programming and conditionals")
 fired = {}
@@ -537,6 +625,24 @@ ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Open" })
 eq("venue opened", vars.VENUE_STATUS, "open")
 eq("Venue Opened event", firedCount(5), 1)
 eq("conditional: venue is open", TestCondition("VENUE_OPEN", {}), true)
+-- A BOOL conditional passes the chosen true_text or false_text as VALUE
+-- (driver.xml: "open" / "closed"; the DriverWorks sample reads VALUE the
+-- same way). The vendored TestCondition hands tParams to TC.* untouched, so
+-- "Venue is closed" is the driver's to answer.
+eq("BOOL: 'Venue is open' (VALUE open) while open", TestCondition("VENUE_OPEN", { VALUE = "open" }), true)
+eq("BOOL: 'Venue is closed' (VALUE closed) while open", TestCondition("VENUE_OPEN", { VALUE = "closed" }), false)
+eq("BOOL: VALUE true while open", TestCondition("VENUE_OPEN", { VALUE = "true" }), true)
+eq("BOOL: VALUE false while open", TestCondition("VENUE_OPEN", { VALUE = "false" }), false)
+eq(
+  "BOOL: 'is open' with NOT_EQUAL while open",
+  TestCondition("VENUE_OPEN", { VALUE = "open", LOGIC = "NOT_EQUAL" }),
+  false
+)
+do
+  local hasAlerts = TestCondition("HAS_ALERTS", {})
+  eq("BOOL: HAS_ALERTS 'showing alerts'", TestCondition("HAS_ALERTS", { VALUE = "showing alerts" }), hasAlerts)
+  eq("BOOL: HAS_ALERTS 'clear' is the opposite", TestCondition("HAS_ALERTS", { VALUE = "clear" }), not hasAlerts)
+end
 ExecuteCommand("ACTIVATE_SCENE", { SCENE = "Game Day" })
 eq("Scene Activated event", firedCount(1), 1)
 eq("ACTIVE_SCENE variable", vars.ACTIVE_SCENE, "Game Day")
@@ -560,6 +666,11 @@ eq("ROUTE_SOURCE from programming", commands(1105, "SELECT_VIDEO_DEVICE")[1].par
 ExecuteCommand("TRIGGER_EVENT", { NAME = "nothing-waits-for-this" })
 check("an event nothing waits for is refused quietly", prop("Last Error"):find("TRIGGER_EVENT refused", 1, true) ~= nil)
 check("HAS_ALERTS answers", type(TestCondition("HAS_ALERTS", {})) == "boolean")
+ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Closed" })
+eq("BOOL: 'Venue is closed' (VALUE closed) while closed", TestCondition("VENUE_OPEN", { VALUE = "closed" }), true)
+eq("BOOL: 'Venue is open' (VALUE open) while closed", TestCondition("VENUE_OPEN", { VALUE = "open" }), false)
+ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Open" })
+advance(12000)
 
 print("[8] the licence gate: automation stops, control does not, nothing is switched off")
 fired, sent = {}, {}
@@ -576,6 +687,18 @@ ExecuteCommand("SBOS_ENTITLEMENT", { sku = "SBOS_VENUEFLOW", status = "AUTHORIZE
 eq("the grace period restricts nothing", firedCount(7), 0)
 ExecuteCommand("SBOS_ENTITLEMENT", { sku = "SBOS_VENUEFLOW", status = "NOT_ENTITLED", enforcement = "enforce" })
 eq("a definitive denial with enforcement fires Licence Restricted", firedCount(7), 1)
+advance(1000)
+eq("...and the licence alert fires Alert Raised once", firedCount(3), 1)
+alertsAgree("licence restricted")
+-- A Composer command refused by the licence says so (PROGRAMMER_GUIDE: a
+-- refused command, including "a restricted licence", writes Last Error).
+ExecuteCommand("TRIGGER_EVENT", { NAME = "Doorbell" })
+check(
+  "TRIGGER_EVENT under a restricted licence is refused in Last Error",
+  prop("Last Error"):find("TRIGGER_EVENT refused", 1, true) ~= nil
+    and prop("Last Error"):find("licence", 1, true) ~= nil,
+  prop("Last Error")
+)
 check(
   "no device was switched off or commanded by the licence change",
   #commands(nil, "ROOM_OFF") == 0 and #commands(nil, "OFF") == 0
@@ -615,6 +738,9 @@ ExecuteCommand(
   { sku = "SBOS_VENUEFLOW", status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce" }
 )
 eq("Licence Restored fires", firedCount(8), 1)
+advance(1000)
+eq("a licence alert clearing fires nothing", firedCount(3), 1)
+alertsAgree("licence restored")
 advance(9000)
 ExecuteCommand("SET_VENUE_STATUS", { STATUS = "Open" })
 eq("scenes work again", api("SCENE_ACTIVATE", { sceneId = "happy-hour" }, { session = manager }).ok, true)
@@ -672,6 +798,11 @@ local reg = commands(AGENT_ID, "SBOS_MODULE_REGISTER")[1]
 check("switching it on registers with the Agent", reg ~= nil)
 eq("...as the venueflow module", reg and reg.params.module_id, "venueflow")
 eq("...offering draft commands only", reg and reg.params.commands, "snapshot,save_draft,refresh_status")
+eq(
+  "...reporting the live configuration version, not a constant",
+  reg and reg.params.config_version,
+  persisted.vf_published_v1.versionId
+)
 eq("the status waits for the Agent", Properties["Remote Management Status"], "On - waiting for the SmartBuildOS Agent")
 EC.SBOS_MODULE_REGISTERED({
   module_id = "venueflow",
@@ -718,6 +849,72 @@ check("...as base64 groups", doc ~= nil and doc.params.document:find('"encoding"
 check("...with nothing readable in it", doc ~= nil and not doc.params.document:find("Riverside", 1, true))
 states = remoteCommand("tok-1", "r2", "publish", { baseRevision = 1 })
 eq("draft only: a publish fails", states[#states], "Failed")
+
+local function lastResult()
+  local all = commands(AGENT_ID, "SBOS_MODULE_COMMAND_RESULT")
+  return all[#all] and all[#all].params or {}
+end
+local function statusFrames()
+  return commands(AGENT_ID, "SBOS_MODULE_STATUS")
+end
+
+-- refresh_status: the platform gets the driver's summary, in the result and
+-- in a status frame sent at once (the registry row the Studio shows).
+states = remoteCommand("tok-1", "r-status", "refresh_status")
+eq("a status refresh is accepted, run and finished", table.concat(states, ","), "Accepted,Executing,Completed")
+local live0 = persisted.vf_published_v1.versionId
+do
+  local detail = tostring(lastResult().detail)
+  check("...its result carries the summary (live version)", detail:find(live0, 1, true) ~= nil, detail)
+  check("...and the alert count", detail:find("alert", 1, true) ~= nil, detail)
+  check("...bounded for the Agent's registry (200)", #detail <= 200, #detail)
+  local frame = statusFrames()[1]
+  check("...and a status frame went to the Agent at once", frame ~= nil)
+  eq("...naming the live configuration version", frame and frame.params.config_version, live0)
+  eq("...with the same summary as its detail", frame and frame.params.detail, detail)
+  local counters = frame and JSON:decode(frame.params.counters) or {}
+  eq("...and the venue's counters", counters.alerts, tonumber(prop("Alerts")))
+end
+
+-- save_draft through the module command, as an object and as JSON parts.
+local studioR = api("STUDIO_LOGIN", { passcode = "another-pass-2" }).data.session
+local d0 = api("DRAFT_GET", {}, { session = studioR }).data.draft
+local cfgR = d0.config
+cfgR.displays[1].name = "TV 01 (remote)"
+states = remoteCommand("tok-1", "r-save", "save_draft", { config = cfgR, baseRevision = d0.revision })
+eq("a remote save_draft completes", states[#states], "Completed")
+eq("...naming the new revision", lastResult().detail, "revision " .. (d0.revision + 1))
+eq(
+  "...and the draft holds it",
+  api("DRAFT_GET", {}, { session = studioR }).data.draft.config.displays[1].name,
+  "TV 01 (remote)"
+)
+cfgR.displays[1].name = "TV 01 (parts)"
+local textR = JSON:encode(cfgR)
+local partsR = {}
+for i = 1, #textR, 2000 do
+  partsR[#partsR + 1] = textR:sub(i, i + 1999)
+end
+states = remoteCommand("tok-1", "r-parts", "save_draft", { configParts = partsR, baseRevision = d0.revision + 1 })
+eq("a remote save_draft sent as configParts completes", states[#states], "Completed")
+eq(
+  "...and the draft holds it",
+  api("DRAFT_GET", {}, { session = studioR }).data.draft.config.displays[1].name,
+  "TV 01 (parts)"
+)
+
+-- An oversize snapshot ends in Failed and sends no document.
+do
+  local CoreM = require("venueflow.core")
+  local keep = CoreM.SNAPSHOT_MAX_BYTES
+  CoreM.SNAPSHOT_MAX_BYTES = 1024
+  states = remoteCommand("tok-1", "r-big", "snapshot")
+  CoreM.SNAPSHOT_MAX_BYTES = keep
+  eq("an oversize snapshot ends in Failed", states[#states], "Failed")
+  check("...saying why", tostring(lastResult().detail):find("^VF_TOO_LARGE") ~= nil, lastResult().detail)
+  eq("...and no document is sent", #commands(AGENT_ID, "SBOS_MODULE_SNAPSHOT"), 0)
+end
+
 Properties["Remote Management"] = "Draft and publish"
 OnPropertyChanged("Remote Management")
 reg = commands(AGENT_ID, "SBOS_MODULE_REGISTER")
@@ -726,6 +923,94 @@ eq(
   reg[#reg] and reg[#reg].params.commands,
   "snapshot,save_draft,publish,rollback,refresh_status"
 )
+EC.SBOS_MODULE_REGISTERED({
+  module_id = "venueflow",
+  ok = "true",
+  token = "tok-2",
+  protocol = "1",
+  paired = "true",
+  connected = "true",
+})
+local function publishedEvents()
+  local out = {}
+  for _, frame in ipairs(commands(AGENT_ID, "SBOS_MODULE_EVENTS")) do
+    for _, e in ipairs(JSON:decode(frame.params.events)) do
+      if e.event_type == "venueflow.config.published" then
+        out[#out + 1] = e
+      end
+    end
+  end
+  return out
+end
+
+-- publish through the module command
+do
+  local d1 = api("DRAFT_GET", {}, { session = studioR }).data.draft
+  local ack = {}
+  for _, i in ipairs(d1.issues) do
+    ack[#ack + 1] = i.id
+  end
+  local firedBefore = firedCount(4)
+  states = remoteCommand("tok-2", "r-pub", "publish", { baseRevision = d1.revision, acknowledged = ack })
+  local newVersion = persisted.vf_published_v1.versionId
+  eq("a remote publish completes", states[#states], "Completed")
+  check("...a new version is live", newVersion ~= live0, newVersion)
+  eq("...the result names it", lastResult().detail, "version " .. newVersion)
+  eq("...Configuration Published fires", firedCount(4), firedBefore + 1)
+  local frames = statusFrames()
+  eq(
+    "...the Agent hears the new configuration version",
+    frames[#frames] and frames[#frames].params.config_version,
+    newVersion
+  )
+  advance(2500)
+  local ev = publishedEvents()
+  eq("...one venueflow.config.published event goes to the Agent", #ev, 1)
+  eq("...naming the new live version", ev[1] and ev[1].payload.versionId, newVersion)
+end
+
+-- rollback through the module command: a NEW live version, announced as such
+do
+  local before = persisted.vf_published_v1.versionId
+  local firedBefore = firedCount(4)
+  states = remoteCommand("tok-2", "r-back", "rollback", { versionId = "v2" })
+  local newVersion = persisted.vf_published_v1.versionId
+  eq("a remote rollback completes", states[#states], "Completed")
+  check("...as a new version, not v2 itself", newVersion ~= "v2" and newVersion ~= before, newVersion)
+  eq("...the result names the new version", lastResult().detail, "version " .. newVersion)
+  eq("...Configuration Published fires on a rollback too", firedCount(4), firedBefore + 1)
+  local frames = statusFrames()
+  eq(
+    "...the Agent hears the new configuration version",
+    frames[#frames] and frames[#frames].params.config_version,
+    newVersion
+  )
+  advance(2500)
+  local ev = publishedEvents()
+  eq("...one venueflow.config.published event", #ev, 1)
+  eq("...naming the NEW live version", ev[1] and ev[1].payload.versionId, newVersion)
+  eq("...and the version it restored", ev[1] and ev[1].payload.restoredFrom, "v2")
+end
+
+-- someone publishes ON SITE while the module is registered
+do
+  sent = {}
+  local d2 = api("DRAFT_GET", {}, { session = studioR }).data.draft
+  d2.config.displays[2].name = "TV 02 (on site)"
+  check(
+    "the installer saves on site",
+    api("DRAFT_SAVE", { config = d2.config, baseRevision = d2.revision }, { session = studioR }).ok
+  )
+  local ack = {}
+  for _, i in ipairs(api("DRAFT_GET", {}, { session = studioR }).data.draft.issues) do
+    ack[#ack + 1] = i.id
+  end
+  check("...and publishes", api("PUBLISH", { acknowledged = ack }, { session = studioR }).ok)
+  advance(2500)
+  local ev = publishedEvents()
+  eq("an on-site publish sends venueflow.config.published", #ev, 1)
+  eq("...naming the live version", ev[1] and ev[1].payload.versionId, persisted.vf_published_v1.versionId)
+end
 Properties["Remote Management"] = "Off"
 OnPropertyChanged("Remote Management")
 eq("switching it off says Off", Properties["Remote Management Status"], "Off")
