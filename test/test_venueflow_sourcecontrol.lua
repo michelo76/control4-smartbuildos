@@ -593,9 +593,14 @@ do
   eq("the rest of the first number", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
   eq("the next number waits for the box to take the first", fire("VfSourceKeys"), SourceControl.KEY_SPACING_MS)
   eq("...nothing yet", #calls, 2)
+  eq("...nothing is due to send it before the box gives up on the digits", timers.VfSourceKeys, nil)
+  eq("...which takes a pause long enough for it", timers.VfSourceOpen_55.ms, SourceControl.UNFINISHED_PAUSE_MS)
+  -- The pause is the box's alone: a key for another box goes out at once.
+  eq("a key for another box meanwhile", engine:key("stick", "UP", { access = system }).ok, true)
+  eq("...leaves at once, not after the pause", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP")
+  fire("VfSourceKeys")
   fire("VfSourceOpen_55")
-  eq("...a pause long enough for it", fire("VfSourceKeys"), SourceControl.UNFINISHED_PAUSE_MS)
-  eq("...then the second number", table.concat(calls, " "), "NUMBER_4 NUMBER_2 NUMBER_4")
+  eq("...then the second number", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP NUMBER_4")
   -- cancelExecution drops only the stopped run's keys.
   engine:tune("box", { channel = "123" }, { access = system, executionId = "x8" })
   engine:tune("box", { channel = "9" }, { access = system })
@@ -612,7 +617,7 @@ do
     fire("VfSourceOpen_55")
     fire("VfSourceKeys")
   end
-  eq("the manual number still goes out", table.concat(calls, " "), "NUMBER_4 NUMBER_2 NUMBER_4 NUMBER_2 NUMBER_9")
+  eq("the manual number still goes out", table.concat(calls, " "), "NUMBER_4 NUMBER_2 UP NUMBER_4 NUMBER_2 NUMBER_9")
 end
 
 T.done()

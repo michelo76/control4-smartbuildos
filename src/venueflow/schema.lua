@@ -950,6 +950,13 @@ function M.validate(config)
       elseif not isC4Id(s.deviceId) then
         issue(issues, "error", "C4_ID_INVALID", path .. ".deviceId", "Control4 device id must be a number.", ent)
       end
+      -- Sent as SET_LEVEL_TARGET; absent means 100 (open) and 0 (closed).
+      for _, k in ipairs({ { "openLevel", "Open level" }, { "closedLevel", "Closed level" } }) do
+        local v = s[k[1]]
+        if v ~= nil and (type(v) ~= "number" or v ~= v or v < 0 or v > 100) then
+          issue(issues, "error", "RANGE", path .. "." .. k[1], k[2] .. " must be between 0 and 100.", ent)
+        end
+      end
     end
   end
 

@@ -42,6 +42,9 @@ M.ONLINE_EVERY = 60
 M.TRIGGER_COOLDOWN = 2
 M.MAX_ALERTS = 30
 M.MAX_DRAFT_BYTES = 600 * 1024
+--- Who stops every run when a new configuration is loaded (Core:load). A
+--- run stopped for this reason lets a channel it was dialling finish.
+M.STOPPED_BY_RELOAD = "configuration changed"
 
 local Core = {}
 Core.__index = Core
@@ -160,7 +163,7 @@ function M.new(deps)
       -- The rest of a channel number the run was dialling stops too, except
       -- when a publish stops every run: then the number finishes, as a
       -- channel typed by hand does (SourceControl reconfigure).
-      if by ~= "configuration changed" then -- the label Core:load stops runs with
+      if by ~= M.STOPPED_BY_RELOAD then
         self.sourceKeys:cancelExecution(
           exec.id,
           string.format("'%s' was stopped (%s)", tostring(exec.name), tostring(by or reason))
@@ -290,7 +293,7 @@ function Core:load(reason)
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:clear()
   self.sourceKeys:reconfigure(deps.mode())
-  self.runner:cancelAll("VF_CANCELLED", "configuration changed")
+  self.runner:cancelAll("VF_CANCELLED", M.STOPPED_BY_RELOAD)
   if self.adapter and self.adapter.unwatchVariables then
     pcall(self.adapter.unwatchVariables)
   end

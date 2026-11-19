@@ -606,4 +606,49 @@ do
   )
 end
 
+-- ── shade levels (sent to Control4 as SET_LEVEL_TARGET) ─────────────────────
+print("shade levels")
+do
+  local function shadeIssues(open, closed)
+    local c = H.Templates.sportsBar()
+    c.shades = { { id = "blind", name = "Blind", deviceId = 7101, openLevel = open, closedLevel = closed } }
+    local out = {}
+    for _, i in ipairs(Schema.validate(Schema.normalize(c))) do
+      if i.path:find("^shades%[1%]") then
+        out[#out + 1] = i
+      end
+    end
+    return out
+  end
+  eq("no levels: the defaults (open 100, closed 0) apply, no issue", #shadeIssues(nil, nil), 0)
+  eq("both bounds are valid", #shadeIssues(100, 0), 0)
+  eq("a level in between is valid", #shadeIssues(80, 15.5), 0)
+  for _, case in ipairs({
+    { 101, nil, "openLevel", "Open level must be between 0 and 100." },
+    { -1, nil, "openLevel", "Open level must be between 0 and 100." },
+    { "100", nil, "openLevel", "Open level must be between 0 and 100." },
+    { nil, -0.5, "closedLevel", "Closed level must be between 0 and 100." },
+    { nil, 100.5, "closedLevel", "Closed level must be between 0 and 100." },
+    { nil, true, "closedLevel", "Closed level must be between 0 and 100." },
+  }) do
+    local list = shadeIssues(case[1], case[2])
+    local i = list[1] or {}
+    eq(
+      tostring(case[1] or case[2]) .. " as " .. case[3] .. " is refused",
+      #list .. " " .. tostring(i.code) .. "/" .. tostring(i.severity) .. " " .. tostring(i.path),
+      "1 RANGE/error shades[1]." .. case[3]
+    )
+    eq("...in words", i.message, case[4])
+  end
+  for _, name in ipairs({ "sportsBar", "conferenceCenter" }) do
+    local errors = 0
+    for _, i in ipairs(Schema.validate(Schema.normalize(H.Templates[name]()))) do
+      if i.severity == "error" then
+        errors = errors + 1
+      end
+    end
+    eq("the " .. name .. " sample stays valid", errors, 0)
+  end
+end
+
 T.done()

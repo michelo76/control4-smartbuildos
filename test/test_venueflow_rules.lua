@@ -1050,6 +1050,41 @@ do
   eq("...then goes out whole, never mixed", keysSince(mark), "NUMBER_1 NUMBER_2 NUMBER_1 NUMBER_2 ENTER")
   e.settle(30000)
 
+  -- The pause after a cut-off number is that box's alone: staff pressing a
+  -- key for ANOTHER box are not held up by it.
+  local dev2 = e.core.ix.sources["sports-2"].c4DeviceId
+  local function keysTo(device, from)
+    local out = {}
+    for i = from + 1, e.sim():callCount() do
+      local c = e.sim().calls[i]
+      if c.target == device and c.command ~= "SELECT_VIDEO_DEVICE" then
+        out[#out + 1] = c.command
+      end
+    end
+    return table.concat(out, " ")
+  end
+  mark = e.sim():callCount()
+  local cut =
+    execute("cut off", { { type = "tune", sourceId = "sports-1", channel = "1234" }, { type = "wait", seconds = 30 } })
+  e.clock.advance(400)
+  e.send("EXECUTION_CANCEL", { executionId = cut.data.execution.id }, st)
+  e.send("SOURCE_TUNE", { sourceId = "sports-1", favoriteId = "sports-b" }, mgr) -- A: must wait
+  e.send("SOURCE_KEY", { sourceId = "sports-2", key = "CH_UP" }, mgr) -- B: must not
+  e.send("SOURCE_KEY", { sourceId = "sports-1", key = "CH_DOWN" }, mgr) -- A again: stays behind its number
+  e.clock.advance(400)
+  eq("a key for another box goes out at once", keysTo(dev2, mark), "PULSE_CHANNEL_UP")
+  eq("...while the cut-off box still waits", keysSince(mark), "NUMBER_1 NUMBER_2")
+  e.clock.advance(1000)
+  eq("...and keeps waiting", keysSince(mark), "NUMBER_1 NUMBER_2")
+  e.settle(6000)
+  eq("then its new number arrives whole", keysSince(mark), "NUMBER_1 NUMBER_2 NUMBER_2 NUMBER_1 NUMBER_2 ENTER")
+  eq(
+    "...and a key pressed for that box meanwhile keeps its place after it",
+    keysTo(dev, mark),
+    "NUMBER_1 NUMBER_2 NUMBER_2 NUMBER_1 NUMBER_2 ENTER PULSE_CHANNEL_DOWN"
+  )
+  e.settle(30000)
+
   -- All Off stops running scenes, and so their dialling.
   mark = e.sim():callCount()
   execute(
@@ -1124,6 +1159,11 @@ do
   end
   eq("the installer publishes mid-number", e.send("PUBLISH", { acknowledged = acks }, st).ok, true)
   eq("...which stops the run", run("dialling at publish").status, "cancelled")
+  eq(
+    "...by the reload, named by the one constant the dialling exception checks",
+    run("dialling at publish").cancelledBy,
+    require("venueflow.core").STOPPED_BY_RELOAD
+  )
   e.settle(6000)
   local whole = {}
   for _, sim in ipairs({ before, e.sim() }) do
