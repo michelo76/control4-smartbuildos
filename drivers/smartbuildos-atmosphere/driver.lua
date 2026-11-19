@@ -42,6 +42,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local mirror = require("sbos.mirror")
+--- AI Core reporting (sbos.aireport, start mode). Required at module scope:
+--- the build finds a driver's modules by loading driver.lua.
+local aireport = require("sbos.aireport")
 
 local nws = require("atmosphere.nws")
 local normalize = require("atmosphere.normalize")
@@ -879,6 +882,206 @@ function forwardHealthEvents(events)
   end
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ─────────────────────────────────────
+--
+-- What this driver tells AI Core when AI Core is installed (nothing at all
+-- when it is not; the helper sends no frame). Mode `start`: the helper sets
+-- up its own module client with claim_driver_config = false, so
+-- EC.SBOS_DRIVER_CONFIG stays sbos.mirror's (remote settings unchanged).
+--   describe   what the driver is, its controls and the words people use
+--   state      the current weather facts (no location, no coordinates)
+--   event      the weather changes a person would want to hear about
+--              (started/ended conditions, alerts); never during simulation
+--   diagnostic the data-health transitions the engine already detects
+--   queries    weather_source, forecast (read-only)
+--   actions    none: a refresh is automatic and needs nobody's approval
+
+--- Engine event ids reported as AI Core events (engine.EVENTS ids): rain,
+--- snow, freeze and thunderstorm start/end, severe weather, and every alert
+--- event. "Expected" predictions, gusts, fog, sun times and simulation
+--- markers stay local (the state facts carry the predictions).
+local AI_EVENT_IDS = {
+  1, 2, 7, 8, 16, 17, 22, 23, 25, 26, 27, 28, 29, 30, 31,
+  32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+}
+--- The engine's data-health events, reported as diagnostics.
+local AI_DIAGNOSTICS = {
+  ["Weather Data Stale"] = { "warning", "weather.data_stale" },
+  ["Weather Data Restored"] = { "info", "weather.data_restored" },
+  ["Weather API Unavailable"] = { "warning", "weather.service_unavailable" },
+  ["Weather API Recovered"] = { "info", "weather.service_recovered" },
+}
+local gAiEvents = nil -- engine event name -> { type, text }
+
+local function aiEventFor(name)
+  if gAiEvents == nil then
+    gAiEvents = {}
+    local wanted = {}
+    for _, id in ipairs(AI_EVENT_IDS) do
+      wanted[id] = true
+    end
+    for _, e in ipairs(engine.EVENTS) do
+      if wanted[e[1]] then
+        local slug = tostring(e[2]):lower():gsub("[^a-z0-9]+", "_"):gsub("^_+", ""):gsub("_+$", "")
+        gAiEvents[e[2]] = { type = "weather." .. slug:sub(1, 40), text = e[3] }
+      end
+    end
+  end
+  return gAiEvents[name]
+end
+
+local function finiteOrNil(v)
+  if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+    return v
+  end
+  return nil
+end
+
+--- The weather facts for AI Core (state). Bounded, no location. While a
+--- dealer simulation runs, no weather value is reported as if it were real.
+local function aiFacts(snapshot)
+  snapshot = snapshot or {}
+  local facts = {
+    simulation = snapshot.simulation == true,
+    data_stale = snapshot.dataStale == true,
+    weather_service_ok = snapshot.apiOk ~= false,
+    location_resolved = gLocation ~= nil and gPoints ~= nil,
+  }
+  if snapshot.simulation then
+    facts.weather_status = "A dealer weather simulation is running; live weather is paused"
+    return facts
+  end
+  local obs = snapshot.obs
+  if obs ~= nil then
+    facts.condition = obs.textDescription
+    facts.temperature_f = finiteOrNil(units.round(obs.tempF))
+    facts.feels_like_f = finiteOrNil(units.round(obs.feelsLikeF))
+    facts.humidity_percent = finiteOrNil(units.round(obs.humidity))
+    facts.wind_mph = finiteOrNil(units.round(obs.windMph))
+    facts.gust_mph = finiteOrNil(units.round(obs.gustMph))
+  end
+  facts.last_observation_at = finiteOrNil(gFetched.obs)
+  facts.weather_mode = snapshot.mode
+  facts.severity = snapshot.severity
+  local high, low, condition = todayHighLow()
+  facts.forecast_high_f = finiteOrNil(units.round(high))
+  facts.forecast_low_f = finiteOrNil(units.round(low))
+  facts.forecast_condition = condition
+  local p = snapshot.predictions or {}
+  facts.rain_expected_soon = p.rain_soon == true
+  facts.freeze_expected_tonight = p.freeze_expected_tonight == true
+  facts.storm_expected = p.storm_expected == true
+  facts.active_alerts = snapshot.activeAlertCount or 0
+  facts.highest_alert_severity = snapshot.highestAlertSeverity or "None"
+  if snapshot.topAlert ~= nil then
+    facts.top_alert = snapshot.topAlert.event
+  end
+  return facts
+end
+
+--- After each engine run: the latest facts (the helper sends them only when
+--- they changed, at most 6 a minute) and the events worth telling.
+local function reportToAiCore(snapshot, events)
+  aireport.state(aiFacts(snapshot))
+  if snapshot.simulation then
+    return -- simulated weather is never reported as an event or a fault
+  end
+  for _, name in ipairs(events) do
+    local diag = AI_DIAGNOSTICS[name]
+    if diag ~= nil then
+      aireport.diagnostic(diag[1], diag[2], HEALTH_EVENT_DETAIL[name] or name)
+    else
+      local e = aiEventFor(name)
+      if e ~= nil then
+        aireport.event(e.type, e.text, {
+          severity = snapshot.severity,
+          active_alerts = snapshot.activeAlertCount or 0,
+        })
+      end
+    end
+  end
+end
+
+local function aiWeatherSource()
+  return {
+    provider = "US National Weather Service (api.weather.gov)",
+    forecast_office = gPoints ~= nil and gPoints.office or nil,
+    observation_station = gStation,
+    location_resolved = gLocation ~= nil and gPoints ~= nil,
+    last_observation_at = finiteOrNil(gFetched.obs),
+    last_forecast_at = finiteOrNil(gFetched.forecast),
+    last_alerts_at = finiteOrNil(gFetched.alerts),
+    data_stale = gSnapshot ~= nil and gSnapshot.dataStale == true or false,
+    weather_service_ok = gSnapshot == nil or gSnapshot.apiOk ~= false,
+    simulation = gSim ~= nil,
+  }
+end
+
+local function aiForecast(params)
+  if gSim ~= nil then
+    return nil, "simulation_running"
+  end
+  local days = params.days or 3
+  local periods = {}
+  for _, p in ipairs(gDaily) do
+    if #periods >= days * 2 then
+      break
+    end
+    periods[#periods + 1] = {
+      name = p.name,
+      daytime = p.isDaytime == true,
+      temperature_f = finiteOrNil(units.round(p.tempF)),
+      condition = p.shortForecast,
+      rain_chance_percent = finiteOrNil(p.pop),
+      starts_at = finiteOrNil(p.startT),
+    }
+  end
+  local alerts = {}
+  for _, a in pairs(gAlertSet or {}) do
+    if #alerts >= 10 then
+      break
+    end
+    alerts[#alerts + 1] = { event = a.event, severity = a.severity, headline = a.headline, ends_at = a.ends or a.expires }
+  end
+  return { periods = periods, alerts = alerts, forecast_at = finiteOrNil(gFetched.forecast) }
+end
+
+--- Declares, starts and describes. Called from OnDriverLateInit and again
+--- after REINITIALIZE (KillAllTimers stops the helper's module client).
+local function startAiCore()
+  aireport.declareQuery({
+    id = "weather_source",
+    description = "Where the weather comes from and when each part last updated.",
+    params = {},
+  }, function()
+    return aiWeatherSource()
+  end)
+  aireport.declareQuery({
+    id = "forecast",
+    description = "The forecast for the next days and any active weather alerts.",
+    params = { { name = "days", type = "integer", min = 1, max = 7, required = false } },
+  }, aiForecast)
+  aireport.start({ sku = "SBOS_ATMOSPHERE" })
+  aireport.describe({
+    summary = "Weather at the home from the US National Weather Service: current conditions, the forecast and active weather alerts.",
+    controls = {
+      { id = "current_conditions", label = "Current weather", class = "weather" },
+      { id = "forecast", label = "Forecast", class = "weather" },
+      { id = "weather_alerts", label = "Weather alerts", class = "weather" },
+      { id = "outdoor_temperature", label = "Outdoor temperature", class = "sensor" },
+      { id = "outdoor_humidity", label = "Outdoor humidity", class = "sensor" },
+    },
+    vocabulary = {
+      "weather", "forecast", "temperature", "outside", "rain", "snow", "wind", "storm",
+      "thunderstorm", "freeze", "frost", "heat", "humidity", "weather alert", "warning", "watch",
+      "tornado", "hurricane", "flood",
+    },
+  })
+  if gSnapshot ~= nil then
+    aireport.state(aiFacts(gSnapshot))
+  end
+end
+
 -- ─── The engine tick ──────────────────────────────────────────────────────────
 
 --- Runs the intelligence engine over current inputs and publishes everything.
@@ -979,6 +1182,7 @@ function runEngine(reason, alertsResult)
   if not snapshot.simulation and not license.enforces() then
     forwardHealthEvents(events)
   end
+  reportToAiCore(snapshot, events)
   -- Cloud state mirror: ask the Agent to republish our state (it fetches
   -- from our relay on localhost and POSTs with its bearer auth).
   -- askCloudMirror is a GLOBAL assigned in the relay section below —
@@ -1516,6 +1720,10 @@ end
 
 function EC.REINITIALIZE()
   KillAllTimers()
+  -- KillAllTimers also stopped the AI Core helper's module client timers:
+  -- start it again (it re-registers; nothing is sent while AI Core is absent).
+  aireport.stop()
+  startAiCore()
   gLocation = resolveLocation()
   persist:set(P_LOCATION, gLocation)
   discoverPoints("reinitialize")
@@ -1787,6 +1995,7 @@ function OnDriverLateInit()
   license.setup({ sku = "SBOS_ATMOSPHERE" })
   license.register()
   license.check()
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -1836,6 +2045,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   stopUiRelay()
   KillAllTimers()
 end

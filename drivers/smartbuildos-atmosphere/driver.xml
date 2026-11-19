@@ -321,6 +321,12 @@
         <default>-</default>
       </property>
       <property>
+        <name>AI Core</name>
+        <type>STRING</type>
+        <default>Searching…</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
         <name>Logging</name>
         <type>LABEL</type>
         <default>Logging</default>

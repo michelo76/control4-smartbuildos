@@ -120,6 +120,41 @@ deduped on the **alert's own CAP id/onset** — never wall-clock time. Not yet
 implemented on either side; the driver's `notifications.push_alerts` setting
 reserves the toggle.
 
+### 6. AI Core reporting (`sbos.aireport`, start mode)
+
+When SmartBuildOS AI Core is installed, Atmosphere reports to it over the
+module bus (capability `ai_core.report` v1, guide §9); without AI Core it
+sends nothing. `aireport.start({ sku = "SBOS_ATMOSPHERE" })` sets up the
+helper's own module client with `claim_driver_config = false`, so
+`EC.SBOS_DRIVER_CONFIG` stays `sbos.mirror.onConfig` and remote settings
+(§3) are unchanged (unit and emulator tests prove it).
+
+- **describe**: NWS weather; controls current weather, forecast, weather
+  alerts (`weather`), outdoor temperature and humidity (`sensor`); homeowner
+  vocabulary.
+- **state** (after each engine run; the helper sends only a change, ≤ 6/min):
+  condition, temperature, feels-like, humidity, wind, gust, today's high/low
+  and condition, the three predictions, alert count / highest severity / top
+  alert, stale, service ok, location resolved, simulation. No coordinates,
+  city or zone. During a simulation only `simulation`, `weather_status` and
+  the health flags.
+- **event**: engine events 1, 2, 7, 8, 16, 17, 22, 23, 25–47 (conditions
+  starting/ending, severe weather, every alert event) as `weather.<name>`;
+  never during a simulation. Predictions, gusts, fog, sun times stay local.
+- **diagnostic**: Weather Data Stale / Restored, Weather API Unavailable /
+  Recovered.
+- **queries**: `weather_source` (provider, office, station, last update of
+  each feed), `forecast {days 1..7}` (periods and active alerts).
+- **action**: none. Spec §3.7 planned `refresh_now`; it is not declared,
+  because refreshing is automatic and an approval-gated refresh helps no
+  one.
+- **AI Core** property: the closed value list of guide §9.
+- `REINITIALIZE` (`KillAllTimers`) stops and restarts the helper.
+
+Emulator and unit tests only (`test/test_atmosphere_aicore.lua`,
+`test/emulator/ai_core_reference_drivers.lua`); nothing has run on a
+physical controller.
+
 ## Identity and trust boundaries
 
 - Company/property identity always comes from the Agent's authenticated pairing

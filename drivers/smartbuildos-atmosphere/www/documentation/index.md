@@ -521,6 +521,7 @@ readings are blank from a restart until the first observation.
 | **App Relay Address**                                                                   | `Auto`, or the controller's LAN address typed by hand                                                   |
 | **App Data Relay**                                                                      | Live status of the app's data connection                                                                |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | Licensing, as the Agent reports it                                                                      |
+| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
 | **Log Level**, **Log Mode**                                                             | Logging; the actions below print without them                                                           |
 
 ## Actions
@@ -557,6 +558,60 @@ readings are blank from a restart until the first observation.
 | The app shows READ-ONLY                                                                                                  | It is reading the cloud copy                                                                                                                                                  | Nothing: on the home network it goes back by itself within 5 minutes                                                 |
 | The app says some changes were refused by the driver                                                                     | The driver did not accept a value. Of the app's unit choices it takes miles per hour for wind, and inches of mercury or hectopascals for pressure                             | Choose one of those                                                                                                  |
 | **License Status** is not a licence                                                                                      | `No SmartBuildOS Agent Found`, or the Agent is still being asked                                                                                                              | Install and pair the Agent, then press *Refresh License*. The weather does not wait for it                           |
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+driver tells it about the weather so a person can ask the assistant about
+it. Without AI Core it sends nothing, and the weather works exactly as
+described above.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: weather from the US National Weather Service, with its
+  controls (current weather, forecast, alerts, outdoor temperature and
+  humidity) and the words people use (rain, storm, freeze, weather alert…).
+- **State**: the current condition, temperature, feels-like, humidity, wind,
+  today's high and low, whether rain, freeze or a storm is expected, the
+  active alerts, and whether the data is stale. Never the location or the
+  coordinates. During a simulation it says only that a simulation is
+  running.
+- **Events**: rain, snow, freeze and thunderstorms starting and ending,
+  severe weather, and every alert issued, escalated or cleared. Never during
+  a simulation.
+- **Faults**: the weather data going stale or the weather service becoming
+  unreachable, and their recovery.
+
+What it will answer when asked (read-only):
+
+- *Where does the weather come from and when did it last update?*
+  (the forecast office, the observation station and the time of each
+  update)
+- *What is the forecast?* (1 to 7 days, with any active alerts)
+
+What it can be asked to do: nothing. The weather refreshes by itself every
+few minutes; there is no action to approve.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in the emulator and in unit tests only: nothing here
+has run on a physical controller.
 
 ## What is not claimed
 
