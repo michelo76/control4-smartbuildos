@@ -87,7 +87,7 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 | 11 | `20261118211000` | driver reports |
 | 12 | `20261118220000` | the price — applied only AFTER the new app is deployed |
 
-An independent reviewer (a separate worker that wrote none of it) ran two passes on a local database. Second-pass verdict, on platform `2ebbd5bd2`: **"ready with conditions"**. Every first-pass finding is closed. One new medium finding: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits; the fix — moving policies to the end of each file — was in progress at the time of writing. ⟨conductor: state of the last migration lock fix and re-review⟩.
+An independent reviewer (a separate worker that wrote none of it) ran two passes on a local database. Second-pass verdict, on platform `2ebbd5bd2`: **"ready with conditions"**. Every first-pass finding is closed. One new medium finding: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits; the fix — moving policies to the end of each file — was in progress at the time of writing. Update: that fix has landed (platform `0a128d748`: the policies are now the last statements of each file) and the same reviewer ran a third pass on it — final verdict: ready to apply by hand with the conditions in its runbook; every finding closed, accepted or documented; nothing new found. Reviewer-reported, not rerun by the conductor.
 
 The reviewer's conditions for applying them:
 

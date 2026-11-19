@@ -83,7 +83,7 @@ const STATUS = {
     source: 'checklist 10.8, 10.10, 10.12, 12.8, 12.19; RELEASE.md' },
   migrations: { area: 'Database migrations', tone: 'block',
     title: 'Twelve files, reviewed “ready with conditions”; applied to no remote database',
-    text: 'Twelve AI Core migration files, each with a rollback, each a single transaction with a 5-second lock limit, the order enforced both ways; the twelfth, 20261118220000, carries the price and is applied only after the new app is deployed. They were applied, rolled back and re-applied only on throwaway local databases (2.16, 10.14, Tested: worker- and reviewer-reported). An independent reviewer’s second pass found them “ready with conditions”; a final lock-ordering fix was in progress when this guide was built. Applying them to production is the owner’s step and has not happened (10.11, Blocked).',
+    text: 'Twelve AI Core migration files, each with a rollback, each a single transaction with a 5-second lock limit, the order enforced both ways; the twelfth, 20261118220000, carries the price and is applied only after the new app is deployed. They were applied, rolled back and re-applied only on throwaway local databases (2.16, 10.14, Tested: worker- and reviewer-reported). An independent reviewer’s third pass found them ready to apply by hand with the conditions in its runbook; that verdict is reviewer-reported, not rerun by the conductor. Applying them to production is the owner’s step and has not happened (10.11, Blocked).',
     source: 'platform docs/ai-core/MIGRATIONS.md; checklist 2.16, 10.11, 10.14' },
   touchscreen: { area: 'AI Core touchscreen page, PIN-locked chat and PIN approvals', tone: 'sim',
     title: 'Built and emulator-tested; never opened on a real touchscreen or phone',
