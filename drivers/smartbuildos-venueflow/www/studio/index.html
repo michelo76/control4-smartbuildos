@@ -359,6 +359,8 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 
 /* editor on the right */
 .en-editor { gap: 14px; }
+/* A profile a client may not change (the one screens open with): shown, every control disabled. */
+.en-locked { margin: 0; padding: 0; border: 0; min-width: 0; gap: 14px; }
 .en-editor h2 { max-width: 100%; }
 .en-editor .form { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .en-card { gap: 10px; }
@@ -3327,7 +3329,7 @@ var Studio = (function () {
   }
   function editorHead(kicker, item, onDelete) {
     return h('div.row.between.top', h('div.col.tight.grow', h('h4', kicker), h('h2.ellipsis', item.name || '(no name)'), h('span.tiny.mono.muted', 'id ' + item.id)),
-      h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete'));
+      onDelete ? h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete') : null);
   }
   function pickFirst(list, sel) { if (sel && VF.byId(list, sel)) return sel; return list.length ? list[0].id : null; }
   function nothingSelected(text) { return h('div.empty', text); }
@@ -4371,6 +4373,14 @@ var Studio = (function () {
     });
   }
   function stationsOf(profileId) { return S.list('stations').filter(function (st) { return st && st.profileId === profileId; }); }
+  /* For a client: the profile a tile opens with and every station's profile are the
+     installer's (the driver refuses a client's change to them, src/venueflow/clientscope.lua). */
+  function screenLocked(profileId) { return S.isClient() && (S.config().defaultProfileId === profileId || stationsOf(profileId).length > 0); }
+  function lockedBox(locked) {
+    var kids = Array.prototype.slice.call(arguments, 1);
+    return locked ? h('fieldset.col.en-locked', { disabled: true }, kids) : kids;
+  }
+  var SCREEN_LOCKED = 'This is the profile screens open with. Only your installer can change it.';
   function setPin(p) {
     var isDefault = S.config().defaultProfileId === p.id, stations = stationsOf(p.id);
     var why = [];
@@ -4410,16 +4420,20 @@ var Studio = (function () {
     function ed(label, fn) { edit('profiles', id, label, fn); }
     function perm(key) { return function (v) { ed('Profile permission', function (x) { x.permissions = VF.asMap(x.permissions); x.permissions[key] = v; }); }; }
     var isDefault = S.config().defaultProfileId === id;
+    var locked = screenLocked(id);
+    /* A locked profile is shown as it is: every control inside the fieldset is disabled. */
     return h('div.panel.pad.col.en-editor', { dataset: { fk: 'pro:' + id } },
-      editorHead('Staff profile', p, function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      editorHead('Staff profile', p, locked ? null : function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      locked ? note(SCREEN_LOCKED, 'info', 'lock') : null,
       issueSlot('profile', id),
+      lockedBox(locked,
       h('div.form',
         nameField('Name', p.name, function (v) { ed('Rename staff profile', function (x) { x.name = v; }); }),
         S.select('Role', opts(schema().roles || Object.keys(ROLE_LABEL), ROLE_LABEL), p.role, function (v) { ed('Profile role', function (x) { x.role = v || 'restricted'; }); }, { hint: 'A label for the kind of staff. The switches below decide what the profile can do.' })),
       card('PIN', h('div.row.wrap.between',
         h('div.col.tight.grow', p.hasPin ? h('span.chip.ok', icon('lock', 'sm'), 'PIN set') : h('span.chip.warn', icon('unlock', 'sm'), 'No PIN'),
           h('span.hint', p.hasPin ? 'Staff choose this profile on the sign-in pad and type its PIN. The PIN is never shown and is not part of the configuration.' : (isDefault ? 'A tile opens as this profile without asking.' : 'Without a PIN staff cannot sign in as this profile. It can only be the profile a tile or a station opens with.'))),
-        h('div.row.wrap',
+        locked ? null : h('div.row.wrap',
           h('button.btn.sm', { type: 'button', onclick: function () { setPin(p); } }, icon('key', 'sm'), p.hasPin ? 'Change PIN' : 'Set PIN'),
           p.hasPin ? h('button.btn.sm.danger', { type: 'button', onclick: function () { removePin(p); } }, 'Remove PIN') : null))),
       card('Interfaces', h('div.col',
@@ -4446,7 +4460,7 @@ var Studio = (function () {
         S.idPicker('Areas', 'areas', perms.areas, perm('areas'), { items: S.list('areas').map(function (a) { return { id: a.id, name: areaText(a.id) }; }) }),
         S.idPicker('Sources', 'sources', perms.sources, perm('sources')),
         S.idPicker('Audio zones', 'audioZones', perms.zones, perm('zones')),
-        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds')))));
+        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds'))))));
   }
   function renderProfiles(container) {
     var list = S.list('profiles'), c = S.config();
@@ -4462,7 +4476,8 @@ var Studio = (function () {
     if (current && current.hasPin) tileOptions.push({ value: current.id, label: current.name + ' (has a PIN: not allowed)' });
     var tile = h('div.panel.pad.col.tight.en-tile',
       S.select('A tile opens as', tileOptions, current ? c.defaultProfileId : '', function (v) { upd('Tile profile', function (x) { if (v) x.defaultProfileId = v; else delete x.defaultProfileId; }); },
-        { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
+        S.isClient() ? { none: 'Ask everyone to sign in', disabled: true, hint: 'Only your installer can choose the profile screens open with.' }
+          : { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
     VF.mount(container,
       S.sectionHead('Staff Profiles', 'Who uses the screens, which interfaces they get and what they may do.', [h('button.btn.sm.primary', { type: 'button', onclick: addProfile }, icon('plus', 'sm'), 'Add profile')]),
       note('Permissions are enforced by the driver, not by the screens: a screen only hides what the driver would refuse. Changing the configuration is not a profile permission. It always needs the Installer Passcode.', 'info', 'shield'),
