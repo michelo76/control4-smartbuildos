@@ -259,6 +259,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
   `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 
+- **VenueFlow pages in three browser engines** (19 November 2026; desktop
+  engines against the simulator, not a T3, a T4 or a phone). The pages ran for
+  the first time in WebKit 27.2 and Firefox 159 as well as Chromium 159
+  (Playwright 1.65, touch enabled, both sample venues): every operator, Studio
+  and Venue Studio flow passed with no page or console error. Fixed: the floor
+  plan now judges a tap from where the finger went down (WebKit and Chromium
+  moved it onto a nearby control); an empty page icon (Firefox logged a blocked
+  favicon request); toasts let taps through; dialogs size to the visible area
+  and buttons no longer trigger double-tap zoom; no Studio control is rebuilt
+  under a finger (38 of 288 timed taps were lost before, none after); the phone
+  Floor Plan volume slider has its own row (84 to 236 px wide). Removing a
+  favourite channel a scene or schedule uses now asks first and names them.
+  Known: at 1024x600 the volume sliders are about one pixel per step. Firefox
+  159 is not the touch screens' Firefox 96.
+
 - **VenueFlow: device mapping is on site only; a "Tune a channel" step** (19
   November 2026; simulator and test shim only, not run on a controller). Owner
   decisions. Remote Management refuses, whole and with the new code
