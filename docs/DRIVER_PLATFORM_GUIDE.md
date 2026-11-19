@@ -1008,6 +1008,18 @@ driver's own handler applied it (and `EC.SBOS_DRIVER_CONFIG` is not
 `moduleclient.onConfig`). In `attach` mode the config handler is whatever
 your own `client.setup` chose.
 
+**The rollout and its ratchet (brief D7a).** Every root in
+`aireport.MODULE_IDS` except AI Core itself and VenueFlow (whose module
+client exists only while Remote Management is on; decision pending) now
+reports, each with `test/test_<driver>_aicore.lua` on the shared checks in
+`test/aicore_rollout_checks.lua`. `test/test_driver_aicore_guard.lua` fails
+when a driver directory lacks the exact property, the module-scope
+require, a `start(`/`attach(` call or `stop()`, unless it is on its
+exemption list with a written reason; the Agent and the children are
+listed as pending the next brief, and the test fails once one of them has
+the property but is still listed. A new driver directory fails until it is
+wired (and its id is in `MODULE_IDS`) or exempted.
+
 **What surprised us:**
 
 - `DC_FILENAME` is set only in the DriverCentral variant; the OSS build
