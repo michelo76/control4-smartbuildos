@@ -138,13 +138,19 @@ A box usually feeds several screens. The remote tells you how many are
 showing it: they all change together. The box does not report back, so look
 at a screen to see the change.
 
+A scene can change the channel too, if your installer or manager set it up
+(a Game Day scene can put the sports box on the game channel). You only need permission to run the scene for that. If a box
+ends up on the wrong channel, use the remote, or tell your installer.
+
 ## The Venue Studio (owners and managers)
 
 If your installer gave your profile the Venue Studio permission, sign in
 with your PIN, tap your name at the top right and choose **Venue Studio**.
 There you can change:
 
-- **Scenes**: what one press does.
+- **Scenes**: what one press does, including **Tune a channel**, which puts
+  a box on a favourite or a channel number (it shows as sent: look at a
+  screen to check).
 - **Scheduling**: what happens by itself, and when.
 - **Channels and Names**: what each source is called, a channel label
   ("ESPN 206") shown beside it (a note for staff; it does not change the

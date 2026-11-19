@@ -184,7 +184,7 @@ in its `controls`.
 | Command | Payload | Reply `data` |
 | --- | --- | --- |
 | `SOURCE_KEY` | `sourceId`, `key` | `{ sent: 1, feedback: false }` |
-| `SOURCE_TUNE` | `sourceId`, and `favoriteId` or `channel` ("206", "5-1") | `{ sent: n, feedback: false }` |
+| `SOURCE_TUNE` | `sourceId`, and `favoriteId` or `channel` ("206", "5-1") | `{ sent: n, feedback: false, channel, favorite?, keys }`: `channel` is what is dialled, `favorite` the favourite's name when one was chosen, `keys` the keys as a person reads them ("2, 0, 6, Enter") |
 
 `key` is one of a closed list (`src/venueflow/sourcecontrol.lua`), never a
 Control4 command name: `CH_UP`, `CH_DOWN`, `RECALL` (group channel);
@@ -198,6 +198,15 @@ are waiting), `VF_DEVICE_UNMAPPED`, `VF_FORBIDDEN`, `VF_NOT_FOUND`.
 `ok` means the keys were queued to be sent. There is no confirmation: a box
 reports nothing back. A source in the operator configuration carries
 `controls: { groups, favorites }` when the profile may use them.
+
+Diagnostics hold an `info` entry per request (category `source`) and a
+`debug` entry per key as the adapter took it ("Cable 1: NUMBER_2 sent
+(1/4)"). When a number is cut off (a run that dialled it was stopped), the
+next number for that device waits 3 seconds before its first key, so the
+box can drop the unfinished digits; while it waits, the keys queued behind
+it, for any source, wait too (one queue). The 3 seconds are an assumption,
+not seen on a box. The "Tune a channel" program step (`tune`) uses the same
+path with system access (DATA_MODEL.md, Step).
 
 ## Studio commands
 
@@ -230,10 +239,38 @@ sets the level; Off refuses everything.
 | Command | Level | Args | Result |
 | --- | --- | --- | --- |
 | `snapshot` | draft | none | one document (`SBOS_MODULE_SNAPSHOT`), see below. No PIN material |
-| `save_draft` | draft | `config` (object) or `configParts` (JSON text in parts), and `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved |
+| `save_draft` | draft | `config` (object) or `configParts` (JSON text in parts), and `baseRevision` (required when a draft exists) | `revision`; `VF_STALE_DRAFT` when the draft moved; `VF_ONSITE_ONLY` when it would change device mapping or device commands (below), and then nothing is stored |
 | `refresh_status` | draft | none | a one-line summary in the result's detail (at most 200 characters: configuration, mode, venue status, active scene, alert count, draft, and the last error when there is one; no names of people, PINs, addresses or tokens). The driver also sends a module status frame at once with the same line, counters `alerts`, `displays`, `zones`, `scenes`, `venue_open`, `simulation`, and `config_version` |
-| `publish` | publish | `baseRevision` (must equal the draft's), `acknowledged`, `note` | `versionId`, recorded as `remote` |
-| `rollback` | publish | `versionId` | `versionId` |
+| `publish` | publish | `baseRevision` (must equal the draft's), `acknowledged`, `note` | `versionId`, recorded as `remote`; `VF_ONSITE_ONLY` when the draft's mapping differs from what is live |
+| `rollback` | publish | `versionId` | `versionId`; `VF_ONSITE_ONLY` when that version's mapping differs from what is live |
+
+**Device mapping and device commands are on site only**
+(`src/venueflow/remotescope.lua`). Mapping means: a display's `c4RoomId`,
+`c4DeviceId`, `power`, `feedback` and its whole `route`; a source's
+`c4DeviceId`; an audio zone's `c4RoomId` and `feedback`; each lighting
+preset's `deviceId`, `command` and `params`; a shade's `deviceId`; and any
+Control4 id in a rule or scene (today the `c4_variable` trigger and
+condition) with its variable, compared as a set over the whole
+configuration. Everything else stays remote-editable, among it names,
+layout, scenes, rules, schedules, groups, volume limits and presets, staff
+profiles, channel labels, favourites, a source's `controls`, `tuneEnter`
+and `kind`, a shade's open and closed levels, and a condition's comparison
+and value (the module's header and `RemoteScope.NOT_MAPPING` give the
+reasons). Entities are compared by id: reordering and defaults are not
+changes; a removed entity is allowed; an added one must be unmapped (no
+room, device or command, default strategies). A `save_draft` is compared
+with the stored draft (it may hold the installer's unpublished mapping),
+else with what is published.
+
+The refusal is `VF_ONSITE_ONLY` with a detail of at most 380 bytes that
+names what differs, for example "Remote Management cannot change device
+mapping or device commands: Display 'TV 03' room; Lighting preset 'Game
+Day' command. Change these on site in Installer Studio." (a publish says
+"cannot put ... live" and "Publish these on site", a rollback "cannot roll
+back ..." and "Roll back on site"). Names over 32 bytes are shortened, and
+items that do not fit are counted ("and 3 more"). The Agent receives a
+`Failed` operation whose detail is `VF_ONSITE_ONLY: ` and that text;
+diagnostics log the refusal with up to ten short items.
 
 The snapshot document is
 `{ kind: "venueflow.config", format: 2, encoding: "base64-groups", bytes, parts: [text, ...] }`.
@@ -312,7 +349,9 @@ sends back gets them re-attached by the driver.
 editors from: `venueTypes`, `interfaces`, `sourceKinds`, `displayKinds`,
 `routeStrategies`, `powerStrategies`, `roles`, `variableTypes`,
 `permissionFlags`, `limits`, `requestBytes`, `imageBytes`, `roomButtonsMax`,
-`stepTypes`, `conditionOps`, `triggerTypes`, `comparators`,
+`sourceControl` (`groups`, `defaults`, `favoritesMax`, `favoriteNameMax`,
+`channelMax`), `stepTypes` (it includes `tune`, the "Tune a channel" step),
+`conditionOps`, `triggerTypes`, `comparators`,
 `maxWaitSeconds`, `sceneTemplates`, `profileTemplates`, `errorCodes`,
 `diagCategories`.
 
@@ -335,6 +374,7 @@ HTTP status used only for transport-level failures.
 | `VF_STUDIO_DISABLED` | Installer Studio is off until an Installer Passcode is set. |
 | `VF_CONFIRM_REQUIRED` | Please confirm this action. |
 | `VF_LICENSE_RESTRICTED` | This feature needs a SmartBuildOS licence. |
+| `VF_ONSITE_ONLY` | That can only be changed on site. (Remote Management: device mapping and device commands.) |
 | `VF_NO_PUBLISHED_CONFIG` | This venue has not been set up yet. |
 | `VF_VALIDATION_FAILED` | The configuration has problems to fix first. |
 | `VF_STALE_DRAFT` | Someone else changed the draft. Reload and try again. |

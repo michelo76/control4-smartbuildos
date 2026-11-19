@@ -198,6 +198,16 @@ Before relying on a scene:
 3. **Execute test**: runs it for real and shows each step and each device as
    they finish. A step is done only when its devices confirm.
 
+**Tune a channel** (under Displays in Add step) puts a source's box on a
+favourite or a channel number. Only switched-on sources with the number
+keypad are offered (section 12). The step is "sent", never confirmed, and
+the scene does not wait for the last digit: if a later step needs the
+channel, put a Wait before it. If you remove a favourite that a step uses,
+the Studio names the scene, schedule or rule and the venue cannot be
+published until the step is changed. Staff who may run the scene do not
+need "Use source controls". Like the source controls, it has never been
+seen to move a real box.
+
 **Visual Programming** holds the rules: a trigger (a schedule, a scene
 running, the venue opening or closing, a display or zone changing, a Control4
 variable, a Control4 event sent from Composer), an optional condition, and
@@ -322,11 +332,32 @@ What to know before switching it on:
 - A remote draft must name the revision it was made from, and a remote
   publish the revision that was reviewed; work done on site is never
   overwritten silently.
-- A remote draft can replace the whole configuration, device mapping and
-  device commands included (a display's custom route command, a lighting
-  preset's command); with **Draft and publish** it can also be put live
-  with nobody on site. Choose that only where the dealer's platform account
-  is trusted as much as the Installer Passcode (SECURITY_REVIEW.md).
+- **Device mapping is yours, on site.** Which Control4 room or device a
+  display, source, audio zone, lighting preset or shade addresses, a
+  display's power, feedback and route (its custom route command included),
+  a lighting preset's command, and the device and variable of a rule's
+  Control4-variable trigger or condition: only you change these, in
+  Installer Studio. A remote draft that would change any of them is refused
+  as a whole ("Remote Management cannot change device mapping or device
+  commands: Display 'TV 03' room. Change these on site in Installer
+  Studio."), and nothing is stored. A display or source added remotely
+  arrives unmapped, for you to map on site; one removed remotely is simply
+  gone.
+- **Making a mapping live is yours too.** A remote publish is refused while
+  the draft's mapping differs from what is live, even when you put that
+  change in the draft yourself; a remote rollback is refused when the older
+  version had another mapping. So while a mapping change of yours sits
+  unpublished in the draft, the dealer can save other edits on top of it
+  but cannot publish: publish it on site first.
+- **What the dealer can still change remotely:** names, the layout,
+  scenes, rules and schedules (including "Tune a channel" steps), groups,
+  volume limits and presets, staff profiles, channel labels, favourites, a
+  source's control groups, shade open and closed levels. With **Draft and
+  publish** that can go live with nobody on site, and a scene or schedule
+  written remotely can route any mapped source to any mapped display and
+  tune any mapped box. Choose it only where you trust the dealer's platform
+  account to run the venue's equipment as you mapped it
+  (SECURITY_REVIEW.md).
 - A refresh from the platform (`refresh_status`) asks the driver for a
   one-line summary (what runs, the mode, the venue status, the alerts, the
   draft) and the published version the controller runs.
@@ -356,6 +387,11 @@ with the last two. Switch on only what the device really has.
   says how many screens are showing the source.
 - Nothing comes back from a box. VenueFlow shows a press as sent; it does not
   know the channel.
+- Scenes, rules and schedules can tune a box too, with the **Tune a
+  channel** step (section 5). If a run that was dialling a number is
+  stopped, the rest of the number is not sent, and the next number for that
+  box waits 3 seconds so the box can drop the unfinished digits. That pause
+  is an assumption about boxes, not seen on one: check it on site.
 
 **Test this on site in Live mode before you rely on it** (HARDWARE_VALIDATION.md).
 It has only been run against the simulator. If a favourite drops a digit on

@@ -92,8 +92,9 @@ See DATA_MODEL.md for every field. In short:
   condition and a "confirm first" flag.
 - A **rule** is a trigger, an optional condition, and a program.
 - A **program** is an ordered list of steps from a fixed vocabulary (power
-  displays, route video, route audio, volume, mute, zone off, lighting preset,
-  shade, wait, run scene, set variable, mark venue, notify, IF/ELSE).
+  displays, route video, tune a channel, route audio, volume, mute, zone off,
+  lighting preset, shade, wait, run scene, set variable, mark venue, notify,
+  IF/ELSE).
 - Nothing an installer types is executed as code. An unknown step or
   condition is refused at validation and skipped by the runner.
 
@@ -105,7 +106,9 @@ Guarantees worth knowing when you design scenes:
 | Confirmation | A step is "ok" only when its devices confirmed (or cannot give feedback). One display that does not confirm makes the step and the run "partial", and names the display |
 | Waits | 1 to 600 seconds. A wait holds one timer, not a busy loop |
 | Nesting | IF inside IF four deep; a scene may run another scene four deep; a scene that would run itself is refused at publish and stopped at run time |
-| Overlap | A run that changes a device another running program also changes stops that older run, logs it and raises an alert. A rule started by a scene's own step does not stop that scene |
+| Overlap | A run that changes a device another running program also changes stops that older run, logs it and raises an alert. A rule started by a scene's own step does not stop that scene. A "Tune a channel" step changes its source: two runs tuning one source stop the older one; a run that only routes the source is not stopped |
+| Tune a channel | Dials a favourite or a number on a source's box through the source controls' closed key list, to the source's own device, about 350 ms between keys. The step is "sent", never confirmed (a box gives no feedback), and the program does not wait for the last key: add a Wait if the next step needs the channel. Steps run with system access, so staff need permission to run the scene, not "Use source controls". Never seen on a real box |
+| Stop | Stopping a run (Stop, All Off, a newer run that changes the same devices or source) stops its queued commands and the rest of a channel number it was dialling, and Diagnostics say so. A publish lets a number finish, as for one typed by hand. After a number is cut off, the next number for that box waits 3 seconds so the box can drop the unfinished digits (an assumption, never seen on a box); meanwhile the keys queued behind it wait too |
 | Conditions | A fact that cannot be read is false |
 | Dry run | Validates and plans against the published configuration; sends nothing |
 | Schedules | Controller local time; once per day and time; see the Scheduling section in the Studio for the daylight-saving rules |

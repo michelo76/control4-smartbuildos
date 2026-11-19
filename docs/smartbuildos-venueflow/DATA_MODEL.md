@@ -55,6 +55,15 @@ scenes, 96 rules, 48 variables, 24 profiles, 48 stations, 200 labels, 64 scene
 buttons,
 names up to 80 characters.
 
+**Device mapping** is the part of a configuration that says which Control4
+room or device something addresses and which command it sends: a display's
+`c4RoomId`, `c4DeviceId`, `power`, `feedback` and `route`; a source's
+`c4DeviceId`; an audio zone's `c4RoomId` and `feedback`; a lighting
+preset's `deviceId`, `command` and `params`; a shade's `deviceId`; and the
+device and variable of a `c4_variable` trigger or condition. It is set on
+site: Remote Management may not change it or put a change to it live
+(`src/venueflow/remotescope.lua`; PROTOCOL.md, "Remote commands").
+
 ### Floor
 
 ```jsonc
@@ -248,6 +257,7 @@ A fact that cannot be read makes a condition **false**.
 | --- | --- |
 | `display_power` | `target`, `power` on or off |
 | `route_video` | `sourceId`, `target` |
+| `tune` | `sourceId`, and `favoriteId` (a favourite of that source) or `channel` (digits with at most one dash or dot, up to 8 characters); never both |
 | `route_audio` | `zoneId`, `sourceId` |
 | `volume` | `zoneId`, `level` |
 | `mute` | `zoneId`, `muted` |
@@ -266,6 +276,19 @@ A fact that cannot be read makes a condition **false**.
 
 Limits: 60 steps per program, IF nested 4 deep, scenes nested 4 deep, a scene
 that ends up running itself is refused (`SCENE_CYCLE`).
+
+A `tune` step ("Tune a channel") is checked at every save and publish: its
+source must exist, be switched on and have the `keypad` control group; a
+`favoriteId` must still be one of that source's favourites (removing a
+favourite a step uses makes the step an error, naming the scene, schedule
+or rule, and blocks the publish); a `channel` must be valid; naming both is
+an error, naming neither a warning ("Channel is not chosen yet"). It dials
+through the source controls' closed key list to the source's own
+`c4DeviceId` (PROTOCOL.md, "Source control commands"), ends "sent", never
+confirmed, and the program does not wait for the last key. For overlap
+protection a `tune` step changes its source (`s:<sourceId>`): two runs that
+tune one source stop the older; a run that only routes the source is not
+stopped.
 
 ### Variable
 
