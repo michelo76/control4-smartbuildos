@@ -360,6 +360,11 @@ do
   check("heartbeat module_protocol 1..2", hb.data.module_protocol.min == 1 and hb.data.module_protocol.max == 2)
   check("capabilities advertise modules_v1 AND modules_v2", caps.modules_v1 and caps.modules_v2)
   check("module_bus block on the heartbeat", type(hb.data.module_bus) == "table" and hb.data.module_bus.requests == 0)
+  check(
+    "the Agent's AI Core property: Not installed (no ai_core registered)",
+    Properties["AI Core"] == "Not installed",
+    Properties["AI Core"]
+  )
 end
 
 print("[2] registration matrix + tokens")
@@ -880,6 +885,71 @@ do
   end
   check("heartbeat module row carries verified", pinRow and pinRow.verified == true)
   C4.GetDevicesByC4iName = nil
+end
+
+print("[13] the Agent's own AI Core property, from its registry (ruling 20)")
+do
+  local REPORT_MANIFEST = JSON:encode({
+    driver = "sbos.ai_core",
+    capabilities = { { id = "ai_core.report", version = 1, kind = "request" } },
+  })
+  local before = #sent
+  local r = register(AI_ID, "ai_core", { driver_version = "20261118.5", manifest = REPORT_MANIFEST })
+  check("ai_core registered with ai_core.report v1", r.ok == "true")
+  check(
+    "live ai_core -> Installed — this driver does not report (the Agent never says reporting)",
+    Properties["AI Core"] == "Installed — this driver does not report",
+    Properties["AI Core"]
+  )
+  EC.SBOS_MODULE_STATUS(auth(AI_ID, "ai_core", r.token, { status = "unlicensed" }))
+  check(
+    "its status unlicensed -> Found — not licensed (v20261118.5)",
+    Properties["AI Core"] == "Found — not licensed (v20261118.5)",
+    Properties["AI Core"]
+  )
+  EC.SBOS_MODULE_STATUS(auth(AI_ID, "ai_core", r.token, { status = "running" }))
+  check(
+    "licensed again -> does not report",
+    Properties["AI Core"] == "Installed — this driver does not report",
+    Properties["AI Core"]
+  )
+  r = register(
+    AI_ID,
+    "ai_core",
+    { driver_version = "20261118.6", manifest = '{"driver":"sbos.ai_core","capabilities":[]}' }
+  )
+  check(
+    "re-registered without ai_core.report -> Found — AI Core update required (v20261118.6)",
+    Properties["AI Core"] == "Found — AI Core update required (v20261118.6)",
+    Properties["AI Core"]
+  )
+  r = register(AI_ID, "ai_core", { driver_version = "20261118.7", manifest = REPORT_MANIFEST })
+  advance(16 * 60 * 1000)
+  check(
+    "no frame for 16 min -> stale -> Found — not responding",
+    Properties["AI Core"] == "Found — not responding",
+    Properties["AI Core"]
+  )
+  r = register(AI_ID, "ai_core", { driver_version = "20261118.7", manifest = REPORT_MANIFEST })
+  check(
+    "it registers again -> does not report",
+    Properties["AI Core"] == "Installed — this driver does not report",
+    Properties["AI Core"]
+  )
+  EC.SBOS_MODULE_UNREGISTER(auth(AI_ID, "ai_core", r.token))
+  check("unregistered -> Not installed", Properties["AI Core"] == "Not installed", Properties["AI Core"])
+  local toAi = 0
+  for i = before + 1, #sent do
+    if
+      sent[i].device == AI_ID
+      and sent[i].command ~= "SBOS_MODULE_REGISTERED"
+      and sent[i].command ~= "SBOS_MODULE_DIRECTORY_CHANGED"
+    then
+      toAi = toAi + 1
+    end
+  end
+  check("the property costs no frame of its own", toAi == 0, toAi)
+  check("only closed values", require("sbos.aivalues").isValue(Properties["AI Core"]))
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

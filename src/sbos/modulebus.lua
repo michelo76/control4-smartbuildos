@@ -95,6 +95,9 @@ end
 ---   setTimer   fun(id, ms, fn, repeating), cancelTimer fun(id),
 ---   agent      fun():table { version, paired:boolean, connected:boolean },
 ---   policy     optional { REQUEST_POLICY, TOPIC_POLICY, CLOUD_OPS } (tests),
+---   onDirectoryChanged optional fun(): called (protected) at once on every
+---              directory change (register, remove, stale transition), before
+---              the debounced push; the Agent repaints its AI Core property.
 --- }
 function M.new(opts)
   local self = setmetatable({}, Bus)
@@ -107,6 +110,7 @@ function M.new(opts)
   self.agentInfo = opts.agent or function()
     return {}
   end
+  self.onDirectoryChangedHook = opts.onDirectoryChanged
   local policy = opts.policy or {}
   self.requestPolicy = policy.REQUEST_POLICY or Policy.REQUEST_POLICY
   self.topicPolicy = policy.TOPIC_POLICY or Policy.TOPIC_POLICY
@@ -290,6 +294,9 @@ end
 --- Debounced push of SBOS_MODULE_DIRECTORY_CHANGED to every live v2 module.
 function Bus:directoryChanged()
   self.directoryVersion = self.directoryVersion + 1
+  if type(self.onDirectoryChangedHook) == "function" then
+    pcall(self.onDirectoryChangedHook)
+  end
   if self.directoryArmed then
     return
   end

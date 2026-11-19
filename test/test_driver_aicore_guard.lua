@@ -57,7 +57,6 @@ local CHILD_BASES = {
 --- EMPTY when the brief is done; an entry that is already wired fails.
 local PENDING = {
   ["smartbuildos-venueflow"] = true,
-  ["smartbuildos"] = true,
 }
 for file in pairs(aipresence.CHILDREN) do
   PENDING[(file:gsub("%.c4z$", ""))] = true

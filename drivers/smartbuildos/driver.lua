@@ -91,6 +91,9 @@ Envelope = require("sbos.envelope")
 -- Module contract v2 (discovery, pub/sub, request/response, cloud relay):
 -- docs/protocol/MODULE-CONTRACT-V2.md. Global for the same reason.
 ModuleBus = require("sbos.modulebus")
+-- The Agent's own "AI Core" property, painted from this registry (ruling 20).
+-- Global for the same reason.
+AgentAiCore = require("sbos.agentaicore")
 SlProtocol = require("systemlink.protocol")
 -- Send Push Notification: the message variables are the Notification
 -- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
@@ -3877,7 +3880,12 @@ function ModulesInit()
     agent = function()
       return { version = tostring(AgentVersion() or ""), paired = isPaired(), connected = gConnected == true }
     end,
+    -- Register, remove and stale transitions repaint the AI Core property.
+    onDirectoryChanged = function()
+      AgentAiCore.refresh(gModules)
+    end,
   })
+  AgentAiCore.refresh(gModules)
   log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
 end
 
@@ -4168,6 +4176,8 @@ function EC.SBOS_MODULE_STATUS(tParams)
     counters = counters,
   })
   ModulesPersist()
+  -- AI Core's own status (e.g. unlicensed) changes no directory row.
+  AgentAiCore.refresh(gModules)
 end
 
 function EC.SBOS_MODULE_UNREGISTER(tParams)
