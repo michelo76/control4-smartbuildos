@@ -2072,7 +2072,7 @@ function H.DRAFT_DISCARD(core, p, ctx)
   return { ok = true, status = "ok", data = { draft = core:_draftData() } }
 end
 
-function H.TEMPLATE_APPLY(core, p)
+function H.TEMPLATE_APPLY(core, p, ctx)
   if not U.contains(Schema.VENUE_TYPES, p.venueType) then
     return fail("VF_INVALID_PAYLOAD", "unknown venue type")
   end
@@ -2098,7 +2098,10 @@ function H.TEMPLATE_APPLY(core, p)
   else
     config = Templates.venue(p.venueType, p.name)
   end
-  local revision, why, detail = core.store:saveDraft(config, nil, { force = true })
+  -- Installer scope only (protocol.lua; not a Remote Management command), so
+  -- the saver is the installer: a template or sample is installer work even
+  -- where it only touches what a client could also change.
+  local revision, why, detail = core.store:saveDraft(config, nil, { force = true, by = ctx.who or "installer" })
   if revision == nil then
     return fail(why == "invalid" and "VF_VALIDATION_FAILED" or "VF_STORAGE_FAILED", detail)
   end
@@ -2106,13 +2109,20 @@ function H.TEMPLATE_APPLY(core, p)
   return { ok = true, status = "ok", data = { draft = core:_draftData() } }
 end
 
-function H.PROFILE_PIN_SET(core, p)
+function H.PROFILE_PIN_SET(core, p, ctx)
   local draft = core.store:draft()
   if draft == nil then
     return fail("VF_NOT_FOUND", "there is no draft")
   end
-  -- (A client may set any staff PIN: PINs are not in the installer-owned
-  -- part of the configuration. See clientscope.lua.)
+  -- A client may set any staff PIN except on a profile a screen opens with
+  -- (the default profile, a station's profile): those whole records are the
+  -- installer's (clientscope.lua), and a PIN there would lock every tile or
+  -- station out. Refused here and now, as DRAFT_SAVE refuses it, rather than
+  -- accepted into the draft and refused later at publish. Setting and
+  -- clearing are both refused, whether or not the profile has a PIN.
+  if not ctx.installer and ClientScope.screenProfileIds(draft.config)[tostring(p.profileId)] then
+    return clientRefusal("the profile a screen or station opens with")
+  end
   local profile
   for _, candidate in ipairs(draft.config.profiles) do
     if candidate.id == p.profileId then
@@ -2131,7 +2141,10 @@ function H.PROFILE_PIN_SET(core, p)
     profile.pinSalt = core.auth:newSalt()
     profile.pinHash = core.auth:hashPin(p.pin, profile.pinSalt)
   end
-  local revision, why, detail = core.store:saveDraft(draft.config, p.baseRevision, { force = p.baseRevision == nil })
+  -- Attributed like DRAFT_SAVE: a client's PIN keeps the draft the client's;
+  -- the installer's makes it the installer's unfinished work (S2).
+  local revision, why, detail =
+    core.store:saveDraft(draft.config, p.baseRevision, { force = p.baseRevision == nil, by = ctx.who })
   if revision == nil then
     return fail(why == "stale" and "VF_STALE_DRAFT" or "VF_STORAGE_FAILED", detail)
   end

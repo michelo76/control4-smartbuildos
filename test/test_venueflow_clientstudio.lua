@@ -406,13 +406,11 @@ do
   eq("...and publish it", e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).ok, true)
   eq("the tile still may not run All Off", e.send("ALL_OFF", { confirm = true }, TILE).errorCode, "VF_FORBIDDEN")
   eq("nor may the station", e.send("ALL_OFF", { confirm = true }, STATION).errorCode, "VF_FORBIDDEN")
-  -- A PIN on the default profile (PROFILE_PIN_SET) reaches the draft, but
-  -- the draft then differs in an installer-owned part: a client cannot
-  -- publish it, so every tile keeps working.
+  -- A PIN on the default profile (PROFILE_PIN_SET) is refused to a client
+  -- (more below), so every tile keeps working.
   local dr = e.send("DRAFT_GET", {}, mgr).data.draft.revision
-  e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "9999", baseRevision = dr }, mgr)
-  local pinPub = e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr)
-  eq("a PIN on the default profile cannot be published by a client", pinPub.errorCode, "VF_FORBIDDEN")
+  local pinSet = e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "9999", baseRevision = dr }, mgr)
+  eq("a client cannot put a PIN on the default profile", pinSet.errorCode, "VF_FORBIDDEN")
   eq("...and tiles still open without one", e.send("HELLO", {}, TILE).data.profile.id, "bartender")
   -- The installer still may change them.
   local d = e.send("DRAFT_GET", {}, inst).data.draft
@@ -550,6 +548,95 @@ do
   )
   local after = e.send("DRAFT_GET", {}, mgr).data.draft.revision
   eq("so does a discard naming it", e.send("DRAFT_DISCARD", { confirm = true, baseRevision = after }, mgr).ok, true)
+end
+
+-- ── PINs, templates and whose work is in the draft ─────────────────────────
+print("PINs and templates: refused or attributed")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local d = e.send("DRAFT_GET", {}, inst).data.draft
+  local c = copy(d.config)
+  c.stations = { { id = "host-stand", name = "Host station", address = "10.0.0.31", profileId = "host" } }
+  eq(
+    "the installer adds a station that opens as the host",
+    e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, inst).ok,
+    true
+  )
+  eq("...and publishes", e.send("PUBLISH", { acknowledged = acks(e, inst.session) }, inst).ok, true)
+  local mgr = { session = e.login("manager", "2580") }
+  local function rev()
+    return e.send("DRAFT_GET", {}, mgr).data.draft.revision
+  end
+  local function pinOf(id)
+    for _, p in ipairs(e.core.store:draft().config.profiles) do
+      if p.id == id then
+        return p.pinHash
+      end
+    end
+  end
+  for _, case in ipairs({
+    { "a client's PIN on the default profile", "bartender", "9999" },
+    { "a client's PIN on a station's profile", "host", "9999" },
+    { "a client clearing the default profile's PIN", "bartender", "" },
+    { "a client clearing a station profile's PIN", "host", "" },
+  }) do
+    local before = rev()
+    local r = e.send("PROFILE_PIN_SET", { profileId = case[2], pin = case[3], baseRevision = before }, mgr)
+    eq(case[1] .. ": refused there and then", r.errorCode, "VF_FORBIDDEN")
+    eq(case[1] .. ": as installer-only", r.data and r.data.installerOnly, "the profile a screen or station opens with")
+    eq(case[1] .. ": the draft is untouched", rev(), before)
+  end
+  eq("...no PIN reached the default profile", pinOf("bartender"), nil)
+  eq("...nor the station's", pinOf("host"), nil)
+
+  -- A client's PIN on an ordinary staff profile is the client's work.
+  local own = e.send("PROFILE_PIN_SET", { profileId = "manager", pin = "2468", baseRevision = rev() }, mgr)
+  eq("a client sets a PIN on an ordinary staff profile", own.ok, true)
+  eq("...the draft records the client", e.core.store:draft().savedBy[1], "profile:manager")
+  eq("...and the client may still publish", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, true)
+  eq("...and does", e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).ok, true)
+  mgr = { session = e.login("manager", "2468") }
+  check("the new PIN signs in", mgr.session ~= nil)
+
+  -- The installer's PIN is the installer's work, wherever it is set.
+  local ip = e.send("PROFILE_PIN_SET", { profileId = "manager", pin = "1357", baseRevision = rev() }, inst)
+  eq("the installer sets a staff PIN", ip.ok, true)
+  local st = e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client
+  eq("...the client may not publish it", st.canPublish, false)
+  eq(
+    "...a client's publish is refused",
+    e.send("PUBLISH", { acknowledged = acks(e, mgr.session) }, mgr).errorCode,
+    "VF_FORBIDDEN"
+  )
+  eq("...and so is a client's discard", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
+  eq(
+    "the installer may set the default profile's PIN",
+    e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "8642", baseRevision = rev() }, inst).ok,
+    true
+  )
+  eq(
+    "...and clear it",
+    e.send("PROFILE_PIN_SET", { profileId = "bartender", pin = "", baseRevision = rev() }, inst).ok,
+    true
+  )
+  eq("the installer discards", e.send("DRAFT_DISCARD", { confirm = true }, inst).ok, true)
+end
+do
+  -- A template or sample applied by the installer is installer work, even
+  -- when it changes nothing an installer-owned comparison would see (the
+  -- published sample, applied again: only the staff PIN salts differ).
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  eq(
+    "the installer re-applies the published sample",
+    e.send("TEMPLATE_APPLY", { venueType = "sports_bar", sample = true, confirm = true }, inst).ok,
+    true
+  )
+  eq("...the draft records the installer", e.core.store:draft().savedBy[1], "installer")
+  eq("...a client may not publish it", e.send("STUDIO_BOOTSTRAP", {}, mgr).data.client.canPublish, false)
+  eq("...nor discard it", e.send("DRAFT_DISCARD", { confirm = true }, mgr).errorCode, "VF_FORBIDDEN")
 end
 
 -- ── the schema ──────────────────────────────────────────────────────────────

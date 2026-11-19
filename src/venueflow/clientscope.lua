@@ -51,6 +51,24 @@ function M.holds(profile)
   return type(profile) == "table" and type(profile.permissions) == "table" and profile.permissions.studio == true
 end
 
+--- id -> true for every profile a screen opens with without a PIN: the
+--- default profile and each station's profile. Installer-owned for a client.
+function M.screenProfileIds(config)
+  local out = {}
+  if type(config) ~= "table" then
+    return out
+  end
+  if config.defaultProfileId ~= nil then
+    out[tostring(config.defaultProfileId)] = true
+  end
+  for _, station in ipairs(U.list(config.stations)) do
+    if type(station) == "table" and station.profileId ~= nil then
+      out[tostring(station.profileId)] = true
+    end
+  end
+  return out
+end
+
 --- The installer-owned part of a configuration (a copy; `config` is untouched).
 function M.locked(config)
   local c = U.copy(type(config) == "table" and config or {})
@@ -75,17 +93,9 @@ function M.locked(config)
   -- whole records (see the header). Kept by id, so a profile's position in
   -- the list does not matter; a missing one compares as missing.
   local opened, ids = {}, {}
-  local function open(id)
-    if id ~= nil and opened[tostring(id)] == nil then
-      opened[tostring(id)] = false
-      ids[#ids + 1] = tostring(id)
-    end
-  end
-  open(c.defaultProfileId)
-  for _, station in ipairs(U.list(c.stations)) do
-    if type(station) == "table" then
-      open(station.profileId)
-    end
+  for id in pairs(M.screenProfileIds(c)) do
+    opened[id] = false
+    ids[#ids + 1] = id
   end
   for _, profile in ipairs(U.list(c.profiles)) do
     if type(profile) == "table" and opened[tostring(profile.id)] == false then
