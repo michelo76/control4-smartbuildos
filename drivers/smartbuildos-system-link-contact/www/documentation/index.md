@@ -108,6 +108,10 @@ longer confirmed: the link is not synchronised, or the owner has not confirmed
 the value for 15 minutes, for example because its controller is off. *Remote
 Value Current* is the all-clear.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the System Link driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - While **Freshness** is not `current`, the bound driver and *Remote Contact Is

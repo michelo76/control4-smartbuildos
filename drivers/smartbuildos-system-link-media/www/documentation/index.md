@@ -114,6 +114,10 @@ On a keypad button here, send a notification or an on-screen message built from
 the `Source` and `Media` variables, with `Volume` if you want it. Check
 `Powered` first: when the room is off, `Source` and `Media` may be empty.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the System Link driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - Watch only. No control of the far room exists in this release.

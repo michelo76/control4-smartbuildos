@@ -16,6 +16,8 @@
 local log = require("lib.logging")
 local companion = require("systemlink.companion")
 local persist = require("lib.persist")
+-- The companion's AI Core property (ruling 20): passive, no frame of any kind.
+local aipresence = require("sbos.aipresence")
 
 local M = {}
 
@@ -160,6 +162,7 @@ function M.install(opts)
     kind = opts.kind,
     onExports = paintList,
     onState = function(fields, fresh, meta)
+      aipresence.recheck() -- the bridge's state pushes: the bounded KI-42 re-check
       state.lastFields = fields
       UpdateProperty("Freshness", fresh)
       UpdateProperty("Remote System State", tostring(meta.remote_state or "Offline"))
@@ -298,10 +301,12 @@ function M.install(opts)
     end
     companion.hello()
     companion.armRetry()
+    aipresence.start()
   end
 
   function OnDriverDestroyed()
     companion.cancelRetry()
+    aipresence.stop()
   end
 end
 

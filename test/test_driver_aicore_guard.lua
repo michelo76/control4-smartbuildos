@@ -59,17 +59,6 @@ local PENDING = {
   ["smartbuildos-venueflow"] = true,
   ["smartbuildos-insights"] = true,
   ["smartbuildos-mode-button"] = true,
-  ["smartbuildos-system-link-contact"] = true,
-  ["smartbuildos-system-link-export-light"] = true,
-  ["smartbuildos-system-link-fan"] = true,
-  ["smartbuildos-system-link-gate"] = true,
-  ["smartbuildos-system-link-light"] = true,
-  ["smartbuildos-system-link-lock"] = true,
-  ["smartbuildos-system-link-media"] = true,
-  ["smartbuildos-system-link-relay"] = true,
-  ["smartbuildos-system-link-shade"] = true,
-  ["smartbuildos-system-link-temperature"] = true,
-  ["smartbuildos-system-link-thermostat"] = true,
 }
 
 local XML =

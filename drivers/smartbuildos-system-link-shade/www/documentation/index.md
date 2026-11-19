@@ -120,6 +120,10 @@ Put the command inside *Remote Value Is Current*. When the value is not current
 the position shown here may be old, and a toggle would be decided on that old
 position.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the System Link driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - The shade shows confirmed position only. If the owner's shade does not report

@@ -127,6 +127,10 @@ Put any programming that reads this thermostat's temperature inside *Remote
 Value Is Current*. When the value is not current, the thermostat here keeps
 showing the last numbers it was told; this driver does not report it as lost.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the System Link driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - The thermostat shows confirmed values only. If the owner's thermostat does not

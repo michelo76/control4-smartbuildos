@@ -119,6 +119,10 @@ here is delivered. An open or close is turned down, **Last Result** reads
 `failed: operation open is not permitted on this export`, and *Control Refused*
 fires.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the System Link driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - The state is confirmed state only. Until the first report arrives after a
