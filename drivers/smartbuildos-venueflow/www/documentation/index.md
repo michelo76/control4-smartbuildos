@@ -186,10 +186,24 @@ In Installer Studio, a scene reads as **WHEN / IF / DO**:
   Sports 2 to TVs 07 to 12; play Sports 1 in the Bar zone; set the Bar zone to
   65%; lighting preset Game Day; send a notification.
 
-Steps come from a fixed list: power displays, route video, route audio, set
-volume, mute, turn a zone off, lighting preset, shade, wait, IF / ELSE, run
-another scene, set a variable, mark the venue open or closed, send a
+Steps come from a fixed list: power displays, route video, tune a channel, route
+audio, set volume, mute, turn a zone off, lighting preset, shade, wait, IF /
+ELSE, run another scene, set a variable, mark the venue open or closed, send a
 notification. Nothing you type is run as code.
+
+**Tune a channel** (under Displays in Add step) puts a source's box on one of
+its favourite channels or on a number you type. Only switched-on sources with
+the number keypad are offered. The keys go to the source's own Control4 device,
+the step shows as sent (a box gives no feedback), and the scene does not wait
+for the last digit: put a Wait before a step that needs the channel. Staff need
+permission to run the scene, not "Use source controls". If a favourite that a
+step uses is removed, the Studio names the scene, schedule or rule and the venue
+cannot be published until the step is changed. Stopping the scene stops the rest
+of the number; after a number is cut off, or on a box that dials without Enter,
+the next number for that box waits about 3 seconds so the digits do not run
+together (an assumption, not seen on a box). Not yet seen to move a real box.
+
+![A "Tune a channel" step added to the Game Day scene for this picture, set to a favourite channel (simulator, sample sports bar)](images/studio-tune-step.jpg)
 
 **Dry run** shows what a scene would do and sends nothing. **Execute test** runs
 it for real and shows each step and each device. A scene marked "ask first"
@@ -223,7 +237,8 @@ source starts with channel keys and a keypad) and give staff the permission
 **Use source controls**. Staff then get a remote button beside the source. The
 keys go to the Control4 device the source is mapped to. Nothing comes back from
 a box, so a press is shown as sent, and a key changes every screen showing that
-source. Only run against the simulator so far: test it on site in Live mode.
+source. Scenes, rules and schedules can do the same with the **Tune a channel**
+step. Only run against the simulator so far: test it on site in Live mode.
 
 ### The Venue Studio
 
@@ -362,13 +377,37 @@ only (read the configuration and fill the draft; someone on site publishes), or
 Draft and publish (also publish a reviewed draft and roll back). It never routes
 video, changes a volume, runs a scene or sets a PIN.
 
+**Device mapping stays on site.** Which Control4 room or device a display,
+source, audio zone, lighting preset or shade addresses, a display's power,
+feedback and route (its custom route command included), a lighting preset's
+command, and the device of a rule's Control4-variable trigger or condition are
+set by the installer in Installer Studio. Remote Management refuses a draft that
+would change them, with "Remote Management cannot change device mapping or
+device commands: ... Change these on site in Installer Studio.", and stores
+nothing. It also refuses to publish while the draft's mapping differs from what
+is live (even a change the installer made on site and has not published), and to
+roll back to a version with another mapping. A display or source added remotely
+arrives unmapped. Everything else (names, layout, scenes, rules, schedules,
+groups, volume limits and presets, staff profiles, channel labels, favourites, a
+source's control groups) the dealer can still change remotely, and with "Draft
+and publish" put live: a scene written remotely can route any mapped source to
+any mapped display and tune any mapped box.
+
 The smartbuildos.io side exists: in the dealer's System Studio, Drivers &
 Licenses, VenueFlow. The two sides have never been run together with a
 controller, so treat Remote Management as untested and keep it Off on a venue
 that relies on VenueFlow until the bench run in the hardware validation list has
-passed. A remote draft can replace the whole configuration, device mapping and
-device commands included, and with "Draft and publish" the platform can put it
-live with nobody on site.
+passed.
+
+## What changed on 19 November 2026
+
+Run only against the simulator and the test shim, not on a controller.
+
+- Scenes, rules and schedules can **tune a channel** (see Scenes, rules and
+  schedules).
+- Remote Management can no longer change device mapping or device commands, nor
+  put a mapping change live (see Remote Management).
+- A shade's open and closed levels must be numbers from 0 to 100.
 
 ## What changed on 18 November 2026
 

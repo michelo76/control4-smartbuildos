@@ -259,6 +259,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
   `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 
+- **VenueFlow: device mapping is on site only; a "Tune a channel" step** (19
+  November 2026; simulator and test shim only, not run on a controller). Owner
+  decisions. Remote Management refuses, whole and with the new code
+  `VF_ONSITE_ONLY`, a remote draft that would change which Control4 room or
+  device something addresses or which command a custom route or a lighting
+  preset sends, a remote publish while the draft's mapping differs from what is
+  live, and a remote rollback to a version with another mapping; the detail
+  names what was touched (at most 380 bytes) and nothing is stored. Everything
+  else stays remote-editable. smartbuildos.io has not been changed to match.
+  Scenes, rules and schedules gain a "Tune a channel" step (a favourite or a
+  number, to the source's own device through the closed key list; sent, never
+  confirmed; stopped with its run; after a cut-off number the next number for
+  that box waits about 3 s, an assumption never seen on a box; other boxes are
+  not held up). A shade's open and closed levels must be 0 to 100.
+
 - **VenueFlow pages: small screens, stale drafts, the client's reason** (19
   November 2026; desktop Chromium against the simulator only, not on a T3, a T4
   or a phone). Every operator control was measured reachable at seven screen
