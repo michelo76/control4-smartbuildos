@@ -249,9 +249,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   appears. *Configuration Published* fires on a rollback, the two true-or-false
   conditionals honour the "closed" and "clear" choices, and *Trigger the
   VenueFlow event* under a restricted licence is refused with a reason in Last
-  Error. A save with no draft keeps the staff PINs (the installer and remote
-  paths dropped them). `refresh_status` answers with a one-line summary and the
-  module reports the live version as `config_version`. The Agent lists
+  Error, and a partly run one is reported there too; *Mark the venue* always
+  sets the status and writes Last Error for rules a restricted licence kept from
+  running. Stored alerts are shown on the operator page only to profiles that
+  may see what they concern, and dismissing one updates `ALERT_COUNT` at once. A
+  save with no draft keeps the staff PINs (the installer and remote paths
+  dropped them). `refresh_status` answers with a one-line summary and the module
+  reports the live version as `config_version`. The Agent lists
   `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
   `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 

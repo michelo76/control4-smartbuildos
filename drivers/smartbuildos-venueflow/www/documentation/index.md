@@ -260,7 +260,14 @@ display or zone change that was not confirmed, a display Control4 reports
 offline, a restricted licence, until its cause clears). A muted zone is shown on
 the Manager screen but is not an alert here. **Alert Raised** fires once for
 each stored alert, and once when a detected alert appears; it fires again for
-that alert only after it cleared and came back.
+that alert only after it cleared and came back. Dismissing an alert lowers
+ALERT_COUNT at once.
+
+On the Manager screen a profile sees only the alerts about what it may see: an
+interrupted scene or rule, or a missed schedule, is shown (and may be dismissed)
+only to a profile that may see every display, audio zone and scene it concerns;
+a notification is shown to every profile with View Alerts. The property, the
+variable and the conditional always count every alert of the venue.
 
 **Configuration Published** fires on every publish and on every rollback (a
 rollback makes an older version live again).
@@ -281,7 +288,12 @@ and look at the rule's last run in the Studio.
 A command that is refused (an unknown scene, a condition not met) says why in
 the **Last Error** property. Under a restricted licence, **Trigger the VenueFlow
 event** runs no rule and is refused, for example
-`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`.
+`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`. When some rules
+run and others do not, the command is done and Last Error says so
+(`TRIGGER_EVENT: 1 rule(s) run, 1 not run`). **Mark the venue** always sets the
+status, even under a restricted licence; the rules waiting for that change then
+do not run, and Last Error reads, for example,
+`SET_VENUE_STATUS: status set; 2 rule(s) not run: licence restricted`.
 
 ## Remote Management
 
@@ -315,7 +327,10 @@ For a programmer:
   alerts VenueFlow detects, and *Alert Raised* fires when one appears (see "The
   venue's alerts" above). A muted zone no longer counts.
 - *Trigger the VenueFlow event* under a restricted licence is refused and writes
-  Last Error.
+  Last Error; one that runs only some of its rules says so in Last Error.
+- *Mark the venue* sets the status under a restricted licence and says in Last
+  Error which waiting rules did not run.
+- Dismissing an alert lowers ALERT_COUNT at once.
 
 For the venue's staff:
 
@@ -325,6 +340,13 @@ For the venue's staff:
   remotely, has saved changes that are not yet published or discarded.
 - A favourite channel being dialled finishes even if someone publishes at that
   moment, unless that source's Control4 device or the control mode changed.
+- The Manager screen shows an interrupted scene or a missed schedule only to a
+  profile that may see everything it concerns; notifications still reach every
+  profile with View Alerts.
+- A client's rollback in the Venue Studio signs every staff member out, the
+  client included.
+- A backup the installer restores is the installer's work: the client cannot
+  publish or discard it until the installer does.
 
 ## Licensing
 
