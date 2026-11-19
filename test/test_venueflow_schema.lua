@@ -462,4 +462,148 @@ env.send("PUBLISH", { acknowledged = { r.data.issues[1].id } }, S)
 eq("publishing the deletion sends no command to Control4", env.sim():callCount(), 0)
 check("the venue no longer lists it", env.core.ix.displays["tv-05"] == nil)
 
+-- ── the tune step (a source put on a channel by a scene, rule or schedule) ─
+print("tune step validation")
+do
+  -- Issues raised on the tune step at the end of Game Day, after `mutate`.
+  local function tuneIssues(step, mutate)
+    local c = H.Templates.sportsBar()
+    local steps = c.scenes[2].program.steps
+    assert(c.scenes[2].id == "game-day")
+    steps[#steps + 1] = step
+    if mutate then
+      mutate(c)
+    end
+    local at = string.format("scenes[2].program.steps[%d]", #steps)
+    local out = {}
+    for _, i in ipairs(Schema.validate(Schema.normalize(c))) do
+      if i.path == at or i.path:sub(1, #at + 1) == at .. "." then
+        out[#out + 1] = i
+      end
+    end
+    return out
+  end
+  local function one(list)
+    return #list == 1 and list[1] or { code = "(" .. #list .. " issues)", message = "" }
+  end
+  eq(
+    "a favourite of a source with a keypad is valid",
+    #tuneIssues({ type = "tune", sourceId = "sports-1", favoriteId = "sports-a" }),
+    0
+  )
+  eq("a typed channel is valid", #tuneIssues({ type = "tune", sourceId = "sports-1", channel = "5-1" }), 0)
+  eq("...with a dot too", #tuneIssues({ type = "tune", sourceId = "news", channel = "12.3" }), 0)
+
+  local i = one(tuneIssues({ type = "tune", channel = "206" }))
+  eq("no source: not set up yet", i.code .. "/" .. tostring(i.severity), "STEP_INCOMPLETE/warning")
+  eq("...in words", i.message, "Source is not chosen yet.")
+  i = one(tuneIssues({ type = "tune", sourceId = "ghost", channel = "206" }))
+  eq("an unknown source", i.code .. "/" .. tostring(i.severity), "REF_UNKNOWN/error")
+  eq("...in words", i.message, "Source refers to a source that does not exist.")
+  i = one(tuneIssues({ type = "tune", sourceId = "sports-1", channel = "206" }, function(c)
+    c.sources[1].enabled = false
+  end))
+  eq("a disabled source", i.code .. "/" .. tostring(i.severity), "STEP_INVALID/error")
+  eq(
+    "...in words, naming the scene",
+    i.message,
+    "Scene 'Game Day' tunes Sports 1, which is switched off (not enabled); switch it on or remove the step."
+  )
+  i = one(tuneIssues({ type = "tune", sourceId = "streaming", channel = "206" }))
+  eq(
+    "a source without the number keypad can never be tuned",
+    i.code .. "/" .. tostring(i.severity),
+    "STEP_INVALID/error"
+  )
+  eq(
+    "...in words",
+    i.message,
+    "Scene 'Game Day' tunes Streaming, which has no number keypad, so the step can never dial a channel. "
+      .. "Give the source the number keypad (Sources > Basic controls) or remove the step."
+  )
+  local noPad = tuneIssues({ type = "tune", sourceId = "sports-1", favoriteId = "sports-a" }, function(c)
+    c.sources[1].controls = { "channel" }
+  end)
+  eq("...also when the installer later removes the keypad", one(noPad).code, "STEP_INVALID")
+
+  i = one(tuneIssues({ type = "tune", sourceId = "sports-1", favoriteId = "hbo" }))
+  eq("an unknown favourite", i.code .. "/" .. tostring(i.severity), "REF_UNKNOWN/error")
+  eq(
+    "...in words, naming the scene",
+    i.message,
+    "Scene 'Game Day' tunes Sports 1 to a favourite channel that no longer exists (hbo). "
+      .. "Choose another favourite or type the channel number in the step."
+  )
+  eq(
+    "a favourite of another source is unknown here",
+    one(tuneIssues({ type = "tune", sourceId = "sports-2", favoriteId = "sports-a" })).code,
+    "REF_UNKNOWN"
+  )
+
+  for _, bad in ipairs({ "ESPN", "5--1", "-5", "123456789", "2 6", "5;1" }) do
+    i = one(tuneIssues({ type = "tune", sourceId = "sports-1", channel = bad }))
+    eq("channel '" .. bad .. "' is refused", i.code .. "/" .. tostring(i.severity), "STEP_INVALID/error")
+  end
+  eq("...in words", i.message, "A channel is digits, with at most one dash or dot (206, 5-1).")
+  eq(
+    "a channel number (not text) is refused",
+    one(tuneIssues({ type = "tune", sourceId = "sports-1", channel = 206 })).code,
+    "STEP_INVALID"
+  )
+  i = one(tuneIssues({ type = "tune", sourceId = "sports-1", favoriteId = "sports-a", channel = "206" }))
+  eq("a favourite AND a channel", i.code .. "/" .. tostring(i.severity), "STEP_INVALID/error")
+  eq("...in words", i.message, "Choose a favourite channel or type a channel number, not both.")
+  i = one(tuneIssues({ type = "tune", sourceId = "sports-1" }))
+  eq("neither: not set up yet", i.code .. "/" .. tostring(i.severity), "STEP_INCOMPLETE/warning")
+  eq("...in words", i.message, "Channel is not chosen yet: pick a favourite or type a channel number.")
+  eq(
+    "an empty channel counts as not chosen",
+    one(tuneIssues({ type = "tune", sourceId = "sports-1", channel = "" })).code,
+    "STEP_INCOMPLETE"
+  )
+
+  -- A favourite removed later: the publish is refused, naming who uses it.
+  local c = H.Templates.sportsBar()
+  table.insert(c.scenes[2].program.steps, { type = "tune", sourceId = "sports-1", favoriteId = "local" })
+  c.rules[#c.rules + 1] = {
+    id = "lobby-news",
+    name = "Lobby news",
+    enabled = true,
+    trigger = { type = "schedule", days = { 1, 2, 3, 4, 5 }, time = "07:00" },
+    program = {
+      steps = {
+        {
+          type = "if",
+          condition = { op = "bool", value = true },
+          ["then"] = {
+            { type = "tune", sourceId = "sports-1", favoriteId = "local" },
+          },
+        },
+      },
+    },
+  }
+  local n = Schema.normalize(c)
+  local all = {}
+  for _, x in ipairs(Schema.validate(n)) do
+    all[#all + 1] = x.id
+  end
+  check("with the favourite in place it publishes", (Schema.publishable(Schema.validate(n), all)))
+  table.remove(c.sources[1].favorites, 3) -- "Local 5"
+  local issues = Schema.validate(Schema.normalize(c))
+  local ok, blocking = Schema.publishable(issues, all)
+  check("removing it: the publish is refused", not ok)
+  local names = {}
+  for _, b in ipairs(blocking) do
+    if b.code == "REF_UNKNOWN" then
+      names[#names + 1] = b.message:match("^(%a+ '[^']+')")
+    end
+  end
+  table.sort(names)
+  eq(
+    "...naming the scene and the schedule that use it",
+    table.concat(names, ", "),
+    "Scene 'Game Day', Schedule 'Lobby news'"
+  )
+end
+
 T.done()

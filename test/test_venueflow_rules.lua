@@ -892,4 +892,252 @@ check(
   type(ctl.localTime) == "string" and #ctl.localTime == 16
 )
 
+local function U_keys(t)
+  local out = {}
+  for k in pairs(t) do
+    out[#out + 1] = k
+  end
+  return out
+end
+
+-- ── the tune step: a source put on a channel by a program ──────────────────
+-- SIMULATION-verified: the simulator records each key. Whether a real box
+-- obeys another driver's SendToDevice is HARDWARE_VALIDATION.md.
+print("tune step")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  e.settle(10000)
+  local dev = e.core.ix.sources["sports-1"].c4DeviceId
+  local KEY = { ENTER = true, DASH = true }
+  local function keysSince(mark, sims)
+    local out = {}
+    for _, sim in ipairs(sims or { e.sim() }) do
+      for i = (sim == e.sim() and mark or 0) + 1, #sim.calls do
+        local c = sim.calls[i]
+        if c.target == dev and (KEY[c.command] or c.command:match("^NUMBER_%d$")) then
+          out[#out + 1] = c.command
+        end
+      end
+    end
+    return table.concat(out, " ")
+  end
+  local function execute(name, list)
+    return e.send("PROGRAM_EXECUTE", { confirm = true, name = name, program = { steps = list } }, st)
+  end
+  local function run(name)
+    for _, x in ipairs(e.core.runner:list(true)) do
+      if x.name == name then
+        return x
+      end
+    end
+  end
+  local function logged(text)
+    for _, entry in ipairs(e.core.diag:list({ limit = 60 })) do
+      if tostring(entry.message):find(text, 1, true) then
+        return entry
+      end
+    end
+  end
+
+  -- After a route, in order; the run does not wait for the last digit.
+  local mark = e.sim():callCount()
+  local r1 = execute("game on", {
+    { type = "route_video", sourceId = "sports-1", target = { displayIds = { "tv-01" } } },
+    { type = "tune", sourceId = "sports-1", favoriteId = "sports-a" },
+  })
+  local s2 = r1.data.execution.steps[2]
+  eq("the step is described with its channel and favourite", s2.label, "Tune Sports 1 to 206 (Sports A)")
+  eq("...and is done once the keys are accepted", s2.status, "ok")
+  eq("...while only the first key has left", keysSince(mark), "NUMBER_2")
+  eq("...its outcome is 'sent', never confirmed", s2.results[1].status, "commanded")
+  eq("...for the source", s2.results[1].id, "sports-1")
+  check("...and says a box gives no feedback", tostring(s2.message):find("no feedback", 1, true) ~= nil, s2.message)
+  local routeAt, digitAt
+  for i = mark + 1, e.sim():callCount() do
+    local c = e.sim().calls[i]
+    routeAt = routeAt or (c.command == "SELECT_VIDEO_DEVICE" and i or nil)
+    digitAt = digitAt or (c.command == "NUMBER_2" and i or nil)
+  end
+  check("the route left before the first digit", routeAt ~= nil and digitAt ~= nil and routeAt < digitAt)
+  e.settle(5000)
+  eq("all the keys arrive in order", keysSince(mark), "NUMBER_2 NUMBER_0 NUMBER_6 ENTER")
+  eq("the run ends ok", run("game on").status, "ok")
+
+  -- A dry run describes it and sends nothing.
+  mark = e.sim():callCount()
+  local dry = e.send(
+    "PROGRAM_DRY_RUN",
+    { name = "plan", program = { steps = { { type = "tune", sourceId = "sports-1", channel = "5-1" } } } },
+    st
+  )
+  local d1 = dry.data.execution.steps[1]
+  eq("dry run: the step is planned", d1.status, "planned")
+  eq("dry run: described", d1.label, "Tune Sports 1 to 5-1")
+  eq("dry run: says the keys it would send", d1.message, "Would send 5, dash, 1, Enter to Sports 1.")
+  e.settle(5000)
+  eq("dry run: nothing sent", e.sim():callCount(), mark)
+  local dryBad = e.send(
+    "PROGRAM_DRY_RUN",
+    { program = { steps = { { type = "tune", sourceId = "sports-1", favoriteId = "sports-a", channel = "5" } } } },
+    st
+  )
+  eq("a step naming a favourite and a channel is refused before it runs", dryBad.errorCode, "VF_VALIDATION_FAILED")
+
+  -- The runner checks again what the publish checked (a program reaching it
+  -- without validation is held to the same rule) and sends nothing for it.
+  mark = e.sim():callCount()
+  local direct = e.core.runner:start({
+    name = "unvalidated",
+    origin = "test",
+    program = {
+      steps = {
+        { type = "tune", sourceId = "sports-1", favoriteId = "sports-a", channel = "5" },
+        { type = "tune", sourceId = "sports-1" },
+        { type = "tune", sourceId = "sports-1", favoriteId = "hbo" },
+        { type = "tune", sourceId = "music", channel = "5" },
+      },
+    },
+  })
+  eq(
+    "runner: a favourite and a channel",
+    direct.steps[1].status .. "/" .. direct.steps[1].errorCode,
+    "failed/VF_INVALID_PAYLOAD"
+  )
+  eq("runner: no channel chosen", direct.steps[2].status, "incomplete")
+  eq("runner: an unknown favourite", direct.steps[3].status .. "/" .. direct.steps[3].errorCode, "failed/VF_NOT_FOUND")
+  eq(
+    "runner: a source without a keypad",
+    direct.steps[4].status .. "/" .. direct.steps[4].errorCode,
+    "failed/VF_UNSUPPORTED"
+  )
+  e.settle(3000)
+  eq("runner: none of them sent anything", e.sim():callCount(), mark)
+
+  -- Stop mid-dial: the rest of the number does not go out, and it is logged.
+  mark = e.sim():callCount()
+  local stopMe = execute("stop me", {
+    { type = "tune", sourceId = "sports-1", channel = "1234" },
+    { type = "wait", seconds = 30 },
+  })
+  e.clock.advance(400)
+  eq("two keys have left", keysSince(mark), "NUMBER_1 NUMBER_2")
+  eq("the installer stops the run", e.send("EXECUTION_CANCEL", { executionId = stopMe.data.execution.id }, st).ok, true)
+  -- A channel typed by hand right after: it must not join the cut-off "12".
+  e.send("SOURCE_TUNE", { sourceId = "sports-1", favoriteId = "sports-b" }, mgr)
+  e.clock.advance(1500)
+  eq("the remaining digits are not sent", keysSince(mark), "NUMBER_1 NUMBER_2")
+  local stopEntry = logged("Sports 1: 3 key(s) not sent: 'stop me' was stopped (installer)")
+  check("...and the diagnostic log says so", stopEntry ~= nil and stopEntry.code == "VF_CANCELLED")
+  e.settle(6000)
+  eq(
+    "the next number waits for the box to drop the unfinished digits, then goes whole",
+    keysSince(mark),
+    "NUMBER_1 NUMBER_2 NUMBER_2 NUMBER_1 NUMBER_2 ENTER"
+  )
+  e.settle(30000)
+
+  -- A newer run tuning the same source stops the older one's dialling.
+  mark = e.sim():callCount()
+  execute("older", { { type = "tune", sourceId = "sports-1", channel = "1234" }, { type = "wait", seconds = 30 } })
+  execute("newer", { { type = "tune", sourceId = "sports-1", favoriteId = "sports-b" } })
+  eq("tuning the same source conflicts: the older run is stopped", run("older").status, "cancelled")
+  eq("...by the newer", run("older").cancelledBy, "newer")
+  e.clock.advance(1500)
+  eq("...its digits stop; the newer number waits its turn", keysSince(mark), "NUMBER_1")
+  e.settle(6000)
+  eq("...then goes out whole, never mixed", keysSince(mark), "NUMBER_1 NUMBER_2 NUMBER_1 NUMBER_2 ENTER")
+  e.settle(30000)
+
+  -- All Off stops running scenes, and so their dialling.
+  mark = e.sim():callCount()
+  execute(
+    "before all off",
+    { { type = "tune", sourceId = "sports-1", channel = "1234" }, { type = "wait", seconds = 30 } }
+  )
+  check("All Off is accepted", e.send("ALL_OFF", { confirm = true }, mgr).ok)
+  e.settle(6000)
+  eq("All Off: only the key already sent reached the box", keysSince(mark), "NUMBER_1")
+  check("...and the log says why the rest was not sent", logged("'before all off' was stopped (All Off)") ~= nil)
+  e.settle(30000)
+
+  -- Two tunes of one source in one run, then a key typed by hand meanwhile:
+  -- one number after the other.
+  mark = e.sim():callCount()
+  execute("two numbers", {
+    { type = "tune", sourceId = "sports-1", channel = "206" },
+    { type = "tune", sourceId = "sports-1", favoriteId = "local" },
+  })
+  e.send("SOURCE_TUNE", { sourceId = "sports-1", channel = "7" }, mgr)
+  e.settle(8000)
+  eq(
+    "two numbers in one run, and a manual one, never interleave",
+    keysSince(mark),
+    "NUMBER_2 NUMBER_0 NUMBER_6 ENTER NUMBER_5 DASH NUMBER_1 ENTER NUMBER_7 ENTER"
+  )
+
+  -- Overlap protection: a source a step tunes is touched; a route is not.
+  local touched = Rules.touches({ { type = "tune", sourceId = "sports-1", channel = "206" } }, e.core.config, e.core.ix)
+  eq("a tune touches its source", touched["s:sports-1"], true)
+  eq("...and nothing else", #U_keys(touched), 1)
+  execute("routes sports 1", {
+    { type = "route_video", sourceId = "sports-1", target = { displayIds = { "tv-02" } } },
+    { type = "wait", seconds = 30 },
+  })
+  execute("tunes sports 1", { { type = "tune", sourceId = "sports-1", channel = "206" } })
+  eq("a run that only routes the source is not stopped by a tune", run("routes sports 1").status, "running")
+  execute("tunes sports 2", { { type = "tune", sourceId = "sports-2", channel = "100" } })
+  eq("tunes of different sources do not stop each other", run("tunes sports 1").status, "ok")
+  e.settle(40000)
+
+  -- Two schedules at the same minute tuning one source are flagged.
+  local c = H.Templates.sportsBar()
+  for i = 1, 2 do
+    c.rules[#c.rules + 1] = {
+      id = "news-" .. i,
+      name = "News " .. i,
+      enabled = true,
+      trigger = { type = "schedule", days = { 1 }, time = "07:00" },
+      program = { steps = { { type = "tune", sourceId = "sports-1", channel = tostring(200 + i) } } },
+    }
+  end
+  local overlap = false
+  for _, i in ipairs(Schema.validate(Schema.normalize(c))) do
+    if i.code == "SCHEDULE_OVERLAP" and i.message:find("News 1", 1, true) then
+      overlap = true
+    end
+  end
+  check("two schedules tuning one source at one time are flagged", overlap)
+
+  -- A publish stops every run, but a number being dialled finishes (as one
+  -- typed by hand does): cutting it off would leave digits in the box.
+  mark = e.sim():callCount()
+  local before = e.sim()
+  execute("dialling at publish", {
+    { type = "tune", sourceId = "sports-1", channel = "1234" },
+    { type = "wait", seconds = 30 },
+  })
+  local acks = {}
+  for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, st).data.issues) do
+    acks[#acks + 1] = i.id
+  end
+  eq("the installer publishes mid-number", e.send("PUBLISH", { acknowledged = acks }, st).ok, true)
+  eq("...which stops the run", run("dialling at publish").status, "cancelled")
+  e.settle(6000)
+  local whole = {}
+  for _, sim in ipairs({ before, e.sim() }) do
+    for i = (sim == before and mark or 0) + 1, #sim.calls do
+      if sim.calls[i].target == dev then
+        whole[#whole + 1] = sim.calls[i].command
+      end
+    end
+  end
+  eq(
+    "...and the number still reaches the box whole",
+    table.concat(whole, " "),
+    "NUMBER_1 NUMBER_2 NUMBER_3 NUMBER_4 ENTER"
+  )
+end
+
 T.done()

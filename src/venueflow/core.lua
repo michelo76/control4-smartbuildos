@@ -156,6 +156,15 @@ function M.new(deps)
       self:_executionUpdated(exec)
     end,
     cancelPending = function(exec, reason, by)
+      -- The rest of a channel number the run was dialling stops too, except
+      -- when a publish stops every run: then the number finishes, as a
+      -- channel typed by hand does (SourceControl reconfigure).
+      if by ~= "configuration changed" then -- the label Core:load stops runs with
+        self.sourceKeys:cancelExecution(
+          exec.id,
+          string.format("'%s' was stopped (%s)", tostring(exec.name), tostring(by or reason))
+        )
+      end
       local stopped = self.tracker:cancelExecution(exec.id, reason, "stopped before it was sent")
       if stopped > 0 then
         self.diag:add(
@@ -691,6 +700,25 @@ function Core:_ops()
   end
   function ops.routeVideo(sourceId, ids, opts)
     return core.routing:routeVideo(sourceId, ids, sys(opts))
+  end
+  --- Dials a channel on a source's box (SourceControl). No feedback: the
+  --- step is "sent" once the keys are accepted, and the run does not wait
+  --- for the last one to leave.
+  function ops.tune(sourceId, target, opts)
+    local o = sys(opts)
+    local r = core.sourceKeys:tune(sourceId, target, o)
+    local source = core.ix.sources[sourceId or ""]
+    local name = source and source.name or sourceId
+    if r.ok then
+      local d = r.data or {}
+      r.results = { { kind = "source", id = sourceId, name = name, status = o.dry and "planned" or "commanded" } }
+      r.message = (o.dry and "Would send " or "Sending ")
+        .. tostring(d.keys)
+        .. " to "
+        .. tostring(name)
+        .. (o.dry and "." or "; a box gives no feedback.")
+    end
+    return r
   end
   function ops.routeAudio(zoneId, sourceId, opts)
     return core.audio:setSource(zoneId, sourceId, sys(opts))

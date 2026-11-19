@@ -69,7 +69,7 @@
   "routeStrategies": [ "room", "command", "none" ],
   "schema": 1,
   "sourceKinds": [ "cable", "satellite", "streaming", "signage", "laptop", "conference", "music", "camera", "other" ],
-  "stepTypes": [ "display_power", "route_video", "route_audio", "volume", "mute", "zone_power", "lighting", "shade", "wait", "run_scene", "set_variable", "set_venue_status", "notify", "if" ],
+  "stepTypes": [ "display_power", "route_video", "tune", "route_audio", "volume", "mute", "zone_power", "lighting", "shade", "wait", "run_scene", "set_variable", "set_venue_status", "notify", "if" ],
   "triggerTypes": [ "manual", "scene_activated", "schedule", "c4_event", "external", "device_state", "c4_variable", "venue_status" ],
   "variableTypes": [ "bool", "number", "string" ],
   "venueTypes": [ "sports_bar", "restaurant", "corporate_office", "conference_center", "hotel", "fitness_center", "retail", "custom" ]

@@ -452,6 +452,13 @@ do
   -- A shade and a rule that waits for a Control4 event, so the wire-level
   -- checks below have something to reach.
   draft.config.shades = { { id = "bar-shades", name = "Bar Shades", areaId = "bar", deviceId = 7101 } }
+  -- A box that tunes without Enter, with a favourite, for the tune step below.
+  for _, source in ipairs(draft.config.sources) do
+    if source.id == "sports-2" then
+      source.tuneEnter = false
+      source.favorites = { { id = "kids", name = "Kids", channel = "31" } }
+    end
+  end
   table.insert(draft.config.rules, {
     id = "doorbell",
     name = "Doorbell",
@@ -618,6 +625,47 @@ api("SHADE", { shadeId = "bar-shades", action = "open" }, { session = manager })
 advance(2000)
 eq("opening it: LEVEL_TARGET 100", (commands(7101, "SET_LEVEL_TARGET")[1] or { params = {} }).params.LEVEL_TARGET, 100)
 eq("nothing else went to the shade", #commands(7101), 1)
+
+-- A program's tune step, on the wire: the source's own device gets the
+-- digits (and Enter where the source dials with it), one at a time, in order.
+-- SHIM-verified: that a real box obeys SendToDevice from this driver is
+-- HARDWARE_VALIDATION.md.
+sent = {}
+do
+  local run = api("PROGRAM_EXECUTE", {
+    confirm = true,
+    name = "Tune test",
+    program = {
+      steps = {
+        { type = "route_video", sourceId = "sports-1", target = { displayIds = { "tv-05" } } },
+        { type = "tune", sourceId = "sports-1", favoriteId = "sports-a" },
+        { type = "tune", sourceId = "sports-2", favoriteId = "kids" },
+      },
+    },
+  }, { session = studio })
+  check("a program with tune steps runs in Live", run and run.ok, run and run.errorCode)
+  advance(5000)
+  local wire = {}
+  for _, s in ipairs(sent) do
+    if s.device == 3001 or s.device == 3002 then
+      local keys = {}
+      for k in pairs(s.params or {}) do
+        keys[#keys + 1] = k
+      end
+      wire[#wire + 1] = s.device .. ":" .. s.command .. (#keys > 0 and "+params" or "")
+    end
+  end
+  eq(
+    "SendToDevice to each box's device, one key at a time, in order, without parameters",
+    table.concat(wire, " "),
+    "3001:NUMBER_2 3001:NUMBER_0 3001:NUMBER_6 3001:ENTER 3002:NUMBER_3 3002:NUMBER_1"
+  )
+  check(
+    "the route went to the room before the first digit",
+    sent[1] and sent[1].device == 1105 and sent[1].command == "SELECT_VIDEO_DEVICE",
+    sent[1] and (sent[1].device .. " " .. sent[1].command)
+  )
+end
 
 print("[7] Composer programming and conditionals")
 fired = {}
