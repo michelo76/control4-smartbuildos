@@ -484,9 +484,13 @@ camelCase and letter/digit boundaries (`OwnerName` → `OWNER NAME`, `Pin1` →
 `PARTITIONSTATE`, `ARMSTATE`, `ARMEDTYPE`, `ALARMSTATE`, `TROUBLE*`,
 `BATTERY*`, `LOWBATTERY`. In scope `system` **every class that is
 answered** goes through an allow-list (fail closed, KI-68 closed): the base
-list is `unknown`'s — `TEMPERATURE*`, `HUMIDITY*`, `BATTERY*`,
+list is `unknown`'s — `TEMPERATURE*`, `HUMIDITY*`, `SCALE`, `BATTERY*`,
 `LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`, `ONLINE`, `CONNECTED`,
-`COMM*STATUS` — and `climate_sensor` gets exactly that list; `thermostat`
+`COMM*STATUS` — and `climate_sensor` gets exactly that list. `SCALE`
+(added on `feat/ai-core-round2` after `1a663b1`) is exactly the name the
+Agent's `thermostatReading` reads as its `scale` (`devicestate.SCALE_NAME`;
+the parity test ties the two), so a climate sensor or thermostat carries its
+temperature unit when the device has one; nothing else joined the list; `thermostat`
 adds the 26 names the Agent's `thermostatReading` reads (and already uploads:
 setpoints, `HVAC_MODE` / `HVAC_STATE`, fan and humidity modes, `SCALE`, …;
 `THERMOSTAT_READ_NAMES`, kept equal by the parity test); `leak`, `power` and
@@ -494,6 +498,8 @@ setpoints, `HVAC_MODE` / `HVAC_STATE`, fan and humidity modes, `SCALE`, …;
 and link lists). A class without an entry gets the base list. So a name
 nobody reviewed for that class — a wine fridge's `DOOR_AJAR`, a sensor's
 `IN_USE` — never reaches the touchscreen; it is counted `not_allowed`
+(the test fixture's wine fridge sends temperature, humidity and `SCALE`;
+its door flag is withheld and counted)
 (the count only, never the name; KI-67 closed). Scope `full` is unchanged: deny-lists
 for every class except `lock` and `security`. A name that A or C drops is
 counted first.
@@ -507,7 +513,9 @@ counted first.
 | `thermostat` | deny-lists only | base + `THERMOSTAT_READ_NAMES` |
 | `leak` | deny-lists only | base + leak signature |
 | `power` | deny-lists only | base + power signature |
-| `battery` | deny-lists only | base + battery, low-battery and link signatures | `variables` in the operation
+| `battery` | deny-lists only | base + battery, low-battery and link signatures |
+
+`variables` in the operation
 narrows further (case-insensitive exact names); a narrowed-to name that a
 rule drops is still dropped and counted.
 

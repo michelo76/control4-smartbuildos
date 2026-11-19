@@ -289,6 +289,12 @@ M.THERMOSTAT_READ_NAMES = {
 --- Driver file fragments that make a device a camera (lower-case substring).
 M.CAMERA_FILES = { "camera", "doorbell", "nvr", "protect-camera" }
 
+--- The temperature scale's variable: exactly the name the Agent's
+--- thermostatReading reads (`scale = str("SCALE")`), so a climate sensor or
+--- thermostat read at `system` scope carries its unit when the device has
+--- one. test_aicore_devicestate_parity.lua ties it to the Agent's source.
+M.SCALE_NAME = "SCALE"
+
 -- ── F: allow-lists ──────────────────────────────────────────────────────────
 --
 -- Matched on the joined name (upper-case, non-alphanumerics removed). An
@@ -310,6 +316,7 @@ M.ALLOW = {
   unknown = {
     "TEMPERATURE*",
     "HUMIDITY*",
+    M.SCALE_NAME, -- the unit travels with a temperature (round two)
     "BATTERY*",
     "LOWBATTERY",
     "LINKQUALITY",
@@ -326,7 +333,8 @@ M.ALLOW = {
 --- not sent (counted `not_allowed`). The base is the `unknown` list; a class
 --- adds only the names of its own signature, each taken from a list the
 --- Agent already reads (and, for thermostats, already uploads):
----   climate_sensor  the base, nothing else (conductor ruling)
+---   climate_sensor  the base, nothing else (conductor ruling); the base
+---                   carries SCALE so a temperature travels with its unit
 ---   thermostat      the base + THERMOSTAT_READ_NAMES
 ---   leak            the base + SIGNATURES.leak
 ---   power           the base + SIGNATURES.power

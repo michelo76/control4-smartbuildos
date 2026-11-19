@@ -123,6 +123,21 @@ check(
   "Agent " .. show(reading) .. " vs AI Core " .. show(D.THERMOSTAT_READ_NAMES)
 )
 
+print("[2c] the base allow-list's SCALE = the name thermostatReading reads as `scale`")
+local agentScale = readingFn:match('scale%s*=%s*str%("([^"]+)"%)')
+check(
+  "the Agent reads its scale as str(\"" .. tostring(agentScale) .. "\") = devicestate.SCALE_NAME",
+  agentScale ~= nil and agentScale == D.SCALE_NAME,
+  "Agent " .. tostring(agentScale) .. " vs AI Core " .. tostring(D.SCALE_NAME)
+)
+local inBase = false
+for _, n in ipairs(D.ALLOW.unknown) do
+  if n == D.SCALE_NAME then
+    inBase = true
+  end
+end
+check("SCALE_NAME is in the base (system-scope) allow-list", inBase)
+
 print("[3] the comparison compared something")
 check("sensorReading found in the Agent", #sensorFn > 1000, #sensorFn)
 check("looksLikeThermostat found in the Agent", #thermoFn > 100, #thermoFn)

@@ -109,7 +109,7 @@ local FX = {
   contact = vars({ { "CONTACT_STATE", "Closed" }, { "BATTERY_LEVEL", "90" } }),
   relay = vars({ { "RELAY_STATE", "0" }, { "BATTERY_LEVEL", "90" } }),
   -- Two climate sensors carrying a name no list knows (KI-68).
-  fridge = vars({ { "Temperature Probe", "54" }, { "HUMIDITY", "61" }, { "DOOR_AJAR", "1" } }),
+  fridge = vars({ { "Temperature Probe", "54" }, { "HUMIDITY", "61" }, { "SCALE", "FAHRENHEIT" }, { "DOOR_AJAR", "1" } }),
   room_sensor = vars({
     { "TEMPERATURE_F", "70" },
     { "HUMIDITY", "40" },
@@ -503,18 +503,19 @@ do
   local fridge = read(FX.fridge, "system")
   local fn = names(fridge)
   check(
-    "the wine fridge (system): climate_sensor, temperature and humidity answer",
+    "the wine fridge (system): climate_sensor, temperature, humidity and SCALE answer",
     fridge.status == "completed"
       and fridge.device.class == "climate_sensor"
       and fridge.device.restricted == false
       and fn["Temperature Probe"] == "54"
-      and fn.HUMIDITY == "61",
+      and fn.HUMIDITY == "61"
+      and fn.SCALE == "FAHRENHEIT",
     JSON:encode(fridge)
   )
   check(
     "the wine fridge (system): DOOR_AJAR is NOT sent (outside the allow-list)",
     fn.DOOR_AJAR == nil
-      and count(fn) == 2
+      and count(fn) == 3
       and fridge.omitted.not_allowed == 1
       and not JSON:encode(fridge):find("DOOR", 1, true),
     JSON:encode(fridge.variables)
@@ -522,7 +523,13 @@ do
   local fridgeFull = read(FX.fridge, "full")
   check(
     "the wine fridge (full): unchanged, the deny-lists only (DOOR_AJAR kept)",
-    fridgeFull.status == "completed" and names(fridgeFull).DOOR_AJAR == "1" and count(names(fridgeFull)) == 3
+    fridgeFull.status == "completed" and names(fridgeFull).DOOR_AJAR == "1" and count(names(fridgeFull)) == 4
+  )
+  local base = table.concat(D.ALLOW.unknown, ",")
+  check(
+    "the base allow-list is exactly the reviewed 11 (SCALE the only round-two addition)",
+    base == "TEMPERATURE*,HUMIDITY*,SCALE,BATTERY*,LOWBATTERY,LINKQUALITY,LQI,RSSI,ONLINE,CONNECTED,COMM*STATUS",
+    base
   )
   local occ = read(FX.room_sensor, "system")
   local on = names(occ)
