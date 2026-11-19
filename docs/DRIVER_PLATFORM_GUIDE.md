@@ -919,6 +919,109 @@ repaired. A query answers `{ ok = true, data }` (scalars and tables, at most
 - The `declaration_hash` is a 64-bit **non-cryptographic** fingerprint
   (`aireport.hash`); it detects a changed declaration, it is not a MAC.
 
+### The recipe the reference drivers followed (copy it)
+
+Three drivers were wired by hand (brief D6) and are the pattern for the
+rest: **Atmosphere** (`start`, owns `EC.SBOS_DRIVER_CONFIG` through
+`sbos.mirror`), **Mode Composer** (`start`, no `DC_FILENAME`, the one
+declared action) and **Flight Recorder** (`attach`, its own module client).
+Each has `test/test_<driver>_aicore.lua` on `test/aicore_reporter_harness.lua`
+(the real Agent registry and bus; a fake AI Core that answers through AI
+Core's **real** validator, so a report AI Core would refuse fails the test),
+and all three run together in `test/emulator/ai_core_reference_drivers.lua`.
+
+**Every driver (all three modes):**
+
+1. `driver.xml`: the `AI Core` property (exact XML above), beside the
+   licence properties.
+1. `local aireport = require("sbos.aireport")` at module scope (the require
+   guard; the build only packs modules it sees at load).
+1. Decide the reports *before* writing code, and write them down in the
+   driver's code comment: describe (what it is, 1–5 controls, ≤ 24
+   homeowner words), state (facts that matter and change; **no** location,
+   names of people, codes or device activity), events (transitions a person
+   would want to hear about; never per occurrence), diagnostics (faults the
+   driver **already** detects), 1–2 read-only queries answering a question a
+   person would ask, and an action only when the driver already has a safe,
+   bounded command (most have none: say so in the comment).
+1. Report from the places that already compute the facts (Atmosphere:
+   after `engine.step`; Mode Composer: `refreshStateSurface` and
+   `saveConfig`; Flight Recorder: `paint()` and `emit()`). Call
+   `aireport.state(...)` freely: the helper sends only a change, at most 6
+   a minute. Put the event / diagnostic call next to the existing
+   `FireEvent` / transition it mirrors, so it fires exactly as often.
+1. `OnDriverDestroyed`: `aireport.stop()`.
+1. Docs: an "AI Core" section in `www/documentation/index.md` (the property
+   values, what it reports, what it answers, what it can be asked to do and
+   that a person must approve it) and a row in its Properties table; a
+   short section in the driver's docs folder.
+1. Tests: copy one of the three `test_*_aicore.lua`. Prove, at least: with
+   the Agent present and AI Core absent zero `ai_core.report` frames and
+   `Not installed`; every report accepted by AI Core's validator
+   (`H.allValid()`); the queries through the bus, including a refused
+   param; AI Core removed and re-added; only closed values painted. Then
+   run the driver's existing tests **unchanged**.
+
+**`start` (a root not on the bus; Atmosphere, Mode Composer):**
+
+1. In `OnDriverLateInit`, after `license.setup` (and `license.check`):
+   `declareQuery` / `declareAction` first, then
+   `aireport.start({ sku = "SBOS_X" })`, then `aireport.describe({...})`,
+   then one `aireport.state(...)` with the current facts. `start` resets
+   the describe fields and facts (declarations survive), so describe and
+   state go **after** it.
+1. Put the three steps in one `startAiCore()` and call it again anywhere
+   the driver runs `KillAllTimers()` outside `OnDriverDestroyed`
+   (Atmosphere's `REINITIALIZE`): that kills the module client's timers
+   too. Call `aireport.stop()` first.
+
+**`attach` (a root with its own module client; Flight Recorder):**
+
+1. Declare the queries/actions **before** `client.setup`, and wrap the
+   manifest list: `capabilities = aireport.capabilities({ ...yours... })`.
+   The helper never re-registers your client, so a later declaration does
+   not reach the manifest (the bus then refuses it `capability_not_found`).
+1. Forward `onRegistered`, `onAgentState` and `onDirectoryChanged` (add the
+   last one if the driver did not have it: without it AI Core is never
+   found again after it appears or goes away).
+1. After `client.setup` and before `client.register()`:
+   `aireport.attach(client, { sku = SKU })`, then `aireport.describe(...)`.
+1. A driver test that counts the driver's own v2 frames now sees one more
+   kind: the helper's `DISCOVER {"module_id":"ai_core"}`.
+
+**A driver that owns `EC.SBOS_DRIVER_CONFIG` (Atmosphere, `sbos.mirror`):**
+nothing extra: `start` passes `claim_driver_config = false`. Keep a test
+that sends `SBOS_DRIVER_CONFIG` after the helper started and checks the
+driver's own handler applied it (and `EC.SBOS_DRIVER_CONFIG` is not
+`moduleclient.onConfig`). In `attach` mode the config handler is whatever
+your own `client.setup` chose.
+
+**What surprised us:**
+
+- `DC_FILENAME` is set only in the DriverCentral variant; the OSS build
+  every release is made from removes it, so before 427c3be a driver relying
+  on the default never reported once built. The default is now
+  `DC_FILENAME`, else `DRIVER_FILENAMES[1]`; only the emulator (which runs
+  the OSS-assembled driver) caught it, not the unit tests (which load the
+  raw source with both branches).
+- AI Core refuses a describe whose `driver.version` is empty, and source
+  `driver.xml` files carry an empty `<version>` until `make build` stamps
+  it; an emulator run must stamp it (`run-ai-core.sh` does). The property
+  still reads `Found — reporting` in that case, because states are
+  accepted.
+- A fact reported only where the driver repaints its status goes stale:
+  Mode Composer's mode counts change on `CREATE_MODE`, which does not
+  repaint, so the state is also sent from `saveConfig` (the emulator caught
+  it; the unit test did not).
+- A declared action's handler runs synchronously but an activation may not
+  finish synchronously: the result text must say what is true at that
+  moment ("being sent; the outcome follows as an event"), never "done".
+- Simulated or test data must never be reported as real (Atmosphere sends
+  no weather values and no events during a dealer simulation).
+- Harness trap: the Agent's identity resolver answering `{}` for a file
+  means "Director answered, not listed" and the registration is **refused**;
+  `nil` means "no answer" and registers unverified.
+
 ______________________________________________________________________
 
 ## Reading order for driver #12
