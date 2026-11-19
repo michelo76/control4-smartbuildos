@@ -1024,7 +1024,7 @@ local function composer(command, tParams)
   if gCore == nil then
     return
   end
-  local ok, done, message = pcall(function()
+  local ok, done, message, warned = pcall(function()
     return gCore:composer(command, tParams or {})
   end)
   if not ok then
@@ -1032,6 +1032,11 @@ local function composer(command, tParams)
     log:error("%s", gLastError)
   elseif not done then
     gLastError = command .. " refused: " .. tostring(message)
+    log:warn("%s", gLastError)
+  elseif warned then
+    -- Done, but something it would have started did not run (for example
+    -- SET_VENUE_STATUS under a restricted licence: the rules waiting for it).
+    gLastError = command .. ": " .. tostring(message)
     log:warn("%s", gLastError)
   end
   paint()
