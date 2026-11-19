@@ -540,7 +540,10 @@ for _, path in ipairs({
 }) do
   local html = read(path) or ""
   local head = html:match("<head>(.-)</head>") or ""
-  check(path .. " has <link rel=\"icon\" href=\"data:...\"> in its head", head:find('<link rel="icon" href="data:', 1, true) ~= nil)
+  check(
+    path .. ' has <link rel="icon" href="data:..."> in its head',
+    head:find('<link rel="icon" href="data:', 1, true) ~= nil
+  )
 end
 
 T.done()
