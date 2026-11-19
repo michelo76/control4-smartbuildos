@@ -4,7 +4,8 @@
 #   the REAL Agent            drivers/smartbuildos
 #   the REAL Flight Recorder  drivers/smartbuildos-flight-recorder
 #   the REAL AI Core          drivers/smartbuildos-ai-core
-# plus the real Atmosphere and Mode Composer (the AI Core reference drivers,
+# plus the real PIN Lock (the touchscreen page scenario, ai_core_webview.lua),
+# the real Atmosphere and Mode Composer (the AI Core reference drivers,
 # ai_core_reference_drivers.lua), two reporters built on the real helper (test/emulator/fixtures/
 # sbos-ai-reporter, assembled under two reserved roots' file names) for the
 # report hub scenario (ai_core_reports.lua), and a v1-only Agent taken from git (the last commit before module
@@ -53,6 +54,13 @@ assemble ref/smartbuildos-flight-recorder "$OUT/tree/build/oss/drivers/smartbuil
 for f in "$OUT"/ref/*/driver.xml; do
 	sed -i.bak -e 's|<version></version>|<version>20261118.000002</version>|' -e 's|<version/>|<version>20261118.000002</version>|' "$f"
 done
+# The touchscreen page scenario (ai_core_webview.lua): the real PIN Lock and
+# a third AI Core copy, both with a stamped version.
+assemble webview/smartbuildos-pin-lock "$OUT/tree/build/oss/drivers/smartbuildos-pin-lock" "$OUT/tree"
+assemble webview/smartbuildos-ai-core "$OUT/tree/build/oss/drivers/smartbuildos-ai-core" "$OUT/tree"
+for f in "$OUT"/webview/*/driver.xml; do
+	sed -i.bak -e 's|<version></version>|<version>20261118.000003</version>|' -e 's|<version/>|<version>20261118.000003</version>|' "$f"
+done
 # A second AI Core copy with a stamped version (a build stamps it; the
 # source driver.xml leaves it empty), so the answer's ai_core.version can be
 # compared with the Agent's directory.
@@ -68,3 +76,5 @@ SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_reports.lua"
 SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_reference_drivers.lua"
+SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
+	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_webview.lua"
