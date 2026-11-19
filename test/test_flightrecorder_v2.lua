@@ -490,10 +490,20 @@ for i = before + 1, #eventsSent() do
   still = still or eventsSent()[i].label == "still recording"
 end
 check("v1 event upload unchanged", still)
+-- Since D6 the driver reports to AI Core (sbos.aireport, attach mode): its
+-- only v2 frames of its own are the helper's DISCOVER {module_id = ai_core}
+-- (the directory here never answers, so nothing is ever reported). No
+-- subscription and no cloud request, and nothing new on a v1-only Agent.
+local onlyAiLookups = #sentOf("SBOS_MODULE_DISCOVER") > 0
+for _, f in ipairs(sentOf("SBOS_MODULE_DISCOVER")) do
+  onlyAiLookups = onlyAiLookups and f.params.filter == '{"module_id":"ai_core"}'
+end
 check(
-  "FR never sends a v2 frame of its own",
-  #sentOf("SBOS_MODULE_SUBSCRIBE") + #sentOf("SBOS_MODULE_DISCOVER") + #sentOf("SBOS_MODULE_CLOUD_REQUEST") == v2Frames
-    and v2Frames == 0
+  "FR's own v2 frames: only the AI Core lookup, none on a v1 Agent",
+  #sentOf("SBOS_MODULE_SUBSCRIBE") + #sentOf("SBOS_MODULE_CLOUD_REQUEST") == 0
+    and #sentOf("SBOS_MODULE_SUBSCRIBE") + #sentOf("SBOS_MODULE_DISCOVER") + #sentOf("SBOS_MODULE_CLOUD_REQUEST") == v2Frames
+    and onlyAiLookups
+    and #sentOf("SBOS_MODULE_REQUEST") == 0
 )
 
 OnDriverDestroyed()

@@ -157,6 +157,34 @@ at `<company>/<system>/<job>.json` + row `flight_recorder_snapshots` →
 `SBOS_MODULE_SNAPSHOT_ACK`. Idempotent on `(system, job_id)`. Studio signs a
 5-minute URL on `monitoring:export`, audited.
 
+## 7a. AI Core reporting (`sbos.aireport`, attach mode)
+
+When SmartBuildOS AI Core is installed, the Flight Recorder reports to it
+over its OWN module client (guide §9 `attach`); without AI Core it sends
+nothing more than before. The queries are declared before `client.setup`,
+so `aireport.capabilities(...)` adds `ai.query` to the manifest; the
+driver forwards `onRegistered`, `onAgentState` and (new)
+`onDirectoryChanged` to the helper; `aireport.stop()` leaves the client to
+the driver's own `client.stop()`. Its only new v2 frame is the helper's
+`DISCOVER {module_id: "ai_core"}`.
+
+- **describe**: the recorder and its history; homeowner vocabulary.
+- **state** (from `paint()`): recording status, paused, event capture on,
+  devices covered / total, subscriptions, storms, traces, selected sources,
+  dropped events, Agent connection. No device activity.
+- **event**: `recorder.storm_started` / `recorder.storm_ended` (one per
+  storm, not per occurrence), `routine.not_completed` (a trace that ended
+  other than `completed`: name, status, steps).
+- **diagnostic**: `recorder.degraded` / `recorder.restored` (the existing
+  status transition), `upload.backlog` (the existing buffer warning).
+- **queries**: `history_coverage` (entries held, capacity, oldest/newest,
+  span, evicted, by kind), `capture_coverage` (devices covered, unknown,
+  excluded, events over the limit, up to five storms).
+- **action**: none.
+
+Emulator and unit tests only (`test/test_flightrecorder_aicore.lua`,
+`test/emulator/ai_core_reference_drivers.lua`).
+
 ## 8. Extension points (documented, not implemented)
 
 - **Health observations (Guardian):** `module_id = guardian`, prefix
