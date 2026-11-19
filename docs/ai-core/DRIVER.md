@@ -773,7 +773,12 @@ code- or credential-named variable; `max_events_per_minute` 1–300;
 strings, each **3–120 characters** and ≤ 360 bytes, one line of plain text
 (no control, C1, line-separator or bidi character, no `<` or `>`, no `://`
 or `www.`, no leading or trailing space), refused if it looks like a key
-(the display-string rule), and no two alike ignoring case and spacing. One bad
+(long opaque blobs, `Bearer …`, and — round two, the rule the platform
+applies identically — an `sk-` at the start or after a character that is not
+an ASCII letter or digit, followed by at least 8 of `[A-Za-z0-9_-]`, i.e.
+`(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}`; so "Is the desk-lamp on?" is
+accepted and "key: sk-proj-12345678" is refused; the three display strings
+above keep the stricter `sk-` rule), and no two alike ignoring case and spacing. One bad
 field refuses the whole document; the last valid one stays in force and
 `Last Error` says `Configuration vN refused: <path>: <reason> (vM kept)`.
 `learning.active` is the platform's latest word on learning.

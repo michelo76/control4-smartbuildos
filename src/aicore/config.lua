@@ -129,7 +129,37 @@ local function onlyKeys(t, allowed, path, refusals)
   end
 end
 
-local function displayString(v, max, path, refusals)
+--- The strict `sk-` rule for the display strings the platform writes
+--- (provider name, model, credential status): any `sk-` followed by a
+--- letter, digit, `_` or `-` is credential-shaped.
+local function strictSk(v)
+  return v:find("sk%-[%w%-_]+") ~= nil
+end
+
+--- The preset rule (round two; the platform implements it identically):
+--- `sk-` is credential-shaped only at the start of the text or after a
+--- character that is not an ASCII letter or digit, AND followed by at least
+--- 8 characters of [A-Za-z0-9_-] — `(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}`.
+--- "Is the desk-lamp on?" and "sk-lamp" pass; "key: sk-proj-12345678" does not.
+function M.presetLooksLikeSk(v)
+  local init = 1
+  while true do
+    local s = v:find("sk-", init, true)
+    if s == nil then
+      return false
+    end
+    local before = s > 1 and v:sub(s - 1, s - 1) or ""
+    if not before:find("^[A-Za-z0-9]$") then
+      local tail = v:match("^[A-Za-z0-9_%-]+", s + 3) or ""
+      if #tail >= 8 then
+        return true
+      end
+    end
+    init = s + 1
+  end
+end
+
+local function displayString(v, max, path, refusals, skRule)
   if v == nil then
     return nil
   end
@@ -137,7 +167,7 @@ local function displayString(v, max, path, refusals)
     refusals[#refusals + 1] = { path = path, reason = "must be text of at most " .. max .. " characters" }
     return nil
   end
-  if Envelope.looksLikeSecret(v) or v:find("sk%-[%w%-_]+") or v:lower():find("bearer ") then
+  if Envelope.looksLikeSecret(v) or (skRule or strictSk)(v) or v:lower():find("bearer ") then
     refusals[#refusals + 1] = { path = path, reason = "looks like a credential; a key never reaches the controller" }
     return nil
   end
@@ -196,7 +226,7 @@ local function presetText(v, path, refusals)
     refusals[#refusals + 1] = { path = path, reason = "must not carry a link" }
     return nil
   end
-  return displayString(v, L.preset_bytes, path, refusals)
+  return displayString(v, L.preset_bytes, path, refusals, M.presetLooksLikeSk)
 end
 
 --- Any key anywhere that names a credential refuses the whole document.
