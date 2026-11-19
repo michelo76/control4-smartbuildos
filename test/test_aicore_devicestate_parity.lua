@@ -10,6 +10,8 @@
 --   [1] each firstOf(values, { … }) list in sensorReading = the matching
 --       devicestate.SIGNATURES list (exact names, same order)
 --   [2] every name looksLikeThermostat reads = devicestate.THERMOSTAT_NAMES
+--  [2b] every name thermostatReading reads = devicestate.THERMOSTAT_READ_NAMES
+--       (the thermostat's system-scope allow-list)
 --   [3] the lists were really read (a guard that compared nothing is a fail)
 
 local pass, fail = 0, 0
@@ -106,11 +108,28 @@ check(
   "Agent " .. show(thermo) .. " vs AI Core " .. show(D.THERMOSTAT_NAMES)
 )
 
+print("[2b] thermostatReading names = devicestate.THERMOSTAT_READ_NAMES")
+local readingFn = src:match("\nfunction thermostatReading%(vars%)(.-)\nend\n") or ""
+local reading, rseen = {}, {}
+for _, n in readingFn:gmatch('(%a+)%("([^"]+)"%)') do
+  if not rseen[n] then
+    rseen[n] = true
+    reading[#reading + 1] = n
+  end
+end
+check(
+  "the same names in the same order (the thermostat's system allow-list)",
+  same(reading, D.THERMOSTAT_READ_NAMES),
+  "Agent " .. show(reading) .. " vs AI Core " .. show(D.THERMOSTAT_READ_NAMES)
+)
+
 print("[3] the comparison compared something")
 check("sensorReading found in the Agent", #sensorFn > 1000, #sensorFn)
 check("looksLikeThermostat found in the Agent", #thermoFn > 100, #thermoFn)
 check("all 12 Agent lists read", read == 12, read)
 check("6 thermostat names read", #thermo == 6, #thermo)
+check("thermostatReading found in the Agent", #readingFn > 1000, #readingFn)
+check("26 thermostatReading names read", #reading == 26, #reading)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

@@ -456,7 +456,9 @@ and AI Core's copy differ.
 **Restricted classes (E):** `lock`, `security`, `opening`, `motion`,
 `contact`, `relay`, `camera`, `light` (conductor ruling: on/off is presence)
 and `unknown`. In scope `system` they are answered `failed` /
-`restricted_class`, except `unknown`, which gets the allow-list below.
+`restricted_class`, except `unknown`, which gets the base allow-list below.
+Every other class answered in scope `system` also goes through an
+allow-list (F).
 
 **What is dropped, and counted (`omitted`):**
 
@@ -479,11 +481,31 @@ camelCase and letter/digit boundaries (`OwnerName` → `OWNER NAME`, `Pin1` →
 `LOCKSTATUS`, `LOCKSTATE`, `LOCKED`, `BATTERYLEVEL`, `BATTERYSTATUS`,
 `LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`; `security` in scope `full` —
 `PARTITIONSTATE`, `ARMSTATE`, `ARMEDTYPE`, `ALARMSTATE`, `TROUBLE*`,
-`BATTERY*`, `LOWBATTERY`; `unknown` in scope `system` — `TEMPERATURE*`,
-`HUMIDITY*`, `BATTERY*`, `LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`,
-`ONLINE`, `CONNECTED`, `COMM*STATUS`. A variable outside its allow-list is
-not sent and **not counted** (the six counters have no bucket for it). A
-name that A or C drops is counted first. `variables` in the operation
+`BATTERY*`, `LOWBATTERY`. In scope `system` **every class that is
+answered** goes through an allow-list (fail closed, KI-68 closed): the base
+list is `unknown`'s — `TEMPERATURE*`, `HUMIDITY*`, `BATTERY*`,
+`LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`, `ONLINE`, `CONNECTED`,
+`COMM*STATUS` — and `climate_sensor` gets exactly that list; `thermostat`
+adds the 26 names the Agent's `thermostatReading` reads (and already uploads:
+setpoints, `HVAC_MODE` / `HVAC_STATE`, fan and humidity modes, `SCALE`, …;
+`THERMOSTAT_READ_NAMES`, kept equal by the parity test); `leak`, `power` and
+`battery` add their own signature lists (battery: the battery, low-battery
+and link lists). A class without an entry gets the base list. So a name
+nobody reviewed for that class — a wine fridge's `DOOR_AJAR`, a sensor's
+`IN_USE` — never reaches the touchscreen. Scope `full` is unchanged: deny-lists
+for every class except `lock` and `security`. A name that A or C drops is
+counted first.
+
+| Class | Scope `system` before (to `64660fb`) | Scope `system` now |
+| --- | --- | --- |
+| `camera` | refused | refused |
+| `lock`, `security`, `opening`, `motion`, `contact`, `relay`, `light` | refused (`restricted_class`) | refused (`restricted_class`) |
+| `unknown` | base allow-list | base allow-list |
+| `climate_sensor` | deny-lists only: any unreviewed name passed | base allow-list |
+| `thermostat` | deny-lists only | base + `THERMOSTAT_READ_NAMES` |
+| `leak` | deny-lists only | base + leak signature |
+| `power` | deny-lists only | base + power signature |
+| `battery` | deny-lists only | base + battery, low-battery and link signatures | `variables` in the operation
 narrows further (case-insensitive exact names); a narrowed-to name that a
 rule drops is still dropped and counted.
 

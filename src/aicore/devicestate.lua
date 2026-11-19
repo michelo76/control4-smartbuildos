@@ -29,7 +29,8 @@
 ---   E  restricted classes; in scope `system` they are REFUSED (no variable
 ---      leaves the home), except `unknown`, which gets the small allow-list
 ---   F  allow-lists where a deny-list is unsafe: lock and security in scope
----      `full`, unknown in scope `system`; cameras are refused in every scope
+---      `full`, and EVERY class answered in scope `system` (ALLOW_SYSTEM;
+---      KI-68); cameras are refused in every scope
 ---   G  values are passed as Director holds them; TEMPERATURE is never
 ---      converted
 ---
@@ -249,6 +250,39 @@ M.SIGNATURES = {
 M.THERMOSTAT_NAMES =
   { "HVAC_MODES_LIST", "HVAC_MODE", "TEMPERATURE_F", "TEMPERATURE_C", "V1 TEMPERATURE", "V1 HVACMODES" }
 
+--- The names the Agent's thermostatReading reads (and already uploads to
+--- control4_thermostat_state), in order of first use. The thermostat's
+--- `system`-scope allow-list (F) is built from them;
+--- test_aicore_devicestate_parity.lua keeps them equal to the Agent's.
+M.THERMOSTAT_READ_NAMES = {
+  "SCALE",
+  "TEMPERATURE_F",
+  "V1 TEMPERATURE",
+  "TEMPERATURE_C",
+  "HEAT_SETPOINT_F",
+  "V1 HEAT_SETPOINT",
+  "COOL_SETPOINT_F",
+  "V1 COOL_SETPOINT",
+  "SINGLE_SETPOINT_F",
+  "HVAC_MODE",
+  "ANA_HVACMODE",
+  "V1 HVACMODE",
+  "HVAC_STATE",
+  "FAN_MODE",
+  "V1 FANMODE",
+  "FAN_STATE",
+  "HUMIDITY",
+  "HUMIDITY_MODE",
+  "HUMIDITY_STATE",
+  "OUTDOOR_TEMPERATURE_F",
+  "BATTERY STATUS",
+  "RUNNING ON BATTERY",
+  "HEATING ACTIVE",
+  "COOLING ACTIVE",
+  "IS_CONNECTED",
+  "HEATPUMP",
+}
+
 --- Driver file fragments that make a device a camera (lower-case substring).
 M.CAMERA_FILES = { "camera", "doorbell", "nvr", "protect-camera" }
 
@@ -282,6 +316,43 @@ M.ALLOW = {
     "CONNECTED",
     "COMM*STATUS",
   },
+}
+
+--- Scope `system`: EVERY class that is answered there is answered through an
+--- allow-list (fail closed; KI-68). A name nobody reviewed for that class is
+--- not sent (counted `not_allowed`). The base is the `unknown` list; a class
+--- adds only the names of its own signature, each taken from a list the
+--- Agent already reads (and, for thermostats, already uploads):
+---   climate_sensor  the base, nothing else (conductor ruling)
+---   thermostat      the base + THERMOSTAT_READ_NAMES
+---   leak            the base + SIGNATURES.leak
+---   power           the base + SIGNATURES.power
+---   battery         the base + the battery, low-battery and link lists
+--- A class with no entry here (a class added later) gets the base list.
+local function joinedList(...)
+  local out = {}
+  for _, entry in ipairs(M.ALLOW.unknown) do
+    out[#out + 1] = entry
+  end
+  for _, list in ipairs({ ... }) do
+    for _, n in ipairs(list) do
+      out[#out + 1] = (tostring(n):upper():gsub("[^%w]", ""))
+    end
+  end
+  return out
+end
+M.ALLOW_SYSTEM = {
+  unknown = M.ALLOW.unknown,
+  climate_sensor = M.ALLOW.unknown,
+  thermostat = joinedList(M.THERMOSTAT_READ_NAMES),
+  leak = joinedList(M.SIGNATURES.leak),
+  power = joinedList(M.SIGNATURES.power),
+  battery = joinedList(
+    M.SIGNATURES.battery_level,
+    M.SIGNATURES.battery_status,
+    M.SIGNATURES.low_battery,
+    M.SIGNATURES.link
+  ),
 }
 
 -- ── helpers ─────────────────────────────────────────────────────────────────
@@ -586,14 +657,17 @@ end
 M.newOmitted = newOmitted
 
 --- The allow-list in force for (class, scope), or nil (deny-list only).
+--- Scope `full`: lock and security only. Scope `system`: every class
+--- (ALLOW_SYSTEM, else the base list) — never nil, so a name nobody
+--- reviewed never reaches the touchscreen.
 function M.allowList(class, scope)
-  if scope == "full" and (class == "lock" or class == "security") then
-    return M.ALLOW[class]
+  if scope == "full" then
+    if class == "lock" or class == "security" then
+      return M.ALLOW[class]
+    end
+    return nil
   end
-  if scope ~= "full" and class == "unknown" then
-    return M.ALLOW.unknown
-  end
-  return nil
+  return M.ALLOW_SYSTEM[class] or M.ALLOW.unknown
 end
 
 --- A, C, F, then B. Never called for a refused class.

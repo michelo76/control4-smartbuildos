@@ -8,7 +8,8 @@
 --   [3]  B: values that are not short plain scalars dropped whole, counted
 --   [4]  C: occupancy names dropped in scope system only
 --   [5]  E: restricted classes in scope system: restricted_class, ZERO variables
---   [6]  F: allow-lists — lock and security (full), unknown (system)
+--   [6]  F: allow-lists — lock and security (full), every class answered in
+--        system (KI-68: a climate sensor's door flag never leaves)
 --   [7]  cameras refused in both scopes
 --   [8]  bounds: 40 variables / 4,096 bytes, dropped whole, never cut
 --   [9]  G: TEMPERATURE passed raw; narrowing; typed outcomes
@@ -106,6 +107,14 @@ local FX = {
   motion = vars({ { "MOTION_STATE", "Clear" }, { "BATTERY_LEVEL", "90" } }),
   contact = vars({ { "CONTACT_STATE", "Closed" }, { "BATTERY_LEVEL", "90" } }),
   relay = vars({ { "RELAY_STATE", "0" }, { "BATTERY_LEVEL", "90" } }),
+  -- Two climate sensors carrying a name no list knows (KI-68).
+  fridge = vars({ { "Temperature Probe", "54" }, { "HUMIDITY", "61" }, { "DOOR_AJAR", "1" } }),
+  room_sensor = vars({
+    { "TEMPERATURE_F", "70" },
+    { "HUMIDITY", "40" },
+    { "OCCUPANCY_SENSED", "1" },
+    { "IN_USE", "1" },
+  }),
   unknown = vars({
     { "CURRENT_INPUT", "HDMI 1" },
     { "VOLUME", "30" },
@@ -481,21 +490,91 @@ do
       and u.device.restricted == false,
     JSON:encode(u.variables)
   )
-  -- A wine-fridge probe: any TEMPERATURE* / HUMIDITY* name makes it
-  -- climate_sensor (D), which is answered with the deny-lists only. So the
-  -- unknown allow-list's TEMPERATURE* / HUMIDITY* entries can never match,
-  -- and a non-signature name on a climate sensor (DOOR_AJAR here) passes in
-  -- scope system. PINNED, not endorsed: reported to the conductor (round-two
-  -- report, open decision).
-  local wine = read(vars({ { "Temperature Probe", "54" }, { "DOOR_AJAR", "1" } }), "system")
+  -- KI-68 (closed): a climate_sensor in scope system gets the SAME allow-list
+  -- as an unknown device. A wine fridge's door flag, which no list knows,
+  -- never reaches the touchscreen; in scope full it is unchanged.
+  local fridge = read(FX.fridge, "system")
+  local fn = names(fridge)
   check(
-    "a wine-fridge probe is climate_sensor: its temperature answers in system",
-    wine.status == "completed" and wine.device.class == "climate_sensor" and names(wine)["Temperature Probe"] == "54",
-    JSON:encode(wine)
+    "the wine fridge (system): climate_sensor, temperature and humidity answer",
+    fridge.status == "completed"
+      and fridge.device.class == "climate_sensor"
+      and fridge.device.restricted == false
+      and fn["Temperature Probe"] == "54"
+      and fn.HUMIDITY == "61",
+    JSON:encode(fridge)
   )
   check(
-    "PINNED (open decision): a non-signature DOOR_AJAR on a climate_sensor passes in system",
-    names(wine).DOOR_AJAR == "1"
+    "the wine fridge (system): DOOR_AJAR is NOT sent (outside the allow-list)",
+    fn.DOOR_AJAR == nil and count(fn) == 2 and not JSON:encode(fridge):find("DOOR", 1, true),
+    JSON:encode(fridge.variables)
+  )
+  local fridgeFull = read(FX.fridge, "full")
+  check(
+    "the wine fridge (full): unchanged, the deny-lists only (DOOR_AJAR kept)",
+    fridgeFull.status == "completed" and names(fridgeFull).DOOR_AJAR == "1" and count(names(fridgeFull)) == 3
+  )
+  local occ = read(FX.room_sensor, "system")
+  local on = names(occ)
+  check(
+    "the room sensor (system): climate_sensor; temperature and humidity only",
+    occ.status == "completed"
+      and occ.device.class == "climate_sensor"
+      and count(on) == 2
+      and on.TEMPERATURE_F == "70"
+      and on.HUMIDITY == "40",
+    JSON:encode(occ.variables)
+  )
+  check(
+    "the room sensor (system): neither occupancy flag sent (OCCUPANCY_SENSED by C, IN_USE by the allow-list)",
+    on.OCCUPANCY_SENSED == nil and on.IN_USE == nil and occ.omitted.occupancy == 1,
+    JSON:encode(occ.omitted)
+  )
+  check(
+    "the room sensor (full): unchanged (both flags kept)",
+    names(read(FX.room_sensor, "full")).IN_USE == "1" and names(read(FX.room_sensor, "full")).OCCUPANCY_SENSED == "1"
+  )
+  -- The same fail-closed rule for every other class answered in system.
+  for _, c in ipairs({ "thermostat", "leak", "power", "battery", "climate_sensor", "unknown" }) do
+    local v = {}
+    for id, e in pairs(FX[c]) do
+      v[id] = e
+    end
+    v["9999"] = { name = "DOOR_AJAR", value = "1", readonly = "False" }
+    local sys, full = read(v, "system"), read(v, "full")
+    check(
+      c .. " (system): an unreviewed DOOR_AJAR is not sent; (full): it is",
+      sys.status == "completed"
+        and sys.device.class == c
+        and names(sys).DOOR_AJAR == nil
+        and full.status == "completed"
+        and names(full).DOOR_AJAR == "1",
+      JSON:encode(sys.variables)
+    )
+  end
+  check(
+    "every class answered in system has an allow-list (none falls to deny-lists only)",
+    (function()
+      for _, c in ipairs(D.CLASSES) do
+        if not D.refused(c, "system") and D.allowList(c, "system") == nil then
+          return false
+        end
+      end
+      return true
+    end)()
+  )
+  check(
+    "a class with no ALLOW_SYSTEM entry gets the base list (fail closed)",
+    D.allowList("a_class_added_later", "system") == D.ALLOW.unknown
+  )
+  check("climate_sensor's system list IS the unknown list", D.allowList("climate_sensor", "system") == D.ALLOW.unknown)
+  check(
+    "full scope: allow-lists for lock and security only",
+    D.allowList("lock", "full") ~= nil
+      and D.allowList("security", "full") ~= nil
+      and D.allowList("thermostat", "full") == nil
+      and D.allowList("climate_sensor", "full") == nil
+      and D.allowList("unknown", "full") == nil
   )
   local uf = read(FX.unknown, "full")
   check(
