@@ -825,15 +825,12 @@ do
   }
   sess.review = { ref = REF_A, loading = false, args_hash = HASH_A, title = "t" }
   local n0 = #sent
-  local r = ui:route(
-    {
-      method = "POST",
-      path = "/approvals/decide",
-      query = { k = "K", s = sess.token },
-      body = '{"decision":"approve"}',
-    },
-    "K"
-  )
+  local r = ui:route({
+    method = "POST",
+    path = "/approvals/decide",
+    query = { k = "K", s = sess.token },
+    body = '{"decision":"approve"}',
+  }, "K")
   local okDoc = JSON:decode(r.body)
   local decided = false
   for i = n0 + 1, #sent do
