@@ -109,6 +109,10 @@ Composer sends them.
 - *Reload Now* is meant to send the URL to the screens again. To do that today,
   clear **URL** and paste the address back.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — this driver does not report` when SmartBuildOS AI Core is in the project (neither this driver nor the SmartBuildOS Agent it belongs to sends AI Core reports) and `Not installed` when it is not; it shows `Searching…` until Director first answers.
+
 ## What is not claimed
 
 - The driver shows a page; it does not produce what is on it. If the Agent is

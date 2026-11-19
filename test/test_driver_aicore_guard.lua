@@ -57,7 +57,6 @@ local CHILD_BASES = {
 --- EMPTY when the brief is done; an entry that is already wired fails.
 local PENDING = {
   ["smartbuildos-venueflow"] = true,
-  ["smartbuildos-insights"] = true,
 }
 
 local XML =

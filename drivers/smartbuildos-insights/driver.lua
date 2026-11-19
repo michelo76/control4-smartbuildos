@@ -35,6 +35,11 @@
 
 WEBVIEW_PROXY_BINDINGID = 5001
 
+-- The AI Core property (ruling 20). This driver's root is the SmartBuildOS
+-- Agent, which sends no reports, so it shows "Installed — this driver does
+-- not report" or "Not installed". Passive: no frame of any kind.
+local aipresence = require("sbos.aipresence")
+
 --- How long to wait before re-announcing the URL after a driver load.
 ---
 --- Control4's sample uses 60s. Kept identical rather than tuned down: the value
@@ -96,6 +101,7 @@ end
 function OnDriverLateInit()
   C4:UpdateProperty("Driver Version", VERSION)
   publishUrl("load")
+  aipresence.start({ file = "smartbuildos-insights.c4z" })
   -- See STARTUP_NOTIFY_MS. The first notify above is the common case; this one
   -- is what survives a controller reboot.
   C4:SetTimer(STARTUP_NOTIFY_MS, function()
@@ -103,7 +109,18 @@ function OnDriverLateInit()
   end, false)
 end
 
+function OnDriverDestroyed()
+  aipresence.stop()
+end
+
+--- This driver has no vendored handlers (no OSE table): Director's system
+--- events reach AI Core presence here (OnDriverAdded / OnItemRemoved).
+function OnSystemEvent(event)
+  aipresence.onSystemEvent(event)
+end
+
 function OnPropertyChanged(name)
+  aipresence.recheck() -- the bounded AI Core re-check (KI-42)
   local handler = ON_PROPERTY_CHANGED[name]
   if type(handler) == "function" then
     handler(Properties[name])
@@ -182,6 +199,7 @@ function ExecuteCommand(command, params)
 end
 
 function ReceivedFromProxy(binding, command)
+  aipresence.recheck() -- proxy traffic: the bounded AI Core re-check (KI-42)
   -- Nothing to act on. The proxy's traffic is lifecycle -- the tile was shown,
   -- the URL was accepted -- and this driver has no state that depends on it.
   -- Logged rather than dropped so a future capability shows up in a log instead
