@@ -147,6 +147,32 @@ env.send("VENUE_STATUS", { status = "closed" }, M)
 env.send("VENUE_STATUS", { status = "open" }, M)
 env.settle(3000)
 eq("a triggered rule does not run", env.core.runtime.lastRun["rule:patio-follows-status"], before)
+-- ...and that is said, not skipped in silence: the status is set (manual
+-- control), the result says which rules did not run and why.
+do
+  env.send("VENUE_STATUS", { status = "closed" }, M)
+  local reply = env.send("VENUE_STATUS", { status = "open" }, M)
+  check("the operator page's status change succeeds", reply.ok and reply.data.venueStatus == "open")
+  eq("...and its reply counts the rule not run", reply.data.rulesNotRun, 1)
+  local entry = env.core.diag:list({ limit = 1 })[1]
+  check(
+    "...diagnostics: status set, one rule not run, licence restricted",
+    entry.level == "warning"
+      and entry.code == "VF_LICENSE_RESTRICTED"
+      and entry.message:find("Venue marked open", 1, true) ~= nil
+      and entry.message:find("1 rule(s) not run: licence restricted", 1, true) ~= nil,
+    entry.message
+  )
+  env.core:composer("SET_VENUE_STATUS", { STATUS = "Closed" })
+  local done, text, warned = env.core:composer("SET_VENUE_STATUS", { STATUS = "Open" })
+  eq("Composer's SET_VENUE_STATUS still succeeds", done, true)
+  eq("...applied", env.core.runtime.venueStatus, "open")
+  eq("...with a truthful result", text, "status set; 1 rule(s) not run: licence restricted")
+  eq("...flagged for Last Error", warned, true)
+  local _, plain, quiet = env.core:composer("SET_VENUE_STATUS", { STATUS = "Closed" })
+  eq("a change no rule waits for says only the status", plain, "closed")
+  eq("...and is not flagged", quiet, nil)
+end
 
 check("route", env.send("ROUTE_VIDEO", { sourceId = "sports-3", displayIds = { "tv-04" } }, M).ok)
 check("power", env.send("DISPLAY_POWER", { displayIds = { "tv-05" }, power = "off" }, M).ok)

@@ -764,4 +764,214 @@ do
   eq("after: an untouched display is still off", e.cell("display", "tv-09", "power").value, "off")
 end
 
+-- ── the alert count: one definition, also on a dismiss ──────────────────────
+print("ALERT_DISMISS writes the venue's count, not the stored one")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  e.sim():setFault(2110, "offline")
+  e.core:_checkOnline()
+  e.settle(1000)
+  e.send(
+    "PROGRAM_EXECUTE",
+    { confirm = true, program = { steps = { { type = "notify", message = "Ice machine", level = "warning" } } } },
+    st
+  )
+  e.settle(1000)
+  eq("an offline display and a notification: two alerts", e.core:alertCount(), 2)
+  eq("ALERT_COUNT says two", e.variables.ALERT_COUNT, 2)
+  local note = e.core.runtime.alerts[1]
+  check("dismissed", e.send("ALERT_DISMISS", { alertId = note.id }, mgr).ok)
+  -- No timer is advanced: the variable is right AT ONCE, not after the driver
+  -- or a later sync corrects it.
+  eq("at once, ALERT_COUNT is the venue's count (the offline display remains)", e.variables.ALERT_COUNT, 1)
+  eq("...the same number the Alerts property shows", e.variables.ALERT_COUNT, e.core:alertCount())
+  e.settle(1000)
+  eq("and stays so after the sync", e.variables.ALERT_COUNT, 1)
+end
+
+-- ── the alert sync timer and the core's life cycle ──────────────────────────
+print("the alert sync timer stops with the core and works after a restart")
+do
+  local e = H.new()
+  e.publishSample("sports_bar")
+  e.settle(1000)
+  e.sim():setFault(2110, "offline")
+  e.core:_checkOnline() -- arms the sync
+  check("a sync is pending", e.clock.timers[e.core.ALERT_TIMER or "VfAlertSync"] ~= nil)
+  e.core:stop()
+  eq("stop cancels the pending alert sync", e.clock.timers.VfAlertSync, nil)
+  local fired = #e.events
+  e.settle(2000)
+  eq("...so nothing fires after the core stopped", #e.events, fired)
+  -- Started again (the same core object): alerts must still sync.
+  e.core:start()
+  e.settle(1000)
+  eq("after a restart the offline display is counted", e.variables.ALERT_COUNT, e.core:alertCount())
+  e.sim():setFault(2110, nil)
+  e.core:_checkOnline()
+  e.settle(1000)
+  eq("...and its clearing too", e.variables.ALERT_COUNT, e.core:alertCount())
+  eq("...which is zero", e.core:alertCount(), 0)
+end
+
+print("a pending alert sync across a publish that removes the display it was about")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  e.settle(1000)
+  e.sim():setFault(2110, "offline")
+  e.core:_checkOnline()
+  e.settle(1000)
+  eq("tv-10 offline is one alert", e.core:alertCount(), 1)
+  local raised = 0
+  for _, k in ipairs(e.events) do
+    raised = raised + (k == "alert" and 1 or 0)
+  end
+  -- tv-10 goes out of the configuration; tv-11 is remapped to another
+  -- Control4 device (2199), which is offline.
+  e.sim():setFault(2199, "offline")
+  local draft = e.send("DRAFT_GET", {}, st).data.draft
+  local kept = {}
+  for _, d in ipairs(draft.config.displays) do
+    if d.id == "tv-11" then
+      d.c4DeviceId = 2199
+    end
+    if d.id ~= "tv-10" then
+      kept[#kept + 1] = d
+    end
+  end
+  draft.config.displays = kept
+  local function forget(t) -- every list that names tv-10 (groups, scene targets)
+    for k, v in pairs(t) do
+      if type(v) == "table" then
+        if k == "displayIds" then
+          local ids = {}
+          for _, id in ipairs(v) do
+            if id ~= "tv-10" then
+              ids[#ids + 1] = id
+            end
+          end
+          t[k] = ids
+        else
+          forget(v)
+        end
+      end
+    end
+  end
+  forget(draft.config.groups)
+  forget(draft.config.scenes)
+  forget(draft.config.rules)
+  local saved = e.send("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, st)
+  local acks = {}
+  for _, i in ipairs(saved.data and saved.data.issues or {}) do
+    acks[#acks + 1] = i.id
+  end
+  check("published without tv-10", e.send("PUBLISH", { acknowledged = acks }, st).ok)
+  e.settle(1000)
+  local after = 0
+  for _, k in ipairs(e.events) do
+    after = after + (k == "alert" and 1 or 0)
+  end
+  eq("tv-11 offline after the publish: the count follows", e.core:alertCount(), 1)
+  eq("ALERT_COUNT agrees", e.variables.ALERT_COUNT, 1)
+  eq("tv-11 is a NEW alert: Alert Raised fires once for it, not for tv-10's removal", after, raised + 1)
+end
+
+-- ── stored alerts and what a profile may see ────────────────────────────────
+print("a stored alert about displays a profile cannot see is not shown to it")
+do
+  local e = H.new()
+  local st = { session = e.publishSample("sports_bar") }
+  -- The bartender (the tile's profile, bar area only) may view alerts here.
+  local draft = e.send("DRAFT_GET", {}, st).data.draft
+  for _, p in ipairs(draft.config.profiles) do
+    if p.id == "bartender" then
+      p.permissions.viewAlerts = true
+    end
+  end
+  local saved = e.send("DRAFT_SAVE", { config = draft.config, baseRevision = draft.revision }, st)
+  local acks = {}
+  for _, i in ipairs(saved.data.issues or {}) do
+    acks[#acks + 1] = i.id
+  end
+  check("published", e.send("PUBLISH", { acknowledged = acks }, st).ok)
+  e.settle(1000)
+  local tile = { tile = true }
+  local mgr = { session = e.login("manager", "2580") }
+  local function run(name, displayId, wait)
+    local steps = { { type = "route_video", sourceId = "news", target = { displayIds = { displayId } } } }
+    if wait then
+      steps[#steps + 1] = { type = "wait", seconds = 20 }
+    end
+    return e.send("PROGRAM_EXECUTE", { confirm = true, name = name, program = { steps = steps } }, st)
+  end
+  -- A dining run interrupted by another dining run: the alert is about tv-12.
+  run("Dining one", "tv-12", true)
+  e.settle(2000)
+  run("Dining two", "tv-12", true)
+  e.settle(2000)
+  -- A bar run interrupted by another bar run: about tv-01.
+  run("Bar one", "tv-01", true)
+  e.settle(2000)
+  run("Bar two", "tv-01", true)
+  e.settle(2000)
+  -- A notification names no display: venue-wide.
+  e.send(
+    "PROGRAM_EXECUTE",
+    { confirm = true, program = { steps = { { type = "notify", message = "Ice machine", level = "info" } } } },
+    st
+  )
+  e.settle(500)
+  -- Missed schedules (the scheduler's report, as it reaches the core): one
+  -- about a dining display, one about a bar display.
+  local function schedule(id, displayId)
+    return {
+      id = id,
+      name = id,
+      enabled = true,
+      trigger = { type = "schedule", days = { 1 }, time = "09:00" },
+      program = { steps = { { type = "route_video", sourceId = "news", target = { displayIds = { displayId } } } } },
+    }
+  end
+  e.core.scheduler.deps.missed(schedule("dining-early", "tv-13"), "2026-11-09 09:00")
+  e.core.scheduler.deps.missed(schedule("bar-early", "tv-02"), "2026-11-09 09:00")
+  local function titles(o)
+    local out = {}
+    for _, a in ipairs(e.send("GET_STATE", {}, o).data.state.alerts) do
+      out[a.title] = a
+    end
+    return out
+  end
+  local bar, all = titles(tile), titles(mgr)
+  check("the manager (all areas) sees the dining interruption", all["Dining one was interrupted"] ~= nil)
+  check("...and the bar one", all["Bar one was interrupted"] ~= nil)
+  check("the bar tile does NOT see the dining interruption", bar["Dining one was interrupted"] == nil)
+  check("...but sees the bar one", bar["Bar one was interrupted"] ~= nil)
+  check("...and the venue-wide notification", bar["Ice machine"] ~= nil)
+  check(
+    "the manager sees both missed schedules",
+    all["Missed schedule: dining-early"] and all["Missed schedule: bar-early"]
+  )
+  check("the bar tile does NOT see the dining one", bar["Missed schedule: dining-early"] == nil)
+  check("...but sees the bar one", bar["Missed schedule: bar-early"] ~= nil)
+  eq(
+    "the bar tile cannot dismiss the dining alert (as if it did not exist)",
+    e.send("ALERT_DISMISS", { alertId = all["Dining one was interrupted"].id }, tile).errorCode,
+    "VF_NOT_FOUND"
+  )
+  check(
+    "...but may dismiss the bar one",
+    e.send("ALERT_DISMISS", { alertId = bar["Bar one was interrupted"].id }, tile).ok
+  )
+  check("...and the notification", e.send("ALERT_DISMISS", { alertId = bar["Ice machine"].id }, tile).ok)
+  check("the manager still sees the dining alert", titles(mgr)["Dining one was interrupted"] ~= nil)
+  check(
+    "a stored alert's references never reach a page",
+    not H.JSON:encode(e.send("GET_STATE", {}, mgr).data.state.alerts):find("refs", 1, true)
+  )
+  eq("Composer's count is the whole venue's (dining interruption, two missed)", e.core:alertCount(), 3)
+end
+
 T.done()

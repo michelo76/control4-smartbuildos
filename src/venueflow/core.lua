@@ -411,6 +411,9 @@ function Core:load(reason)
         level = "warning",
         title = "Missed schedule: " .. tostring(rule.name),
         detail = "Was due " .. stamp .. "; not run late.",
+        refs = self:_alertRefs(
+          Rules.touches(type(rule.program) == "table" and rule.program.steps or {}, self.config, self.ix)
+        ),
       })
     end,
     save = function()
@@ -471,6 +474,10 @@ end
 function Core:stop()
   self.deps.timers.cancel(M.TICK_TIMER)
   self.deps.timers.cancel(M.SAVE_TIMER)
+  -- A pending alert comparison would fire Alert Raised and write ALERT_COUNT
+  -- after the driver stopped. Disarmed too, so a later start can arm it again.
+  self.deps.timers.cancel(M.ALERT_TIMER)
+  self.alertSyncArmed = false
   self.runner:cancelAll("VF_CANCELLED", "driver stopping")
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:stop()
@@ -790,8 +797,24 @@ function Core:_env(context)
 end
 
 --- A newer run that changes the same devices stops the older one, and says so.
-function Core:_stopOverlapping(touches, name)
+--- `spec` is the newer run (its kind and scene, when it is one).
+function Core:_stopOverlapping(touches, name, spec)
   for _, exec in ipairs(self.runner:overlapping(touches)) do
+    -- What the alert is about: the devices both runs change, and each scene
+    -- it names (a rule or a test program has no scene to name).
+    local shared = {}
+    for key in pairs(type(exec.touches) == "table" and exec.touches or {}) do
+      if touches[key] then
+        shared[key] = true
+      end
+    end
+    local scenes = {}
+    if exec.kind == "scene" and exec.refId ~= nil then
+      scenes[#scenes + 1] = exec.refId
+    end
+    if spec ~= nil and spec.kind == "scene" and spec.refId ~= nil then
+      scenes[#scenes + 1] = spec.refId
+    end
     self.diag:add(
       "warning",
       "scene",
@@ -803,6 +826,7 @@ function Core:_stopOverlapping(touches, name)
       level = "warning",
       title = tostring(exec.name) .. " was interrupted",
       detail = "Stopped because " .. tostring(name) .. " started and changes the same devices.",
+      refs = self:_alertRefs(shared, scenes),
     })
     self.runner:cancel(exec.id, "VF_SUPERSEDED", name)
   end
@@ -811,7 +835,7 @@ end
 function Core:_start(spec)
   if not spec.dryRun then
     spec.touches = Rules.touches(spec.program.steps, self.config, self.ix)
-    self:_stopOverlapping(spec.touches, spec.name)
+    self:_stopOverlapping(spec.touches, spec.name, spec)
   end
   return self.runner:start(spec)
 end
@@ -945,24 +969,43 @@ function Core:_executionUpdated(exec)
   self.state:touch()
 end
 
+--- Sets the venue status (manual control: works under any licence).
+--- Returns ok, and how many rules waiting for this change were NOT run (a
+--- restricted licence, or a rule that failed to start), so a caller can say
+--- so instead of skipping them in silence.
 function Core:setVenueStatus(status, origin)
   if status ~= "open" and status ~= "closed" then
-    return false
+    return false, 0
   end
   if self.runtime.venueStatus == status then
-    return true
+    return true, 0
   end
   self.runtime.venueStatus = status
   self:_saveRuntimeSoon()
   self.state:touch()
-  self.diag:add("info", "driver", nil, "Venue marked " .. status .. " (" .. tostring(origin) .. ")")
   self:_hook("setVariable", "VENUE_STATUS", status)
   self:_hook("fireEvent", status == "open" and "venue_open" or "venue_closed")
   self:_hook("record", "venue " .. status, tostring(origin))
-  self:_fireRules(function(rule)
+  local _, notRun = self:_fireRules(function(rule)
     return rule.trigger.type == "venue_status" and rule.trigger.status == status
   end, "venue_status")
-  return true
+  local text = "Venue marked " .. status .. " (" .. tostring(origin) .. ")"
+  if notRun > 0 then
+    self.diag:add(
+      "warning",
+      self.restricted and "license" or "driver",
+      self.restricted and "VF_LICENSE_RESTRICTED" or nil,
+      text .. "; " .. M.notRunText(notRun, self.restricted)
+    )
+  else
+    self.diag:add("info", "driver", nil, text)
+  end
+  return true, notRun
+end
+
+--- "N rule(s) not run" and why, as Composer and diagnostics say it.
+function M.notRunText(notRun, restricted)
+  return notRun .. " rule(s) not run" .. (restricted and ": licence restricted" or "")
 end
 
 --- Everything off: displays, audio zones, running scenes. System access; the
@@ -1156,9 +1199,69 @@ function Core:_derivedAlerts(access)
     end
   end
   for _, a in ipairs(self.runtime.alerts) do
-    out[#out + 1] = { id = a.id, level = a.level, title = a.title, detail = a.detail, at = a.at, dismissable = true }
+    if self:_storedAlertVisible(a, access) then
+      out[#out + 1] = { id = a.id, level = a.level, title = a.title, detail = a.detail, at = a.at, dismissable = true }
+    end
   end
   return out
+end
+
+--- What a stored alert is about, kept with it (never sent to a page): the
+--- displays and zones (`touches`, "d:<id>" / "z:<id>" as Rules.touches gives
+--- them) and the scenes it names. nil when it names none of these: a
+--- venue-wide alert (a notification's text is the installer's message to
+--- whoever looks after the venue, so it is one).
+function Core:_alertRefs(touches, scenes)
+  local refs = { displays = {}, zones = {}, scenes = {} }
+  for key in pairs(touches or {}) do
+    local kind, id = tostring(key):match("^([dz]):(.+)$")
+    if kind == "d" then
+      refs.displays[#refs.displays + 1] = id
+    elseif kind == "z" then
+      refs.zones[#refs.zones + 1] = id
+    end
+  end
+  for _, id in ipairs(scenes or {}) do
+    refs.scenes[#refs.scenes + 1] = id
+  end
+  if #refs.displays + #refs.zones + #refs.scenes == 0 then
+    return nil
+  end
+  table.sort(refs.displays)
+  table.sort(refs.zones)
+  return refs
+end
+
+--- A stored alert is shown to (and dismissable by) a profile only when the
+--- profile may see every display, zone and scene the alert is about. One that
+--- names something no longer in the configuration is not shown to a profile
+--- (whether it could see it cannot be known); the installer and Composer see
+--- every alert.
+function Core:_storedAlertVisible(alert, access)
+  local refs = alert.refs
+  if access.system or refs == nil then
+    return true
+  end
+  local ix = self.ix or {}
+  for _, id in ipairs(refs.displays or {}) do
+    local d = ix.displays and ix.displays[id]
+    if d == nil or not access:display(d) then
+      return false
+    end
+  end
+  for _, id in ipairs(refs.zones or {}) do
+    local z = ix.zones and ix.zones[id]
+    if z == nil or not access:zone(z) then
+      return false
+    end
+  end
+  for _, id in ipairs(refs.scenes or {}) do
+    local scene = ix.scenes and ix.scenes[id]
+    if scene == nil or not access:scene(scene) then
+      return false
+    end
+  end
+  return true
 end
 
 local NEUTRAL_LABEL = {
@@ -1820,8 +1923,15 @@ function H.VENUE_STATUS(core, p, ctx)
   if not ctx.access:flag("venueStatus") then
     return fail("VF_FORBIDDEN", "profile may not change the venue status")
   end
-  core:setVenueStatus(p.status, ctx.who)
-  return { ok = true, status = "ok", data = { venueStatus = core.runtime.venueStatus } }
+  local _, notRun = core:setVenueStatus(p.status, ctx.who)
+  -- The status is set whatever the licence; a rule waiting for it that did
+  -- not run is counted (the reason is in diagnostics and, for a restricted
+  -- licence, in the licence alert).
+  return {
+    ok = true,
+    status = "ok",
+    data = { venueStatus = core.runtime.venueStatus, rulesNotRun = notRun > 0 and notRun or nil },
+  }
 end
 
 function H.QUERY_STATUS(core, p, ctx)
@@ -1890,7 +2000,9 @@ function H.ALERT_DISMISS(core, p, ctx)
     if a.id == p.alertId then
       table.remove(core.runtime.alerts, i)
       core.state:touch()
-      core:_hook("setVariable", "ALERT_COUNT", #core.runtime.alerts)
+      -- The venue's count (Core:alertCount), the one definition behind the
+      -- Alerts property and HAS_ALERTS: derived alerts stay counted.
+      core:_publishAlertCount()
       return { ok = true, status = "ok" }
     end
   end
@@ -3123,7 +3235,9 @@ end
 
 --- Commands a dealer places in Composer programming. They run with system
 --- access: whoever programs the controller already controls it.
---- Returns ok, message.
+--- Returns ok, message, and `true` as a third value when the command did
+--- its job but something it would have started did not run (the driver then
+--- writes the message to Last Error).
 function Core:composer(command, params)
   params = params or {}
   if self.config == nil then
@@ -3148,12 +3262,18 @@ function Core:composer(command, params)
     if n == 0 and notRun > 0 and self.restricted then
       return false, "licence restricted: " .. notRun .. " rule(s) not run"
     elseif notRun > 0 then
-      return n > 0, n .. " rule(s) run, " .. notRun .. " not run"
+      return n > 0, n .. " rule(s) run, " .. notRun .. " not run", true
     end
     return n > 0, n .. " rule(s) run"
   elseif command == "SET_VENUE_STATUS" then
     local status = U.trim(params.STATUS):lower()
-    return self:setVenueStatus(status, "composer"), status
+    local done, notRun = self:setVenueStatus(status, "composer")
+    if done and notRun > 0 then
+      -- Manual control: the status IS set. The rules that did not run are
+      -- said (the third value asks the driver to write Last Error).
+      return true, "status set; " .. M.notRunText(notRun, self.restricted), true
+    end
+    return done, status
   elseif command == "ALL_OFF" then
     local r = self:allOff("composer", false)
     return r.ok, r.status
