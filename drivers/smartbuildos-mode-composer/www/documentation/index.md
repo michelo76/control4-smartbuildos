@@ -673,7 +673,8 @@ SmartBuildOS Agent has verified, and only if the driver's declaration has
 not changed since the approval. The answer says what really happened: the
 mode is active, a countdown started, the commands are being sent (the
 outcome follows as an event), or why it did not run (unknown or switched-off
-mode, blocked by a preflight check).
+mode, blocked by a preflight check). A countdown or an activation still
+sending commands is reported as *started*, never as completed.
 
 Reports are lossy by design (a few a minute at most); nothing is queued
 while AI Core is absent, and nothing changes in this driver when AI Core is

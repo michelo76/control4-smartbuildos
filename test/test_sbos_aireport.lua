@@ -1212,7 +1212,11 @@ do
     risk = "low",
   }, function(params)
     actionCalls = actionCalls + 1
-    return "Refreshed from " .. tostring(params.source or "primary")
+    if params.source == "primary" then
+      -- Ruling 23: work begun that finishes later.
+      return "Refresh started; the outcome follows as an event", { in_progress = true }
+    end
+    return "Refreshed from " .. tostring(params.source or "backup"), "ignored second value"
   end)
   check("valid query and action declared", okQ and okA)
   aireport.start({ sku = "SBOS_ATMOSPHERE" })
@@ -1273,6 +1277,19 @@ do
     "action with the current hash runs once",
     r and r.status == "ok" and r.result.ok == true and r.result.result_text == "Refreshed from backup" and actionCalls == 1
   )
+  check("…a finished action is plain success (no in_progress key)", r and r.result.in_progress == nil)
+  r = act({ action_id = "refresh_now", params = { source = "primary" }, ai_action_id = "act-1b", declaration_hash = hash })
+  check(
+    "started, not finished: { ok = true, in_progress = true, result_text } (ruling 23)",
+    r
+      and r.status == "ok"
+      and r.result.ok == true
+      and r.result.in_progress == true
+      and r.result.result_text == "Refresh started; the outcome follows as an event"
+      and actionCalls == 2,
+    r and JSON:encode(r.result)
+  )
+  actionCalls = 1 -- the counts below are about the refused calls
   r = act({ action_id = "refresh_now", params = {}, ai_action_id = "act-2", declaration_hash = "0000000000000000" })
   check(
     "declaration_hash mismatch refused, handler not run",

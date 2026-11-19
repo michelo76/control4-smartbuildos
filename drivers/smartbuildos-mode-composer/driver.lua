@@ -2429,10 +2429,15 @@ TC.LIFESTYLE_MODE_IS = nameConditional("LIFESTYLE")
 --              platform only proposes it, a person approves it, and the
 --              helper runs it only for a verified AI Core whose declaration
 --              hash matches. It runs the same activation as Composer's
---              Activate Mode command (source SMARTBUILDOS).
+--              Activate Mode command (source SMARTBUILDOS). An activation
+--              still sending device commands, or in a departure countdown,
+--              answers in_progress (started, not completed); only a
+--              finished activation answers plain success.
 
 local AI_CATEGORY = { PRESENCE = "presence", LIFESTYLE = "lifestyle" }
 local AI_MAX_MODES = 48
+-- The action outcome for work begun that finishes later (aireport, ruling 23).
+local AI_IN_PROGRESS = { in_progress = true }
 
 aiReportState = function()
   if gEngine == nil or gConfig == nil then
@@ -2570,7 +2575,10 @@ local function aiActivateMode(params)
     return string.format("%s is already active", mode.name)
   end
   if outcome.status == "COUNTDOWN" then
-    return string.format("%s starts in %d seconds (departure countdown)", mode.name, tonumber(outcome.seconds) or 0)
+    -- Not active yet (the countdown can still be cancelled): started, not
+    -- finished (ruling 23).
+    return string.format("%s starts in %d seconds (departure countdown)", mode.name, tonumber(outcome.seconds) or 0),
+      AI_IN_PROGRESS
   end
   if outcome.status == "DONE" and outcome.result == "BLOCKED" then
     return nil, string.format("%s was blocked by its preflight checks", mode.name)
@@ -2588,11 +2596,14 @@ local function aiActivateMode(params)
     end
     return string.format("%s is active", mode.name)
   end
+  -- Still sending device commands: started, not finished (ruling 23), so
+  -- it is never recorded as completed.
   return string.format(
     "Activating %s: %d device command(s) are being sent; the outcome follows as an event",
     mode.name,
     tonumber(outcome.actions) or 0
-  )
+  ),
+    AI_IN_PROGRESS
 end
 
 local function startAiCore()

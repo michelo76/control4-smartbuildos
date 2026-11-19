@@ -858,10 +858,21 @@ aireport.declareAction({
   params = {},
   risk = "low", -- low | medium | high; by contract the platform treats a driver action as at least medium
 }, function(params, req)
-  refreshNow()
-  return "Refresh started" -- result text, <= 240; or nil, reason
+  refreshNow() -- asynchronous: the fetch finishes later
+  return "Refresh started", { in_progress = true } -- or "text" when finished; or nil, reason
 end)
 ```
+
+**Finished or only started.** A handler returns `text` when the action has
+finished, `nil, reason` when it did not run, and `text, { in_progress = true }`
+when it has *begun* work that finishes later (a timer, a queue of device
+commands, a countdown). The helper answers the last one
+`{ ok = true, in_progress = true, result_text }`, never plain success, so
+the outcome is recorded as **started**, not completed (conductor ruling 23;
+AI Core relays it as `driver_action_result` status `started`). Report the
+real outcome afterwards as an event. Mode Composer's `activate_mode` does
+this for a departure countdown and for an activation still sending device
+commands; a finished activation is plain success.
 
 **Text is required and must not be empty.** AI Core refuses a describe that
 carries empty text, and a refused describe means the cloud never learns about
@@ -891,7 +902,8 @@ declaration before your handler runs: unknown keys, a missing required param,
 a wrong type, a value outside the enum or range, an over-long string or one
 carrying control or bidi characters are refused `invalid_args`, never
 repaired. A query answers `{ ok = true, data }` (scalars and tables, at most
-3 deep, ≤ 24 KB); an action answers `{ ok, result_text }`.
+3 deep, ≤ 24 KB); an action answers `{ ok, result_text }`, plus
+`in_progress = true` when the handler said so.
 
 ### The rules
 
@@ -1015,7 +1027,9 @@ your own `client.setup` chose.
   it; the unit test did not).
 - A declared action's handler runs synchronously but an activation may not
   finish synchronously: the result text must say what is true at that
-  moment ("being sent; the outcome follows as an event"), never "done".
+  moment ("being sent; the outcome follows as an event"), never "done",
+  and the handler returns `{ in_progress = true }` with it so the answer
+  is "started", not "completed" (ruling 23).
 - Simulated or test data must never be reported as real (Atmosphere sends
   no weather values and no events during a dealer simulation).
 - Harness trap: the Agent's identity resolver answering `{}` for a file

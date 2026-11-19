@@ -196,6 +196,10 @@ module bus (guide §9); without AI Core it sends nothing. The driver has no
   seconds`, `Activating X: N device command(s) are being sent; the outcome
   follows as an event` (async queue), `X is already active`; refusals
   (`ok = false`): unknown or switched-off mode, blocked by preflight, failed.
+  The countdown and still-sending answers carry `in_progress = true`
+  (started, not finished; conductor ruling 23), so they are never recorded
+  as completed; only a finished activation or "already active" is plain
+  success.
   The helper refuses bad params, an unverified AI Core and a stale
   `declaration_hash` before the handler runs. Activations stay ungated by
   the licence, as every other activation.

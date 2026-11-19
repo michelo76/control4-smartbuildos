@@ -1351,12 +1351,19 @@ local function serveAction(req, respond)
     return refuse(respond, "invalid_args", why)
   end
   S.counters.actions = S.counters.actions + 1
-  local ok, text, reason = pcall(a.handler, params, req)
+  local ok, text, second = pcall(a.handler, params, req)
   if not ok then
     return refuse(respond, "internal_error", "failed")
   end
   if text == nil or text == false then
-    respond("ok", { ok = false, result_text = M.clean(reason or "failed", M.LIMITS.result_text) })
+    respond("ok", { ok = false, result_text = M.clean(type(second) == "string" and second or "failed", M.LIMITS.result_text) })
+    return
+  end
+  if type(second) == "table" and second.in_progress == true then
+    -- Started, not finished (ruling 23): the handler began work that ends
+    -- later. Never answered as plain success, so it is never recorded as
+    -- completed; the outcome follows as an event.
+    respond("ok", { ok = true, in_progress = true, result_text = M.clean(text, M.LIMITS.result_text) })
     return
   end
   respond("ok", { ok = true, result_text = M.clean(text, M.LIMITS.result_text) })
@@ -1461,9 +1468,12 @@ end
 
 --- Declares an action. It never runs without a person's approval in the
 --- platform; here it runs only for a verified AI Core with the current
---- declaration hash. handler(params, req) returns result text (<= 240), or
---- nil, reason. An id already declared with a different declaration is
---- refused (`action_duplicate`) unless opts = { replace = true }.
+--- declaration hash. handler(params, req) returns result text (<= 240)
+--- when the action finished; result text, { in_progress = true } when it
+--- began work that finishes later (answered { ok = true, in_progress = true,
+--- result_text }, never as plain success); or nil, reason. An id already
+--- declared with a different declaration is refused (`action_duplicate`)
+--- unless opts = { replace = true }.
 function M.declareAction(decl, handler, opts)
   return declare("action", decl, handler, opts)
 end

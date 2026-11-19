@@ -356,6 +356,7 @@ check(
   r and r.status == "ok" and r.result.ok == true and r.result.result_text == "Movie is active",
   r and JSON:encode(r)
 )
+check("…finished, so plain success (no in_progress)", r and r.result.in_progress == nil, r and JSON:encode(r))
 check(
   "…the lifestyle mode really changed",
   gEngine:activeModes().LIFESTYLE ~= nil and Properties["Lifestyle Mode"] == "Movie"
@@ -370,6 +371,11 @@ check(
     and r.result.result_text == "Activating Away: 3 device command(s) are being sent; the outcome follows as an event",
   r and JSON:encode(r)
 )
+check(
+  "…still sending: answered in_progress (started, never 'completed'; ruling 23)",
+  r and r.result.ok == true and r.result.in_progress == true,
+  r and JSON:encode(r)
+)
 drain()
 check(
   "…and then it really is Away (3 lights off)",
@@ -377,7 +383,10 @@ check(
   H.count("OFF") - sentBefore
 )
 r = act({ mode = "Away" })
-check("already active: said so", r and r.result.ok == true and r.result.result_text == "Away is already active")
+check(
+  "already active: said so, plain success",
+  r and r.result.ok == true and r.result.result_text == "Away is already active" and r.result.in_progress == nil
+)
 r = act({ mode = "Vacation" })
 check(
   "blocked by preflight: ok = false, the reason",
@@ -448,6 +457,30 @@ H.pushDirectory()
 r = act({ mode = "Home" })
 drain()
 check("verified again: runs", r and r.result.ok == true and Properties["Presence Mode"] == "Home", r and JSON:encode(r))
+-- A departure countdown: nothing is active yet and it can still be
+-- cancelled, so it is started, not finished.
+local away
+for _, m in pairs(gConfig.modes) do
+  if m.name == "Away" then
+    away = m
+  end
+end
+away.transition = away.transition or {}
+away.transition.countdown_s = 30
+r = act({ mode = "Away" })
+check(
+  "a departure countdown: in_progress, the mode not yet active",
+  r
+    and r.result.ok == true
+    and r.result.in_progress == true
+    and r.result.result_text == "Away starts in 30 seconds (departure countdown)"
+    and Properties["Presence Mode"] == "Home",
+  r and JSON:encode(r)
+)
+gEngine:cancelTransition("test")
+away.transition.countdown_s = 0
+drain()
+check("…cancelled: still Home", Properties["Presence Mode"] == "Home", Properties["Presence Mode"])
 
 print("[6] AI Core goes away and comes back")
 H.aiRemove()
