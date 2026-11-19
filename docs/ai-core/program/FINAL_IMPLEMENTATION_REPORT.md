@@ -1,6 +1,6 @@
 # SmartBuildOS AI Core — Implementation Report
 
-Date: 2026-11-18 (close-out) · Author: the conductor · Companion documents: `ARCHITECTURE.md`, `IMPLEMENTATION_CHECKLIST.md` (same folder). Source of truth for decisions and verification: the conductor's facts file `STATUS-2026-11-18-evening.md` and `SPEC-webview-and-driver-reporting.md` §8.
+Date: 2026-11-18 (close-out), with section 10 added on 2026-11-19 for round two · Author: the conductor · Companion documents: `ARCHITECTURE.md`, `IMPLEMENTATION_CHECKLIST.md` (same folder). Source of truth for decisions and verification: the conductor's facts file `STATUS-2026-11-18-evening.md` and `SPEC-webview-and-driver-reporting.md` §8.
 
 Final heads at the time of the conductor's final rerun: driver `feat/ai-core` at `26a3d44`, plus documents-only commits after it; platform `codex/ai-core` at `2ebbd5bd2`.
 
@@ -11,7 +11,7 @@ AI Core is built and passes its automated tests **in simulation only**. Nothing 
 - **Pull requests are open, not merged:** driver `michelo76/control4-smartbuildos#49` (`feat/ai-core`) and platform `michelo76/smartbuildos#435` (`codex/ai-core`), opened on 2026-11-18 with the owner's go-ahead. Commits made after that first push stay local until the conductor pushes them.
 - **No migration has been applied to any remote database.**
 - **Nothing has been published to the Driver Store.** No `.c4z` has been built for the drivers changed after the first push.
-- **A second round is agreed and not started** (section 8): live device answers, dealer-set preset questions on the touchscreen, battery and sensor health in homeowner answers. It begins after the migrations are shown.
+- **Round two is built in simulation on separate, unpushed branches** (section 10): live device answers, dealer-set preset questions on the touchscreen, battery and sensor health. Driver `feat/ai-core-round2` (stacked on `09d138b`) and platform `codex/ai-core-round2` (stacked on `e30367901`); the two pull requests are frozen at those heads for the owner to apply and deploy and **do not contain round two**. Its one new migration is not applied anywhere remote.
 
 The owner took nine decisions on 2026-11-18 (price, the ninth Studio destination, Flight Recorder retention, household-analysis scheduling, a touchscreen page, driver reporting from every driver, PIN approvals, a PIN-locked chat, all 52 drivers). They were built the same day as two new phases (11 and 12 in the checklist).
 
@@ -174,7 +174,7 @@ After the final rerun, the documents-only close-out commits changed only documen
 | `.c4z` for the changed drivers (10.8, 12.19) | No packager in this worktree |
 | New versions of all 52 drivers (12.20) | Owner decision and go-ahead |
 | The last migration fix from the independent review (lock ordering, 10.14) | In progress at the time of writing |
-| Second round (13.1): live device answers, preset questions, battery and sensor health | Agreed by the owner 2026-11-18; begins after the migrations are shown |
+| Round two (Phase 13): built in simulation on unpushed branches; the platform's matching preset rule and temperature unit (13.11) in progress; hardware checks 13.12–13.15; camera descriptions on hold (13.16) | See section 10; owner decisions 26–30 |
 | "Rarely used scenes", seasonal patterns, away-mode recommendations | The data does not support them: about 30 days of history and no scene inventory |
 | Automatic acceptance of a programming recommendation into a blueprint | Composer Studio has no per-project programming field |
 | Driver-side licence transfer workflow | Transfer is a platform staff action today |
@@ -229,7 +229,7 @@ Design limits worth knowing:
 
 ## 7. Known issues
 
-The driver repo's `docs/ai-core/KNOWN-ISSUES.md` holds 62 numbered entries (KI-1 to KI-62): 59 still standing (open, mitigated or by design) and 3 marked closed (KI-43, KI-47, KI-51). The ones most likely to matter:
+The driver repo's `docs/ai-core/KNOWN-ISSUES.md` holds 62 numbered entries (KI-1 to KI-62): 59 still standing (open, mitigated or by design) and 3 marked closed (KI-43, KI-47, KI-51). On the unpushed round-two branch `feat/ai-core-round2` the same file holds 74 (KI-1 to KI-74): 69 standing and 5 closed (KI-67 and KI-68 also closed); KI-63 to KI-74 are round two's (section 10). The ones most likely to matter:
 
 - **Not verified on hardware** (KI-10 to KI-16, KI-41, KI-42, KI-52, KI-53, KI-56): load on 3.3.2 and 4.x, frame ordering and sizes, sizes at 48 modules, whether child drivers receive the system events the passive module relies on, bus latency, the cross-port PIN post in Navigator, page-close events.
 - **The PIN on the home network** travels as plain HTTP (KI-54), and the cloud cannot verify it (KI-58).
@@ -252,8 +252,8 @@ The driver repo's `docs/ai-core/KNOWN-ISSUES.md` holds 62 numbered entries (KI-1
 5. Build the `.c4z` files where the packager is available, measure their sizes, and decide whether to publish new versions of all 52 drivers.
 6. One live AI call per provider with a real key.
 7. Start the vendor conversations for calendar OAuth and reservation partners if the concierge is to go beyond the sandbox.
-8. The second round, once the migrations are shown, in this order: live device answers (a read-only tool that reads a device's current values through the AI Core driver), dealer-set preset questions in the touchscreen page, battery and sensor health in homeowner answers. Camera snapshot descriptions are on hold for an owner decision on privacy.
-9. Work through the open owner decisions, including 24 (pre-existing database permissions) and 25 (owner PIN and household answers).
+8. Round two (section 10): the conductor's final rerun at the round-two heads; then the owner decides whether to ship it, push its branches, and apply its migration (after file 12, before the round-two app). Camera snapshot descriptions stay on hold for an owner decision on privacy.
+9. Work through the open owner decisions, including 24 (pre-existing database permissions), 25 (owner PIN and household answers) and the round-two decisions 26–30.
 
 ---
 
@@ -266,3 +266,44 @@ The full list is at the end of `IMPLEMENTATION_CHECKLIST.md`.
 - **New, for the owner to confirm or change (16–23):** the touchscreen ceiling (low and medium); homeowner-only opt-in; owner PINs only; no PIN name recorded; the freshness window and rate caps; the driver-report limits (64 live drivers, 2,000 events a day, 30-day retention); whether to build and publish new versions of all 52 drivers; whether to add PIN-protected approval of recommendations later.
 - **New at the close-out (24–25):** 24 — pre-existing database permissions found during the review, outside these migrations and not changed by them: the signed-out and ordinary signed-in roles hold TRUNCATE on `companies` and `profiles`, and TRIGGER / MAINTAIN / REFERENCES on `ai_usage_events` (the migrations revoke only TRUNCATE on `ai_usage_events`); 25 — whether an owner PIN alone should unlock household answers on the touchscreen (today a separate homeowner portal switch, default off).
 - The conductor's 24 rulings (each reversible) are in `SPEC-webview-and-driver-reporting.md` §8.
+- **New with round two (26–30):** 26 — whether an owner PIN alone should unlock door, lock and light state on the touchscreen (today no); 27 — whether to apply the round-two migration; 28 — whether to switch System Studio monitoring on by default; 29 — whether lights and media count as occupancy (today yes); 30 — camera snapshot descriptions, still on hold.
+
+---
+
+## 10. Round two (2026-11-19, on separate, unpushed branches)
+
+Driver `feat/ai-core-round2` (stacked on the frozen `09d138b`) and platform `codex/ai-core-round2` (stacked on the frozen `e30367901`). **Not pushed. The frozen pull requests #49 and #435 do not contain any of this.** Specification and rulings: `SPEC-round2-live-answers.md` §9. Checklist Phase 13.
+
+### What was built
+
+- **A live device read.** Restricted operation `ai_core.read_device_state` (platform → controller) and cloud op `device_state_result` (controller → platform). AI Core reads one device once and decides on the controller, before anything leaves the home, what may be sent: cameras refused in every scope; locks, security, doors, motion, contacts, relays and lights refused at scope `system`; secret, personal and occupancy names dropped and counted; at `system` only reviewed allow-lists. The platform screens the answer a second time.
+- **Two read-only AI tools, making the fixed set 39:** `devices.get_state` (one device, live, waits up to 15 seconds and otherwise says no current value is known) and `devices.health` (battery and sensor health from the samples the SmartBuildOS Agent already uploads when System Studio monitoring is on — off by default; the tool says plainly when it is off).
+- **What a touchscreen can be told** with the homeowner's portal switch off: temperature, humidity, battery, signal quality, online status and the temperature scale. Locks, security, doors, motion, contacts, relays, lights and cameras are refused before anything is sent. Never energy: there is no energy data anywhere, and the AI is held to saying so. With the switch on, or in the portal for a signed-in homeowner, the existing household rules decide. Cameras are always refused.
+- **Dealer preset questions:** at most 6, set by staff in Studio, shown on the touchscreen only after the chat is unlocked with an owner PIN, alongside the three built-in questions. Delivered only to a controller whose AI Core registers the live read (an older driver gets the round-one document byte for byte).
+- **One new migration, `20261119120000_ai_core_round2.sql`** — not one of the twelve. The owner applies it only if and when he ships round two: after file 12, before the round-two app. Its rollback deletes every home's presets.
+
+### Rerun by the conductor (snapshots during round two)
+
+| Snapshot | Result |
+| --- | --- |
+| Driver `64660fb` (live read) | 194 test files, 0 failed; lint 0/0; emulator 132, 47, 39, 34, 24, all passing |
+| Driver `1a663b1` (filter fixes and presets) | 194 test files, 0 failed; lint 0/0; emulator 132, 47, 39, 37, 24 |
+| Platform `e68167946` (wire, handler, round-two migration) | unit 12,710 of 12,710; typecheck 0 errors; lint 0 errors and 1,432 pre-existing warnings; browser 22 of 22; the twelve frozen migration files unchanged |
+| The round-two heads (the platform's tools-and-presets head; the driver's last head) | ⟨conductor: round-two final totals⟩ |
+
+### Reported by workers, not rerun by the conductor
+
+- The platform's two tools, the Studio presets editor with the gate, and the energy guard (platform unit and browser tests on `codex/ai-core-round2` after `e68167946`).
+- The round-two migration on a throwaway local database: apply, its QA script, re-apply refused by name, rollback to an identical schema, apply again.
+- The driver's last two changes after `1a663b1` (the temperature scale travels with a temperature; a preset may say "desk-lamp"), with `make test`, lint, the emulator runs and a reintroduce-the-defect proof for each.
+- Every other defect-reintroduction proof of round two.
+
+### Never run by anyone
+
+- Anything on a physical controller or touchscreen: the real variable names of batteries, locks and appliance sensors; whether a device's protocol id exposes its proxy's variables; a live read's time on a large project; how a preset button wraps on a real touchscreen (checklist 13.12–13.15).
+- A live AI provider call; a `.c4z` build; a publication; the round-two migration on any remote database.
+
+### Still open in round two
+
+- The platform's identical preset `sk-` rule and temperature unit were being added by another worker at the time of writing (13.11).
+- Owner decisions 26–30 (section 9).
