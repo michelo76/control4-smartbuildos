@@ -95,6 +95,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Technician Name</name><type>STRING</type><default></default><description>Who signs off when the page does not ask. The technician can type a name on the page.</description></property>
       <property><name>Add Item</name><type>DYNAMIC_LIST</type><default>-</default><description>Pick a project device to add to the test list by hand. Shown as Name (Room) · id. The list is filled by the driver; use the action Refresh Device Lists after adding devices.</description></property>
       <property><name>Add Item As</name><type>LIST</type><items><item>Auto-detect</item><item>Light</item><item>Shade</item><item>AV zone</item><item>Sensor</item></items><default>Auto-detect</default><description>The kind given to the next device picked under Add Item.</description></property>

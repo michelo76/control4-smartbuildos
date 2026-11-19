@@ -147,6 +147,18 @@ None needed. `make build` will pick the driver up through the usual driver
 discovery; `tools/gen-squishy.lua` finds `commissioning.*`, `lib.relayhost` and
 `atmosphere.uirelay` by loading `driver.lua`.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `commissioning` (guide §9 `start`) and reports a describe
+(the pre-handover test run) and a state from `paint()` (run status,
+read-only, items, rooms, passed / failed / skipped / open; never item or
+room names, notes or the technician). No diagnostics (a failed item is a
+run result, not a driver fault), events, queries or actions. Without AI
+Core nothing is sent. Unit tests only
+(`test/test_commissioning_aicore.lua`); nothing here has run on a
+controller.
+
 ## Not verified
 
 See the manual's "Unverified on a controller" list. In short: AV commands and
