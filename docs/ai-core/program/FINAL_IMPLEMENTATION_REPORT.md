@@ -74,7 +74,7 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 
 | # | File stamp | Content |
 | --- | --- | --- |
-| 1 | `20261118120000` | foundation |
+| 1 | `20261118120010` | foundation |
 | 2 | `20261118120100` | driver catalogue row for `SBOS_AI_CORE`, without a price |
 | 3 | `20261118140000` | credentials and usage |
 | 4 | `20261118150000` | learning |
@@ -87,7 +87,7 @@ Each result says who ran it: the conductor (rerun), a worker (reported, not reru
 | 11 | `20261118211000` | driver reports |
 | 12 | `20261118220000` | the price — applied only AFTER the new app is deployed |
 
-An independent reviewer (a separate worker that wrote none of it) ran two passes on a local database. Second-pass verdict, on platform `2ebbd5bd2`: **"ready with conditions"**. Every first-pass finding is closed. One new medium finding: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits; the fix — moving policies to the end of each file — was in progress at the time of writing. Update: that fix has landed (platform `0a128d748`: the policies are now the last statements of each file) and the same reviewer ran a third pass on it — final verdict: ready to apply by hand with the conditions in its runbook; every finding closed, accepted or documented; nothing new found. Reviewer-reported, not rerun by the conductor.
+An independent reviewer (a separate worker that wrote none of it) ran two passes on a local database. Second-pass verdict, on platform `2ebbd5bd2`: **"ready with conditions"**. Every first-pass finding is closed. One new medium finding: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits; the fix — moving policies to the end of each file — was in progress at the time of writing. Update: that fix has landed (platform `0a128d748`: the policies are now the last statements of each file) and the same reviewer ran a third pass on it — final verdict: ready to apply by hand with the conditions in its runbook; every finding closed, accepted or documented; nothing new found. Reviewer-reported, not rerun by the conductor. The first file was renumbered from `20261118120000` to `20261118120010` on 2026-11-19, after `main` gained an unrelated migration with the same version number; its contents did not change.
 
 The reviewer's conditions for applying them:
 
