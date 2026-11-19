@@ -1248,10 +1248,19 @@ var Operator = (function () {
   O.setVenueStatus = function (status) {
     var open = status === 'open';
     return VF.confirm(open ? 'Mark the venue open?' : 'Mark the venue closed?',
-      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + ' Anything set up to happen at that moment will run. It does not switch anything off by itself.',
+      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + (O.doc().license && O.doc().license.restricted
+        ? ' The SmartBuildOS licence is restricted, so automations set for that moment will not run.' : ' Anything set up to happen at that moment will run.') + ' It does not switch anything off by itself.',
       open ? 'Open venue' : 'Close venue').then(function (go) {
       if (!go) return null;
-      return VF.api('VENUE_STATUS', { status: status }).then(function (r) { VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed'); return r; });
+      return VF.api('VENUE_STATUS', { status: status }).then(function (r) {
+        /* Under a restricted licence the status still changes, but automations waiting for it
+           do not run; the driver counts them (rulesNotRun). */
+        var notRun = r && r.ok && r.data ? Number(r.data.rulesNotRun) || 0 : 0;
+        if (notRun > 0) {
+          VF.toast((open ? 'Venue marked open. ' : 'Venue marked closed. ') + O.plural(notRun, 'automation') + ' set to run at this moment did not run: the SmartBuildOS licence is restricted.', 'warn', 9000);
+        } else VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed');
+        return r;
+      });
     });
   };
 
