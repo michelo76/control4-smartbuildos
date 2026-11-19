@@ -30,8 +30,12 @@ checklist as it read then and the platform's committed head (see `PLATFORM_HEAD`
 on the evening of 2026-11-18 (brief D8b) against `docs/ai-core/program/IMPLEMENTATION_CHECKLIST.md`
 (evening), `ARCHITECTURE.md`, `FINAL_IMPLEMENTATION_REPORT.md`, the conductor's facts file
 `ai-core-program/STATUS-2026-11-18-evening.md` and `SPEC-webview-and-driver-reporting.md` §8, and the
-platform at `dbdd9b67c`. Final totals the conductor has not yet written (`⟨conductor: …⟩`) are never
-shown: the guide says they are being finalised.
+platform at `dbdd9b67c`. Refreshed for the close-out of 2026-11-18 against the checklist with the
+conductor's final rerun (driver `26a3d44`, platform `2ebbd5bd2`): statuses, the final gate totals, the
+twelve migration files and the reviewer's verdict and conditions, the second round (13.1) and owner
+decisions 24–25; `PLATFORM_HEAD` is `2ebbd5bd2`. The one item still open in the programme documents
+(the last migration lock fix) is described as "a final lock-ordering fix was in progress when this
+guide was built"; no placeholder is shown.
 
 | Chapter | Written from |
 | --- | --- |
@@ -49,7 +53,7 @@ shown: the guide says they are being finalised.
 | 12 Security | platform `src/lib/control4/commands.ts` `STAFF_REFUSED_MODULE_OPERATIONS` (six); `ARCHITECTURE.md` §1, §6; platform `authz/engine.ts`; `credentials/vault.ts`; `DEVELOPER-API.md` §2 (gate order), §10; `DRIVER-CONTRACT.md` (staff-refused operations); checklist 7.5–7.7 |
 | 13 Troubleshooting | `INSTALLATION.md` §8; `DRIVER.md` §3, §6, §8–§12; platform `orchestrator/turn.ts`, `AiProviderSetup.tsx`, portal `model.ts`, `ConciergePanel.tsx` (quoted failure texts) |
 | 14 Developer Reference | `MODULE-CONTRACT-V2.md`; `DRIVER.md` §11; platform tool registry (`src/dump-tools.mjs` → `src/tool-registry.json`); `orchestrator/{server,turn}.ts` and `concierge/server.ts` (per-persona offering); route files under `src/app/api/{monitoring,portal}/ai-core/**`; links to platform `docs/ai-core/{DEVELOPER-API,DRIVER-CONTRACT,MIGRATIONS,TEST-MATRIX,OPERATIONS}.md` |
-| Verification status | `STATUS` and `VERIFY` (`src/p4a.js`), from `IMPLEMENTATION_CHECKLIST.md` (items and open owner decisions 3, 5–7, 9–23; decided 1, 2, 4): `simulated` = Completed rows the conductor reran, `reported` = Tested rows (or worker-reported database runs), `never`, `decided`, `owner`, `unreleased`; the migration review from checklist 10.14 and the facts file (`migrations-review/REVIEW.md` verdict and fix list) |
+| Verification status | `STATUS` and `VERIFY` (`src/p4a.js`), from `IMPLEMENTATION_CHECKLIST.md` (items and open owner decisions 3, 5–7, 9–25; decided 1, 2, 4; the second round 13.1): `simulated` = Completed rows in the conductor's rerun, `reported` = evidence only a worker or the reviewer produced (Tested rows, database runs, proofs, size figures), `never`, `decided`, `owner`, `unreleased`; the final gate totals table from the checklist header; the migrations from checklist 10.14 and `FINAL_IMPLEMENTATION_REPORT.md` §1 (twelve files, the reviewer's second-pass verdict and conditions, the pre-existing permissions, decision 24) |
 
 ## Interactive features and their data
 

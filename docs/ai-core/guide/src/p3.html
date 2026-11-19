@@ -458,7 +458,7 @@
   </div>
 </div>
 
-<p>The explorer below is checked against the engine as it is at platform commit <code>dbdd9b67c</code>: <code>observe</code> denies every non-read class (<code>observe_mode_no_actions</code>); a learned basis (anything that is not <code>explicit_request</code>, <code>recommendation</code> or <code>preapproved_rule</code>) is never enough for a <code>medium</code>, <code>high</code> or <code>external</code> action (<code>learned_behaviour_insufficient</code>); a <code>medium</code> action (a driver-declared action) always needs the homeowner and no pre-approved rule is consulted (<code>medium_risk_needs_homeowner</code>) and makes a <code>low</code> action need the homeowner; an automation may never take an external action; a staff-only tool (the service tools) is denied to a homeowner or an automation and a homeowner-only tool (concierge) to staff or an automation (<code>audience_not_permitted</code>); risk is only ever escalated by the target class, never lowered.</p>
+<p>The explorer below is checked against the engine as it is at platform commit <code>2ebbd5bd2</code>: <code>observe</code> denies every non-read class (<code>observe_mode_no_actions</code>); a learned basis (anything that is not <code>explicit_request</code>, <code>recommendation</code> or <code>preapproved_rule</code>) is never enough for a <code>medium</code>, <code>high</code> or <code>external</code> action (<code>learned_behaviour_insufficient</code>); a <code>medium</code> action (a driver-declared action) always needs the homeowner and no pre-approved rule is consulted (<code>medium_risk_needs_homeowner</code>) and makes a <code>low</code> action need the homeowner; an automation may never take an external action; a staff-only tool (the service tools) is denied to a homeowner or an automation and a homeowner-only tool (concierge) to staff or an automation (<code>audience_not_permitted</code>); risk is only ever escalated by the target class, never lowered.</p>
 
 <h2 id="ch12-isolation">Property isolation</h2>
 <ul>
@@ -498,7 +498,7 @@
 <p class="lede">Start with the property that describes the symptom. The assistant asks what Composer shows and ends on the exact property or status text to check and what to do.</p>
 
 <h2 id="ch13-texts">Failure texts and where to look</h2>
-<p>Every text below is quoted from the source that writes it. Composer texts come from the driver (<code>INSTALLATION.md</code> §8, <code>DRIVER.md</code>); Studio and portal texts from the platform at commit <code>dbdd9b67c</code>.</p>
+<p>Every text below is quoted from the source that writes it. Composer texts come from the driver (<code>INSTALLATION.md</code> §8, <code>DRIVER.md</code>); Studio and portal texts from the platform at commit <code>2ebbd5bd2</code>.</p>
 <div class="table-wrap"><table>
 <thead><tr><th scope="col">Where</th><th scope="col">Text</th><th scope="col">Meaning and what to do</th></tr></thead>
 <tbody>
@@ -707,23 +707,49 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
 <section class="chapter" id="verification" aria-labelledby="verification-title" data-title="Verification status" hidden>
 <p class="eyebrow">Status</p>
 <h1 id="verification-title">Verification status</h1>
-<p class="lede">What has and has not been verified, from <code>IMPLEMENTATION_CHECKLIST.md</code> as it read when this guide was refreshed (18 November 2026) and the platform branch at commit <code id="platformHead">dbdd9b67c</code>. "Simulated" means automated tests with a Control4 shim, a Director emulator, mocked HTTP, fakes or a throwaway local database. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider or vendor, or in production.</p>
-<p>Three kinds of evidence are kept apart below: what the conductor <strong>reran</strong> against the repository (checklist Completed), what a worker ran and <strong>reported</strong> and the conductor has not yet rerun (checklist Tested, or a database run marked worker-reported), and what has <strong>never run</strong>. Final gate totals at the final heads are being finalised by the conductor and are not shown here.</p>
+<p class="lede">What has and has not been verified, from <code>IMPLEMENTATION_CHECKLIST.md</code> as it read at the close-out of 18 November 2026 and the platform branch at commit <code id="platformHead">2ebbd5bd2</code>. "Simulated" means automated tests with a Control4 shim, a Director emulator, mocked HTTP, fakes or a throwaway local database. Nothing in AI Core has run on a physical Control4 controller, against a live AI provider or vendor, or in production.</p>
+<p>Three kinds of evidence are kept apart below: what the conductor <strong>reran</strong> against the repository (checklist Completed), what only a worker or the independent reviewer ran and <strong>reported</strong> (the conductor has not rerun it), and what has <strong>never run</strong>.</p>
+<h2 id="verification-totals">Final gate totals, rerun by the conductor</h2>
+<p>Rerun by the conductor on 18 November 2026 at the final heads: driver <code>feat/ai-core</code> at <code>26a3d44</code> (later commits change documents only) and platform <code>codex/ai-core</code> at <code>2ebbd5bd2</code>. Simulation only.</p>
+<div class="table-wrap"><table>
+<thead><tr><th scope="col">Check</th><th scope="col">Result</th></tr></thead>
+<tbody>
+<tr><td>Driver unit suite (<code>make test</code>, run with the platform repo)</td><td>192 test files, 13,350 checks, 0 failed</td></tr>
+<tr><td>Driver lint</td><td>0 warnings and 0 errors in 429 files</td></tr>
+<tr><td>Director emulator through the real Agent</td><td>AI Core 126 of 126; driver reporting 47 of 47; reference drivers 39 of 39; touchscreen webview with the real PIN Lock 34 of 34; module contract 24 of 24</td></tr>
+<tr><td>Platform unit suite (run with the driver repo, so the cross-repo comparisons are included)</td><td>12,632 of 12,632, 0 skipped</td></tr>
+<tr><td>Platform typecheck and lint</td><td>typecheck 0 errors; lint 0 errors and 1,432 warnings that predate this work</td></tr>
+<tr><td>Platform browser tests (<code>npm run test:e2e:ai-core</code>)</td><td>22 of 22</td></tr>
+<tr><td>This guide (at <code>26a3d44</code>)</td><td>consistency test 946 assertions, passing; browser test 831 controls exercised, 2,435,469 assertions, 0 failures, 0 network requests</td></tr>
+<tr><td>Counted</td><td>51 of 52 driver directories declare the <strong>AI Core</strong> property (the exception is AI Core itself); only Mode Composer declares an action</td></tr>
+</tbody></table></div>
+<p>The conductor also reran each driver brief's gates on a snapshot as it landed and the platform's gates at each platform brief. One browser-test failure on the way was traced to a test helper that waited four seconds per page for a cookie banner that never reappears; it was fixed in the test and was not a product slowdown.</p>
 <h2 id="verification-sim">Verified in simulation, rerun by the conductor</h2>
 <ul class="verify" id="verify-simulated"></ul>
-<h2 id="verification-reported">Tested in simulation, worker-reported</h2>
-<p>Each passed its own automated tests on the worker's run; the conductor's rerun of the platform gates is still to come.</p>
+<h2 id="verification-reported">Worker- or reviewer-reported, not rerun by the conductor</h2>
+<p>Each of these rests on a run only a worker or the independent reviewer made.</p>
 <ul class="verify" id="verify-reported"></ul>
 <h2 id="verification-browser">Browser-verified against fixtures and a local stack</h2>
 <ul class="verify" id="verify-browser"></ul>
 <h2 id="verification-never">Has never run</h2>
 <ul class="verify" id="verify-never"></ul>
 <h2 id="verification-migrations">The migrations: independent review</h2>
-<p>An independent review of the AI Core migrations on 18 November 2026 found them <strong>“ready with conditions”</strong>. Its fixes are being applied: checks and cron calls inside the transaction, the dealer price moved to a twelfth file applied after the new app is deployed (today's production app would otherwise expose it publicly), <code>lock_timeout</code> in files that lock busy tables, order checks between files, a catalogue rollback that refuses while licences exist, and the revoke of a pre-existing TRUNCATE grant. The final migration list is being finalised. The owner should know that the first nightly Flight Recorder cleanup deletes the whole backlog beyond the windows in one pass. Nothing is applied to any remote database.</p>
+<p>There are <strong>twelve</strong> AI Core migration files: <code>20261118120000</code>, <code>120100</code>, <code>140000</code>, <code>150000</code>, <code>160000</code>, <code>170000</code>, <code>180000</code>, <code>190000</code>, <code>200000</code>, <code>210000</code>, <code>211000</code> and <code>20261118220000</code> (the price). Each has a rollback, each is a single transaction with a 5-second lock limit, and the order is enforced both ways. An independent reviewer, a separate worker that wrote none of them, ran two passes on a local database; the second pass found them <strong>“ready with conditions”</strong> with every first-pass finding closed. One new medium finding remained: on Supabase, creating a policy takes a lock on the sign-in and Storage tables until the file commits. A final lock-ordering fix was in progress when this guide was built. These runs are reviewer-reported; the conductor has not rerun them.</p>
+<p>The reviewer's conditions for applying them:</p>
+<ol>
+<li>Files 1–11, then deploy the new app, then file 12. With today's production app, file 12 would make the $150 dealer price public.</li>
+<li>Run the pre-flight script first and clear every stop it reports.</li>
+<li>Back up the Flight Recorder history before file 9: its first nightly run deletes the whole backlog beyond the windows (30 days events, 90 days traces) in one pass.</li>
+<li>Use a quiet window.</li>
+<li>Record the versions under their file stamps.</li>
+</ol>
+<p>The review also found database permissions that predate these migrations and that they do not change: the signed-out and ordinary signed-in roles hold TRUNCATE on <code>companies</code> and <code>profiles</code>, and TRIGGER, MAINTAIN and REFERENCES on <code>ai_usage_events</code> (the migrations revoke only TRUNCATE there). That is open for the owner (decision 24). Nothing is applied to any remote database.</p>
+<h2 id="verification-next">Second round: agreed, not started</h2>
+<div class="status" data-status="secondRound"></div>
 <h2 id="verification-owner">Blocked on the owner</h2>
 <p>Decided by the owner on 18 November 2026 (decisions 1, 2 and 4, and the scheduling part of 7):</p>
 <ul class="verify" id="verify-decided"></ul>
-<p>Open owner decisions, with the checklist's numbers (none blocks current work). Decided by the architect, reversible: AI Core events count as household activity, and learning is off by default. Resolved earlier: decision 8 (the homeowner approval screen and two-party approval are built). Decisions 16–23 are the conductor's rulings of 18 November 2026, in force until the owner confirms or changes them.</p>
+<p>Open owner decisions, with the checklist's numbers (none blocks current work). Decided by the architect, reversible: AI Core events count as household activity, and learning is off by default. Resolved earlier: decision 8 (the homeowner approval screen and two-party approval are built). Decisions 16–23 are the conductor's rulings of 18 November 2026, in force until the owner confirms or changes them. Decisions 24 and 25 were added at the close-out.</p>
 <ul class="verify" id="verify-owner"></ul>
 <h2 id="verification-released">Nothing has been released</h2>
 <ul class="verify" id="verify-unreleased"></ul>
@@ -732,7 +758,7 @@ client.request("flight_recorder", "events.device_history", { device_id = 214, li
 <h2 id="verification-guide">This guide's own tests</h2>
 <p><code>test/run.sh</code> runs a consistency test (names, frames, error codes, vocabularies, tools, routes, statuses and stated facts against <code>driver.xml</code>, the protocol documents, the driver's Lua vocabularies and the live platform registry) and a browser test that exercises every control in Chromium from <code>file://</code>, compares the Permissions Explorer with the real engine and the Workflow Simulator's tool lists with the real <code>offeredTools</code>, checks the phone layouts at 360 px, and records zero network requests.</p>
 <h2 id="verification-sources">Sources and date</h2>
-<p>Refreshed on 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (committed work at <code>dbdd9b67c</code> only; uncommitted work in progress there is not described), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources. Screenshots of System Studio and the portal are fixture-mode captures with sample data, never a customer's system.</p>
+<p>Refreshed at the close-out of 18 November 2026 from the driver branch <code>feat/ai-core</code>, the platform branch <code>codex/ai-core</code> (committed work at <code>2ebbd5bd2</code> only; uncommitted work in progress there is not described), <code>ARCHITECTURE.md</code> and <code>IMPLEMENTATION_CHECKLIST.md</code>. The file <code>guide-content-sources.md</code> beside this guide maps each chapter to its sources. Screenshots of System Studio and the portal are fixture-mode captures with sample data, never a customer's system.</p>
 <h2 id="verification-about">About this guide</h2>
 <p>This page is a single self-contained file. It makes no network requests (a Content-Security-Policy forbids them; images are embedded as <code>data:</code> URIs), and uses this browser's local storage only for the theme, checklist ticks, chapter progress and last chapter. All simulations and sample data are labelled.</p>
 </section>
