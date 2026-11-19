@@ -4,7 +4,8 @@
 #   the REAL Agent            drivers/smartbuildos
 #   the REAL Flight Recorder  drivers/smartbuildos-flight-recorder
 #   the REAL AI Core          drivers/smartbuildos-ai-core
-# plus two reporters built on the real helper (test/emulator/fixtures/
+# plus the real Atmosphere and Mode Composer (the AI Core reference drivers,
+# ai_core_reference_drivers.lua), two reporters built on the real helper (test/emulator/fixtures/
 # sbos-ai-reporter, assembled under two reserved roots' file names) for the
 # report hub scenario (ai_core_reports.lua), and a v1-only Agent taken from git (the last commit before module
 # contract v2, 7db22e7) for the "Agent update required" case.
@@ -42,6 +43,16 @@ assemble rep-a/smartbuildos-atmosphere "$REPO/test/emulator/fixtures/sbos-ai-rep
 assemble rep-b/smartbuildos-mode-composer "$REPO/test/emulator/fixtures/sbos-ai-reporter" "$OUT/tree"
 sed -i.bak 's|<default>smartbuildos-atmosphere.c4z</default>|<default>smartbuildos-mode-composer.c4z</default>|' \
 	"$OUT/rep-b/smartbuildos-mode-composer/driver.xml"
+# The real reference drivers (brief D6) for ai_core_reference_drivers.lua:
+# Atmosphere, Mode Composer and their own Flight Recorder copy.
+assemble ref/smartbuildos-atmosphere "$OUT/tree/build/oss/drivers/smartbuildos-atmosphere" "$OUT/tree"
+assemble ref/smartbuildos-mode-composer "$OUT/tree/build/oss/drivers/smartbuildos-mode-composer" "$OUT/tree"
+assemble ref/smartbuildos-flight-recorder "$OUT/tree/build/oss/drivers/smartbuildos-flight-recorder" "$OUT/tree"
+# A build stamps <version>; the source leaves it empty, and AI Core refuses a
+# describe without a driver version.
+for f in "$OUT"/ref/*/driver.xml; do
+	sed -i.bak -e 's|<version></version>|<version>20261118.000002</version>|' -e 's|<version/>|<version>20261118.000002</version>|' "$f"
+done
 # A second AI Core copy with a stamped version (a build stamps it; the
 # source driver.xml leaves it empty), so the answer's ai_core.version can be
 # compared with the Agent's directory.
@@ -55,3 +66,5 @@ SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core.lua"
 SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
 	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_reports.lua"
+SBOS_AI_OUT=$OUT DIRECTOR_EMULATOR=$EMU DIRECTOR_CACHE=$OUT/cache \
+	luajit "$EMU/bin/director.lua" run "$REPO/test/emulator/ai_core_reference_drivers.lua"
