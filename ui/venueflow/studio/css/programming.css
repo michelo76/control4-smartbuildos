@@ -39,6 +39,8 @@
 .vp-rule-open { display: flex; flex-direction: column; gap: 3px; text-align: left; background: transparent; border: 0; padding: 4px 6px; border-radius: 10px; cursor: pointer; color: inherit; min-width: 0; min-height: 44px; justify-content: center; }
 .vp-rule-open:hover b { color: var(--teal); }
 .vp-rule-open > span { overflow-wrap: anywhere; }
+/* Phones: the rule name keeps the line; its state chip and buttons go under it. */
+@media (max-width: 600px) { .vp-rule { flex-wrap: wrap; } .vp-rule > .vp-rule-open { flex: 1 1 calc(100% - 70px); } .vp-rule > .row.tight { margin-left: auto; } }
 
 /* editor frame */
 .vp-ehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }

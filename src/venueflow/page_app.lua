@@ -84,7 +84,7 @@ svg.ic.lg { width: 28px; height: 28px; } svg.ic.xl { width: 44px; height: 44px; 
 .btn.on, .btn[aria-pressed="true"] { background: var(--teal-soft); border-color: var(--teal-line); color: var(--teal); }
 .btn.sm { min-height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13.5px; }
 .btn.lg { min-height: 58px; padding: 0 24px; font-size: 17px; border-radius: 14px; }
-.btn.icon { padding: 0; width: var(--touch); } .btn.icon.sm { width: 36px; }
+.btn.icon { padding: 0; width: var(--touch); flex-shrink: 0; } .btn.icon.sm { width: 36px; }
 .btn.block { width: 100%; }
 .btn:disabled, .btn[disabled] { opacity: .42; cursor: default; box-shadow: none; transform: none; }
 
@@ -123,6 +123,8 @@ label.lbl > .hint, .hint { font-size: 12px; color: var(--muted); font-weight: 40
 /* toggle */
 .toggle { position: relative; width: 50px; height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel-3); cursor: pointer; flex: none; padding: 0; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c9d6ea; transition: transform .14s; }
+/* The switch is drawn 28 px high; its touch area reaches 44 px without changing the look. */
+.toggle::before { content: ""; position: absolute; left: -2px; right: -2px; top: -8px; bottom: -8px; }
 .toggle.on, .toggle[aria-checked="true"] { background: var(--teal); border-color: transparent; }
 .toggle.on::after, .toggle[aria-checked="true"]::after { transform: translateX(22px); background: #fff; }
 
@@ -358,8 +360,11 @@ svg.op-plan.compact { height: auto; }
 .op-tile { min-width: 0; min-height: 68px; padding: 9px 10px; display: flex; flex-direction: column; justify-content: center; gap: 7px; text-align: left; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; touch-action: manipulation; }
 .op-tile-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .op-tile-name { font-weight: 650; }
+/* A long display or source name ("Boardroom A Main", "Laptop HDMI (A)") takes a second line
+   instead of being cut to the part every name shares. -webkit-line-clamp is in Gecko since 68. */
+.op-tile-name, .op-src .grow > .ellipsis { white-space: normal; overflow-wrap: break-word; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .op-tile .chip { padding: 2px 8px; font-size: 11.5px; }
-.op-tile-area { flex: 0 1 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); }
+.op-tile-area { flex: 0 4 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); }
 .op-tile-note { display: none; flex: none; color: var(--warn); font-weight: 650; font-size: 11.5px; }
 .op-tile.blocked .op-tile-note { display: inline; }
 .op-tile-now { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
