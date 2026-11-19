@@ -49,6 +49,23 @@ installation:
   pictures, backup, restore, diagnostics, licensing, session revocation, the
   simulator) answer `VF_FORBIDDEN`.
 - Taking the permission away and publishing ends the access at once.
+- A client's rollback ends every staff session, the client's own included
+  (a publish ends only the sessions whose PIN or profile changed).
+- A restored backup's draft counts as the installer's: a client cannot
+  publish or discard it until the installer does.
+
+**Alerts a profile is shown** (18 November 2026). A stored alert (an
+interrupted scene or rule, a missed schedule) is shown on the operator page,
+and may be dismissed, only by a profile that may see every display, audio
+zone and scene it concerns; one about something since removed only by a
+profile whose scope is all displays (zones, scenes). A notification is
+shown to every profile with View Alerts: its text is the installer's message
+to whoever looks after the venue. What is not filtered: a rule's own name in
+an alert's title; and lighting and shades are not part of what an alert
+records, so an alert about two rules that share only lighting or shades
+names nothing and is shown to every profile with View Alerts.
+Composer's count (Alerts, `ALERT_COUNT`, *VenueFlow has alerts*) is always
+the whole venue's: whoever programs the controller already controls it.
 
 What it costs: day-to-day configuration is now guarded by a 4 to 8 digit
 PIN, which crosses the venue network in clear like any PIN, with the same

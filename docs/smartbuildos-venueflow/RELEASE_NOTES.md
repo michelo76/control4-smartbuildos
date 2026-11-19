@@ -8,7 +8,7 @@ and by a gap audit of the wiring between the driver, Composer programming,
 the SmartBuildOS Agent and smartbuildos.io. Each defect was reproduced by a
 test against the old code and then fixed. **All of it is verified on the
 simulator and the test shim only.** The VenueFlow suites and the whole
-repository pass on this source: 2477 checks in 16 VenueFlow suites, 9534 in
+repository pass on this source: 2524 checks in 16 VenueFlow suites, 9581 in
 133 test files (18 November 2026, TEST_RESULTS.md). No package built from
 this exact source exists: the one in the build folder of the working copy
 predates the last commits (the package check reports it as stale), and none
@@ -25,11 +25,14 @@ has been imported on a controller. The bench controller still runs build
 | A publish in the middle of a favourite channel cut the number off, leaving a box half-dialled | The channel finishes unless that source's Control4 device or the control mode changed; a stop is logged in Diagnostics (`VF_CANCELLED`) |
 | Stopping a run reported a command it had already sent as "stopped before it was sent" when the run had asked for the same value twice | The sent command keeps its place and its outcome is reported |
 | `SCENE_ACTIVATE` with an area outside the profile's access ran the scene's "not pressed in that area" branch | Refused with `VF_FORBIDDEN` |
-| `ALERT_DISMISS` removed any stored alert by id, also one the profile is not shown | Only an alert the profile is shown as dismissable; any other id answers `VF_NOT_FOUND` |
+| `ALERT_DISMISS` removed any stored alert by id, also one the profile is not shown, and then set `ALERT_COUNT` to the stored alerts alone | Only an alert the profile is shown as dismissable; any other id answers `VF_NOT_FOUND`. `ALERT_COUNT` is updated at once from the one definition |
+| Every profile with View Alerts saw every stored alert, including an interrupted scene or a missed schedule about displays, zones and scenes outside its access | A stored alert is shown, and may be dismissed, only by a profile that may see every display, zone and scene it concerns (one about something since removed: only a profile whose scope is all of that kind). A notification still reaches every profile with View Alerts. Not filtered: a rule's own name in a title; lighting and shades are not recorded with an alert. Composer's count is unchanged: the whole venue |
+| Under a restricted licence, marking the venue open or closed skipped the rules waiting for it in silence | The status is always set (manual control). Last Error reads `SET_VENUE_STATUS: status set; N rule(s) not run: licence restricted`, Diagnostics log a warning, and the operator page's `VENUE_STATUS` reply carries `data.rulesNotRun` (the page does not show it yet) |
 | The Alerts property, the variable `ALERT_COUNT` and the conditional *VenueFlow has alerts* counted three different things; *Alert Raised* never fired for a display that did not confirm | One definition: every current alert, stored and detected, a muted zone excluded. *Alert Raised* fires for each stored alert and once when a detected one appears |
 | A rollback did not fire *Configuration Published*, and its record and the `venueflow.config.published` event named the version restored rather than the new live one | It fires; `versionId` is the new live version and `restoredFrom` the version whose content came back |
 | The two true-or-false conditionals ignored the choice made in Composer | They read it: "Venue is closed" and "VenueFlow has alerts: clear" work as written. How Composer passes the choice is not yet seen on a controller |
-| *Trigger the VenueFlow event* under a restricted licence reported success while no rule ran | Refused, with Last Error `TRIGGER_EVENT refused: licence restricted: N rule(s) not run` |
+| *Trigger the VenueFlow event* under a restricted licence reported success while no rule ran | Refused, with Last Error `TRIGGER_EVENT refused: licence restricted: N rule(s) not run`. One that runs some rules and not others is done and writes `TRIGGER_EVENT: N rule(s) run, M not run` to Last Error |
+| A comparison of alerts still pending when the driver stopped could fire *Alert Raised* afterwards | The alert timer stops with the driver |
 | `refresh_status` answered with nothing useful and the module always reported `config_version` "0" | It answers with a one-line summary (at most 200 characters) and sends a status frame at once with that line, counters and `config_version`: the published version the controller runs, or `none` |
 | The Agent's updater and its SKU-to-file list did not name VenueFlow | `smartbuildos-venueflow.c4z` is in both. The store's publish workflow does not name VenueFlow yet, so the updater has nothing to fetch until a package is published to the store |
 
@@ -38,11 +41,14 @@ than its sources.
 
 **What an installer will notice.** A client signed in to the Venue Studio
 can no longer touch the tile's profile or a station's profile. Saving a
-change, setting a PIN or applying a template makes the draft yours until you
-publish or discard it, and the client waits for you. A backup now carries
-the revision counter.
+change, setting a PIN, applying a template or restoring a backup makes the
+draft yours until you publish or discard it, and the client waits for you.
+A backup now carries the revision counter. A client's rollback signs every
+staff member out, the client included.
 
-**What a venue will notice.** In the Venue Studio, a change to a profile the
+**What a venue will notice.** On the Manager screen, an alert about a
+stopped scene or a missed schedule appears only for a profile that may see
+everything it concerns. In the Venue Studio, a change to a profile the
 screens open with is refused as installer-only, and "Your installer has
 unfinished changes" appears whenever the installer, or the dealer
 remotely, has saved work that is not published. A favourite being dialled is
@@ -51,8 +57,10 @@ no longer cut short by a publish.
 **What a programmer will notice.** *Configuration Published* on a rollback;
 ALERT_COUNT and *VenueFlow has alerts* now include detected alerts (and no
 longer a muted zone); *Alert Raised* fires when a display stops confirming;
-the "closed" and "clear" choices work; a refused *Trigger the VenueFlow
-event* writes Last Error.
+the "closed" and "clear" choices work; a refused or partly run *Trigger the
+VenueFlow event* writes Last Error; *Mark the venue* under a restricted
+licence sets the status and writes Last Error for the rules it did not run;
+dismissing an alert lowers ALERT_COUNT at once.
 
 **Known and not changed.** Scenes and schedules cannot tune a channel.
 A remote draft can replace the whole configuration, device mapping and

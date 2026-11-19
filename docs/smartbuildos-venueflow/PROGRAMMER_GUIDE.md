@@ -26,7 +26,13 @@ whose condition is not met, a restricted licence) writes the reason to the
 **Last Error** property and the Lua tab; it never fails silently. Under a
 restricted licence, **Trigger the VenueFlow event** starts no rule and is
 refused: Last Error reads, for example,
-`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`.
+`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`. A
+command that runs some rules and not others is done, and still writes Last
+Error: `TRIGGER_EVENT: 1 rule(s) run, 1 not run`. **Mark the venue** always
+sets the status (it is manual control and works under any licence); rules
+waiting for that change do not run under a restricted licence, and Last
+Error reads `SET_VENUE_STATUS: status set; 2 rule(s) not run: licence
+restricted`.
 
 ### Events (Programming, the VenueFlow driver's events)
 
@@ -36,7 +42,7 @@ refused: Last Error reads, for example,
 | Notification | a scene or rule runs a "Send notification" step | variable NOTIFICATION_TEXT |
 | Alert Raised | once for each stored alert (a notification, an interrupted scene, a missed schedule), and once when a detected alert appears (a display or zone change not confirmed, a display offline, a restricted licence); again for a detected alert only after it cleared and came back | variable ALERT_COUNT |
 | Configuration Published | a publish, by the installer, a client in the Venue Studio or Remote Management, and every rollback | |
-| Venue Opened, Venue Closed | the venue status changes | variable VENUE_STATUS |
+| Venue Opened, Venue Closed | the venue status changes, also under a restricted licence | variable VENUE_STATUS |
 | Licence Restricted, Licence Restored | the SmartBuildOS licence starts or stops restricting scenes and publishing | |
 
 Typical wiring: on **Notification**, send NOTIFICATION_TEXT through the
@@ -61,7 +67,10 @@ controller (HARDWARE_VALIDATION.md, "Not yet run").
 each stored alert until someone dismisses it, and each detected alert until
 its cause clears. A muted zone is shown on the Manager screen but is not an
 alert here: muting is something staff do on purpose. A detected alert is
-noticed within about a quarter of a second of the change behind it.
+noticed within about a quarter of a second of the change behind it, and
+dismissing a stored alert lowers the count at once. What a staff profile is
+shown on the Manager screen is narrower (PROTOCOL.md, `ALERT_DISMISS` and
+the state document); the count in Composer never is.
 
 ### Sending Control4 events into VenueFlow rules
 

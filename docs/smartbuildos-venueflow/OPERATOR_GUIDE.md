@@ -93,14 +93,17 @@ A summary of the whole venue.
 - **Alerts**: each says what is wrong in plain words and has a button.
   **Resolve** re-checks the display with Control4; if the display is really
   showing the right thing, the alert clears. **Unmute** unmutes a zone.
-  **Dismiss** removes a notice you have read.
+  **Dismiss** removes a notice you have read. You see an alert about a
+  stopped scene or a missed schedule only when your profile may see
+  everything it concerns; notifications reach every profile that sees
+  alerts.
 - **Scenes**: what each does, and **Activate**. A scene that switches things
   off shows you what it will do and asks you to confirm.
 - **Open venue / Close venue**: marks the venue open or closed. Some scenes
   and schedules only run when the venue is open.
 - **All Off**: shows what will be switched off (how many displays, how many
   audio zones, which scene is running), then asks you to confirm.
-- **Recent activity**: what was changed, by which screen, and how each device
+- **Recent activity**: what was changed, when, and how each device
   answered.
 
 ## Scenes
@@ -145,9 +148,12 @@ Changes are kept as a draft. Nothing changes on the floor until you open
 **Publish** and publish them; from there you can also go back to an earlier
 version of your own changes. **Back to control** returns to the screens.
 
-Devices, the floor plan and routing are your installer's. If the Studio says
-your installer has unfinished changes, you can keep editing, and publishing
-waits until they finish.
+Devices, the floor plan and routing are your installer's, and so are the
+profile a screen opens as and any station's profile. If the Studio says your
+installer has unfinished changes (they, or your dealer remotely, saved work
+they have not published), you can keep editing, and publishing waits until
+they finish. Going back to an earlier version signs everyone out, you
+included.
 
 ## When something is wrong
 
@@ -161,7 +167,7 @@ waits until they finish.
 | The sound changed when you changed a TV | Tell your installer: that TV and that speaker zone are set up as one room |
 | "This feature needs a SmartBuildOS licence" | Scenes and schedules are paused. You can still change TVs, volume and power by hand. Tell the owner |
 | "This venue has not been set up yet" | The installer has not finished. Nothing is wrong with the screen |
-| Everyone was signed out | The system restarted. Sign in again with your PIN |
+| Everyone was signed out | The system restarted, or the owner rolled back a change in the Venue Studio. Sign in again with your PIN |
 
 You cannot break the installation from these screens. The worst a wrong tap
 does is put the wrong picture on a TV; tap again to change it back.

@@ -158,7 +158,7 @@ Optional: the relay is the transport. This settles two unconfirmed points.
 | --- | --- |
 | All of the above | The owner present at the bench, and Composer confirmed on the bench system |
 | H6 on a matrix, AV-over-IP, a video wall; H7 on a multi-zone amplifier | That hardware in the bench project |
-| H10 denial, and *Trigger the VenueFlow event* under a restricted licence | The owner applying the catalogue-row migration for `SBOS_VENUEFLOW` on smartbuildos.io (it exists, merged 15 November 2026, and is not applied), then a test entitlement set to denied with enforcement (SMARTBUILDOS_INTEGRATION.md) |
+| H10 denial, and *Trigger the VenueFlow event* and *Mark the venue* under a restricted licence | The owner applying the catalogue-row migration for `SBOS_VENUEFLOW` on smartbuildos.io (it exists, merged 15 November 2026, and is not applied), then a test entitlement set to denied with enforcement (SMARTBUILDOS_INTEGRATION.md) |
 | Everything in "Not yet run" | A VenueFlow build from current source imported on the bench (the bench runs `20261114.191046`) |
 | H9 daylight-saving | The calendar |
 
@@ -293,6 +293,8 @@ of 15 November 2026, the last with the review and audit fixes of 18 November
 | *Venue is open* in Composer programming, both senses (same) | Program two lines: IF *Venue is open* is open, and IF *Venue is open* is closed, each doing something visible. Mark the venue open and closed and run each line. Then the same for *VenueFlow has alerts* (showing alerts, and clear). Each line must run only in its own case | Not run. **The test shim cannot tell how Composer passes the choice**: the driver reads it from `VALUE` as the DriverWorks sample does; that is what this check settles |
 | *Alert Raised* when a display stops confirming (same) | Program *Alert Raised* to do something visible and watch ALERT_COUNT and the Alerts property. In Simulation, give a display the simulator fault "silent" and route to it; in Live, unplug a display's control and route to it. After about 8 seconds the event must fire once, and ALERT_COUNT and Alerts must both go up by one. Resolve once the cause is gone: both go back down. The event fires again only when the alert comes back | Not run |
 | *Trigger the VenueFlow event* under a restricted licence (same) | With the denial of H10 in place, run *Trigger the VenueFlow event* for a name a rule waits for. No rule runs, and Last Error reads `TRIGGER_EVENT refused: licence restricted: 1 rule(s) not run` | Not run. Blocked: see "Blocked today" |
+| *Mark the venue* under a restricted licence (same) | With the denial of H10 in place and a rule waiting for the venue to open, run *Mark the venue* Open from Composer. Venue Status must read open, Venue Opened must fire, the rule must not run, and Last Error must read `SET_VENUE_STATUS: status set; 1 rule(s) not run: licence restricted` | Not run. Blocked: see "Blocked today" |
+| Alerts a profile is shown (same) | In Simulation, let a scene stop another one (two scenes on the same displays), so an "interrupted" alert is stored. Sign in as a profile that cannot see one of those displays: the alert must not be listed, and Dismiss by its id must answer as not found. A manager who sees everything sees it and dismisses it; ALERT_COUNT goes down at once | Not run |
 | A channel dialled across a publish (same) | **Live, one real box.** Press a favourite with three or four digits and publish a change from the Studio at once: every digit must land and Diagnostics must show no stop. Then press it again and change the source's Control4 device (or Control Mode) at once: the rest of the digits stop, and Diagnostics says so (`VF_CANCELLED`) | Not run |
 
 ## Order of the remaining runs
@@ -306,7 +308,7 @@ Import a build from current source first (`make venueflow`, then import
    refused on the default profile, a client refused while the installer has
    saved work, revisions after a backup restore, *Configuration Published*
    on a rollback, *Venue is open* both senses, *Alert Raised* with the
-   simulator fault, client limits on the controller, a sample draft in Live
+   simulator fault, alerts a profile is shown, client limits on the controller, a sample draft in Live
    (switching to Live with a sample sends nothing), a schedule right after a
    publish.
 2. **The same, plus the SmartBuildOS Agent in the project and a dealer
@@ -326,6 +328,6 @@ Import a build from current source first (`make venueflow`, then import
 6. **Someone at the controller for a service evening.** H9 including a
    restart of the controller itself, and the H3 network drop.
 7. **After the owner applies the `SBOS_VENUEFLOW` catalogue-row migration,
-   with a test entitlement set to denied.** H10, and *Trigger the VenueFlow
-   event* under a restricted licence.
+   with a test entitlement set to denied.** H10, *Trigger the VenueFlow
+   event* and *Mark the venue* under a restricted licence.
 8. **When the calendar allows.** The daylight-saving row of H9.

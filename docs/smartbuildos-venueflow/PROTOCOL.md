@@ -109,9 +109,9 @@ Control4 id, route command, program or PIN data is in it.
 | `SCENE_ACTIVATE` | `sceneId`, `confirm`?, `areaId`? | `data.execution`. A scene marked `confirm` answers `VF_CONFIRM_REQUIRED` with `data.preview` until `confirm: true`. An `areaId` outside the profile's access is refused with `VF_FORBIDDEN` (it is not ignored) |
 | `ALL_OFF_PREVIEW` | | `results`, `data: { displays, zones, activeScene }` |
 | `ALL_OFF` | `confirm` | needs `confirm: true` |
-| `VENUE_STATUS` | `status` open or closed | |
+| `VENUE_STATUS` | `status` open or closed | `data: { venueStatus, rulesNotRun? }`. The status is set under any licence; `rulesNotRun` counts the rules waiting for the change that did not run (a restricted licence, or a rule that failed to start). The page does not show it yet |
 | `QUERY_STATUS` | `displayIds`? | re-reads Control4; clears a stale failure |
-| `ALERT_DISMISS` | `alertId` | needs `viewAlerts`. Only an alert this profile is shown, marked `dismissable` (a stored alert); any other id, a detected alert included, answers `VF_NOT_FOUND` |
+| `ALERT_DISMISS` | `alertId` | needs `viewAlerts`. Only an alert this profile is shown, marked `dismissable` (a stored alert); any other id, a detected alert included, answers `VF_NOT_FOUND`. `ALERT_COUNT` is updated at once |
 | `IMAGE_GET` | `key` | `data: { key, dataUrl }`. An installer session may read any stored picture, also before anything is published |
 | `OPERATION_GET` | `operationId` | `data.operation`. A profile gets only the targets it may see, with `summary` counted over those, and no `origin`; when it sees only part of the operation, `label` is rebuilt from what it sees ("Sports 2 to 3 displays"; otherwise a neutral label such as "Video change"). An operation it can see nothing of is `VF_NOT_FOUND`, as if it did not exist. An installer session gets the whole operation: every target, with detail, and `origin` |
 
@@ -129,11 +129,26 @@ Control4 id, route command, program or PIN data is in it.
   "activeScene": { "id": "game-day", "name": "Game Day", "at": 1794225000 },
   "running": [ { "id": "x4", "refId": "game-day", "name": "Game Day", "kind": "scene", "status": "settling", "startedAt": 1794225000 } ],
   "operations": [ Operation ],          // the most recent 8 that touch something this profile can see; filtered as for OPERATION_GET, never with `origin`
-  "alerts": [ Alert ],                  // only for profiles with viewAlerts
+  "alerts": [ Alert ],                  // only for profiles with viewAlerts; see "Which alerts a profile is shown" 
   "counts": { "displays": { "total", "on", "off", "unknown", "attention", "offline" }, "zones": { "total", "on", "muted" } } }
 ```
 
 `Cell` is `{ value, status, at, errorCode?, requested? }` (see DATA_MODEL.md).
+
+**Which alerts a profile is shown.** Detected alerts (a display or zone
+change not confirmed, a display offline) are listed for the displays and
+zones the profile may see; the licence alert for every profile. A stored
+alert is listed, and may be dismissed, only when the profile may see every
+display, audio zone and scene it concerns: an interrupted scene or rule
+names the devices both runs change and the scenes involved, a missed
+schedule the devices its rule changes. A notification concerns nothing in
+particular and is listed for every profile with `viewAlerts`. An alert about
+a display, zone or scene since removed from the configuration is listed only
+for a profile whose scope is all displays (zones, scenes). Not filtered: a
+rule's own name in an alert's title. Lighting and shades are not part of
+what an alert records. The installer sees every alert, and the Alerts
+property, `ALERT_COUNT` and *VenueFlow has alerts* count every alert of the
+venue.
 
 ```jsonc
 // Operation (`origin` only in an installer's OPERATION_GET)

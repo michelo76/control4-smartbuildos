@@ -152,7 +152,8 @@ Conference Staff, Restricted Operator) and adjust:
 
 - which screens the profile gets, and which opens first;
 - what it may do: route video, switch displays, control audio, lighting,
-  shades, run scenes, open and close the venue, All Off, see alerts;
+  shades, run scenes, open and close the venue, All Off, see alerts, use
+  source controls (section 12), open the Venue Studio (section 10);
 - where: floors, areas, sources, audio zones, scenes.
 
 Give a **PIN** (4 to 8 digits) to any profile that can run venue-wide
