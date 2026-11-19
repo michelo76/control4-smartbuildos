@@ -123,12 +123,19 @@
     }
     var pOn = canPower ? powerBtn('on') : null, pOff = canPower ? powerBtn('off') : null;
 
-    var side = h('aside.panel.op-fp-side.scroll',
+    /* On a short screen the panel scrolls to reach Power On / Power Off: a fade at the cut
+       edge says there is more below. */
+    var more = h('div.op-fp-more', { 'aria-hidden': 'true' }, h('span', VF.icon('chevron-down', 'sm')));
+    var side = h('aside.panel.op-fp-side.scroll', { onscroll: function () { paintMore(); } },
       h('div.op-fp-block', selTitle, selList),
       unplacedBox,
       canRoute ? srcBtn : null,
       routeBtn, listenRow,
-      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null);
+      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null,
+      more);
+    function paintMore() { O.setClass(side, 'more', side.scrollHeight - side.scrollTop - side.clientHeight > 4); }
+    var onResize = VF.debounce(paintMore, 150);
+    window.addEventListener('resize', onResize);
 
     /* bottom bar: scene shortcuts and one audio zone */
     var scenes = O.sceneBar();
@@ -222,9 +229,10 @@
       if (pOff) pOff.disabled = !n || pOff._busy === true;
       if (scenes) scenes.update();
       if (zoneCtl) zoneCtl.update();
+      paintMore();
     }
 
     setFloor(S.floorId);
-    return { update: update };
+    return { update: update, destroy: function () { window.removeEventListener('resize', onResize); } };
   });
 })();
