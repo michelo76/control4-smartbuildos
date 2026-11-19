@@ -206,8 +206,31 @@ permission. The driver enforces this.
 | Installer Passcode                                                      | Opens Installer Studio. Hidden. Empty keeps the installer's Studio off                                                                                                                                                |
 | Remote Management                                                       | What smartbuildos.io may do with this venue's configuration through the Agent: Off (default), Draft only, or Draft and publish. It never controls equipment. The platform pages for it do not exist yet: leave it Off |
 | Remote Management Status                                                | Off, waiting for the Agent, or on, with the last remote command                                                                                                                                                       |
+| AI Core | Read-only. See [AI Core](#ai-core) |
 | App Relay Address                                                       | Auto, or the controller's address when the tile will not load                                                                                                                                                         |
 | Log Level, Log Mode                                                     | At "3 - Info" with Print, every command sent to Control4 is printed in the Lua tab                                                                                                                                    |
+
+## AI Core
+
+VenueFlow talks to SmartBuildOS AI Core only while **Remote Management** is
+on, because only then does it have a connection to the SmartBuildOS Agent;
+with it `Off` (the default) it registers nothing and sends nothing.
+
+- **Remote Management off:** the read-only **AI Core** property shows
+  `Installed — this driver does not report` when AI Core is in the project
+  and `Not installed` when it is not.
+- **Remote Management on:** it reports like the other SmartBuildOS drivers
+  and the property shows the usual values (`Found — reporting (v…)`,
+  `Not installed`, `Found — not responding`, …). It tells AI Core what
+  VenueFlow is, a few facts that name no one (Live or Simulation, whether a
+  configuration is published and how many displays, sources, audio zones and
+  scenes it has, the alert count, the remote level, whether the page relay
+  listens) and when a page request fails inside the driver. It sends no
+  events, answers no questions and offers no actions; venue, scene and staff
+  names, passcodes and PINs are never sent.
+
+Switching **Remote Management** moves between the two at once. Tested on the
+simulator only, not on a controller.
 
 ## Actions
 

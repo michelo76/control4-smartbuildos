@@ -53,12 +53,6 @@ local CHILD_BASES = {
   ["systemlink.companiondriver"] = "src/systemlink/companiondriver.lua",
 }
 
---- Drivers not wired yet in this brief (D7b works family by family). Must be
---- EMPTY when the brief is done; an entry that is already wired fails.
-local PENDING = {
-  ["smartbuildos-venueflow"] = true,
-}
-
 local XML =
   "<property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>"
 
@@ -270,11 +264,7 @@ for _, dir in ipairs(dirs) do
     local problems = (kind == "agent" and agentProblems(dir))
       or (kind == "child" and childProblems(dir))
       or rootProblems(dir)
-    if PENDING[dir] then
-      check(dir .. ": still pending (not wired yet; once it is, remove it from PENDING)", #problems > 0)
-    else
-      check(dir .. " (" .. kind .. ") shows AI Core", #problems == 0, table.concat(problems, "; "))
-    end
+    check(dir .. " (" .. kind .. ") shows AI Core", #problems == 0, table.concat(problems, "; "))
   else
     counts.exempt = counts.exempt + 1
   end
@@ -301,28 +291,18 @@ for dir, reason in pairs(EXEMPT) do
   check(dir .. ": exempt directory exists (no stale exemption)", present[dir] == true)
 end
 check("AI Core is the only exemption", nExempt == 1 and EXEMPT["smartbuildos-ai-core"] ~= nil)
-for dir in pairs(PENDING) do
-  check(dir .. ": a pending entry is a driver directory", present[dir] == true and kindOf(dir) ~= nil)
-end
 for name, path in pairs(CHILD_BASES) do
   check(name .. ": child base exists", read(path) ~= nil)
 end
 print(
   string.format(
-    "  (%d directories: %d roots, %d children, %d Agent; %d declare AI Core; exempt: %d; pending: %d)",
+    "  (%d directories: %d roots, %d children, %d Agent; %d declare AI Core; exempt: %d)",
     #dirs,
     counts.root,
     counts.child,
     counts.agent,
     counts.property,
-    counts.exempt,
-    (function()
-      local n = 0
-      for _ in pairs(PENDING) do
-        n = n + 1
-      end
-      return n
-    end)()
+    counts.exempt
   )
 )
 
