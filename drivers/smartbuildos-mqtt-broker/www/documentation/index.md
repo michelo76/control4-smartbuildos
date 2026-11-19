@@ -160,6 +160,7 @@ see the design note for the exact events.
 | Stale After Minutes                          | Silence before a device is stale                                                       |
 | Connection, Last Error, Bridge Status        | Current standing                                                                       |
 | Topics Seen, Devices, Messages, Last Publish | Counters                                                                               |
+| AI Core | Read-only: whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
 
 Changing a connection property restarts the connection two seconds later.
 
@@ -192,6 +193,50 @@ Changing a connection property restarts the connection two seconds later.
 
 A refused login (wrong user or password, not authorised) retries only every two
 minutes so a bad password does not fill the broker's log.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+driver tells it how the bridge is doing, over the same Agent connection it
+already uses. Health and counts only; each broker driver reports for
+itself. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: an MQTT bridge for Zigbee2MQTT or Home Assistant
+  devices, and the words people use (zigbee, sensor, bridge…).
+- **State**: whether the broker link is up, whether the bridge is
+  read-only, how many devices are linked and how many are stale or
+  offline, topics seen, messages in and out. Never a topic, a payload, a
+  device name, the broker host, the username or the password.
+- **Faults**: the broker link dropped (Broker Disconnected) and came up
+  (Broker Connected).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing. Publishing stays with Composer and
+the child drivers.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in unit tests only: nothing here has run on a
+physical controller.
 
 ## Unverified on a controller
 

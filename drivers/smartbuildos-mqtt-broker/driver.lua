@@ -38,6 +38,10 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local license = require("sbos.license")
 local agentClient = require("sbos.moduleclient")
+--- AI Core reporting over THIS driver's module client (sbos.aireport,
+--- attach mode). Module scope: the build packs only modules it sees at load.
+--- One module id (mqtt_broker) for every broker instance (non-singleton).
+local aireport = require("sbos.aireport")
 local Client = require("mqtt.client")
 local Topics = require("mqtt.topics")
 local Payload = require("mqtt.payload")
@@ -265,11 +269,48 @@ local function paintConnection()
   setVar("BROKER_STATE", gClient ~= nil and gClient:isConnected() and "connected" or "disconnected")
 end
 
+-- ─── AI Core (sbos.aireport, attach mode) ───────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise), over this driver's own module client; every broker instance
+-- reports for itself. HEALTH AND COUNTS ONLY:
+--   describe   an MQTT bridge for Zigbee2MQTT / Home Assistant devices
+--   state      broker connected, read-only, linked devices, stale or
+--              offline devices, topics seen, messages in / out (what the
+--              Connection, Devices, Topics Seen and Messages properties
+--              show). Never a topic, a payload, a device name, the broker
+--              host, the username or the password
+--   diagnostic the broker link dropped / came up (the driver's own Broker
+--              Disconnected / Connected events)
+--   events, queries, actions: none. Publishing stays with Composer and the
+--              child drivers.
+
+local function aiReportState(health)
+  aireport.state({
+    broker_connected = gClient ~= nil and gClient:isConnected() == true,
+    read_only = gHalted == true,
+    devices = health and health.count or 0,
+    stale_devices = health and health.stale or 0,
+    topics_seen = gRouter and tonumber(gRouter.seenCount) or 0,
+    messages_in = gIn,
+    messages_out = gOut,
+  })
+end
+
+local function aiDescribe()
+  aireport.describe({
+    summary = "An MQTT bridge: connects this home's Zigbee2MQTT or Home Assistant devices (contact and motion sensors, lights, shades) to Control4 through a local MQTT broker.",
+    controls = { { id = "mqtt_bridge", label = "MQTT bridge", class = "network" } },
+    vocabulary = { "mqtt", "zigbee", "zigbee2mqtt", "home assistant", "sensor", "bridge", "broker" },
+  })
+end
+
 local function paint()
   paintConnection()
+  local health
   if gRouter ~= nil then
     UpdateProperty("Topics Seen", string.format("%d (keeps the newest %d)", gRouter.seenCount, gRouter.seenCap))
-    local health = gRouter:health(staleAfterSeconds())
+    health = gRouter:health(staleAfterSeconds())
     UpdateProperty("Devices", string.format("%d linked, %d stale or offline", health.count, health.stale))
   end
   UpdateProperty("Messages", string.format("%d in, %d out", gIn, gOut))
@@ -278,6 +319,7 @@ local function paint()
     "Bridge Status",
     gHalted and "read-only (licence)" or (gClient and gClient:isConnected() and "active" or "waiting for the broker")
   )
+  aiReportState(health)
 end
 
 --- Once a minute: stale scan, variables, events, Agent report.
@@ -503,6 +545,7 @@ local function onClientState(state, detail, info)
     recordMarker("MQTT broker connected", "")
     agentEvent("mqtt.broker_state", "info", "MQTT broker connected", { state = "connected" })
     fire(EVENT_CONNECTED)
+    aireport.diagnostic("info", "broker.connected", "The MQTT broker link is up")
     tellChildren()
   else
     -- closed | failed | refused
@@ -523,6 +566,7 @@ local function onClientState(state, detail, info)
         { state = "disconnected", reason = capText(detail, 200) }
       )
       fire(EVENT_DISCONNECTED)
+      aireport.diagnostic("warning", "broker.disconnected", "The MQTT broker link dropped")
     end
     tellChildren()
     scheduleReconnect(info and info.permanent)
@@ -754,9 +798,19 @@ function OnDriverLateInit(reason)
           reconnects = gClient and gClient.stats.reconnects or 0,
         }
     end,
-    onRegistered = function() end,
-    onAgentState = function() end,
+    onRegistered = function(reply)
+      aireport.onRegistered(reply)
+    end,
+    onAgentState = function(agent, why)
+      aireport.onAgentState(agent, why)
+    end,
+    onDirectoryChanged = function(version)
+      aireport.onDirectoryChanged(version)
+    end,
   })
+  -- AI Core: this driver's module client, its describe.
+  aireport.attach(agentClient, { sku = SKU })
+  aiDescribe()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -783,6 +837,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop)
+  aireport.stop() -- attach mode: the module client stays the driver's
   CancelTimer(TICK_TIMER)
   CancelTimer(RECONNECT_TIMER)
   CancelTimer(STABLE_TIMER)
