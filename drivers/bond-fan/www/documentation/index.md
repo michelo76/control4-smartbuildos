@@ -95,6 +95,10 @@ again by itself every 60 seconds until it is answered.
 **Last Control** reads `FAILED` with the Gateway's reason when a command did not
 go through.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through Bond Bridge Gateway (SBOS)` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the Bond Bridge Gateway driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - The state shown is the Bond's own record of what it last transmitted. Most

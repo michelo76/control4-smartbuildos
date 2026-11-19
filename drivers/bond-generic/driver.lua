@@ -29,6 +29,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local child = require("bond.child")
+local aipresence = require("sbos.aipresence")
 
 local BUTTON_PROXY = 5001
 local RELAY_BINDING = 200
@@ -145,10 +146,12 @@ function OnDriverLateInit()
   end
   child.requestIdentity()
   child.armRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   child.cancelRetry()
+  aipresence.stop()
 end
 
 -- ─── Tile / relay commands ────────────────────────────────────────────────────

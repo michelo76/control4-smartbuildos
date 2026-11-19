@@ -57,10 +57,28 @@ local CHILD_BASES = {
 --- EMPTY when the brief is done; an entry that is already wired fails.
 local PENDING = {
   ["smartbuildos-venueflow"] = true,
+  ["smartbuildos-insights"] = true,
+  ["smartbuildos-mode-button"] = true,
+  ["smartbuildos-mqtt-contact"] = true,
+  ["smartbuildos-mqtt-light"] = true,
+  ["smartbuildos-mqtt-motion"] = true,
+  ["smartbuildos-mqtt-shade"] = true,
+  ["smartbuildos-system-link-contact"] = true,
+  ["smartbuildos-system-link-export-light"] = true,
+  ["smartbuildos-system-link-fan"] = true,
+  ["smartbuildos-system-link-gate"] = true,
+  ["smartbuildos-system-link-light"] = true,
+  ["smartbuildos-system-link-lock"] = true,
+  ["smartbuildos-system-link-media"] = true,
+  ["smartbuildos-system-link-relay"] = true,
+  ["smartbuildos-system-link-shade"] = true,
+  ["smartbuildos-system-link-temperature"] = true,
+  ["smartbuildos-system-link-thermostat"] = true,
+  ["unifi-protect-camera"] = true,
+  ["unifi-protect-light"] = true,
+  ["unifi-protect-sensor"] = true,
+  ["unifi-protect-viewport"] = true,
 }
-for file in pairs(aipresence.CHILDREN) do
-  PENDING[(file:gsub("%.c4z$", ""))] = true
-end
 
 local XML =
   "<property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>"

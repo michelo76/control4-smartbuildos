@@ -26,6 +26,10 @@
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+-- The AI Core property (the child driver starts and stops it); the gateway's
+-- pushes below are the bounded re-check when Director's system events do
+-- not reach a child (KI-42): at most one lookup per 10 minutes.
+local aipresence = require("sbos.aipresence")
 
 JSON = JSON or require("JSON")
 
@@ -239,6 +243,7 @@ function M.setup(opts)
 
   local function handleIdentity(tParams)
     tParams = tParams or {}
+    aipresence.recheck()
     state.identity = decodeIdentity(tParams)
     persist:set(IDENTITY_PERSIST, state.identity)
     UpdateProperty(
@@ -256,6 +261,7 @@ function M.setup(opts)
 
   local function handleState(tParams)
     tParams = tParams or {}
+    aipresence.recheck()
     -- A state push before identity means the gateway knows us but we missed
     -- the handshake (bound later, updated later): re-ask instead of
     -- ignoring pushes forever.

@@ -40,6 +40,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local child = require("bond.child")
+local aipresence = require("sbos.aipresence")
 
 local TEMPERATURE_BINDING = 100
 local HUMIDITY_BINDING = 101
@@ -294,10 +295,12 @@ function OnDriverLateInit()
   end
   child.requestIdentity()
   child.armRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   child.cancelRetry()
+  aipresence.stop()
 end
 
 -- ─── Value connection requests ────────────────────────────────────────────────
