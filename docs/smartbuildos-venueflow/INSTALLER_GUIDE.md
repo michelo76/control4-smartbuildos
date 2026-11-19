@@ -278,6 +278,8 @@ without the Installer Passcode.
 
 They can change scenes, schedules, staff profiles and PINs, source names,
 channel labels and favourite channels, and volume presets, and publish that.
+Removing a favourite that a scene or schedule uses asks them first, as it
+asks you.
 They cannot change devices, routing, the layout, groups, lighting, shades,
 rooms, stations, rules on events, the venue record, Control Mode, backups or
 licensing, and they cannot give the Venue Studio permission to anyone. Two
@@ -306,7 +308,7 @@ published or discarded: the page says the draft changed since it was
 loaded, reloads it and does not try again.
 
 **Not yet tried on a touch screen or in the Control4 app** (checked in
-desktop Chromium against the simulator, at 390 x 844, 820 x 1180, 1024 x 600
+desktop Chromium, WebKit and Firefox against the simulator, at 390 x 844, 820 x 1180, 1024 x 600
 and 1280 x 800).
 
 ## 11. Remote Management (smartbuildos.io)
@@ -382,7 +384,10 @@ with the last two. Switch on only what the device really has.
 
 - The keys go to the Control4 device the source is mapped to.
 - **Favourite channels** (up to 24 per source) dial the number with one
-  press: each digit, then Enter. Switch "Press Enter after the digits" off
+  press: each digit, then Enter. Removing a favourite that a scene or
+  schedule uses asks first ("Used by Scene 'Game Day' and Schedule
+  'Morning news'. Removing it blocks publishing until those steps are
+  changed."); the same in the client's Channels and Names. Switch "Press Enter after the digits" off
   for a box that tunes by itself. The venue can edit favourites in the Venue
   Studio.
 - Give staff the permission **Use source controls** in Staff Profiles. Staff

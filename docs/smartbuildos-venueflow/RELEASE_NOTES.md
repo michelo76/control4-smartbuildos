@@ -1,6 +1,6 @@
 # VenueFlow release notes
 
-## Source of 18 and 19 November 2026: review and audit fixes, page follow-ups, not imported anywhere
+## Source of 18 and 19 November 2026: review and audit fixes, page follow-ups, three browser engines, not imported anywhere
 
 Found by an adversarial review of the driver's code (who may change what,
 whose draft it is, revisions, operations, source controls, scenes, alerts)
@@ -8,8 +8,8 @@ and by a gap audit of the wiring between the driver, Composer programming,
 the SmartBuildOS Agent and smartbuildos.io. Each defect was reproduced by a
 test against the old code and then fixed. **All of it is verified on the
 simulator and the test shim only.** The VenueFlow suites and the whole
-repository pass on this source: 2590 checks in 17 VenueFlow suites, 9647 in
-134 test files (19 November 2026, with no package in the build folder, so the
+repository pass on this source: 3006 checks in 17 VenueFlow suites, 10063
+in 134 test files (19 November 2026, with no package in the build folder, so the
 package checks were skipped; TEST_RESULTS.md). No package built from
 this exact source exists: the one in the build folder of the working copy
 predates the last commits (the package check reports it as stale), and none
@@ -43,9 +43,10 @@ the page sources and both built pages for features Firefox 96 (the touch
 screens' Gecko 96) lacks. None were found. It is a static scan: nothing ran
 in Gecko.
 
-**The pages (19 November 2026)**, checked in desktop Chromium against the
-simulator only, with touch emulation where it says so; nothing ran on a T3,
-a T4 or a phone, and WebKit and Gecko were not available:
+**The pages (19 November 2026)**, first checked in desktop Chromium against
+the simulator, with touch emulation where it says so (then in WebKit and
+Firefox too: "The pages in three browser engines" above); nothing ran on a
+T3, a T4 or a phone:
 
 - *Measured sizes.* Every interactive control of the operator page was
   measured reachable (not off-screen, not covered) at 1024 x 600, 1280 x
@@ -90,6 +91,40 @@ a T4 or a phone, and WebKit and Gecko were not available:
 
 The manual now has eleven screenshots, all taken from the simulator in desktop
 Chromium, each captioned so. There is still no Composer screenshot.
+
+**The pages in three browser engines (19 November 2026).** For the first
+time the pages ran in WebKit and Firefox as well as Chromium: Playwright
+1.65 driving Chromium 159, WebKit 27.2 (desktop, and with iPhone and iPad
+descriptors) and Firefox 159, touch enabled, against the simulator, both
+sample venues, at 1024x600, 1280x800 and 390x844. Every operator, Installer
+Studio and Venue Studio flow passed in all three with no page or console
+error. Desktop engines only: nothing ran on a T3, a T4 or a phone. Firefox
+159 is the touch screens' engine family (they run Firefox 96): a pass is
+evidence about Gecko behaviour, not proof for Firefox 96. WebKit with a
+phone descriptor is not iOS Safari. Fixed on the way:
+
+| Defect | Fix |
+| --- | --- |
+| WebKit and Chromium move a touch's click onto a nearby control; the floor plan trusted the moved target, so in WebKit a tap just beside one display selected another (or a whole area through its name) and a tap between two displays never opened "Which display?" | The plan decides from the point the finger went down. Firefox does not move taps; the result is now the same in all three engines. Whether a T3 or T4 moves taps is unknown |
+| Firefox logged a blocked favicon request on every page load | Both pages carry an empty icon |
+| Toasts swallowed touches for seconds (on a phone the "sent" toast sat over the volume slider) | Toasts let taps through |
+| Dialogs used the full viewport height, which on iOS can put a dialog's footer under the browser's toolbars | Dialogs size to their backdrop (the visible area); buttons no longer trigger double-tap zoom or text selection |
+| Taps were lost while a Studio section redrew (a control rebuilt under the finger about 0.9 s after an edit, when the save was acknowledged, or when a tap committed a text field): 38 of 288 timed presses across the three engines | Nothing is rebuilt under a finger: 288 of 288 presses act |
+| On a phone the Floor Plan's volume slider was 84 px wide at 390x844 | It has its own row under the zone picker: 236 px |
+
+Also new: removing a favourite channel that a scene or schedule uses asks
+first and names them ("Used by Scene 'Game Day' and Schedule 'Morning
+news'. Removing it blocks publishing until those steps are changed."), in
+the Installer Studio and in the client's Channels and Names; the driver's
+check at publish stays the authority.
+
+Not exercised in any engine: a touch drag in WebKit and Firefox (mouse
+there; a real touch drag only in Chromium), long press, pinch, double-tap
+zoom, the iOS on-screen keyboard and toolbars, private-mode storage on a
+real device, native time and colour pickers. Floor plan effective target
+after the fix, the same in every engine within 1 px: 27 to 28 px for the
+sports bar's dense columns at 1024x600 (the "Which display?" list covers the
+gaps), 33 px at 390x844, 46 px or more in the conference centre.
 
 **Two owner decisions, built on 19 November 2026** (simulator and test
 shim only):
@@ -161,12 +196,17 @@ licence sets the status and writes Last Error for the rules it did not run;
 dismissing an alert lowers ALERT_COUNT at once.
 
 **Known and not changed.** Two weaknesses of the shared module client
-are recorded in SECURITY_REVIEW.md, residual risks 8 and 9. The manual has no Composer screenshot (its
+are recorded in SECURITY_REVIEW.md, residual risks 8 and 9. At 1024x600
+(the 7-inch touch screen) the Floor Plan bar's volume slider is 110 px wide
+and a Command Center zone card's 94 px: about one pixel per volume step, so
+an exact level is hard to set with a finger there (limitation 20). The
+sports bar's dense columns of displays give a 27 to 28 px target at
+1024x600; "Which display?" covers the gaps. The manual has no Composer screenshot (its
 screenshots are of the pages, from the simulator).
 
 **Still not verified.** Everything above on a controller, in Composer
-programming and on a touch screen; the pages in any engine but desktop
-Chromium. The new hardware checks are in
+programming and on a touch screen; the pages on a T3, a T4, a phone or
+iOS Safari (three desktop engines only, Firefox 159 not 96). The new hardware checks are in
 HARDWARE_VALIDATION.md, "Not yet run".
 
 ## Source after build 20261114.233926 (15 November 2026): review fixes, not built
@@ -271,7 +311,9 @@ only, in Simulation mode first.
    served in one reply each. If a controller's socket cannot deliver that,
    the pages must be split into several requests (not built).
 6. **Engine floor Gecko 96.** The pages are written for it but were tested
-   only in Chromium.
+   only in Chromium. (Since 19 November 2026 a static scan guards the
+   features, and the pages ran in Chromium 159, WebKit 27.2 and Firefox 159
+   on the desktop: still not Firefox 96, not a touch screen.)
 7. **Schedules use the controller's time zone.** There is no separate venue
    time zone.
 8. **Diagnostics are kept in memory** (the newest 400 entries) and start
@@ -319,6 +361,11 @@ only, in Simulation mode first.
     channel a box is on, and a key changes every screen showing that source.
     (Since 19 November 2026 scenes, rules and schedules can change a
     channel with the "Tune a channel" step: top section.)
+20. **The volume slider is narrow on a 7-inch screen** (since 19 November
+    2026, measured in desktop engines): at 1024x600 the Floor Plan bar's
+    slider is 110 px and a Command Center zone card's 94 px, about one pixel
+    per volume step. Volume presets set an exact level; the slider has not
+    been tried with a finger on a T3.
 
 ### Changed since build 20261114.191046
 

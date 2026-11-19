@@ -158,9 +158,13 @@ On a phone the screens stack into one column.
 
 ![The Manager screen on a phone, 390 x 844 (simulator, sample sports bar)](images/phone.jpg)
 
-These sizes were checked in desktop Chromium with touch emulation against the
-simulator: 1024 x 600, 1280 x 800, 1920 x 1200, two tablet and two phone sizes.
-Nothing has been tried on a T3, a T4 or a phone yet.
+These sizes were checked with touch emulation against the simulator, in three
+desktop browser engines (Chromium, WebKit and Firefox, the last being the touch
+screens' engine family but not their version): 1024 x 600, 1280 x 800, 1920 x
+1200, two tablet and two phone sizes. On a phone the Floor Plan's volume slider
+has a row of its own. At 1024 x 600 the volume sliders are narrow (about one
+pixel per volume step), so use a volume preset for an exact level. Nothing has
+been tried on a T3, a T4 or a phone yet.
 
 What the marks mean on every screen:
 
@@ -196,8 +200,9 @@ its favourite channels or on a number you type. Only switched-on sources with
 the number keypad are offered. The keys go to the source's own Control4 device,
 the step shows as sent (a box gives no feedback), and the scene does not wait
 for the last digit: put a Wait before a step that needs the channel. Staff need
-permission to run the scene, not "Use source controls". If a favourite that a
-step uses is removed, the Studio names the scene, schedule or rule and the venue
+permission to run the scene, not "Use source controls". Removing a favourite
+that a step uses asks first and names the scenes and schedules that use it. If
+it is removed anyway, the Studio names the scene, schedule or rule and the venue
 cannot be published until the step is changed. Stopping the scene stops the rest
 of the number; after a number is cut off, or on a box that dials without Enter,
 the next number for that box waits about 3 seconds so the digits do not run
@@ -401,13 +406,18 @@ passed.
 
 ## What changed on 19 November 2026
 
-Run only against the simulator and the test shim, not on a controller.
+Run only against the simulator and the test shim, and the pages in three desktop
+browser engines, not on a controller, a touch screen or a phone.
 
 - Scenes, rules and schedules can **tune a channel** (see Scenes, rules and
   schedules).
 - Remote Management can no longer change device mapping or device commands, nor
   put a mapping change live (see Remote Management).
 - A shade's open and closed levels must be numbers from 0 to 100.
+- A tap on the floor plan is judged from where the finger went down, the same in
+  every browser engine; taps no longer get lost while a Studio section redraws,
+  or under a notice.
+- Removing a favourite channel that a scene or schedule uses asks first.
 
 ## What changed on 18 November 2026
 

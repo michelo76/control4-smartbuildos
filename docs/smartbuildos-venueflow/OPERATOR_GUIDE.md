@@ -59,6 +59,10 @@ between two TVs asks "Which display?" so you can pick. When the panel on the
 right has more below (Power On and Power Off on a small screen), a fade with
 an arrow shows at its bottom edge: scroll it.
 
+On a phone the volume slider has a row of its own under the zone picker. On
+a 7-inch touch screen the volume sliders are short (about one pixel per
+volume step): to set an exact level, use a volume preset.
+
 ## Command Center
 
 The fastest way to change several TVs.
@@ -154,7 +158,9 @@ There you can change:
 - **Scheduling**: what happens by itself, and when.
 - **Channels and Names**: what each source is called, a channel label
   ("ESPN 206") shown beside it (a note for staff; it does not change the
-  channel), and the **favourite channels** on each box's remote.
+  channel), and the **favourite channels** on each box's remote. Removing a
+  favourite that a scene or schedule uses asks first and names them: until
+  those steps are changed, nothing can be published.
 - **Volume Presets**: the one-press levels in each audio zone.
 - **Staff Profiles**: who can do what, and their PINs.
 
