@@ -183,7 +183,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
 .brand b { color: var(--teal); font-weight: 700; }
 .brandmark { color: var(--teal); display: inline-flex; }
-#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "top top" "nav main"; }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto auto 1fr; grid-template-columns: 248px 1fr; grid-template-areas: "sim sim" "pending pending" "top top" "nav main"; }
 #sim { grid-area: sim; }
 #top { grid-area: top; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: rgba(7, 13, 24, .85); min-width: 0; }
 #top .sep { width: 1px; height: 26px; background: var(--line-2); flex: none; }
@@ -205,7 +205,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .stat { display: flex; align-items: center; gap: 14px; }
 .stat .n { font-size: 30px; font-weight: 750; letter-spacing: -.02em; line-height: 1; }
 @media (max-width: 1000px) {
-  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "top" "main"; }
+  #app { grid-template-columns: 1fr; grid-template-areas: "sim" "pending" "top" "main"; }
   #nav { position: fixed; top: 0; bottom: 0; left: 0; width: 270px; z-index: 800; transform: translateX(-100%); transition: transform .16s; background: var(--bg-2); box-shadow: 20px 0 60px rgba(0, 0, 0, .5); }
   #app.navopen #nav { transform: none; }
   #navtoggle { display: inline-flex; }
@@ -223,7 +223,8 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 @media (max-width: 1000px) { #nav { padding-top: 84px; } #app.navopen #navtoggle { position: relative; z-index: 801; } }
 
 /* Venue Studio (a client session) */
-#pending { margin: 0; border-radius: 0; }
+/* Inside #app, between the simulation bar and the header (it was behind the fixed #app before). */
+#pending { grid-area: pending; margin: 0; border-radius: 0; }
 .sep-h { height: 1px; background: var(--line, rgba(255,255,255,.12)); margin: 6px 0; }
 .cl-tile { min-height: 64px; text-align: left; }
 .cl-tile-t { font-weight: 600; }
@@ -788,9 +789,9 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 <body>
 <div id="offline" class="banner bad hidden">The controller is not answering. Changes are kept on this screen and saved when it is back.</div>
 <div id="login" class="hidden"></div>
-<div id="pending" class="banner warn hidden"></div>
 <div id="app" class="hidden">
   <div id="sim" class="simbar hidden">Simulation mode: nothing is sent to Control4</div>
+  <div id="pending" class="banner warn hidden" role="status"></div>
   <header id="top">
     <button id="navtoggle" class="btn ghost icon sm" type="button" aria-label="Sections"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="brand"></div>
@@ -1242,6 +1243,22 @@ var Studio = (function () {
   S.role = function () { return S.boot && S.boot.role === 'client' ? 'client' : 'installer'; };
   S.isClient = function () { return S.role() === 'client'; };
   S.clientStanding = function () { return (S.boot && S.boot.client) || null; };
+  /* Why a client may not publish or discard now, in a venue manager's words, or null.
+     The driver names the reason in the standing (src/venueflow/core.lua, _installerPending):
+     "changes saved by the installer", "changes saved remotely by the dealer", or the
+     installer-owned part of the venue that differs from what is published. */
+  S.pendingReason = function () {
+    var st = S.clientStanding(), p = st && st.installerPending;
+    if (!S.isClient() || !p) return null;
+    var keep = 'You can keep editing here, but you cannot publish or discard until then.';
+    if (p === 'changes saved remotely by the dealer') {
+      return { who: 'dealer', title: 'Your dealer saved changes remotely that are not live yet.', ask: 'Ask your dealer to publish or discard their changes.', keep: keep, short: 'Waiting for your dealer to publish or discard their changes.' };
+    }
+    if (p === true || p === 'changes saved by the installer') {
+      return { who: 'installer', title: 'Your installer saved changes that are not live yet.', ask: 'Ask your installer to publish or discard their changes.', keep: keep, short: 'Waiting for your installer to publish or discard their changes.' };
+    }
+    return { who: 'installer', title: 'The draft has a change to ' + p + ' that only your installer can make, and it is not live yet.', ask: 'Ask your installer to publish or discard it.', keep: keep, short: 'Waiting for your installer to publish or discard their change.' };
+  };
   function allowed(def) { return S.isClient() ? CLIENT_SECTIONS.indexOf(def.id) >= 0 : !def.clientOnly; }
   function landing() {
     if (S.isClient()) return 'home';
@@ -1701,10 +1718,10 @@ var Studio = (function () {
     if (els.title) els.title.textContent = client ? 'Venue Studio' : 'Installer Studio';
     document.title = client ? 'VenueFlow Venue Studio' : 'VenueFlow Installer Studio';
     if (els.openop) els.openop.textContent = client ? 'Back to control' : 'Operator view';
-    var st = S.clientStanding();
+    var why = S.pendingReason();
     if (els.pending) {
-      els.pending.classList.toggle('hidden', !(client && st && st.installerPending));
-      els.pending.textContent = 'Your installer has unfinished changes in this venue. You can keep editing; publishing waits until they finish.';
+      els.pending.classList.toggle('hidden', !why);
+      els.pending.textContent = why ? why.title + ' ' + why.ask : '';
     }
     VF.mount(els.mode, b.driver.simulation ? h('span.chip.warn', h('span.dot'), 'Simulation') : h('span.chip.ok', h('span.dot'), 'Live'),
       S.published ? h('span.chip', 'Published ' + S.published.versionId) : h('span.chip.warn', 'Not published'));
@@ -2072,6 +2089,17 @@ var Studio = (function () {
     VF.toast('The draft changed since this page loaded it. Nothing was ' + verb + '.', 'warn', 9000);
     return Studio.reload().then(function () { Studio.refresh(); });
   }
+  /* A client was refused because someone else's changes are in the draft: load the standing
+     again (it names whose) and say so. */
+  function pendingRefusal(verb) {
+    pub.busy = false;
+    return Studio.reload().then(function () {
+      var why = Studio.pendingReason();
+      pub.refused = 'Nothing was ' + verb + '. ' + (why ? why.title + ' ' + why.ask + ' ' + why.keep : 'Someone else saved changes into the draft that are not live yet. Ask your installer to publish or discard them.');
+      Studio.refresh();
+    });
+  }
+
   function doPublish() {
     if (pub.busy) return;
     pub.busy = true; pub.refused = null; pub.blocking = null;
@@ -2097,6 +2125,7 @@ var Studio = (function () {
           return Studio.reload();
         }
         if (r.errorCode === 'VF_STALE_DRAFT') return staleRefusal('published');
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) return pendingRefusal('published');
         pub.refused = (r.message || 'Not published.') + (r.detail ? ' (' + r.detail + ')' : '');
         if (r.errorCode === 'VF_VALIDATION_FAILED') { pub.blocking = VF.asList(r.data && r.data.blocking); return Studio.reload(); }
         Studio.refresh();
@@ -2135,6 +2164,7 @@ var Studio = (function () {
       pub.refused = null;
       Studio.serverEdit('DRAFT_DISCARD', { confirm: true }).then(function (r) {
         if (r.errorCode === 'VF_STALE_DRAFT') { staleRefusal('discarded'); return; }
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) { pendingRefusal('discarded'); return; }
         if (!r.ok) { VF.toastReply(r); return; }
         pub.acks = {}; pub.refused = null; pub.blocking = null;
         if (Studio.published && cfg()) known = { versionId: Studio.published.versionId, revision: Studio.revision() };
@@ -2148,6 +2178,7 @@ var Studio = (function () {
     var list = Studio.issues();
     var errors = list.filter(isError), warnings = list.filter(function (i) { return !isError(i); });
     var lic = VF.asMap(boot().license);
+    var pending = Studio.pendingReason();
     var button = h('button.btn.primary.lg', { type: 'button', onclick: doPublish }, icon('upload'), 'Publish');
     var hint = h('span.small.muted');
     var ackAll = h('button.btn.sm', { type: 'button' }, icon('check'), 'Acknowledge all warnings');
@@ -2155,7 +2186,8 @@ var Studio = (function () {
     function gate() {
       var open = warnings.filter(function (i) { return !pub.acks[ackKey(i)]; }).length;
       var why = '';
-      if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
+      if (pending) why = pending.short;
+      else if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
       else if (warnings.length > ACK_MAX) why = 'There are more warnings than one publish can acknowledge (' + ACK_MAX + '). Fix some first.';
       else if (open) why = count(open, 'warning') + ' still to tick.';
       button.disabled = pub.busy || !!why;
@@ -2182,6 +2214,7 @@ var Studio = (function () {
       errors.length ? h('span.chip.bad', count(errors.length, 'error')) : (warnings.length ? h('span.chip.warn', count(warnings.length, 'warning')) : h('span.chip.ok', 'No issues')), [
         banner('info', 'info', h('div', h('div', 'Publishing makes this draft the live configuration. The venue switches to it at once.'),
           h('div.small', 'Staff signed in with a profile that was removed, or whose PIN changed, are signed out. The version running now is kept for rollback.'))),
+        pending ? banner('warn', 'alert', h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
         lic.restricted ? banner('bad', 'shield', h('div', 'Features are restricted by the licence (' + (lic.label || 'no label') + '). Publishing and rollback need a SmartBuildOS licence. ',
           h('button.btn.sm', { type: 'button', onclick: function () { Studio.go('licensing'); } }, 'Open Licensing'))) : null,
         !list.length ? banner('ok', 'check-circle', 'The driver found nothing to fix in this draft.') : null,
@@ -2215,7 +2248,8 @@ var Studio = (function () {
         draftSavedAt() ? ['Last saved', when(draftSavedAt())] : null,
         ['Compared', rel.key === 'same' ? 'No changes since ' + p.versionId + ' was published.' : (rel.key === 'unpublished' ? 'Nothing is published yet.' : rel.text)]
       ]),
-      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', disabled: !!Studio.pendingReason(), onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      Studio.pendingReason() ? h('p.small.muted', Studio.pendingReason().short) : null,
       h('p.small.muted', p ? 'Discarding resets the draft to ' + p.versionId + '.' : 'Nothing is published: discarding deletes the draft.')
     ]);
   }
@@ -7298,12 +7332,12 @@ var Studio = (function () {
 
   /* ── home ────────────────────────────────────────────────────────────── */
   function renderHome(container) {
-    var st = S.clientStanding() || {}, pub = S.published, c = S.config();
+    var pub = S.published, c = S.config(), pending = S.pendingReason();
     var sum = S.summary();
     var schedules = c ? S.list('rules').filter(function (r) { return r.trigger && r.trigger.type === 'schedule'; }).length : 0;
     VF.mount(container,
       S.sectionHead('Your venue', 'Signed in as ' + ((S.boot && S.boot.who) || 'staff') + '. Changes are kept as a draft until you publish them.'),
-      st.installerPending ? h('div.banner.warn', icon('alert'), h('div', h('b', 'Your installer has unfinished changes. '), 'You can keep editing here. Publishing waits until they publish or discard their work.')) : null,
+      pending ? h('div.banner.warn', icon('alert'), h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
       !c ? h('div.empty', h('p', 'There is nothing to edit yet. Your installer sets the venue up first.')) :
         h('div.col',
           h('div.list',

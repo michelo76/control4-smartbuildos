@@ -37,6 +37,22 @@ var Studio = (function () {
   S.role = function () { return S.boot && S.boot.role === 'client' ? 'client' : 'installer'; };
   S.isClient = function () { return S.role() === 'client'; };
   S.clientStanding = function () { return (S.boot && S.boot.client) || null; };
+  /* Why a client may not publish or discard now, in a venue manager's words, or null.
+     The driver names the reason in the standing (src/venueflow/core.lua, _installerPending):
+     "changes saved by the installer", "changes saved remotely by the dealer", or the
+     installer-owned part of the venue that differs from what is published. */
+  S.pendingReason = function () {
+    var st = S.clientStanding(), p = st && st.installerPending;
+    if (!S.isClient() || !p) return null;
+    var keep = 'You can keep editing here, but you cannot publish or discard until then.';
+    if (p === 'changes saved remotely by the dealer') {
+      return { who: 'dealer', title: 'Your dealer saved changes remotely that are not live yet.', ask: 'Ask your dealer to publish or discard their changes.', keep: keep, short: 'Waiting for your dealer to publish or discard their changes.' };
+    }
+    if (p === true || p === 'changes saved by the installer') {
+      return { who: 'installer', title: 'Your installer saved changes that are not live yet.', ask: 'Ask your installer to publish or discard their changes.', keep: keep, short: 'Waiting for your installer to publish or discard their changes.' };
+    }
+    return { who: 'installer', title: 'The draft has a change to ' + p + ' that only your installer can make, and it is not live yet.', ask: 'Ask your installer to publish or discard it.', keep: keep, short: 'Waiting for your installer to publish or discard their change.' };
+  };
   function allowed(def) { return S.isClient() ? CLIENT_SECTIONS.indexOf(def.id) >= 0 : !def.clientOnly; }
   function landing() {
     if (S.isClient()) return 'home';
@@ -496,10 +512,10 @@ var Studio = (function () {
     if (els.title) els.title.textContent = client ? 'Venue Studio' : 'Installer Studio';
     document.title = client ? 'VenueFlow Venue Studio' : 'VenueFlow Installer Studio';
     if (els.openop) els.openop.textContent = client ? 'Back to control' : 'Operator view';
-    var st = S.clientStanding();
+    var why = S.pendingReason();
     if (els.pending) {
-      els.pending.classList.toggle('hidden', !(client && st && st.installerPending));
-      els.pending.textContent = 'Your installer has unfinished changes in this venue. You can keep editing; publishing waits until they finish.';
+      els.pending.classList.toggle('hidden', !why);
+      els.pending.textContent = why ? why.title + ' ' + why.ask : '';
     }
     VF.mount(els.mode, b.driver.simulation ? h('span.chip.warn', h('span.dot'), 'Simulation') : h('span.chip.ok', h('span.dot'), 'Live'),
       S.published ? h('span.chip', 'Published ' + S.published.versionId) : h('span.chip.warn', 'Not published'));

@@ -269,6 +269,17 @@
     VF.toast('The draft changed since this page loaded it. Nothing was ' + verb + '.', 'warn', 9000);
     return Studio.reload().then(function () { Studio.refresh(); });
   }
+  /* A client was refused because someone else's changes are in the draft: load the standing
+     again (it names whose) and say so. */
+  function pendingRefusal(verb) {
+    pub.busy = false;
+    return Studio.reload().then(function () {
+      var why = Studio.pendingReason();
+      pub.refused = 'Nothing was ' + verb + '. ' + (why ? why.title + ' ' + why.ask + ' ' + why.keep : 'Someone else saved changes into the draft that are not live yet. Ask your installer to publish or discard them.');
+      Studio.refresh();
+    });
+  }
+
   function doPublish() {
     if (pub.busy) return;
     pub.busy = true; pub.refused = null; pub.blocking = null;
@@ -294,6 +305,7 @@
           return Studio.reload();
         }
         if (r.errorCode === 'VF_STALE_DRAFT') return staleRefusal('published');
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) return pendingRefusal('published');
         pub.refused = (r.message || 'Not published.') + (r.detail ? ' (' + r.detail + ')' : '');
         if (r.errorCode === 'VF_VALIDATION_FAILED') { pub.blocking = VF.asList(r.data && r.data.blocking); return Studio.reload(); }
         Studio.refresh();
@@ -332,6 +344,7 @@
       pub.refused = null;
       Studio.serverEdit('DRAFT_DISCARD', { confirm: true }).then(function (r) {
         if (r.errorCode === 'VF_STALE_DRAFT') { staleRefusal('discarded'); return; }
+        if (r.errorCode === 'VF_FORBIDDEN' && r.data && r.data.installerPending) { pendingRefusal('discarded'); return; }
         if (!r.ok) { VF.toastReply(r); return; }
         pub.acks = {}; pub.refused = null; pub.blocking = null;
         if (Studio.published && cfg()) known = { versionId: Studio.published.versionId, revision: Studio.revision() };
@@ -345,6 +358,7 @@
     var list = Studio.issues();
     var errors = list.filter(isError), warnings = list.filter(function (i) { return !isError(i); });
     var lic = VF.asMap(boot().license);
+    var pending = Studio.pendingReason();
     var button = h('button.btn.primary.lg', { type: 'button', onclick: doPublish }, icon('upload'), 'Publish');
     var hint = h('span.small.muted');
     var ackAll = h('button.btn.sm', { type: 'button' }, icon('check'), 'Acknowledge all warnings');
@@ -352,7 +366,8 @@
     function gate() {
       var open = warnings.filter(function (i) { return !pub.acks[ackKey(i)]; }).length;
       var why = '';
-      if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
+      if (pending) why = pending.short;
+      else if (errors.length) why = 'Fix the ' + count(errors.length, 'error') + ' first.';
       else if (warnings.length > ACK_MAX) why = 'There are more warnings than one publish can acknowledge (' + ACK_MAX + '). Fix some first.';
       else if (open) why = count(open, 'warning') + ' still to tick.';
       button.disabled = pub.busy || !!why;
@@ -379,6 +394,7 @@
       errors.length ? h('span.chip.bad', count(errors.length, 'error')) : (warnings.length ? h('span.chip.warn', count(warnings.length, 'warning')) : h('span.chip.ok', 'No issues')), [
         banner('info', 'info', h('div', h('div', 'Publishing makes this draft the live configuration. The venue switches to it at once.'),
           h('div.small', 'Staff signed in with a profile that was removed, or whose PIN changed, are signed out. The version running now is kept for rollback.'))),
+        pending ? banner('warn', 'alert', h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
         lic.restricted ? banner('bad', 'shield', h('div', 'Features are restricted by the licence (' + (lic.label || 'no label') + '). Publishing and rollback need a SmartBuildOS licence. ',
           h('button.btn.sm', { type: 'button', onclick: function () { Studio.go('licensing'); } }, 'Open Licensing'))) : null,
         !list.length ? banner('ok', 'check-circle', 'The driver found nothing to fix in this draft.') : null,
@@ -412,7 +428,8 @@
         draftSavedAt() ? ['Last saved', when(draftSavedAt())] : null,
         ['Compared', rel.key === 'same' ? 'No changes since ' + p.versionId + ' was published.' : (rel.key === 'unpublished' ? 'Nothing is published yet.' : rel.text)]
       ]),
-      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      h('div.row.wrap', h('button.btn.sm.danger', { type: 'button', disabled: !!Studio.pendingReason(), onclick: doDiscard }, icon('trash'), 'Discard draft changes')),
+      Studio.pendingReason() ? h('p.small.muted', Studio.pendingReason().short) : null,
       h('p.small.muted', p ? 'Discarding resets the draft to ' + p.versionId + '.' : 'Nothing is published: discarding deletes the draft.')
     ]);
   }
