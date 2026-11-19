@@ -839,15 +839,19 @@ Composer). Who paints which:
 | `Found — reporting, cloud offline (v‹ver›)`   | a report answer says `cloud_unreachable`                                                                                                      |
 | `Found — reporting (v‹ver›)`                  | the last report was accepted                                                                                                                  |
 | `Installed — reports through ‹root›`          | `sbos.aipresence`: a child, AI Core present (‹root› is the root driver's name) |
-| `Installed — this driver does not report`     | `sbos.aipresence`: a child of a root that sends no reports (Home Insights, a child of the Agent), or a root started `silent` (VenueFlow, Remote Management off), AI Core present; the Agent: `ai_core` registered and live (ruling 20) |
+| `Installed — this driver does not report`     | `sbos.aipresence`: a child of a root that sends no reports (Home Insights, a child of the Agent), or a root started `silent` (VenueFlow, Remote Management off), AI Core present (ruling 20) |
+| `Found — registered (v‹ver›)`                 | the Agent only: `ai_core` registered, live, and identity-verified (`verified = true`)                                                         |
+| `Found — not verified (v‹ver›)`               | the Agent only: `ai_core` registered and live, but the Agent could not verify its identity (`verified = false`)                               |
 
 **The Agent's own values** (`sbos.agentaicore`; it never says "reporting"):
 `Searching…` before the registry loads; `Not installed`; `Found — not
 responding` (the best `ai_core` row is stale); `Found — AI Core update
 required (v‹ver›)` (registered at protocol 1, or no `ai_core.report` v1);
-`Found — not licensed (v‹ver›)` (its own status); otherwise `Installed — this
-driver does not report`. Whether `ai_core` is identity-verified changes no
-value (no closed value carries it).
+`Found — not licensed (v‹ver›)` (its own status); otherwise, for a live
+`ai_core`, `Found — registered (v‹ver›)` when the Agent verified its identity
+and `Found — not verified (v‹ver›)` when it could not. These two values are
+the Agent's only: `sbos.aireport` and `sbos.aipresence` never paint them (a
+test fails if either source names them).
 
 Discovery is continuous with no polling loop: the helper re-discovers
 `ai_core` after registration and on every `SBOS_MODULE_DIRECTORY_CHANGED`,

@@ -894,11 +894,27 @@ do
     capabilities = { { id = "ai_core.report", version = 1, kind = "request" } },
   })
   local before = #sent
+  -- [12] removed the resolver, so this registration cannot be verified.
   local r = register(AI_ID, "ai_core", { driver_version = "20261118.5", manifest = REPORT_MANIFEST })
   check("ai_core registered with ai_core.report v1", r.ok == "true")
   check(
-    "live ai_core -> Installed — this driver does not report (the Agent never says reporting)",
-    Properties["AI Core"] == "Installed — this driver does not report",
+    "live, unverified ai_core (no resolver answer) -> Found — not verified (v20261118.5)",
+    Properties["AI Core"] == "Found — not verified (v20261118.5)",
+    Properties["AI Core"]
+  )
+  C4.GetDevicesByC4iName = function(_, file)
+    local out = {}
+    for id, d in pairs(PROJECT) do
+      if d.driverFileName == file then
+        out[id] = d.deviceName
+      end
+    end
+    return out
+  end
+  r = register(AI_ID, "ai_core", { driver_version = "20261118.5", manifest = REPORT_MANIFEST })
+  check(
+    "live ai_core from smartbuildos-ai-core.c4z, verified -> Found — registered (v20261118.5) (never reporting)",
+    Properties["AI Core"] == "Found — registered (v20261118.5)",
     Properties["AI Core"]
   )
   EC.SBOS_MODULE_STATUS(auth(AI_ID, "ai_core", r.token, { status = "unlicensed" }))
@@ -909,8 +925,8 @@ do
   )
   EC.SBOS_MODULE_STATUS(auth(AI_ID, "ai_core", r.token, { status = "running" }))
   check(
-    "licensed again -> does not report",
-    Properties["AI Core"] == "Installed — this driver does not report",
+    "licensed again -> Found — registered (v20261118.5)",
+    Properties["AI Core"] == "Found — registered (v20261118.5)",
     Properties["AI Core"]
   )
   r = register(
@@ -932,10 +948,11 @@ do
   )
   r = register(AI_ID, "ai_core", { driver_version = "20261118.7", manifest = REPORT_MANIFEST })
   check(
-    "it registers again -> does not report",
-    Properties["AI Core"] == "Installed — this driver does not report",
+    "it registers again -> Found — registered (v20261118.7)",
+    Properties["AI Core"] == "Found — registered (v20261118.7)",
     Properties["AI Core"]
   )
+  C4.GetDevicesByC4iName = nil
   EC.SBOS_MODULE_UNREGISTER(auth(AI_ID, "ai_core", r.token))
   check("unregistered -> Not installed", Properties["AI Core"] == "Not installed", Properties["AI Core"])
   local toAi = 0

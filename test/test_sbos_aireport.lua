@@ -547,12 +547,15 @@ do
     "Found — reporting (v%s)",
     "Installed — reports through %s",
     "Installed — this driver does not report",
+    -- the Agent's two (sbos.agentaicore only; this helper never paints them)
+    "Found — registered (v%s)",
+    "Found — not verified (v%s)",
   }
   local same = #aireport.VALUES == #SPEC
   for i, v in ipairs(SPEC) do
     same = same and aireport.VALUES[i] == v
   end
-  check("VALUES is exactly the spec §3.6 list plus ruling 20's value, in order", same)
+  check("VALUES is exactly the spec §3.6 list, ruling 20's value and the Agent's two, in order", same)
   check("each plain value is accepted", aireport.isValue("Not installed") and aireport.isValue("Searching…"))
   check(
     "templates accept a bounded version / a known root label",
@@ -1565,14 +1568,25 @@ do
     end
   end
   local missing = {}
-  -- The two "Installed — …" values are painted by sbos.aipresence only.
-  local presenceOnly = { [V.passive_installed] = true, [V.no_report] = true }
+  -- The two "Installed — …" values are painted by sbos.aipresence only;
+  -- registered / unverified by the Agent (sbos.agentaicore) only.
+  local notHelper = {
+    [V.passive_installed] = true,
+    [V.no_report] = true,
+    [V.registered] = true,
+    [V.unverified] = true,
+  }
+  local helperPainted = {}
   for i, template in ipairs(aireport.VALUES) do
-    if not reached[i] and not presenceOnly[template] then
+    if reached[i] and (template == V.registered or template == V.unverified) then
+      helperPainted[#helperPainted + 1] = template
+    end
+    if not reached[i] and not notHelper[template] then
       missing[#missing + 1] = template
     end
   end
   check("all 11 helper values of §3.6 were painted at least once", #missing == 0, table.concat(missing, " | "))
+  check("the helper never painted the Agent's two values", #helperPainted == 0, table.concat(helperPainted, " | "))
   check("no painted value is outside the closed list", #outside == 0, table.concat(outside, " | "))
 end
 

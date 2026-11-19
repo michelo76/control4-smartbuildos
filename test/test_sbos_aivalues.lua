@@ -56,22 +56,30 @@ do
     "Found — reporting (v%s)",
     "Installed — reports through %s",
     "Installed — this driver does not report",
+    "Found — registered (v%s)",
+    "Found — not verified (v%s)",
   }
   local same = #values.VALUES == #SPEC
   for i, v in ipairs(SPEC) do
     same = same and values.VALUES[i] == v
   end
-  check("VALUES is spec §3.6 plus ruling 20's one value, in order (13)", same, #values.VALUES)
+  check("VALUES is spec §3.6, ruling 20's one value, then the Agent's two, in order (15)", same, #values.VALUES)
   local n = 0
   for _ in pairs(values.V) do
     n = n + 1
   end
-  check("V names exactly the 13 values", n == 13, n)
+  check("V names exactly the 15 values", n == 15, n)
   check("the new value is closed", values.isValue("Installed — this driver does not report"))
   check(
     "the child template takes a known root label only",
     values.isValue("Installed — reports through SmartBuildOS System Link")
       and not values.isValue("Installed — reports through Someone Else")
+  )
+  check(
+    "the Agent's two values take a bounded version",
+    values.isValue("Found — registered (v20261118.1)")
+      and values.isValue("Found — not verified (v20261118.1)")
+      and not values.isValue("Found — registered (vnot a version!)")
   )
   check("anything else is refused", not values.isValue("Installed") and not values.isValue("Connected"))
 end
@@ -110,6 +118,20 @@ for _, m in ipairs(MODULES) do
   end
   check(m.name .. ": no value text outside comments (all from sbos.aivalues)", #hits == 0, table.concat(hits, " | "))
   check(m.name .. ": requires sbos.aivalues", code:find('require%("sbos%.aivalues"%)') ~= nil)
+end
+
+print("[1b] the Agent's two values are the Agent's only")
+for _, m in ipairs(MODULES) do
+  local code = stripComments(read(m.path))
+  local uses = code:find("V%.registered") ~= nil or code:find("V%.unverified") ~= nil
+  if m.name == "sbos.agentaicore" then
+    check(
+      m.name .. ": paints V.registered and V.unverified",
+      code:find("V%.registered") ~= nil and code:find("V%.unverified") ~= nil
+    )
+  else
+    check(m.name .. ": never paints V.registered / V.unverified", not uses)
+  end
 end
 
 print("[2] one writer per module, behind isValue")
@@ -207,6 +229,18 @@ do
     manifest = { capabilities = { { id = "ai_core.report", version = 1, kind = "request" } } },
   }
   agentaicore.refresh(reg)
+  check(
+    "live, unverified ai_core -> Found — not verified (v20261118.1)",
+    agentaicore.value() == "Found — not verified (v20261118.1)",
+    agentaicore.value()
+  )
+  reg.entries[1].verified = true
+  agentaicore.refresh(reg)
+  check(
+    "live, verified ai_core -> Found — registered (v20261118.1)",
+    agentaicore.value() == "Found — registered (v20261118.1)",
+    agentaicore.value()
+  )
   reg.entries[1].status = "unlicensed"
   agentaicore.refresh(reg)
   reg.entries[1].manifest = {}

@@ -11,12 +11,16 @@
 ---                                           its manifest lacks
 ---                                           ai_core.report v1
 ---   Found — not licensed (v‹ver›)            its own status is `unlicensed`
----   Installed — this driver does not report AI Core is registered and live
+---   Found — registered (v‹ver›)              live, and the Agent verified its
+---                                           identity (entry.verified)
+---   Found — not verified (v‹ver›)            live, but the Agent could not
+---                                           verify its identity
 ---
 --- The row is chosen as sbos.aireport chooses it: live first, protocol 2
---- first, verified first. Whether that row is verified (identity binding)
---- does not change the value: no closed value says it, and the heartbeat
---- and the directory carry `verified` already.
+--- first, verified first. The last two values are the Agent's only (the
+--- report helper and the passive module never paint them), so AI Core's
+--- version shows and "registered but not verified" is told apart from a
+--- verified registration.
 ---
 --- Called from the Agent's existing hooks (module services start, every
 --- directory change, every module status frame); the Agent's main chunk
@@ -90,7 +94,10 @@ function M.computeValue(registry)
   if e.status == "unlicensed" then
     return string.format(values.V.unlicensed, ver)
   end
-  return values.V.no_report
+  if e.verified == true then
+    return string.format(values.V.registered, ver)
+  end
+  return string.format(values.V.unverified, ver)
 end
 
 local function paint(text)

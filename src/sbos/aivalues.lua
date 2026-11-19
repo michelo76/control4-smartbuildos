@@ -28,9 +28,14 @@ M.V = {
   reporting = "Found — reporting (v%s)",
   passive_installed = "Installed — reports through %s",
   no_report = "Installed — this driver does not report",
+  -- Agent only (sbos.agentaicore): a live AI Core, by identity binding.
+  registered = "Found — registered (v%s)",
+  unverified = "Found — not verified (v%s)",
 }
 
---- In spec order (§3.6), then the one value ruling 20 added.
+--- In spec order (§3.6), then the one value ruling 20 added, then the two
+--- values only the Agent paints (a live AI Core it verified / could not
+--- verify; sbos.aireport and sbos.aipresence never use them).
 M.VALUES = {
   M.V.searching,
   M.V.no_agent,
@@ -45,6 +50,8 @@ M.VALUES = {
   M.V.reporting,
   M.V.passive_installed,
   M.V.no_report,
+  M.V.registered,
+  M.V.unverified,
 }
 
 --- Display name of every driver a child can report through (its driver.xml
