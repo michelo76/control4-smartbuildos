@@ -79,6 +79,10 @@ in its health. An offline light shows offline on the Control4 proxy.
 - **Actions**: *Test: Light On*, *Test: Light Off*, *Test: Light 50%* (the same
   path a tap takes), *Refresh From Broker*, *Print Diagnostics To Log*.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through SmartBuildOS MQTT Broker` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the MQTT Broker driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## Limits
 
 - One child is one device, and nothing is created for you: add a child for each

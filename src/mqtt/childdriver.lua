@@ -22,6 +22,8 @@ local log = require("lib.logging")
 local Link = require("mqtt.link")
 local Topics = require("mqtt.topics")
 local Payload = require("mqtt.payload")
+-- The child's AI Core property (ruling 20): passive, no frame of any kind.
+local aipresence = require("sbos.aipresence")
 
 local M = {}
 
@@ -291,6 +293,7 @@ function M.install(opts)
 
   EC.SBOS_MQTT_ENTITY = function(tParams)
     tParams = tParams or {}
+    aipresence.recheck() -- the bounded KI-42 re-check (at most once per 10 min)
     local was = state.brokerState
     state.acked = true
     state.brokerState = tostring(tParams.state or "unknown")
@@ -319,6 +322,7 @@ function M.install(opts)
 
   EC.SBOS_MQTT_MESSAGE = function(tParams)
     tParams = tParams or {}
+    aipresence.recheck()
     local payload = tostring(tParams.payload or "")
     if tostring(tParams.role) == "availability" then
       local available = Payload.availability(payload, M.prop("Availability Field"))
@@ -435,12 +439,14 @@ function M.install(opts)
         M.sendHello()
       end
     end, true)
+    aipresence.start()
   end
 
   function OnDriverDestroyed()
     CancelTimer(HELLO_TIMER)
     CancelTimer(REHELLO_TIMER)
     CancelTimer(PAINT_TIMER)
+    aipresence.stop()
   end
 end
 
