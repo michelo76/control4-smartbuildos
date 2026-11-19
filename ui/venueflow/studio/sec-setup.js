@@ -259,17 +259,32 @@
      a tick from moving to another entity when something above it is deleted. */
   function ackKey(i) { return i.id + '|' + i.message; }
 
+  /* The draft changed on the controller since this page loaded (or last saved) it: someone
+     else saved it. Say so, load the draft as it is now, and do NOT try again by itself.
+     verb: 'published' | 'discarded'. */
+  function staleRefusal(verb) {
+    var lost = Studio.isStale() ? ' Changes made on this screen that were not saved are not kept.' : '';
+    pub.busy = false; pub.blocking = null;
+    pub.refused = 'Nothing was ' + verb + '. The draft changed since this page loaded it: someone else saved it, in another window, on another screen or remotely. This page now shows the draft as it is on the controller.' + lost + ' Check it, then try again.';
+    VF.toast('The draft changed since this page loaded it. Nothing was ' + verb + '.', 'warn', 9000);
+    return Studio.reload().then(function () { Studio.refresh(); });
+  }
   function doPublish() {
     if (pub.busy) return;
     pub.busy = true; pub.refused = null; pub.blocking = null;
     Studio.refresh();
-    settleDraft().then(function (saved) {
-      if (!saved) { pub.busy = false; pub.refused = 'The draft on the controller is not the one on this screen (not saved yet, or changed in another window), so nothing was published. Check the save indicator at the top.'; Studio.refresh(); return; }
+    Studio.flush().then(function (saved) {
+      if (!saved) {
+        if (Studio.isStale()) return staleRefusal('published');
+        pub.busy = false; pub.refused = 'The changes on this screen are not saved yet, so nothing was published. Check the save indicator at the top.'; Studio.refresh(); return;
+      }
       /* The save may have changed the issues: send what is ticked AND still listed. */
       var acked = Studio.issues().filter(function (i) { return !isError(i) && pub.acks[ackKey(i)]; }).map(function (i) { return i.id; });
       var payload = { acknowledged: acked }, note = pub.note.trim();
       if (note) payload.note = note;
+      /* The revision this page shows: the driver refuses (VF_STALE_DRAFT) if the draft moved on. */
       var revision = Studio.revision();
+      if (revision !== null && revision !== undefined) payload.baseRevision = revision;
       return VF.api('PUBLISH', payload, { since: false }).then(function (r) {
         pub.busy = false;
         if (r.ok && r.data) {
@@ -278,6 +293,7 @@
           VF.toast('Published ' + r.data.versionId + '. The venue runs on it now.', 'ok');
           return Studio.reload();
         }
+        if (r.errorCode === 'VF_STALE_DRAFT') return staleRefusal('published');
         pub.refused = (r.message || 'Not published.') + (r.detail ? ' (' + r.detail + ')' : '');
         if (r.errorCode === 'VF_VALIDATION_FAILED') { pub.blocking = VF.asList(r.data && r.data.blocking); return Studio.reload(); }
         Studio.refresh();
@@ -313,7 +329,9 @@
       actions: [CANCEL, { label: 'Discard draft changes', kind: 'danger', value: true }]
     }).then(function (ok) {
       if (ok !== true) return;
+      pub.refused = null;
       Studio.serverEdit('DRAFT_DISCARD', { confirm: true }).then(function (r) {
+        if (r.errorCode === 'VF_STALE_DRAFT') { staleRefusal('discarded'); return; }
         if (!r.ok) { VF.toastReply(r); return; }
         pub.acks = {}; pub.refused = null; pub.blocking = null;
         if (Studio.published && cfg()) known = { versionId: Studio.published.versionId, revision: Studio.revision() };

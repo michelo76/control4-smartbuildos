@@ -52,6 +52,8 @@ var Studio = (function () {
   S.config = function () { return config; };
   S.hasDraft = function () { return config !== null; };
   S.revision = function () { return revision; };
+  /* true when this page's last save was refused because someone else saved the draft. */
+  S.isStale = function () { return stale; };
   S.issues = function () { return issues; };
   S.summary = function () { return summary; };
   /* Issues about one entity. The driver's kinds: floor, area, source, display, audioZone, group, lighting,
@@ -421,9 +423,11 @@ var Studio = (function () {
      Returns Promise(reply). */
   S.serverEdit = function (command, payload) {
     return S.flush().then(function (saved) {
-      if (!saved && config) return { ok: false, status: 'failed', errorCode: 'VF_STALE_DRAFT', message: saveError || 'Your last changes could not be saved, so this was not done.' };
+      if (!saved && config) return { ok: false, status: 'failed', errorCode: stale ? 'VF_STALE_DRAFT' : 'VF_NOT_SAVED', message: saveError || 'Your last changes could not be saved, so this was not done.' };
       var body = Object.assign({}, payload || {});
-      if (command === 'PROFILE_PIN_SET' && revision !== null) body.baseRevision = revision;
+      /* The draft this page shows (last loaded or saved here): the driver refuses with
+         VF_STALE_DRAFT when someone else has saved since. */
+      if ((command === 'PROFILE_PIN_SET' || command === 'DRAFT_DISCARD') && revision !== null) body.baseRevision = revision;
       return VF.api(command, body, { since: false }).then(function (r) { return S.reload().then(function () { return r; }); });
     });
   };
