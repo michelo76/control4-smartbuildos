@@ -36,7 +36,7 @@ const toolsIndex = await import(T("index.ts"));
 const FACTORIES = { memory: "createMemoryTools", service: "createServiceTools", notifications: "createNotificationTools", actions: "createActionTools", concierge: "createConciergeTools" };
 const build = (name) => (typeof toolsIndex[name] === "function" ? toolsIndex[name](port, {}) : []);
 // createDriverTools takes one options object; with a port that has propose it declares all three driver tools.
-const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build), ...(typeof toolsIndex.createDriverTools === "function" ? toolsIndex.createDriverTools({ port }) : [])];
+const realTools = [...toolsIndex.READ_TOOLS, ...Object.values(FACTORIES).flatMap(build), ...(typeof toolsIndex.createDriverTools === "function" ? toolsIndex.createDriverTools({ port }) : []), ...(typeof toolsIndex.createDeviceStateTools === "function" ? toolsIndex.createDeviceStateTools({ port }) : [])];
 const registryTools = realTools.map((t) => ({ id: t.id, wire: t.wireName, risk: t.risk, household: t.household, verb: t.verb, feature: t.feature, audience: t.audience }));
 // The real offeredTools and registry builder, and the source of the per-persona composition.
 const realTurn = await import(pathToFileURL(path.join(PLATFORM, "src/lib/ai-core/orchestrator/turn.ts")).href);
@@ -511,6 +511,9 @@ section("workflow simulator");
   const reg = body(serverSrc, "aiCoreRegistry");
   ok(reg.length > 100, "found aiCoreRegistry in orchestrator/server.ts");
   const fams = { read: /\.\.\.READ_TOOLS/.test(reg), memory_search: /createMemoryTools\(/.test(reg), memory_propose: /\.\.\.\(actions \? \{ propose:/.test(reg), service: /createServiceTools\(/.test(reg), notifications: /createNotificationTools\(/.test(reg), actions: /\.\.\.\(actions \? createActionTools\(/.test(reg), drivers_read: /\.\.\.createDriverTools\(/.test(reg), drivers_propose: /createDriverTools\(\{\s*port: driverToolPort\(admin, Boolean\(actions\)\)/.test(reg) };
+  // devices.get_state (round two) is counted in the "read" family below; that holds only while
+  // aiCoreRegistry adds createDeviceStateTools unconditionally, like READ_TOOLS.
+  if (typeof toolsIndex.createDeviceStateTools === "function") ok(/\n    \.\.\.createDeviceStateTools\(\{ port: deviceStatePort\(admin\) \}\),/.test(reg), "aiCoreRegistry adds createDeviceStateTools unconditionally (so devices.get_state belongs to the read family)");
   const homeownerAddsConcierge = /createRegistry\(\[\.\.\.aiCoreRegistry\(db, [^\n]*conversationId \}\)\.tools, \.\.\.tools\]\)/.test(conciergeServerSrc) && /createConciergeTools\(/.test(body(conciergeServerSrc, "portalConversationDeps"));
   const person = Object.keys(fams).filter((k) => fams[k]);
   const controllerFams = person.filter((k) => k !== "memory_propose" && k !== "actions" && k !== "drivers_propose");

@@ -3,11 +3,13 @@
    STATUS — the single place every status callout in this guide comes from.
    A later pass updates statuses here only. tone: sim | dev | block | ok.
    Sources: docs/ai-core/program/IMPLEMENTATION_CHECKLIST.md (last updated
-   2026-11-18, close-out, with the conductor’s final rerun), driver
-   docs/ai-core/{DRIVER,INSTALLATION,KNOWN-ISSUES}.md, platform branch
-   codex/ai-core at commit 2ebbd5bd2 (committed work only).
+   2026-11-19, round two; phases 1–12 as at the 2026-11-18 close-out with the
+   conductor’s final rerun), driver docs/ai-core/{DRIVER,INSTALLATION,
+   KNOWN-ISSUES}.md, platform branch codex/ai-core-round2 at commit
+   59f61b623 (committed work only; the frozen codex/ai-core is 2ebbd5bd2
+   plus the close-out commits up to e30367901).
    ══════════════════════════════════════════════════════════════════════ */
-const PLATFORM_HEAD = '2ebbd5bd2';
+const PLATFORM_HEAD = '59f61b623';
 const STATUS = {
   driver: { area: 'AI Core driver (Composer surface, collection, buffer, operations, licence states)', tone: 'sim',
     title: 'Built and simulator-tested; not yet run on a physical controller',
@@ -35,7 +37,7 @@ const STATUS = {
     source: 'providers/README.md; checklist Phase 5' },
   rpc: { area: 'Controller RPC route and cloud ops', tone: 'sim',
     title: 'Built and tested in simulation; the route is not deployed',
-    text: 'Checklist 2.12 is Completed in simulation: business outcomes are HTTP 200 `{ok}`, a bad token 401, an outage 5xx. ask, analyze_room, analyze_system, suggest_scene, generate_report, start_diagnostic and test_provider answer with a job; set_context, send_notification and learn_preference complete at once (`job_id: null`); analyze_household answers accepted (queued) and runs afterwards; status answers its own object. The touchscreen ops (approvals_pending, approval_detail, approval_decide) and the driver-reporting ops (driver_reports, driver_query_result, driver_action_result) have handlers on the platform branch, Completed in the conductor’s final platform rerun (11.5, 12.9). The route is not deployed: until it is, the Agent gets 404 and the driver sees `cloud_refused` (KNOWN-ISSUES KI-15).',
+    text: 'Checklist 2.12 is Completed in simulation: business outcomes are HTTP 200 `{ok}`, a bad token 401, an outage 5xx. ask, analyze_room, analyze_system, suggest_scene, generate_report, start_diagnostic and test_provider answer with a job; set_context, send_notification and learn_preference complete at once (`job_id: null`); analyze_household answers accepted (queued) and runs afterwards; status answers its own object. The touchscreen ops (approvals_pending, approval_detail, approval_decide) and the driver-reporting ops (driver_reports, driver_query_result, driver_action_result) have handlers on the platform branch, Completed in the conductor’s final platform rerun (11.5, 12.9). Round two’s device_state_result has its handler on the unpushed round-two branch, Completed in the conductor’s round-two platform rerun (13.3). The route is not deployed: until it is, the Agent gets 404 and the driver sees `cloud_refused` (KNOWN-ISSUES KI-15).',
     source: 'rpc/ops.ts; DRIVER.md §3; checklist 2.12' },
   learning: { area: 'Household learning (memory, detectors, recommendations, homeowner controls)', tone: 'sim',
     title: 'Built and tested in simulation; off by default; analysis on a dealer schedule, from programming or on demand',
@@ -97,10 +99,14 @@ const STATUS = {
     title: 'Not built and not published',
     text: 'Every changed driver needs a new build: none has been built (12.19 is Blocked: no packager in this worktree; only the squish input growth is measured) and none is published (12.20 is Blocked on the owner, decision 22, and a go-ahead).',
     source: 'checklist 12.19, 12.20' },
-  secondRound: { area: 'Second round (live device answers, preset questions, battery and sensor health)', tone: 'dev',
-    title: 'Agreed by the owner; not started',
-    text: 'Agreed by the owner on 18 November 2026 and Not started (13.1); it begins after the migrations are shown. In order: live device answers (a read-only tool that reads a device’s current values through the AI Core driver), dealer-set preset questions in the touchscreen page, and battery and sensor health in homeowner answers. Camera snapshot descriptions are on hold for an owner decision on privacy. None of it is in this guide’s other chapters.',
-    source: 'checklist 13.1' },
+  secondRound: { area: 'Round two (live device answers, dealer preset questions, battery and sensor health)', tone: 'dev',
+    title: 'Built in simulation on separate, unpushed branches; not in the frozen pull requests',
+    text: 'Round two lives only on feat/ai-core-round2 and codex/ai-core-round2, which are not pushed; the frozen pull requests do not contain it. Completed in the conductor’s round-two reruns on snapshots: the live read on the controller (13.1), the filter and class rules (13.2), the platform operation, handler and screen (13.3) and the presets on the driver (13.7). Tested, worker-reported and not yet rerun by the conductor: the round-two migration on a throwaway local database (13.4), devices.get_state (13.5), devices.health (13.6), presets in Studio with the gate (13.8), the energy honesty guard (13.9), and the driver’s temperature scale and preset key rule (13.10). In progress: the same preset key rule and temperature unit on the platform (13.11). The final round-two totals are being finalised. Nothing of it has run on a controller or touchscreen, and the round-two migration is applied to no remote database.',
+    source: 'checklist 13.1–13.11; SPEC-round2-live-answers.md §9' },
+  roundTwoHardware: { area: 'Round two on hardware, and camera descriptions', tone: 'block',
+    title: 'Blocked: no controller or touchscreen; camera descriptions on hold',
+    text: 'Blocked, no controller: the real variable names of batteries, locks and appliance sensors (13.12), whether a device’s protocol id exposes its proxy’s variables (13.13), a live read’s time on a large project (13.14), how a preset button wraps on a real touchscreen (13.15). Camera snapshot descriptions are Blocked on an owner decision on privacy (13.16, decision 30); cameras are refused in every scope.',
+    source: 'checklist 13.12–13.16; KNOWN-ISSUES KI-63–KI-66, KI-70' },
   devdocs: { area: 'Developer API documentation and test matrix', tone: 'sim',
     title: 'Written and cross-checked by script',
     text: 'Checklist 10.5 is Completed: the platform repo\u2019s docs/ai-core/DEVELOPER-API.md, OPERATIONS.md, README.md, DRIVER-CONTRACT.md and MIGRATIONS.md are synced to platform commit 0481f3f98 and cross-checked by script (by the worker, not line by line by the conductor). The test matrix is Completed (10.2): the driver repo\u2019s and the platform\u2019s docs/ai-core/TEST-MATRIX.md. Chapter 14 links to them by repository path.',
@@ -127,6 +133,9 @@ const VERIFY = {
     ['Touchscreen: PIN Lock serving AI Core, the page and its relay, the PIN-locked chat, one PIN per approval item (webview emulator scenario with the real PIN Lock, 34 of 34); the platform approval ops, the homeowner’s two switches, the notice, touchscreen answers, the medium risk class', '11.1–11.9'],
     ['Driver reporting: bus foundations, the helper and value list, the passive module, the Agent’s two own values, the report hub (emulator 47 of 47), three reference drivers (39 of 39), the rollout to 51 of 52 driver directories, the packaging check without a packager; platform ingest and stores, the three driver tools, driver-declared actions, the wire mirror', '12.1–12.11, 12.13'],
     ['This guide: consistency test 946 assertions, passing; browser test 831 controls exercised, 2,435,469 assertions, 0 failures, 0 network requests (at driver 26a3d44)', '10.3, 10.4'],
+    ['Round two, live read on the controller (driver 64660fb: 194 test files, 0 failed; lint 0/0; emulator 132, 47, 39, 34, 24)', '13.1'],
+    ['Round two, the filter and class rules and the presets on the driver (driver 1a663b1: 194 files, 0 failed; lint 0/0; emulator 132, 47, 39, 37, 24)', '13.2, 13.7'],
+    ['Round two, the platform operation, handler and screen (platform e68167946: unit 12,710 of 12,710; typecheck 0; lint 0 errors; browser 22 of 22; the twelve frozen migration files unchanged)', '13.3'],
   ],
   reported: [
     ['Migrations applied, rolled back and re-applied on a local Postgres (platform workers; worker-reported)', '2.16'],
@@ -135,6 +144,10 @@ const VERIFY = {
     ['The defect-reintroduction proofs: each new guard shown to fail when its defect is put back (worker-reported)', 'worker-reported'],
     ['The packaging check’s per-driver results (all 52 drivers pass) beyond its inclusion in the conductor’s run', '12.8'],
     ['Source-size growth before compression: about 134 KB per reporting root driver, about 15 KB per child, 17.7 MB to 20.8 MB for all drivers (real .c4z sizes unmeasured)', 'worker-reported'],
+    ['Round two: the round-two migration applied, QA’d, re-applied (refused by name), rolled back to an identical schema and applied again on a throwaway local database', '13.4'],
+    ['Round two: devices.get_state, devices.health, presets in Studio with the gate, the energy honesty guard (platform tests after e68167946)', '13.5, 13.6, 13.8, 13.9'],
+    ['Round two: the driver’s temperature scale and preset key rule after 1a663b1, each proved by reintroducing its defect', '13.10'],
+    ['This guide rebuilt for round two: its consistency and browser tests pass on the round-two branch; the totals are being finalised', 'worker-reported'],
   ],
   browser: [
     ['System Studio Intelligence: AI Overview, Household Usage, Flight Recorder Intelligence, Recommendations, Service, Conversations, Provider & settings, approvals, rules, hand-offs, pending memories — fixture mode and a local stack', '8.1–8.9'],
@@ -152,13 +165,15 @@ const VERIFY = {
     ['A real calendar read or write, or a real Google Places search', '9.7'],
     ['Any migration on a remote database (owner’s step, not taken)', '10.11'],
     ['The controller route deployed (until then: 404 → cloud_refused)', 'KI-15'],
+    ['Round two on a controller: the real variable names of batteries, locks and appliance sensors; whether a protocol id exposes its proxy’s variables; a live read’s time on a large project; a preset button on a real touchscreen', '13.12–13.15'],
+    ['Camera snapshot descriptions (on hold for a privacy decision; cameras are refused in every scope)', '13.16'],
   ],
   decided: [
     ['Intelligence stays a ninth top-level Studio destination', 'decided 2026-11-18'],
     ['Price: $150 dealer (charged once, per controller), $250 MSRP; plan inclusion stays open (decision 13)', 'decided 2026-11-18'],
     ['Flight Recorder retention is enabled (nightly; the first run deletes history older than 30 days for events and 90 days for traces, in one pass)', 'decided 2026-11-18'],
     ['Household analysis: a per-property schedule the dealer sets, and the Composer command Run Household Analysis', 'decided 2026-11-18'],
-    ['A second round after the migrations are shown: live device answers, dealer-set preset questions on the touchscreen, battery and sensor health in homeowner answers (agreed, not started; camera snapshot descriptions on hold for a privacy decision)', 'agreed 2026-11-18'],
+    ['A second round: live device answers, dealer-set preset questions on the touchscreen, battery and sensor health (agreed on 18 November; built in simulation on unpushed branches on 19 November; camera snapshot descriptions on hold for a privacy decision)', 'agreed 2026-11-18'],
   ],
   owner: [
     ['One-click import of existing plaintext company AI keys into the vault', 'decision 3'],
@@ -182,9 +197,14 @@ const VERIFY = {
     ['Whether to add PIN-protected approval of recommendations later (not in this version)', 'decision 23'],
     ['Pre-existing database permissions found during the migration review, outside these migrations and not changed by them: signed-out and ordinary signed-in roles hold TRUNCATE on companies and profiles, and TRIGGER / MAINTAIN / REFERENCES on ai_usage_events (the migrations revoke only TRUNCATE there)', 'decision 24'],
     ['Whether an owner PIN alone should unlock household answers on the touchscreen (today a separate homeowner portal switch, off by default)', 'decision 25'],
+    ['Whether an owner PIN alone should unlock door, lock and light state on the touchscreen (today no)', 'decision 26'],
+    ['Whether to apply the round-two migration 20261119120000 (only if and when round two ships: after file 12, before the round-two app; its rollback deletes every home’s presets)', 'decision 27'],
+    ['Whether to switch System Studio monitoring on by default, so battery and sensor health has data (today off)', 'decision 28'],
+    ['Whether lights and media count as occupancy on the touchscreen (today yes)', 'decision 29'],
+    ['Camera snapshot descriptions: still on hold for privacy', 'decision 30'],
   ],
   unreleased: [
-    ['Pull requests open on both repositories since 18 November 2026, not merged; later commits are local until the conductor pushes them', 'not merged'],
+    ['Pull requests open on both repositories since 18 November 2026, not merged, and frozen for the owner; round two is on separate branches that are not pushed', 'not merged'],
     ['Nothing published to the Driver Store; no GitHub release', '10.12'],
     ['New versions of the changed drivers not built or published (owner decision 22)', '12.20'],
     ['Migrations not applied to production or any remote database', '10.11'],
@@ -202,7 +222,7 @@ const GLOSSARY = {
   capability: ['Capability', 'A named service a module advertises in its manifest, either a request (e.g. events.query) or a topic (events.subscribe over prefixes). Consumers discover capabilities; they never assume them.'],
   manifest: ['Capability manifest', 'Optional JSON sent with SBOS_MODULE_REGISTER (≤ 2 KB, ≤ 24 capabilities) listing what a module can serve.'],
   cloudop: ['Cloud op', 'One of the closed operations AI Core may ask the Agent to relay to the platform route (ask, analyze_room, …, test_provider). Anything else is not_permitted.'],
-  restricted: ['Restricted operation', 'One of eight closed operations the platform may send to AI Core through the Agent (apply_config, refresh_status, deliver_result, raise_event, set_learning, run_diagnostic, run_driver_query, invoke_driver_action). None controls equipment; the last two reach only a query or action a driver declared.'],
+  restricted: ['Restricted operation', 'One of the closed operations the platform may send to AI Core through the Agent: apply_config, refresh_status, deliver_result, raise_event, set_learning, run_diagnostic, run_driver_query, invoke_driver_action, and with round two read_device_state (nine; eight on the frozen branch). None controls equipment; run_driver_query and invoke_driver_action reach only a query or action a driver declared, and read_device_state only reads one device.'],
   topic: ['Topic', 'An event-type prefix such as capture. or observation. that a module subscribes to. The Agent grants only prefixes listed for the subscriber in its topic policy.'],
   idempotency: ['Idempotency key', 'A key kept the same across retries of one request, so the Agent replays the stored answer instead of routing the request twice.'],
   risk: ['Risk class', 'Declared once per tool in the registry: read, low, medium, high, external or programming. The permission engine reads it from the registry, never from the model.'],

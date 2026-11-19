@@ -262,7 +262,9 @@ function initPermissions() {
      in a person's conversation (createNotificationTools was removed in
      commit c79f42d09), createDriverTools (drivers.list and
      drivers.run_query for every turn; drivers.propose_action only in a
-     person's conversation: driverToolPort(admin, Boolean(actions)));
+     person's conversation: driverToolPort(admin, Boolean(actions))),
+     and on the round-two branch createDeviceStateTools (devices.get_state,
+     for every turn; devices.health is a READ_TOOLS context tool);
    * concierge/server.ts portalConversationDeps: the homeowner's turn adds
      createConciergeTools to that registry;
    * orchestrator/turn.ts offeredTools: a controller turn keeps read tools

@@ -151,7 +151,7 @@ if (fs.existsSync(path.join(PLATFORM, "src/lib/ai-core/tools/registry.ts"))) {
   // Built from the factories tools/index.ts exports, so a tool added or removed on the platform is caught.
   const idx = await import(T("index.ts"));
   const tools = [...idx.READ_TOOLS];
-  for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]], ["createDriverTools", [{ port }]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
+  for (const [name, args] of [["createMemoryTools", [port]], ["createServiceTools", [port]], ["createNotificationTools", [port]], ["createActionTools", [port, {}]], ["createConciergeTools", [port]], ["createDriverTools", [{ port }]], ["createDeviceStateTools", [{ port }]]]) if (typeof idx[name] === "function") tools.push(...idx[name](...args));
   const key = (t) => [t.id, t.wireName ?? t.wire, t.risk, t.household, t.verb ?? null, t.feature ?? null, t.audience ?? "everyone", (t.schema ? t.schema.required ?? [] : t.required).join(",")].join("|");
   sameSet(tools.map(key), REF.tools.map(key), "tools (id|wire|risk|household|verb|feature|audience|required) vs the platform registry");
   for (const t of tools) ok(prose.includes(t.wireName) || html.includes(t.wireName), `guide documents tool ${t.wireName}`);
