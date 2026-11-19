@@ -40,6 +40,9 @@ local RelayHost = require("lib.relayhost")
 local gHost = nil -- the relay address resolver, built once publishWebViewUrl exists
 local Settings = require("dealerpanel.settings")
 local Relay = require("dealerpanel.relay")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -173,6 +176,37 @@ local function snapshot()
   })
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   the dealer's tunable settings (timeouts, dim levels, delays)
+--              edited behind a Dealer PIN
+--   state      how many settings are configured, writable, read-only,
+--              locked (never the setting names or values, never the PIN)
+--   diagnostic the panel locked itself after wrong PINs (the driver's own
+--              Panel Locked event)
+--   events, queries, actions: none. Changing a setting stays behind the
+--              Dealer PIN.
+
+local function aiReportState()
+  aireport.state({
+    settings_configured = tonumber(gModel and gModel.configured) or 0,
+    writable = writable() == true,
+    read_only = gReadOnlyReason ~= nil,
+    locked = gGate ~= nil and gGate:isLocked() == true,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "The installer's adjustable settings for this home's programming, such as motion timeouts, dim levels and delays, changed on a touchscreen page protected by a dealer PIN.",
+    controls = { { id = "dealer_settings", label = "Dealer settings", class = "other" } },
+    vocabulary = { "settings", "timeout", "delay", "dim level", "installer settings", "dealer", "adjust" },
+  })
+end
+
 local function paint()
   UpdateProperty("Panel Status", panelStatus())
   UpdateProperty("Last Change", gLastChange)
@@ -183,6 +217,7 @@ local function paint()
     log:info("Panel %s", healthy and "writable again" or "read-only: " .. tostring(gReadOnlyReason))
   end
   gLastStatus = healthy
+  aiReportState()
 end
 
 --- Applies a write from any source. Returns a result table for the page.
@@ -430,6 +465,7 @@ function OnDriverLateInit(reason)
     now = os.time,
     onLocked = function()
       fire(EVENT_LOCKED)
+      aireport.diagnostic("warning", "panel.locked", "The dealer settings page locked itself after wrong PIN entries")
       paint()
     end,
   })
@@ -440,6 +476,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -464,6 +501,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   stopUiRelay()
   CancelTimer(STATUS_TIMER)
   CancelTimer(HEAL_TIMER)

@@ -193,6 +193,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
       <property><name>Last Change</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
       <property><name>Dealer PIN</name><type>STRING</type><password>true</password><default></default></property>
