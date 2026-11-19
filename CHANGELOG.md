@@ -51,12 +51,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
     driver sends the documented Control4 command to the source's own device.
     Simulation verified only: not yet seen to move a real box, and there is no
     feedback.
-  - **Remote Management, driver side.** A property (Off by default, Draft only,
-    Draft and publish) lets smartbuildos.io read the configuration, fill the
-    draft and, where allowed, publish and roll back, through the Agent's module
-    contract (module `venueflow`; one new Agent allowlist entry and one envelope
-    prefix). It never controls equipment. **The platform side does not exist
-    yet**, so nothing can be managed remotely today.
+  - **Remote Management.** A property (Off by default, Draft only, Draft and
+    publish) lets smartbuildos.io read the configuration, fill the draft and,
+    where allowed, publish and roll back, through the Agent's module contract
+    (module `venueflow`; one Agent allowlist entry and one envelope prefix). It
+    never controls equipment. The smartbuildos.io side (System Studio, Drivers &
+    Licenses, VenueFlow) is merged and deployed, but the two sides have **never
+    been run together with a controller**, and the catalogue row for
+    `SBOS_VENUEFLOW` is not applied yet, so no licence can be issued for it.
 - **Agent: restarts counted per day.** New property **Director Reloads Today**
   and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the controller's
   local midnight, back to 0 every midnight. The reload report to SmartBuildOS
@@ -228,6 +230,30 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   midnight, and an expired one came back). Daypart Scheduler: a block started by
   hand resumes its volume ramp after a pause or a restart. MQTT Bridge: a child
   driver that reloads gets its retained state again.
+
+- **VenueFlow: client limits, draft ownership, alerts and Composer wiring** (18
+  November 2026; simulator and test shim only, not run on a controller). Found
+  by an adversarial review and a gap audit. In the Venue Studio, the profile a
+  tile opens with and every station's profile are the installer's as whole
+  records, PINs included. Every draft save records who made it, and a client can
+  no longer publish or discard a draft holding the installer's or the dealer's
+  unfinished work. Draft revisions never repeat (across a discard, a publish and
+  a backup restore); `PUBLISH` and `DRAFT_DISCARD` take an optional
+  `baseRevision`. Operations shown to a staff profile no longer carry `origin`,
+  and one the profile sees only part of gets a label counted over that part. A
+  channel being dialled finishes across a publish unless its source's device or
+  the control mode changed. `SCENE_ACTIVATE` refuses an area outside the
+  profile's access, and `ALERT_DISMISS` an alert the profile is not shown. The
+  Alerts property, `ALERT_COUNT` and *VenueFlow has alerts* now count the same
+  alerts, detected ones included, and *Alert Raised* fires when a detected alert
+  appears. *Configuration Published* fires on a rollback, the two true-or-false
+  conditionals honour the "closed" and "clear" choices, and *Trigger the
+  VenueFlow event* under a restricted licence is refused with a reason in Last
+  Error. A save with no draft keeps the staff PINs (the installer and remote
+  paths dropped them). `refresh_status` answers with a one-line summary and the
+  module reports the live version as `config_version`. The Agent lists
+  `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
+  `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 
 - **VenueFlow: six defects from the review of its pull request**, each
   reproduced by a test first (simulation and shim; not built, not run on a
