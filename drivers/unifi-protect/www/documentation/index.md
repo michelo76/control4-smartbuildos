@@ -359,6 +359,7 @@ number), `LAST_WEBHOOK_NAME`, `LAST_WEBHOOK_TIME`.
 | **Arm Mode**, **Arm Profile**                                                           | The console's alarm state, as of the last sync                                                                                              |
 | **Offline Devices**                                                                     | The names of devices that are not connected, or `None`                                                                                      |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the SmartBuildOS Agent answered                                                                                                        |
+| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
 | **SmartBuildOS Reporting**                                                              | Off by default. On hands the device list (names, MAC addresses, online state) to the SmartBuildOS Agent in this project whenever it changes |
 | **Driver Status**, **Driver Version**                                                   | **Driver Version** is the build actually running. If it is not the newest after an update, the project is serving a cached copy             |
 | **Log Level**, **Log Mode**                                                             | Logging. **Log Mode** turns itself Off after 3 hours                                                                                        |
@@ -449,6 +450,50 @@ Agent's answer is a definite "not licensed" (**License Status** then ends in
 Live video, events, status and the Gateway's own commands keep working in every
 case. An uncertain answer (no Agent, an Agent that is not signed in, a licence
 service that cannot be reached) is never treated as "not licensed".
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+gateway tells it, over the SmartBuildOS Agent, what it connects and
+whether the console answers. Health and counts only; each gateway reports
+for itself. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: a UniFi Protect gateway for cameras, floodlights,
+  sensors and doorbell chimes, and the words people use for them.
+- **State**: whether it is configured and connected, and for each kind how
+  many devices the console lists and how many are online. Never camera,
+  motion, doorbell, door or alarm activity, the alarm state, a device,
+  console or person name, the console address, the API key or the webhook
+  token.
+- **Faults**: the console stopped answering (NVR Offline) and answers
+  again (NVR Online).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in unit tests only: nothing here has run on a
+physical controller.
 
 ## What is not claimed
 
