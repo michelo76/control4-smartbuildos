@@ -179,6 +179,10 @@ display and a zone sharing a `c4RoomId` is allowed and flagged
   "deviceId": 7101, "openLevel": 100, "closedLevel": 0 }   // SET_LEVEL_TARGET { LEVEL_TARGET }
 ```
 
+A shade's `openLevel` and `closedLevel` are optional numbers from 0 to 100
+(absent: 100 and 0), sent as `SET_LEVEL_TARGET`; anything else is an error at
+save and publish (`RANGE`, "Open level must be between 0 and 100.").
+
 A lighting preset is exactly one device command. Documented choices:
 `ACTIVATE_SCENE { SCENE_ID }` to the Advanced Lighting Scenes agent,
 `RAMP_TO_LEVEL { LEVEL, TIME }` or `SET_BRIGHTNESS_TARGET

@@ -109,7 +109,11 @@ Opens **Devices**. For each display:
 
 Then **Sources** (name, kind, the Control4 device a room selects, video and
 audio) and **Audio Zones** (name, area, its Control4 room, allowed sources,
-minimum, maximum and default volume, presets).
+minimum, maximum and default volume, presets). **Lighting and Shades**: a
+lighting control's presets (each one Control4 command to one device) and
+each shade's device, with its open and closed levels: numbers from 0 to 100,
+100 and 0 when left empty; anything else is refused at save and publish
+("Open level must be between 0 and 100.").
 
 **Test as you go.** In the display's inspector:
 
@@ -389,9 +393,11 @@ with the last two. Switch on only what the device really has.
   know the channel.
 - Scenes, rules and schedules can tune a box too, with the **Tune a
   channel** step (section 5). If a run that was dialling a number is
-  stopped, the rest of the number is not sent, and the next number for that
-  box waits 3 seconds so the box can drop the unfinished digits. That pause
-  is an assumption about boxes, not seen on one: check it on site.
+  stopped, the rest of the number is not sent. After a number is cut off,
+  or on a box that dials without Enter, the next number for that box waits
+  about 3 seconds so the digits do not run together; other boxes are not
+  held up. That pause is an assumption about boxes, not seen on one: check
+  it on site.
 
 **Test this on site in Live mode before you rely on it** (HARDWARE_VALIDATION.md).
 It has only been run against the simulator. If a favourite drops a digit on

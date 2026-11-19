@@ -13,14 +13,15 @@ Rules for this file:
   marked RHV is claimed to work on hardware.
 - The "Evidence" column names the test file or the check.
 
-**State, 19 November 2026: 163 tasks. 139 Completed, 21 Require Hardware
-Verification, 2 Blocked (the `SBOS_VENUEFLOW` catalogue row not applied; an
-owner decision on remote drafts), 1 Not Started. Two tasks (4.6 and 20.4) are
-verified on the bench controller, in Simulation, on builds of 14 November
-2026; every other Completed task is verified on the simulator, the test shim
-or in desktop Chromium. Nothing has controlled real equipment. Phases 23 and
-24 (the second round and the fixes of 18 and 19 November 2026) have not run
-on a controller at all.**
+**State, 19 November 2026: 168 tasks. 142 Completed, 23 Require Hardware
+Verification, 1 Blocked (the `SBOS_VENUEFLOW` catalogue row not applied), 2
+Not Started (the shared module client's two weaknesses; the platform's
+follow-up to on-site-only mapping). Two tasks (4.6 and 20.4) are verified on
+the bench controller, in Simulation, on builds of 14 November 2026; every
+other Completed task is verified on the simulator, the test shim or in
+desktop Chromium. Nothing has controlled real equipment. Phases 23 and 24
+(the second round and the fixes and decisions of 18 and 19 November 2026)
+have not run on a controller at all.**
 
 The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 `f0952a4`). The branches it was built on, `feat/venueflow` and
@@ -279,7 +280,7 @@ The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 | 23.5 | Remote Management, driver side | Property, registration only while on, five commands, snapshot without PIN material, published event | Requires Hardware Verification | test_venueflow_remote, test_venueflow_driver. Never registered with a real Agent |
 | 23.6 | Remote Management, platform side | System Studio section, status route, module contract, catalogue-row migration | Completed | In the web repository: merged and deployed 15 Nov 2026 with its unit tests (not checked from this repository). The migration is not applied (15.4) |
 | 23.7 | Remote Management end to end | A draft, publish and rollback from System Studio reach the bench controller | Requires Hardware Verification | HARDWARE_VALIDATION.md, "Not yet run". Never run |
-| 23.8 | Owner decision: may a remote draft replace device mapping and device commands | Decided and enforced | Blocked | Needs the owner. Today a remote draft can replace the whole configuration (SECURITY_REVIEW.md) |
+| 23.8 | Owner decision: may a remote draft replace device mapping and device commands | Decided and enforced | Completed | Decided: on site only (19 Nov 2026). Enforced in the driver: test_venueflow_remote "on-site only: ..." (simulator and shim; never run with a real Agent: 24.27) |
 
 ## Phase 24. Review and audit fixes and page follow-ups, 18 and 19 November 2026
 
@@ -313,3 +314,8 @@ controller, a touch screen or a phone.
 | 24.23 | The client is told why publishing waits | Plain-word reason and who to ask, in the header, on Home and on Publish and Rollback; buttons disabled | Completed | Browser check (simulator). The dealer wording seen only with the page's state set by hand |
 | 24.24 | Screen profiles read-only for a client | Default and station profiles shown read-only, no Delete or PIN buttons | Completed | Browser check for the default profile (simulator). The station case not seen: the samples have no stations |
 | 24.25 | Venue status under a restricted licence on the operator page | The page says how many automations did not run | Completed | Browser check on a simulator started restricted; the driver side: test_venueflow_license |
+| 24.26 | Remote Management refuses device mapping and device commands | A remote save, publish or rollback that changes or puts live a mapping is refused whole with `VF_ONSITE_ONLY` and a bounded detail; nothing stored | Completed | test_venueflow_remote "on-site only: device mapping and device commands", "the installer's work in the draft", "publish and rollback", "with no draft, the live configuration is the base", "guard" |
+| 24.27 | The refusal seen end to end | From smartbuildos.io: Failed, the sentence shown, the draft unchanged | Requires Hardware Verification | HARDWARE_VALIDATION.md, "Not yet run" |
+| 24.28 | The platform matches the decision | The Whole configuration editor shows mapping read-only, explains `VF_ONSITE_ONLY`, warns on Publish | Not Started | Web repository; SMARTBUILDOS_INTEGRATION.md, platform follow-up |
+| 24.29 | "Tune a channel" step for scenes, rules and schedules | Validated at save and publish with the owner named; dials through the closed key list; stopped with its run; overlap by source; in the Studio for installer and client | Requires Hardware Verification | test_venueflow_rules "tune step", test_venueflow_schema "tune step validation", test_venueflow_sourcecontrol "the tune step's way into the engine", "the engine: ...", test_venueflow_clientstudio "a tune step in the client's hands"; browser check of the editor (simulator). Never seen on a real box |
+| 24.30 | Shade open and closed levels bounded | 0 to 100, else `RANGE` at save and publish | Completed | test_venueflow_schema "shade levels" |

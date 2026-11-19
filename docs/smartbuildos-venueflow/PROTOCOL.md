@@ -201,11 +201,11 @@ reports nothing back. A source in the operator configuration carries
 
 Diagnostics hold an `info` entry per request (category `source`) and a
 `debug` entry per key as the adapter took it ("Cable 1: NUMBER_2 sent
-(1/4)"). When a number is cut off (a run that dialled it was stopped), the
-next number for that device waits 3 seconds before its first key, so the
-box can drop the unfinished digits; while it waits, the keys queued behind
-it, for any source, wait too (one queue). The 3 seconds are an assumption,
-not seen on a box. The "Tune a channel" program step (`tune`) uses the same
+(1/4)"). After a channel number is cut off (a run that dialled it was
+stopped), or on a box that dials without Enter, the next number for that
+box waits about 3 seconds so the digits do not run together; later keys for
+that box wait behind it, and keys for other boxes are not held up. The 3
+seconds are an assumption, not seen on a box. The "Tune a channel" program step (`tune`) uses the same
 path with system access (DATA_MODEL.md, Step).
 
 ## Studio commands
