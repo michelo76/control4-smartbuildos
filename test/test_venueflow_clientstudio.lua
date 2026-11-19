@@ -665,4 +665,71 @@ for _, i in ipairs(Schema.validate(venue)) do
 end
 check("an over-long channel label is refused", sawChannel)
 
+-- ── a client's scene that tunes a source; a favourite it uses removed ──────
+print("a tune step in the client's hands")
+do
+  local e = H.new()
+  e.publishSample("sports_bar")
+  local CM = { session = e.login("manager", "2580") }
+  local function draft()
+    local d = e.send("DRAFT_GET", {}, CM).data.draft
+    return copy(d.config), d.revision
+  end
+  local function publish()
+    local own = {}
+    for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, CM).data.issues) do
+      if i.severity ~= "error" then
+        own[#own + 1] = i.id
+      end
+    end
+    return e.send("PUBLISH", { acknowledged = own, note = "tune" }, CM)
+  end
+  local function sceneOf(c, id)
+    for _, sc in ipairs(c.scenes) do
+      if sc.id == id then
+        return sc
+      end
+    end
+  end
+  local c, rev = draft()
+  local gameDay = sceneOf(c, "game-day")
+  table.insert(gameDay.program.steps, 3, { type = "tune", sourceId = "sports-1", favoriteId = "sports-a" })
+  c.rules[#c.rules + 1] = {
+    id = "lobby-news",
+    name = "Lobby news",
+    enabled = true,
+    trigger = { type = "schedule", days = { 1, 2, 3, 4, 5 }, time = "07:00" },
+    program = { steps = { { type = "tune", sourceId = "news", channel = "202" } } },
+  }
+  local saved = e.send("DRAFT_SAVE", { config = c, baseRevision = rev }, CM)
+  eq("a client adds a tune step to a scene and a schedule", saved.ok, true)
+  local p1 = publish()
+  eq("...and publishes them", p1.ok, true)
+  eq("...the scene's step is live", sceneOf(e.core.config, "game-day").program.steps[3].favoriteId, "sports-a")
+
+  c, rev = draft()
+  c.sources[1].favorites = { c.sources[1].favorites[2], c.sources[1].favorites[3] } -- Sports A goes
+  eq("a client may remove a favourite channel", e.send("DRAFT_SAVE", { config = c, baseRevision = rev }, CM).ok, true)
+  local refused = publish()
+  eq("...but not publish while a scene still uses it", refused.errorCode, "VF_VALIDATION_FAILED")
+  local said
+  for _, b in ipairs(refused.data.blocking) do
+    if b.code == "REF_UNKNOWN" then
+      said = b.message
+    end
+  end
+  eq(
+    "...the issue names the scene and what to do",
+    said,
+    "Scene 'Game Day' tunes Sports 1 to a favourite channel that no longer exists (sports-a). "
+      .. "Choose another favourite or type the channel number in the step."
+  )
+  eq("...and the live favourite is still there", #e.core.config.sources[1].favorites, 3)
+  c, rev = draft()
+  sceneOf(c, "game-day").program.steps[3] = { type = "tune", sourceId = "sports-1", channel = "206" }
+  e.send("DRAFT_SAVE", { config = c, baseRevision = rev }, CM)
+  eq("with the step typing the channel instead, it publishes", publish().ok, true)
+  eq("...and the favourite is gone", #e.core.config.sources[1].favorites, 2)
+end
+
 T.done()

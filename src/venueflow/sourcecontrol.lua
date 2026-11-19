@@ -68,10 +68,19 @@ M.DEFAULTS = {
 }
 
 M.FAVORITES_MAX = 24
+--- Keys that may wait to be sent, all sources together.
+M.MAX_WAITING = 64
 M.FAVORITE_NAME_MAX = 24
 M.CHANNEL_MAX = 8
 --- Longest gap worth waiting between two keys of one channel number.
 M.KEY_SPACING_MS = 350
+--- How long a box is given to give up on digits typed without Enter before
+--- the next channel number starts on it (a number cut off by a stopped run,
+--- or a box set to dial without Enter). Without it the next number's digits
+--- would join the unfinished one ("2" then "212" typed as "2212"). Assumed
+--- from how set-top boxes usually behave; NOT seen on a box
+--- (HARDWARE_VALIDATION.md).
+M.UNFINISHED_PAUSE_MS = 3000
 
 function M.defaults(kind)
   return U.copy(M.DEFAULTS[kind] or {})
@@ -137,8 +146,9 @@ function M.new(deps)
   local self = setmetatable({}, Engine)
   self.deps = deps
   self.spacingMs = deps.spacingMs or M.KEY_SPACING_MS
-  self.pending = {} -- { deviceId, command, source, sourceId, seq }
+  self.pending = {} -- { deviceId, command, source, sourceId, seq, executionId?, first? }
   self.busy = false
+  self.unfinished = {} -- deviceId -> true while digits sent to it wait for an Enter
   self.sent = 0
   self.seq = 0 -- one number per key press or channel being dialled
   self.mode = nil -- the control mode the waiting keys were pressed in
@@ -171,6 +181,7 @@ end
 
 --- Drops every waiting key of sequence `seq` (the rest of a channel number)
 --- and says so in diagnostics: a box is never left half-dialled in silence.
+--- Returns how many keys were dropped.
 function Engine:_stop(seq, sourceName, why)
   local kept, dropped = {}, 0
   for _, job in ipairs(self.pending) do
@@ -187,6 +198,23 @@ function Engine:_stop(seq, sourceName, why)
     "VF_CANCELLED",
     string.format("%s: %d key(s) not sent: %s", tostring(sourceName), dropped, why)
   )
+  return dropped
+end
+
+--- Remembers whether the last key sent to a device left a number unfinished
+--- (a digit or a dash and no Enter yet). It is forgotten once the box has had
+--- UNFINISHED_PAUSE_MS to give up on it.
+function Engine:_noteSent(job)
+  local timer = "VfSourceOpen_" .. tostring(job.deviceId)
+  if job.command:match("^NUMBER_%d$") or job.command == "DASH" then
+    self.unfinished[job.deviceId] = true
+    self.deps.timers.set(timer, M.UNFINISHED_PAUSE_MS, function()
+      self.unfinished[job.deviceId] = nil
+    end)
+  elseif self.unfinished[job.deviceId] then
+    self.unfinished[job.deviceId] = nil
+    pcall(self.deps.timers.cancel, timer)
+  end
 end
 
 --- Is the source a waiting key was pressed for still the same Control4 device
@@ -221,6 +249,17 @@ function Engine:_pump()
     return
   end
   self.busy = true
+  if job.first and self.unfinished[job.deviceId] then
+    -- A new channel number must not join digits the box still holds: wait
+    -- until it has given up on them (the flag clears first: its timer was
+    -- set earlier for the same length).
+    table.insert(self.pending, 1, job)
+    self.deps.timers.set("VfSourceKeys", M.UNFINISHED_PAUSE_MS, function()
+      self.busy = false
+      self:_pump()
+    end)
+    return
+  end
   local ok, sent, why = pcall(function()
     return self.deps.adapter().deviceCommand(job.deviceId, job.command, {})
   end)
@@ -234,6 +273,16 @@ function Engine:_pump()
     )
   else
     self.sent = self.sent + 1
+    self:_noteSent(job)
+    -- Each key, as the adapter took it: the record to compare with what a
+    -- box did on site (debug level; the log is a bounded ring).
+    self.deps.diag:add(
+      "debug",
+      "source",
+      nil,
+      string.format("%s: %s sent (%d/%d)", tostring(job.source), job.command, job.index, job.total),
+      { device = job.deviceId, execution = job.executionId }
+    )
   end
   self.deps.timers.set("VfSourceKeys", self.spacingMs, function()
     self.busy = false
@@ -241,18 +290,25 @@ function Engine:_pump()
   end)
 end
 
-function Engine:_send(source, commands, label, opts)
-  if #self.pending + #commands > 64 then
+--- `number` is true for a channel number (its first key waits for a box
+--- that still holds unfinished digits, see _pump).
+function Engine:_send(source, commands, label, opts, number)
+  if #self.pending + #commands > M.MAX_WAITING then
     return refuse("VF_UNSUPPORTED", "too many keys are waiting; try again in a moment")
   end
   self.seq = self.seq + 1
-  for _, command in ipairs(commands) do
+  for i, command in ipairs(commands) do
     self.pending[#self.pending + 1] = {
       deviceId = source.c4DeviceId,
       command = command,
       source = source.name,
       sourceId = source.id,
       seq = self.seq,
+      index = i,
+      total = #commands,
+      -- The run that asked for it: a stopped run stops its keys (cancelExecution).
+      executionId = opts.executionId,
+      first = number == true and i == 1 or nil,
     }
   end
   self.deps.diag:add(
@@ -260,7 +316,7 @@ function Engine:_send(source, commands, label, opts)
     "source",
     nil,
     string.format("%s: %s", tostring(source.name), label),
-    { who = opts.origin }
+    { who = opts.origin, execution = opts.executionId }
   )
   self:_pump()
   -- "sent" is all VenueFlow can say: a box gives no feedback.
@@ -283,7 +339,23 @@ function Engine:key(sourceId, key, opts)
   return self:_send(source, { spec[2] }, key, opts)
 end
 
+--- The keys of a channel number as a person reads them: "2, 0, 6, Enter".
+function M.spoken(channel, enter)
+  local out = {}
+  for ch in tostring(channel):gmatch(".") do
+    out[#out + 1] = ch:match("%d") and ch or "dash"
+  end
+  if enter ~= false then
+    out[#out + 1] = "Enter"
+  end
+  return table.concat(out, ", ")
+end
+
 --- Dials a channel: a favourite by id, or a number typed on the page.
+--- opts = { access, origin, dry?, executionId? }. A DRY request is checked
+--- exactly like a real one and sends nothing (status "planned").
+--- A successful reply's `data` says what was (or would be) dialled:
+--- { sent, feedback = false, channel, favorite?, keys = "2, 0, 6, Enter" }.
 function Engine:tune(sourceId, target, opts)
   local source, failure = self:_source(sourceId, opts)
   if source == nil then
@@ -307,12 +379,43 @@ function Engine:tune(sourceId, target, opts)
   if not M.validChannel(channel) then
     return refuse("VF_INVALID_PAYLOAD", "a channel is digits, with at most one dash or dot")
   end
-  return self:_send(
-    source,
-    M.sequence(channel, source.tuneEnter),
-    "channel " .. channel .. (label and (" (" .. label .. ")") or ""),
-    opts
-  )
+  local commands = M.sequence(channel, source.tuneEnter)
+  local about = { channel = channel, favorite = label, keys = M.spoken(channel, source.tuneEnter) }
+  if opts.dry then
+    about.sent, about.feedback = 0, false
+    return { ok = true, status = "planned", data = about }
+  end
+  local reply =
+    self:_send(source, commands, "channel " .. channel .. (label and (" (" .. label .. ")") or ""), opts, true)
+  if reply.ok then
+    for k, v in pairs(about) do
+      reply.data[k] = v
+    end
+  end
+  return reply
+end
+
+--- Stops the keys a stopped run queued and that have not left yet (the rest
+--- of a channel number it was dialling), and says so in diagnostics. A key
+--- already sent cannot be taken back; the next number for that box waits for
+--- it to give up on the unfinished digits (_pump). Returns how many keys
+--- were dropped.
+function Engine:cancelExecution(executionId, why)
+  if executionId == nil then
+    return 0
+  end
+  local order, names = {}, {}
+  for _, job in ipairs(self.pending) do
+    if job.executionId == executionId and names[job.seq] == nil then
+      order[#order + 1] = job.seq
+      names[job.seq] = job.source
+    end
+  end
+  local dropped = 0
+  for _, seq in ipairs(order) do
+    dropped = dropped + self:_stop(seq, names[seq], why)
+  end
+  return dropped
 end
 
 --- Drops keys that have not left yet.

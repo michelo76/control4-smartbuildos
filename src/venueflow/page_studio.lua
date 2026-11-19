@@ -628,6 +628,7 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .vp-unset { color: var(--warn); font-weight: 650; }
 .vp-missing-field > select { border-color: rgba(248, 113, 113, .7); color: var(--bad); }
 .vp-unset-field > select { border-color: var(--warn-line); }
+.vp-unset-field > input { border-color: var(--warn-line); }
 .vp-seg button { min-height: 44px; }
 .vp-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .vp-group-label { font-size: 13px; color: var(--ink-2); font-weight: 550; }
@@ -5885,6 +5886,7 @@ var Studio = (function () {
   var STEP = {
     display_power: { label: 'Power displays', icon: 'power', hint: 'Switch displays on or off', make: function () { return { type: 'display_power', power: 'on', target: {} }; } },
     route_video: { label: 'Route video', icon: 'route', hint: 'Show a source on displays', make: function () { return { type: 'route_video', target: {} }; } },
+    tune: { label: 'Tune a channel', icon: 'tv', hint: 'Put a cable or satellite box on a channel', make: function () { return { type: 'tune' }; } },
     route_audio: { label: 'Route audio', icon: 'music', hint: 'Play a source in an audio zone', make: function () { return { type: 'route_audio' }; } },
     volume: { label: 'Set volume', icon: 'volume', hint: 'Set an audio zone to a level', make: function () { return { type: 'volume', level: 50 }; } },
     mute: { label: 'Mute or unmute', icon: 'volume-x', hint: 'Mute or unmute an audio zone', make: function () { return { type: 'mute', muted: true }; } },
@@ -5899,7 +5901,7 @@ var Studio = (function () {
     notify: { label: 'Send notification', icon: 'send', hint: 'Show a message to managers', make: function () { return { type: 'notify', message: '', level: 'info' }; } }
   };
   var PALETTE = [
-    ['Displays', ['display_power', 'route_video']],
+    ['Displays', ['display_power', 'route_video', 'tune']],
     ['Audio', ['route_audio', 'volume', 'mute', 'zone_power']],
     ['Room', ['lighting', 'shade']],
     ['Flow', ['wait', 'if', 'run_scene']],
@@ -6101,11 +6103,27 @@ var Studio = (function () {
     if (p) return String(p.name);
     return isSet(st.presetId) && l ? { t: '(missing)', c: 'missing', title: String(st.presetId) } : { t: '(not set)', c: 'unset' };
   }
+  /* The tune step (rules.lua validateTune): a source with the number keypad, then a favourite of
+     that source or a typed channel number, never both. */
+  function hasKeypad(s) { return asList(s && s.controls).indexOf('keypad') >= 0; }
+  function tunable(s) { return hasKeypad(s) && s.enabled !== false; }
+  function channelMax() { var s = S.boot && S.boot.schema; return Number(asMap(s && s.sourceControl).channelMax) || 8; }
+  function validChannel(ch) { return typeof ch === 'string' && ch.length > 0 && ch.length <= channelMax() && (/^\d+$/.test(ch) || /^\d+[-.]\d+$/.test(ch)); }
+  function tuneParts(st) {
+    if (isSet(st.favoriteId)) {
+      var src = S.find('sources', st.sourceId), fav = src ? VF.byId(src.favorites, st.favoriteId) : null;
+      if (fav) return [String(fav.channel) + ' (' + String(fav.name) + ')'];
+      return src ? [{ t: '(missing favourite)', c: 'missing', title: String(st.favoriteId) }] : [{ t: '(not set)', c: 'unset' }];
+    }
+    return isSet(st.channel) ? [String(st.channel)] : [{ t: '(not set)', c: 'unset' }];
+  }
+  var tuneMode = new WeakMap();                     // tune steps whose "Channel number" tab is open with nothing typed yet
   function describeStep(st) {
     var t = st && typeof st === 'object' ? st.type : '?';
     switch (t) {
       case 'display_power': return ['Power ', val(st.power), ' '].concat(targetParts(st.target));
       case 'route_video': return ['Route ', nm('sources', st.sourceId), ' to '].concat(targetParts(st.target));
+      case 'tune': return ['Tune ', nm('sources', st.sourceId), ' to '].concat(tuneParts(st));
       case 'route_audio': return ['Play ', nm('sources', st.sourceId), ' in ', nm('audioZones', st.zoneId)];
       case 'volume': return ['Set ', nm('audioZones', st.zoneId), ' volume to ', val(st.level), '%'];
       case 'mute': return [st.muted ? 'Mute ' : 'Unmute ', nm('audioZones', st.zoneId)];
@@ -6189,6 +6207,12 @@ var Studio = (function () {
       if (asList(t.displayIds).some(function (id) { return !S.find('displays', id); }) || asList(t.groupIds).some(function (id) { return !S.find('groups', id); }) || asList(t.areaIds).some(function (id) { return !S.find('areas', id); })) return 'bad';
     }
     if (partsHave(parts, 'missing')) return 'bad';
+    if (st.type === 'tune') {
+      var ts = S.find('sources', st.sourceId);
+      if (isSet(st.favoriteId) && isSet(st.channel)) return 'bad';
+      if (isSet(st.channel) && !validChannel(st.channel)) return 'bad';
+      if (ts && !tunable(ts)) return 'bad';
+    }
     if (st.type === 'wait' && !(typeof st.seconds === 'number' && st.seconds > 0 && st.seconds <= maxWait())) return 'bad';
     if (st.type === 'volume' && isSet(st.zoneId) && !(typeof st.level === 'number' && st.level >= 0 && st.level <= 100)) return 'bad';
     if (st.type === 'notify' && !isSet(String(st.message || '').trim())) return 'bad';
@@ -6487,6 +6511,9 @@ var Studio = (function () {
         f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) { full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; }); }, { filter: function (s) { return s.video !== false; }, filterNote: '(no video)' }));
         f.appendChild(targetPicker(st));
         break;
+      case 'tune':
+        tuneFields(f, st, full, softly, k);
+        break;
       case 'route_audio':
         f.appendChild(refPick('Audio zone', 'audioZones', st.zoneId, function (v) { full(function () { if (v === undefined) delete st.zoneId; else st.zoneId = v; }); }));
         f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) { full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; }); }, { filter: function (s) { return s.audio !== false; }, filterNote: '(no audio)' }));
@@ -6541,6 +6568,44 @@ var Studio = (function () {
         break;
     }
     return f;
+  }
+
+  function tuneFields(f, st, full, softly, k) {
+    var src = S.find('sources', st.sourceId), usable = S.list('sources').filter(tunable);
+    var hint;
+    if (!usable.length) hint = S.isClient() ? 'No source has a number keypad, so none can be tuned. Your installer gives a cable or satellite box one.' : 'No source has a number keypad, so none can be tuned. Give a cable or satellite box one under Sources > Basic controls.';
+    else if (src && src.enabled === false) hint = src.name + ' is switched off, so it cannot be tuned. Switch it on or choose another source.';
+    else if (src && !hasKeypad(src)) hint = src.name + ' has no number keypad, so this step can never dial a channel.' + (S.isClient() ? ' Choose another source.' : ' Give it one under Sources > Basic controls, or choose another source.');
+    else hint = 'Only sources with a number keypad are listed. Every display showing the source changes channel.';
+    f.appendChild(refPick('Source', 'sources', st.sourceId, function (v) {
+      /* A favourite belongs to one source: it does not follow the step to another. */
+      full(function () { if (v === undefined) delete st.sourceId; else st.sourceId = v; var ns = S.find('sources', v); if (isSet(st.favoriteId) && !(ns && VF.byId(ns.favorites, st.favoriteId))) delete st.favoriteId; });
+    }, { filter: tunable, filterNote: '(cannot be tuned)', hint: hint, none: usable.length ? 'Choose...' : 'None can be tuned' }));
+    var mode = st.channel !== undefined ? 'channel' : (tuneMode.get(st) || 'favorite');
+    f.appendChild(group('Channel', seg([['favorite', 'Favourite'], ['channel', 'Number']], mode, function (v) {
+      full(function () { tuneMode.set(st, v); if (v === 'channel') delete st.favoriteId; else delete st.channel; });
+    }, k + ':tm')));
+    if (mode === 'favorite') {
+      var favs = asList(src && src.favorites).map(function (x) { return { value: x.id, label: x.name + ' (' + x.channel + ')' }; });
+      var gone = isSet(st.favoriteId) && src && !VF.byId(src.favorites, st.favoriteId);
+      if (gone) favs.unshift({ value: st.favoriteId, label: '(missing) ' + st.favoriteId });
+      var fs = S.select('Favourite channel', favs, st.favoriteId, function (v) { full(function () { if (v === undefined) delete st.favoriteId; else st.favoriteId = v; delete st.channel; }); },
+        { none: 'Choose...', disabled: !src, hint: !src ? 'Choose the source first.' : (gone ? 'This favourite was removed. Choose another, or type the channel number.' : (!asList(src.favorites).length ? src.name + ' has no favourite channels yet. Type the channel number instead.' : undefined)) });
+      if (gone) fs.classList.add('vp-missing-field'); else if (!isSet(st.favoriteId)) fs.classList.add('vp-unset-field');
+      f.appendChild(fs);
+    } else {
+      var ch = textField('Channel number', st.channel, function (v) { softly(function () { if (v) st.channel = v; else delete st.channel; }); }, { max: channelMax(), placeholder: '206' });
+      var input = ch.querySelector('input'); if (input) input.setAttribute('inputmode', 'decimal');
+      ch.appendChild(live(h('span.hint'), function (el) {
+        var bad = isSet(st.channel) && !validChannel(st.channel);
+        el.classList.toggle('vp-missing', bad);
+        el.textContent = bad ? 'A channel is digits, with at most one dash or dot (206, 5-1).' : 'Digits, with at most one dash or dot (206, 5-1).';
+      }));
+      if (!isSet(st.channel)) ch.classList.add('vp-unset-field');
+      f.appendChild(ch);
+    }
+    f.appendChild(h('div.banner.info.vp-span', icon('info', 'sm'), h('div.small',
+      'The digits' + (src && src.tuneEnter === false ? '' : ' and Enter') + ' go to the box a third of a second apart, and the program goes on at once: add a Wait after this step if the next one needs the new channel. Nothing comes back from the box, so this step is "sent", never confirmed.')));
   }
 
   /* ── step cards and lists ────────────────────────────────────────────── */

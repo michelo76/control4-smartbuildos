@@ -31,7 +31,7 @@ eq("HELLO says so too", env.send("HELLO", {}, { tile = true }).data.published, f
 eq("publishing with no draft", env.send("PUBLISH", {}, S).errorCode, "VF_NOT_FOUND")
 check(
   "the schema vocabulary is sent to the Studio",
-  #boot.data.schema.venueTypes == 8 and #boot.data.schema.stepTypes == 14
+  #boot.data.schema.venueTypes == 8 and #boot.data.schema.stepTypes == 15
 )
 
 -- ── templates never overwrite silently ──────────────────────────────────────
