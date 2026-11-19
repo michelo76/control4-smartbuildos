@@ -615,6 +615,7 @@ leaves existing names alone. Exports and device drivers are never imported.
 | **Pause Minutes**, **Link Pause Minutes**                             | Length of a local pause; length of a link pause, 0 for until resumed                                                                                                                                                  |
 | **Log Level**, **Log Mode**                                           | Logging to the Lua tab and the log                                                                                                                                                                                    |
 | **Link Credential Backup**                                            | Written by the driver so the link survives a driver update. Not editable                                                                                                                                              |
+| **AI Core** | Read-only: whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
 
 | Action                                | What it does                                                                                                                                                                 |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -701,6 +702,52 @@ after a relay refusal or failure.
   state, the counts and the latency.
 - The link can be revoked in System Studio from either system. The bridge then
   reads `Paused — link revoked`, and requests in flight end as `unknown`.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+driver tells it, over the SmartBuildOS Agent, what the link is and whether
+it is healthy. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: the link between this system and one other, and the
+  words people use (the other house, guest house, connected…).
+- **State**: whether a link is provisioned, its authorization, the relay
+  connection, the other bridge's status, the sync phase, how many shared
+  variables this side owns and mirrors, pending updates and requests, and
+  whether commands are suspended. Never the system names (often a family
+  name), the link credential, endpoint ids or any shared value.
+- **Faults**: the link disconnected and connected again, the other system
+  went offline and came back, and an item suspended by the loop guard (the
+  driver's own Link Disconnected / Connected, Peer Offline / Online and
+  Loop Suspended events).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing. Remote commands and requests stay
+with Composer programming on both sides.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in unit tests only: nothing here has run on a
+physical controller.
 
 ## What is not claimed
 

@@ -37,6 +37,9 @@ local persist = require("lib.persist")
 local http = require("lib.http")
 local license = require("sbos.license")
 local Engine = require("systemlink.engine")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 local requests = require("systemlink.requests")
 local schema = require("systemlink.schema")
 local exportsModel = require("systemlink.exports")
@@ -300,12 +303,25 @@ local function buildIo()
       C4:AddEvent(id, name, description)
     end)
   end
+  -- The link faults the engine already detects and fires as Composer
+  -- events, mirrored to AI Core as diagnostics (lossy; nothing else).
+  local AI_DIAGNOSTICS = {
+    LINK_DISCONNECTED = { "warning", "link.disconnected", "The link relay became unreachable or refused the link" },
+    LINK_CONNECTED = { "info", "link.connected", "The link relay accepted this system's credential" },
+    PEER_OFFLINE = { "warning", "peer.offline", "The linked system has not been heard from" },
+    PEER_ONLINE = { "info", "peer.online", "The linked system is heartbeating again" },
+    LOOP_SUSPENDED = { "warning", "item.loop_suspended", "A shared item's traffic was suspended by the loop guard" },
+  }
   io.fireEvent = function(key)
     local id = EVENT_ID[key]
     if id then
       pcall(function()
         C4:FireEventByID(id)
       end)
+    end
+    local d = AI_DIAGNOSTICS[key]
+    if d then
+      aireport.diagnostic(d[1], d[2], d[3])
     end
   end
   io.fireItemEvent = function(itemId)
@@ -577,11 +593,52 @@ local function paintLinkHealth()
   updateStatus("Pending", string.format("%d updates · %d requests", #e.pending, requests.inFlight(e.requests)))
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   the link between this home's system and one other
+--   state      linked, link authorization, relay connection, peer status,
+--              sync phase, shared variable counts, pending updates and
+--              requests, command suspension. Never the system names (they
+--              are often a family name), credentials, endpoint ids or any
+--              shared value
+--   diagnostic link disconnected / connected, peer offline / online, an
+--              item suspended by the loop guard (the engine's own events)
+--   events, queries, actions: none. Remote commands and requests stay
+--              with Composer programming on both sides.
+
+local function aiReportState(st)
+  local e = gEngine
+  aireport.state({
+    linked = e.link ~= nil,
+    link_authorization = e.link and tostring(e.link.link_state or "unknown") or "not provisioned",
+    relay_connection = tostring(e.transport),
+    peer_status = tostring(e.peerState),
+    sync_status = tostring(e.reconcile and e.reconcile.phase or "not started"),
+    local_variables = tonumber(st["Local Variables Created"]) or 0,
+    remote_variables = tonumber(st["Remote Variables Monitored"]) or 0,
+    pending_updates = #e.pending,
+    pending_requests = tonumber(requests.inFlight(e.requests)) or 0,
+    commands_suspended = e.commandsPaused == true or e.pausedLocal ~= nil,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Links this home's Control4 system to one other Control4 system through SmartBuildOS, sharing chosen variables, events and requests between the two, for example a main house and a guest house.",
+    controls = { { id = "system_link", label = "Link to the other system", class = "network" } },
+    vocabulary = { "linked system", "other house", "guest house", "main house", "link", "sync", "connected" },
+  })
+end
+
 local function paintStatus()
   if not gEngine then
     return
   end
-  for name, value in pairs(gEngine:statusProperties()) do
+  local statusProps = gEngine:statusProperties()
+  for name, value in pairs(statusProps) do
     updateStatus(name, value)
   end
   if gDealerError then
@@ -626,6 +683,7 @@ local function paintStatus()
   end
   updateStatus("License State", license.statusLabel())
   updateStatus("Installed Version", tostring(C4:GetDriverConfigInfo("version") or ""))
+  aiReportState(statusProps)
 end
 
 local function tick()
@@ -3037,6 +3095,7 @@ function OnDriverLateInit()
     pcall(OnPropertyChanged, p)
   end
   license.setup({ sku = SKU })
+  startAiCore()
   paintItemList()
   paintExportDeviceList()
   paintTemplateList()
@@ -3066,6 +3125,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   doorbellStop()
   KillAllTimers()
   if gEngine then
