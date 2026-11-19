@@ -448,7 +448,11 @@ local P1 = "Is the wine cellar at the right temperature?"
 local P2 = "Are all the shades closed?"
 post("/chat/lock")
 pending.driver_config = {
-  { driver_sku = "SBOS_AI_CORE", settings = { schema = 1, touchscreen = { presets = { P1, P2 } } }, settings_version = 1 },
+  {
+    driver_sku = "SBOS_AI_CORE",
+    settings = { schema = 1, touchscreen = { presets = { P1, P2 } } },
+    settings_version = 1,
+  },
 }
 d:executeCommand(agent, "SEND_HEARTBEAT", {})
 d:advance(3000)

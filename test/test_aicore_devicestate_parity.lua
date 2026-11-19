@@ -126,7 +126,7 @@ check(
 print("[2c] the base allow-list's SCALE = the name thermostatReading reads as `scale`")
 local agentScale = readingFn:match('scale%s*=%s*str%("([^"]+)"%)')
 check(
-  "the Agent reads its scale as str(\"" .. tostring(agentScale) .. "\") = devicestate.SCALE_NAME",
+  'the Agent reads its scale as str("' .. tostring(agentScale) .. '") = devicestate.SCALE_NAME',
   agentScale ~= nil and agentScale == D.SCALE_NAME,
   "Agent " .. tostring(agentScale) .. " vs AI Core " .. tostring(D.SCALE_NAME)
 )

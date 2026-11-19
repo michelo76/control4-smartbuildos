@@ -1336,7 +1336,10 @@ check("the fresh id asks the new question", fresh.ok == true and lastCloud("ask"
 asksBefore = #H.cloudOps("ask")
 for _, bad in ipairs({ "p9-" .. sugs[1].id:match("%-(%d+)$"), "p0-1", "p1-", "p1", "P1-1", "p1-1-1" }) do
   local r = post(pl, "/ask", { suggestion_id = bad })
-  check("a malformed or out-of-range id (" .. bad .. "): unknown_suggestion", r.ok == false and r.reason == "unknown_suggestion")
+  check(
+    "a malformed or out-of-range id (" .. bad .. "): unknown_suggestion",
+    r.ok == false and r.reason == "unknown_suggestion"
+  )
 end
 check("…and nothing was sent for any of them", #H.cloudOps("ask") == asksBefore)
 local seven = {}
@@ -1354,7 +1357,10 @@ local lastId = sugs[1].id
 H.config(H.learningOn(), 9005)
 sugs = state(pl).chat.suggestions
 check("a document WITHOUT the key: no presets, the three built-ins only", #sugs == 3 and sugs[1].id == "working")
-check("…and the last preset id no longer resolves", post(pl, "/ask", { suggestion_id = lastId }).reason == "unknown_suggestion")
+check(
+  "…and the last preset id no longer resolves",
+  post(pl, "/ask", { suggestion_id = lastId }).reason == "unknown_suggestion"
+)
 
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)
 

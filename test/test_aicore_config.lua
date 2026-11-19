@@ -247,7 +247,10 @@ do
   check("two valid presets: accepted", c ~= nil, r and Config.describeRefusals(r))
   check(
     "carried exactly, in order",
-    c ~= nil and #c.touchscreen.presets == 2 and c.touchscreen.presets[1] == PRESETS[1] and c.touchscreen.presets[2] == PRESETS[2]
+    c ~= nil
+      and #c.touchscreen.presets == 2
+      and c.touchscreen.presets[1] == PRESETS[1]
+      and c.touchscreen.presets[2] == PRESETS[2]
   )
   local old = Config.validate(copy(good))
   check(
@@ -263,7 +266,10 @@ do
   end
   check("6 presets (the bound): accepted", Config.validate({ touchscreen = { presets = six } }) ~= nil)
   check("3 characters: accepted", Config.validate({ touchscreen = { presets = { "Hi?" } } }) ~= nil)
-  check("120 characters: accepted", Config.validate({ touchscreen = { presets = { string.rep("a", 119) .. "?" } } }) ~= nil)
+  check(
+    "120 characters: accepted",
+    Config.validate({ touchscreen = { presets = { string.rep("a", 119) .. "?" } } }) ~= nil
+  )
   check(
     "120 non-ASCII characters (240 bytes): accepted (characters, not bytes)",
     Config.validate({ touchscreen = { presets = { string.rep("é", 120) } } }) ~= nil
@@ -303,14 +309,20 @@ check(
   "'Is the desk-lamp on?' (sk- inside a word): accepted",
   Config.validate({ touchscreen = { presets = { "Is the desk-lamp on?" } } }) ~= nil
 )
-check("'sk-lamp' (fewer than 8 after sk-): accepted", Config.validate({ touchscreen = { presets = { "sk-lamp" } } }) ~= nil)
+check(
+  "'sk-lamp' (fewer than 8 after sk-): accepted",
+  Config.validate({ touchscreen = { presets = { "sk-lamp" } } }) ~= nil
+)
 check("'sk-ant-abcdefgh' at the start: refused", presetRefused({ "sk-ant-abcdefgh" }, "presets%[1%]"))
 check("'key: sk-proj-12345678' after a space: refused", presetRefused({ "key: sk-proj-12345678" }, "presets%[1%]"))
 check("'desk-lamp' then a real key later: refused", presetRefused({ "desk-lamp (sk-12345678)" }, "presets%[1%]"))
 check("presetLooksLikeSk: exactly 8 after sk-", Config.presetLooksLikeSk("sk-abcdefgh") == true)
 check("presetLooksLikeSk: 7 after sk-", Config.presetLooksLikeSk("sk-abcdefg") == false)
 check("presetLooksLikeSk: after a digit, not credential-shaped", Config.presetLooksLikeSk("9sk-abcdefghij") == false)
-check("presetLooksLikeSk: after a non-ASCII byte, credential-shaped", Config.presetLooksLikeSk("ésk-abcdefghij") == true)
+check(
+  "presetLooksLikeSk: after a non-ASCII byte, credential-shaped",
+  Config.presetLooksLikeSk("ésk-abcdefghij") == true
+)
 -- The other display strings keep the strict rule (not loosened).
 check(
   "credential_status 'Configured desk-lamp' still refused (strict rule kept off presets)",
@@ -322,7 +334,10 @@ check("credential-shaped (a long opaque blob): refused", presetRefused({ string.
 check("credential-shaped (a bearer string): refused", presetRefused({ "Bearer abcdefgh" }, "presets%[1%]"))
 check("a leading space: refused", presetRefused({ " Is it warm?" }, "presets%[1%]"))
 check("a trailing space: refused", presetRefused({ "Is it warm? " }, "presets%[1%]"))
-check("the same question twice (case and spacing): refused", presetRefused({ "Is it warm?", "is  IT warm?" }, "presets%[2%]"))
+check(
+  "the same question twice (case and spacing): refused",
+  presetRefused({ "Is it warm?", "is  IT warm?" }, "presets%[2%]")
+)
 check("a number, not text: refused", presetRefused({ 42 }, "presets%[1%]"))
 check("presets an object, not a list: refused", presetRefused({ a = "Is it warm?" }, "touchscreen.presets"))
 check(

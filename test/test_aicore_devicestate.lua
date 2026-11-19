@@ -109,7 +109,12 @@ local FX = {
   contact = vars({ { "CONTACT_STATE", "Closed" }, { "BATTERY_LEVEL", "90" } }),
   relay = vars({ { "RELAY_STATE", "0" }, { "BATTERY_LEVEL", "90" } }),
   -- Two climate sensors carrying a name no list knows (KI-68).
-  fridge = vars({ { "Temperature Probe", "54" }, { "HUMIDITY", "61" }, { "SCALE", "FAHRENHEIT" }, { "DOOR_AJAR", "1" } }),
+  fridge = vars({
+    { "Temperature Probe", "54" },
+    { "HUMIDITY", "61" },
+    { "SCALE", "FAHRENHEIT" },
+    { "DOOR_AJAR", "1" },
+  }),
   room_sensor = vars({
     { "TEMPERATURE_F", "70" },
     { "HUMIDITY", "40" },
@@ -807,7 +812,11 @@ do
     "the wine fridge (system): omitted.not_allowed = 1, a whole number",
     b.omitted.not_allowed == 1 and math.floor(b.omitted.not_allowed) == b.omitted.not_allowed
   )
-  check("the withheld NAME and VALUE are nowhere in the body", not raw:find("DOOR", 1, true) and not raw:find("AJAR", 1, true), raw)
+  check(
+    "the withheld NAME and VALUE are nowhere in the body",
+    not raw:find("DOOR", 1, true) and not raw:find("AJAR", 1, true),
+    raw
+  )
   check("omittedTotal counts not_allowed", D.omittedTotal(b.omitted) == 1)
   local n = read(FX.fridge, "system", nil, { "HUMIDITY", "DOOR_AJAR" })
   check(
