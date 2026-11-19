@@ -136,6 +136,50 @@ checks fail (2026-11-18, then restored):
 | an unknown kind accepted | unit [1] "an unknown kind is refused (invalid)", [2], [4] "unknown kind refused (invalid)"; emulator [4] "unknown kind → accepted false, invalid" |
 | `need_describe` skipped | unit [2] "need_describe while no describe is held", [4] "after an AI Core restart: need_describe on the next report"; emulator [10] "reporter A was told need_describe and re-sent its describe", "atmosphere's describe reached the cloud again after the restart", "mode_composer's too" |
 
+## Live device read (round two, D-R2a)
+
+`read_device_state` → `device_state_result` (`DRIVER.md` §7c). Unit =
+`test/test_aicore_devicestate.lua` (the pure filter, synthetic fixtures, one
+per class and per deny rule), `test/test_aicore_devicestate_parity.lua` (the
+Agent's signature lists), `test/test_aicore_operations.lua` [5],
+`test/test_aicore_driver.lua` [20]/[20b] (the real driver under the scripted
+Agent), `test/test_agent_modules_v2.lua` [10] (the real Agent's dispatch);
+cross-repo = `test/test_aicore_platform_parity.lua` [1] [2] [7] [8] [12];
+emulator = `test/emulator/ai_core.lua` [13h] (the real Agent and the real AI
+Core; two stand-in devices whose synthetic variables the scenario sets).
+Nothing here has run on a controller.
+
+| Item | Test | Class |
+| --- | --- | --- |
+| Class from the live signature, one fixture per class; camera first; joined names; touch panel and weather impostors | devicestate [1] "fixture → thermostat" … "fixture → unknown", "a camera outranks a lock (most restrictive first)", "names match joined: LockStatus is LOCK_STATUS (fail closed)", "a touch panel's bare BRIGHTNESS is not a light" | unit |
+| A: secret and personal names, every scope, every spec token and fragment, counted | devicestate [2] "system: token PIN (SLOT_PIN) dropped, counted secret", "full: fragment PASSPHRASE (…) dropped, counted secret", "CONTACT_STATE is a sensor, not personal data", "camelCase cannot hide a token: OwnerName", "every Flight Recorder FIXED_EXCLUSIONS fragment is a secret fragment here" | unit |
+| B: values, dropped whole | devicestate [3] "dropped: a URL (personal)", "dropped: a token shape (secret)", "dropped: 65 bytes (too_long)", "the URL-tail fixture: dropped whole (too_long), no part of it sent" | unit |
+| C: occupancy names in scope system only | devicestate [4] "AWAY: dropped in system (occupancy), kept in full", "thermostat, system: AWAY_MODE and LAST_CHANGED_BY dropped, the rest kept" | unit |
+| E: restricted classes in scope system refused with ZERO variables | devicestate [5] "lock (system): failed restricted_class, error not_permitted, no variables and no counts in the body" (and security, opening, motion, contact, relay, light); driver [20] "a lock in scope system: Failed restricted_class, ZERO variables in the body"; emulator [13h] "a lock in scope system: Failed restricted_class, no variable in what reached the platform" | unit, emulator |
+| F: allow-lists (lock / security full, unknown system) | devicestate [6] "lock (full): only LOCK_STATUS, BATTERY_LEVEL, RSSI", "security (full): …", "unknown (system): only ONLINE, COMM_STATUS, BATTERY_VOLTAGE, LINK_QUALITY; restricted false"; emulator [13h] "the same lock in scope full: its lock state and battery only; the user code stayed in the home" | unit, emulator |
+| Cameras refused in both scopes | devicestate [7] "camera (system) …", "camera (full): failed camera_not_supported, no variables"; driver [20] "a camera: Failed camera_not_supported even in scope full, nothing of it sent" | unit |
+| Bounds 40 / 4,096 bytes, dropped whole | devicestate [8] "60 small variables: 40 kept, 20 over_limit", "40 variables of 48-byte names and 64-byte values: cut by bytes, each kept one whole", "the variables JSON stays within 4,096 bytes" | unit |
+| G: TEMPERATURE raw; narrowing; typed outcomes | devicestate [9] "TEMPERATURE passed raw (deci-Celsius, unconverted)", "narrowing (case-insensitive): …", "outcome not_found: …", "outcome read_failed: …" | unit |
+| Body shapes | devicestate [10] "completed: exactly device, omitted, read_at, request_id, state_ref, status, variables", "no dropped secret or personal NAME or VALUE is in the body"; parity [8] "device_state_result: every body key the driver sends is in OP_BODIES.device_state_result (+ COMMON)" | unit, cross-repo |
+| Closed arguments | operations [5] "refused: an unknown key (command)", "refused: device_id a string", "refused: variables 13 names", "argKeys(read_device_state) = device_id, scope, state_ref, variables"; emulator [13h] "an extra argument refuses the whole operation" | unit, emulator |
+| Licence, bucket, not_found, no_variables, read_failed, never retried | driver [20] "unlicensed: Failed not_licensed (not_permitted), nothing read", "the 13th in the same minute: Failed busy (rate_limited), nothing read", "a device Director does not list: Failed not_found, nothing read", "a device with no variables: Failed no_variables", "GetDeviceVariables raised: Failed read_failed, nothing guessed", "no answer from the cloud: the device is read ONCE; any re-send is the same result (one key)" | unit |
+| One live read end to end | emulator [13h] "the Agent forwarded read_device_state and AI Core completed it", "device_state_result reached the platform: completed, climate_sensor, read_at set", "the live values as Director holds them; the owner's name and the Wi-Fi password stayed in the home" | emulator |
+| The Agent forwards it with no tier, and refuses it to an AI Core that does not register it | agent v2 [10] "read_device_state refused to an AI Core that does not register it, nothing forwarded", "read_device_state (read) needs no tier: forwarded to an AI Core that registers it, Remote Control Off"; [8] "MODULE_COMMANDS.ai_core is exactly the nine restricted operations (invoke_driver_action at tier 2)" | unit |
+| Read-only ratchet | driver [20] "ratchet (run time): every SendToDevice of these reads went to the Agent", "ratchet (run time): no SetDeviceVariable / SendToProxy / SendUIRequest / RegisterDeviceEvent / Bind", "ratchet (run time): no variable listener registered by a read"; [20b] "ratchet (source): the operation calls only read / answer functions", "ratchet (source): no write, command, listener or code loader in the block", "ratchet (source): src/aicore/devicestate.lua has no Director call"; emulator [14] "every SendToDevice AI Core made in the run went to the Agent" | unit, emulator |
+| No drift from the Agent's lists or the platform's vocabularies | devicestate parity [1] "Agent lockRaw = devicestate.SIGNATURES.lock" (all 12), [2] "the same names in the same order"; platform parity [12] "device classes: …", "omitted counters: …", "bound variables: platform 40 = driver 40" | unit, cross-repo |
+
+Each guard was proved by reintroducing its defect once and seeing the named
+checks fail (2026-11-19, then restored from git):
+
+| Defect reintroduced | Failed |
+| --- | --- |
+| `PIN` removed from the secret token list | devicestate [2] "system: token PIN (SLOT_PIN) dropped, counted secret", "full: …", "the secret fixture: a lock PIN slot never leaves (deniedName)", "a digit cannot hide a token: Pin1" |
+| the `system` restricted refusal turned into a filter (restricted classes narrowed instead of refused) | devicestate [5] all seven "… (system): failed restricted_class, … no variables and no counts in the body", [10] "failed after a read: …"; driver [20] "a lock in scope system: Failed restricted_class, ZERO variables in the body" |
+| a value over 64 bytes cut instead of dropped | devicestate [3] "dropped: 65 bytes (too_long)", "the URL-tail fixture: dropped whole (too_long), no part of it sent" (the cut head was sent) |
+| `C4:SetDeviceVariable` called inside the operation | driver [20] "ratchet (run time): no SetDeviceVariable / …", [20b] "ratchet (source): the operation calls only read / answer functions", "ratchet (source): no write, command, listener or code loader in the block" |
+| `read_device_state` dropped from the Agent's `MODULE_COMMANDS.ai_core` | platform parity [1] "MODULE_COMMANDS.ai_core = MODULE_OPERATIONS.ai_core (modules.ts)", "= AI_CORE_OPERATIONS (protocol.ts)", "= the driver's registered vocab.OPERATIONS, exactly"; surface [5] "MODULE_COMMANDS.ai_core = the driver's restricted operations, exactly (vocab.OPERATIONS)"; agent v2 [8], [10] |
+| AI Core's copy of the Agent's lock list loses `LOCKSTATE` | devicestate parity [1] "Agent lockRaw = devicestate.SIGNATURES.lock" |
+
 ## Touchscreen page: PIN-gated chat and PIN approvals (D5)
 
 Unit = `test/test_aicore_webui.lua` (the real driver under the scripted Agent,

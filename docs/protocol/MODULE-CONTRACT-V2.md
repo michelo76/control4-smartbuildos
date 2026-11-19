@@ -377,12 +377,13 @@ that use them (no PIN ever travels in a `pinlock.*` frame).
 `send_notification`, `set_context`, `status`, `test_provider`,
 `analyze_household`, `approvals_pending`, `approval_detail`,
 `approval_decide`, `driver_reports`, `driver_query_result`,
-`driver_action_result`.
+`driver_action_result`, `device_state_result` (round two: the filtered
+answer to `read_device_state`; body in `docs/ai-core/DRIVER.md` §7c).
 
 Related v1 tables updated for AI Core: `MODULE_COMMANDS.ai_core` (Agent,
 `drivers/smartbuildos/driver.lua`) = `apply_config`, `refresh_status`,
 `deliver_result`, `raise_event`, `set_learning`, `run_diagnostic`,
-`run_driver_query`, `invoke_driver_action`;
+`run_driver_query`, `invoke_driver_action`, `read_device_state`;
 `Envelope.PREFIXES.ai_core = { "ai_core." }`.
 
 **Remote Control tier.** A `MODULE_COMMANDS` entry that is a number instead
@@ -391,8 +392,17 @@ property (Off 0, Identify only 1, Comfort 2, Full control 3) the verb needs.
 `invoke_driver_action = 2`: `ModuleCommandDispatch` refuses it below Comfort
 (the command is acked failed with the tier message and nothing is
 forwarded), and the heartbeat advertises capability `driver_actions_v1`
-only at rank ≥ 2. `run_driver_query` is read-only and needs no tier. As for
-every module verb, the target instance must also register the command.
+only at rank ≥ 2. `run_driver_query` and `read_device_state` are read-only
+and need no tier. As for every module verb, the target instance must also
+register the command: an AI Core older than round two does not register
+`read_device_state`, so the Agent refuses it there and forwards nothing.
+`read_device_state` (args `state_ref`, `device_id`, `scope`, `variables`)
+reads ONE device's variables once with `C4:GetDeviceVariables` and answers
+with cloud op `device_state_result`, filtered on the controller before
+anything leaves the home (`docs/ai-core/DRIVER.md` §7c). Both the Agent
+(these tables) and AI Core must be released for it: an older Agent refuses
+the operation (`… is not a restricted operation`) and refuses the cloud op
+locally (`not_permitted`).
 
 Anything not listed is `not_permitted`. These tables are code: changing them
 is a driver release.

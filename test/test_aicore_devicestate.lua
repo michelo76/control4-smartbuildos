@@ -358,7 +358,8 @@ end
 do
   -- The URL-tail fixture: clean for its first 64 bytes, a credential URL
   -- after. Dropped WHOLE; a cut would have sent the head.
-  local tail = "Status OK " .. string.rep("x", 60) .. " http://user:pw@cam.local/?token=abc"
+  -- (its head is plain words, so a cut head would pass every other rule)
+  local tail = "Status OK " .. string.rep("ab ", 20) .. "http://user:pw@cam.local/?token=abc"
   local b = read(vars({ { "BATTERY_LEVEL", "50" }, { "STATUS_TEXT", tail } }), "full")
   check(
     "the URL-tail fixture: dropped whole (too_long), no part of it sent",

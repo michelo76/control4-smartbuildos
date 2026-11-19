@@ -160,6 +160,21 @@ Unit and emulator tests only; no controller and no Navigator has opened the page
 | KI-59 | Touchscreen state (sessions, unlocks, conversation, held answers, approval proofs) is memory only: a driver restart locks everything and drops the conversation, by design (ruling 17) | by design | `src/aicore/webui.lua` |
 | KI-60 | Under the emulator, `C4:UUID` repeated values, so two cloud ops got the same request id; because the request id is also the idempotency key, the Agent answered the second with the stored answer of the first (seen as `approval_detail` getting `approvals_pending`'s answer, and an `AI_ANALYZE_SYSTEM` never reaching the cloud). Every AI Core request id now comes from the `C4:HMAC` recipe, which also mixes the clock, a counter and `math.random`; `C4:UUID("RANDOM")` and `C4:HMAC` output on a real controller are unmeasured (`DRIVER.md` §14) | mitigated; open (bench) | `drivers/smartbuildos-ai-core/driver.lua` `newRequestId`, `gWeb.newHex` |
 
+## Driver: the live device read (round two, D-R2a)
+
+`read_device_state` → `device_state_result` (`DRIVER.md` §7c). Unit and
+emulator tests only; no controller has read a device for it.
+
+| # | Issue | Status | Source |
+| --- | --- | --- | --- |
+| KI-63 | Whether `C4:GetDeviceVariables` on the id the platform sends returns the variables that matter is unmeasured. `devices.list` ids are often the protocol driver's (the network binding), while the temperature, lock or battery variables may live on the proxy's id; a read of a protocol id may then return only the driver's own variables and be answered with whatever passes the filter, or `no_variables`. Nothing is guessed in either case | open (bench) | spec round two §0.7; `DRIVER.md` §14 |
+| KI-64 | Every class signature is a candidate copied from the Agent (`sensorReading`, `looksLikeThermostat`, `telemetry/lights.lua`): the real variable names of batteries, wine-fridge and other appliance sensors, locks and security partitions are unmeasured. A device whose driver names its state differently is classed by what does match, else `unknown` (in scope `system` only the small allow-list answers) | open (bench) | `src/aicore/devicestate.lua` `SIGNATURES`; `test/test_aicore_devicestate_parity.lua` |
+| KI-65 | The read's wall time on a large project (one `C4:GetDevices` plus one `C4:GetDeviceVariables`), whether Director blocks during it, the controller clock behind `read_at`, and the queue + doorbell + bus latency against the platform's 15 s wait are unmeasured | open (bench) | `DRIVER.md` §14 |
+| KI-66 | Control4 keeps a device's last value and says nothing about its age: a sleeping or dead battery sensor may answer a value Director cached long ago. `read_at` is only when the controller read it; whether a dead Zigbee / Z-Wave sensor keeps its value indefinitely is unmeasured | by design (honest age) / open (bench) | `DRIVER.md` §7c |
+| KI-67 | A variable outside its class's allow-list (lock and security in scope `full`, `unknown` in scope `system`) is not sent and not counted: the six `omitted` counters of the contract have no bucket for it | open (contract) | `src/aicore/devicestate.lua` `filter` |
+| KI-68 | Any `TEMPERATURE*` / `HUMIDITY*` name makes a device `climate_sensor`, which is answered with the deny-lists only. So the `unknown` allow-list's `TEMPERATURE*` / `HUMIDITY*` entries can never match, and a non-signature name on such a device (e.g. a `DOOR_AJAR`) is sent in scope `system` unless a deny rule drops it (`test/test_aicore_devicestate.lua` [6] pins it) | open (conductor decision) | spec round two §2.5 D/F |
+| KI-69 | `device_state_result` goes once per read; the module client re-sends a lost one twice under the same key and then only logs it (as KI-44). The read itself is never repeated, so the platform's tool then reports `pending` with no value | by design | `drivers/smartbuildos-ai-core/driver.lua` `OPS.read_device_state` |
+
 ## Licensing
 
 | # | Issue | Source |
