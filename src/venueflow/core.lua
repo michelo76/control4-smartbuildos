@@ -247,7 +247,9 @@ function Core:_alert(alert)
     table.remove(self.runtime.alerts)
   end
   self.state:touch()
-  self:_hook("setVariable", "ALERT_COUNT", #self.runtime.alerts)
+  -- A stored alert is always new: Alert Raised fires for each one. The count
+  -- is every alert of the venue (Core:venueAlerts), derived ones included.
+  self:_publishAlertCount()
   self:_hook("fireEvent", "alert")
   return alert
 end
@@ -440,6 +442,7 @@ end
 function Core:_paintSurface()
   self:_hook("setVariable", "VENUE_STATUS", self.runtime.venueStatus)
   self:_hook("setVariable", "ACTIVE_SCENE", self.runtime.activeScene and self.runtime.activeScene.name or "")
+  self:_alertsChanged() -- a (re)load can add or remove derived alerts
 end
 
 function Core:start()
@@ -498,6 +501,7 @@ function Core:modeChanged()
   self.state:clear()
   self.online = {}
   self:load("mode changed")
+  self:_alertsChanged() -- also when the load stops early (a sample venue in Live)
 end
 
 -- ─── Feedback from Control4 ─────────────────────────────────────────────────
@@ -591,10 +595,12 @@ function Core:_checkOnline()
   end
   if changed then
     self.state:touch()
+    self:_alertsChanged()
   end
 end
 
 function Core:_stateChanged(kind, id, field, cell, previous)
+  self:_alertsChanged() -- a cell's status is what "not confirmed" alerts are derived from
   if self.config == nil or (cell.status ~= "confirmed" and cell.status ~= "commanded") then
     return
   end
@@ -860,19 +866,25 @@ end
 
 --- Runs every enabled rule the predicate accepts. `cooled` applies a short
 --- per-rule cooldown (state and variable triggers can chatter).
+--- Returns how many rules were STARTED, and how many matched but were not
+--- (refused by a restricted licence, or failed to start).
 function Core:_fireRules(predicate, origin, context, cooled)
   if self.config == nil then
-    return 0
+    return 0, 0
   end
-  local n = 0
+  local n, notRun = 0, 0
   for _, rule in ipairs(self.config.rules) do
     if rule.enabled ~= false and type(rule.trigger) == "table" and predicate(rule) then
       local last = self.runtime.ruleLast[rule.id]
       if not cooled or last == nil or self.deps.now() - last >= M.TRIGGER_COOLDOWN then
-        n = n + 1
         local ok, err = pcall(function()
-          self:_runRule(rule, origin, context)
+          return self:_runRule(rule, origin, context)
         end)
+        if ok and err ~= nil then
+          n = n + 1
+        else
+          notRun = notRun + 1
+        end
         if not ok then
           self.diag:add(
             "error",
@@ -884,7 +896,7 @@ function Core:_fireRules(predicate, origin, context, cooled)
       end
     end
   end
-  return n
+  return n, notRun
 end
 
 local function execCode(exec)
@@ -1046,6 +1058,7 @@ function Core:licenseChanged()
       self:_hook("fireEvent", "license_restored")
     end
     self.state:touch()
+    self:_alertsChanged()
   end
 end
 
@@ -1079,7 +1092,8 @@ function Core:_derivedAlerts(access)
       detail = "Scenes and schedules are paused. Manual control keeps working.",
     }
   end
-  for _, d in ipairs(self.config.displays) do
+  local config = self.config or { displays = {}, audioZones = {} }
+  for _, d in ipairs(config.displays) do
     if access:display(d) then
       local e = self.state.display[d.id]
       if self.online[d.id] == false then
@@ -1113,7 +1127,7 @@ function Core:_derivedAlerts(access)
       end
     end
   end
-  for _, z in ipairs(self.config.audioZones) do
+  for _, z in ipairs(config.audioZones) do
     if access:zone(z) then
       local e = self.state.zone[z.id]
       if e.mute.value == true and e.mute.status ~= "failed" then
@@ -1168,6 +1182,78 @@ local function visibleLabel(op, targets)
     return string.format("%s%d display%s", prefix, displays, displays == 1 and "" or "s")
   end
   return NEUTRAL_LABEL[op.kind] or "Change"
+end
+
+-- ─── The alerts of this venue (Composer and the property page) ─────────────
+--
+-- ONE definition behind the Alerts property, the ALERT_COUNT variable and the
+-- HAS_ALERTS conditional: every derived alert (a restricted licence, an
+-- offline display, a display or zone change not confirmed) and every stored
+-- alert, as the whole venue sees it. A muted zone is left out: the page shows
+-- it as information, but muting is something staff do on purpose, not a
+-- fault to push to a phone.
+--
+-- Alert Raised fires once when a derived alert APPEARS (not again while it
+-- persists; again after it cleared and came back) and once per stored alert
+-- (Core:_alert). The derived set is compared only after state that can change
+-- it has changed (a cell, a display's online state, the licence, a load), at
+-- most once per ALERT_SYNC_MS, never on the scheduler's tick.
+
+M.ALERT_TIMER = "VfAlertSync"
+M.ALERT_SYNC_MS = 250
+
+function Core:venueAlerts()
+  local out = {}
+  for _, a in ipairs(self:_derivedAlerts(Access.system("alerts"))) do
+    if not tostring(a.id):find("^muted:") then
+      out[#out + 1] = a
+    end
+  end
+  return out
+end
+
+function Core:alertCount()
+  return #self:venueAlerts()
+end
+
+function Core:_publishAlertCount(count)
+  count = count or self:alertCount()
+  if count ~= self.alertCountSent then
+    self.alertCountSent = count
+    self:_hook("setVariable", "ALERT_COUNT", count)
+  end
+  return count
+end
+
+--- Something an alert is derived from changed: compare soon (coalesced).
+function Core:_alertsChanged()
+  if self.alertSyncArmed then
+    return
+  end
+  self.alertSyncArmed = true
+  self.deps.timers.set(M.ALERT_TIMER, M.ALERT_SYNC_MS, function()
+    self:_syncAlerts()
+  end)
+end
+
+function Core:_syncAlerts()
+  self.alertSyncArmed = false
+  local alerts = self:venueAlerts()
+  local seen, appeared = {}, false
+  local before = self.derivedSeen or {}
+  for _, a in ipairs(alerts) do
+    if not a.dismissable then -- derived (stored alerts fired when they were raised)
+      seen[a.id] = true
+      if not before[a.id] then
+        appeared = true
+      end
+    end
+  end
+  self.derivedSeen = seen
+  self:_publishAlertCount(#alerts)
+  if appeared then
+    self:_hook("fireEvent", "alert")
+  end
 end
 
 --- An operation as one profile may see it: only the targets in `visible`
@@ -2275,7 +2361,11 @@ function H.ROLLBACK(core, p, ctx)
   core.auth:revoke("profile")
   core:load("rollback to " .. p.versionId)
   core.diag:add("warning", "config", nil, "Rolled back to " .. p.versionId .. " as " .. versionId)
-  core:_hook("record", "configuration rolled back", p.versionId)
+  -- A rollback publishes: a NEW live version (versionId) with an older
+  -- version's content (p.versionId). Composer hears it as Configuration
+  -- Published, and the record names the new live version first.
+  core:_hook("fireEvent", "published")
+  core:_hook("record", "configuration rolled back", versionId, p.versionId)
   return {
     ok = true,
     status = "ok",
@@ -3051,10 +3141,15 @@ function Core:composer(command, params)
     return exec.status ~= "failed" and exec.status ~= "skipped", exec.status
   elseif command == "TRIGGER_EVENT" then
     local name = U.trim(params.NAME)
-    local n = self:_fireRules(function(rule)
+    local n, notRun = self:_fireRules(function(rule)
       local t = rule.trigger
       return (t.type == "c4_event" or t.type == "external") and tostring(t.name):lower() == name:lower()
     end, "composer event " .. name)
+    if n == 0 and notRun > 0 and self.restricted then
+      return false, "licence restricted: " .. notRun .. " rule(s) not run"
+    elseif notRun > 0 then
+      return n > 0, n .. " rule(s) run, " .. notRun .. " not run"
+    end
     return n > 0, n .. " rule(s) run"
   elseif command == "SET_VENUE_STATUS" then
     local status = U.trim(params.STATUS):lower()
@@ -3108,8 +3203,8 @@ function Core:summary()
       #self.config.audioZones,
       #self.config.scenes
     )
-    s.alerts = #self:_derivedAlerts(Access.system("summary"))
   end
+  s.alerts = self:alertCount()
   local draft = self.store:draft()
   s.draft = draft and ("revision " .. draft.revision) or "none"
   if self.sampleBlocked then
