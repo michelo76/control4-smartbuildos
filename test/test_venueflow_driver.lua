@@ -913,6 +913,34 @@ eq(
   "TV 01 (parts)"
 )
 
+-- Device mapping and device commands are on-site only: what the Agent hears.
+do
+  local d = api("DRAFT_GET", {}, { session = studioR }).data.draft
+  local cfgM = d.config
+  cfgM.displays[1].c4RoomId = 9999
+  states = remoteCommand("tok-1", "r-map", "save_draft", { config = cfgM, baseRevision = d.revision })
+  eq("a remote mapping change ends in Failed", states[#states], "Failed")
+  local detail = tostring(lastResult().detail)
+  check(
+    "...with the code and what differs",
+    detail:find("^VF_ONSITE_ONLY: Remote Management cannot change device mapping or device commands: Display '") ~= nil
+      and detail:find("' room", 1, true) ~= nil,
+    detail
+  )
+  check("...and what to do", detail:find("Change these on site in Installer Studio.", 1, true) ~= nil, detail)
+  local after = api("DRAFT_GET", {}, { session = studioR }).data.draft
+  eq("...nothing is stored", after.revision, d.revision)
+  check("...the mapping is unchanged", after.config.displays[1].c4RoomId ~= 9999)
+  for _, display in ipairs(cfgM.displays) do
+    display.c4RoomId = 7000 + #tostring(display.id) + (tonumber(tostring(display.id):match("%d+")) or 0)
+    display.name = string.rep("Long display name ", 4)
+  end
+  remoteCommand("tok-1", "r-map-all", "save_draft", { config = cfgM, baseRevision = d.revision })
+  detail = tostring(lastResult().detail)
+  check("...with every display changed, the result still fits the Agent's 400", #detail <= 400, #detail)
+  check("...whole, not cut", detail:sub(-#"Installer Studio.") == "Installer Studio.", detail)
+end
+
 -- An oversize snapshot ends in Failed and sends no document.
 do
   local CoreM = require("venueflow.core")
