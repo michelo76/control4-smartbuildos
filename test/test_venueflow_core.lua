@@ -972,6 +972,19 @@ do
     not H.JSON:encode(e.send("GET_STATE", {}, mgr).data.state.alerts):find("refs", 1, true)
   )
   eq("Composer's count is the whole venue's (dining interruption, two missed)", e.core:alertCount(), 3)
+  -- An alert about a display a later publish removed: a profile that may see
+  -- every display (the manager) still sees and may dismiss it, so the venue's
+  -- count never holds an alert nobody but the installer can clear; a profile
+  -- limited to some areas does not (whether it could see it is unknown).
+  local gone = e.core:_alert({
+    level = "warning",
+    title = "About a removed display",
+    refs = { displays = { "tv-removed" }, zones = {}, scenes = {} },
+  })
+  check("the manager (every area) sees an alert about a removed display", titles(mgr)["About a removed display"] ~= nil)
+  check("...the bar tile does not", titles(tile)["About a removed display"] == nil)
+  eq("...nor may it dismiss it", e.send("ALERT_DISMISS", { alertId = gone.id }, tile).errorCode, "VF_NOT_FOUND")
+  check("...the manager may", e.send("ALERT_DISMISS", { alertId = gone.id }, mgr).ok)
 end
 
 T.done()

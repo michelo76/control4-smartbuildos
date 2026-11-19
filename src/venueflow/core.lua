@@ -1233,31 +1233,45 @@ function Core:_alertRefs(touches, scenes)
 end
 
 --- A stored alert is shown to (and dismissable by) a profile only when the
---- profile may see every display, zone and scene the alert is about. One that
---- names something no longer in the configuration is not shown to a profile
---- (whether it could see it cannot be known); the installer and Composer see
---- every alert.
+--- profile may see every display, zone and scene the alert is about. Something
+--- a later publish removed is seen only by a profile that may see every
+--- display (zone, scene): whether a narrower one could see it is unknown. The
+--- installer and Composer see every alert.
 function Core:_storedAlertVisible(alert, access)
   local refs = alert.refs
   if access.system or refs == nil then
     return true
   end
   local ix = self.ix or {}
+  local perms = access.permissions or {}
+  local everyArea = perms.areas == "all"
   for _, id in ipairs(refs.displays or {}) do
     local d = ix.displays and ix.displays[id]
-    if d == nil or not access:display(d) then
+    if d == nil then
+      if not (everyArea and perms.floors == "all") then
+        return false
+      end
+    elseif not access:display(d) then
       return false
     end
   end
   for _, id in ipairs(refs.zones or {}) do
     local z = ix.zones and ix.zones[id]
-    if z == nil or not access:zone(z) then
+    if z == nil then
+      if not (everyArea and perms.zones == "all") then
+        return false
+      end
+    elseif not access:zone(z) then
       return false
     end
   end
   for _, id in ipairs(refs.scenes or {}) do
     local scene = ix.scenes and ix.scenes[id]
-    if scene == nil or not access:scene(scene) then
+    if scene == nil then
+      if not (perms.scenes == true and perms.sceneIds == "all") then
+        return false
+      end
+    elseif not access:scene(scene) then
       return false
     end
   end
