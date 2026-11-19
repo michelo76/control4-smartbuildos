@@ -127,6 +127,9 @@
   }, {
     "command": "DRAFT_DISCARD",
     "fields": [ {
+      "kind": "n?",
+      "name": "baseRevision"
+    }, {
       "kind": "b?",
       "name": "confirm"
     } ],
@@ -294,6 +297,9 @@
     "fields": [ {
       "kind": "l?",
       "name": "acknowledged"
+    }, {
+      "kind": "n?",
+      "name": "baseRevision"
     }, {
       "kind": "s?",
       "name": "note"

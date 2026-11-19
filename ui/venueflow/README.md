@@ -76,11 +76,27 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    menu, the offline banner and the sign-in PIN pad open. The Venue Studio
    (a client session) passes the same check at 390x844, 820x1180, 1024x600
    and 1280x800; the Installer Studio at 1024x600, 1024x768, 1280x800 and
-   1920x1200 (it is not meant for phones). At 1024x600 the Floor Plan side
-   panel scrolls to reach Power On / Power Off, and the floor plan's
-   display shapes are drawn smaller than a 44 px target; tapping an area
-   name or a group selects several displays at once. Re-check any layout
-   change at 1024x600 first.
+   1920x1200 (it is not meant for phones). Re-check any layout change at
+   1024x600 first.
+   **Floor plan targets.** The plan keeps the venue's real proportions, so on
+   a 7-inch screen a display is drawn smaller than a fingertip (about 26 px
+   at 1024x600 for the 24-display sample). The target is larger than the
+   drawing: a tap near a display, not on it, goes to the nearest display
+   within reach (at least 12 px beyond its edge, more for a small shape, so a
+   lone display is about 44 px across); a tap as near two displays as one
+   (within 4 px) opens "Which display?" with both. At short heights (680 px
+   or less) the "No scene active" line is hidden and paddings are smaller so
+   the plan is drawn larger, and the Floor Plan side panel shows a fade at
+   its bottom edge whenever it scrolls. Measured 19 November 2026 (desktop
+   Chromium, touch emulation, simulator; NOT on a T3, a T4 or a phone): a
+   touch tap at the centre of every display selects exactly that display at
+   1024x600, 390x844, 844x390 and 1280x800 in both samples; the smallest
+   effective target is 46 px or more in the conference centre at every size,
+   but 28 px (1024x600) and 33 px (390x844) high for the sports bar's
+   columns of displays 5 px apart, where a tap in the gap asks which
+   display was meant. Chromium's own touch adjustment picked one of the two
+   directly instead; whether Gecko on a touch screen adjusts taps is not
+   known.
 10. **Look.** Dark midnight navy, teal primary accent, amber for attention,
     green for confirmed. Use the tokens and components in
     `shared/base.css` (`.panel`, `.card`, `.btn`, `.seg`, `.chip`, `.field`,

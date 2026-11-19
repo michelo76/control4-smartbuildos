@@ -385,6 +385,9 @@ svg.op-plan.compact { height: auto; }
 .op-cc-maphost svg.op-plan { max-height: 200px; }
 .op-cc-zones { flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(232px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 2px; }
 .op-cc-zones > .op-zc { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: linear-gradient(180deg, var(--panel), var(--bg-2)); }
+/* Zone names that share their start ("Boardroom A", "Boardroom B") take a second line rather
+   than being cut to the same text. */
+.op-cc-zones .op-zc-name { white-space: normal; overflow-wrap: break-word; line-height: 1.2; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 @media (min-width: 1180px) and (min-height: 700px) { .op-cc-map { display: flex; } }
 
 /* ── A: Floor Plan ─────────────────────────────────────────────────────── */
@@ -400,6 +403,11 @@ svg.op-plan.compact { height: auto; }
 .op-fp-side > .op-fp-block:first-child { flex: 1 1 auto; min-height: 96px; }
 .op-fp-sel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .op-fp-side > .btn, .op-fp-side > .op-fp-listen, .op-fp-side > .op-fp-power { flex: none; }
+/* The cue that the side panel scrolls: a fade over the cut edge, sticky at the bottom of the
+   panel, taking no room of its own (Gecko 96: sticky, gradients). */
+.op-fp-more { position: sticky; bottom: -12px; flex: none; height: 0; margin-top: -12px; pointer-events: none; }
+.op-fp-more > span { position: absolute; left: -12px; right: -12px; bottom: 0; height: 34px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px; opacity: 0; color: var(--ink-2); background: linear-gradient(180deg, rgba(11, 20, 36, 0), var(--bg-2) 80%); border-radius: 0 0 var(--radius) var(--radius); }
+.op-fp-side.more .op-fp-more > span { opacity: 1; }
 .op-fp-srcbtn { justify-content: flex-start; text-align: left; }
 .op-fp-selrow { min-height: 48px; padding: 6px 6px 6px 12px; gap: 8px; }
 .op-fp-selrow .chip { padding: 2px 8px; font-size: 11.5px; }
@@ -508,6 +516,17 @@ svg.op-plan.compact { height: auto; }
   .op-mgr-cols { grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr); }
   .op-mgr-venue { grid-template-columns: minmax(0, 1fr); }
   .op-big { min-height: 140px; }
+}
+
+/* ── short landscape screens (T3 7", 1024x600): height goes to the floor plan ── */
+@media (max-height: 680px) and (min-width: 901px) {
+  .op-activity.quiet { display: none; }
+  .op-view { padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+  .op-fp-body { gap: 8px; }
+  .op-fp-planwrap { padding: 4px; }
+  .op-fp-side { gap: 10px; }
+  .op-fp-sel > .empty { padding: 16px 12px; }
+  .op-fp-bottom { padding-top: 6px; padding-bottom: 6px; }
 }
 
 /* ── phones and narrow portrait screens: one scrolling column ──────────── */
@@ -1229,10 +1248,19 @@ var Operator = (function () {
   O.setVenueStatus = function (status) {
     var open = status === 'open';
     return VF.confirm(open ? 'Mark the venue open?' : 'Mark the venue closed?',
-      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + ' Anything set up to happen at that moment will run. It does not switch anything off by itself.',
+      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + (O.doc().license && O.doc().license.restricted
+        ? ' The SmartBuildOS licence is restricted, so automations set for that moment will not run.' : ' Anything set up to happen at that moment will run.') + ' It does not switch anything off by itself.',
       open ? 'Open venue' : 'Close venue').then(function (go) {
       if (!go) return null;
-      return VF.api('VENUE_STATUS', { status: status }).then(function (r) { VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed'); return r; });
+      return VF.api('VENUE_STATUS', { status: status }).then(function (r) {
+        /* Under a restricted licence the status still changes, but automations waiting for it
+           do not run; the driver counts them (rulesNotRun). */
+        var notRun = r && r.ok && r.data ? Number(r.data.rulesNotRun) || 0 : 0;
+        if (notRun > 0) {
+          VF.toast((open ? 'Venue marked open. ' : 'Venue marked closed. ') + O.plural(notRun, 'automation') + ' set to run at this moment did not run: the SmartBuildOS licence is restricted.', 'warn', 9000);
+        } else VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed');
+        return r;
+      });
     });
   };
 
@@ -1495,6 +1523,40 @@ var Operator = (function () {
     return O.list('displays').filter(function (d) { return (d.floorId === floorId || !O.find('floors', d.floorId)) && !placed(d); });
   };
 
+  /* Distance in CSS px from a point on the screen to a box of the drawing
+     ({ x, y, w, h, cx, cy, rot } in drawing units, turned by rot degrees about its centre). */
+  O.planDistance = function (svg, box, clientX, clientY) {
+    var m = svg.getScreenCTM();
+    if (!m || !m.a) return Infinity;
+    var ux = (clientX - m.e) / m.a - box.cx, uy = (clientY - m.f) / m.d - box.cy;
+    var r = -(box.rot || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    var px = ux * c - uy * s, py = ux * s + uy * c;
+    var dx = Math.max(0, Math.abs(px) - box.w / 2), dy = Math.max(0, Math.abs(py) - box.h / 2);
+    return Math.sqrt(dx * dx + dy * dy) * m.a;
+  };
+  /* The displays within reach of a tap, nearest first: [{ it, dist }]. */
+  O.planNearest = function (svg, items, clientX, clientY) {
+    var m = svg.getScreenCTM(), scale = m && m.a ? m.a : 1;
+    var out = [];
+    items.forEach(function (it) {
+      var dist = O.planDistance(svg, it.box, clientX, clientY);
+      var reach = Math.max(12, (44 - Math.min(it.box.w, it.box.h) * scale) / 2);
+      if (dist <= reach) out.push({ it: it, dist: dist });
+    });
+    return out.sort(function (a, b) { return a.dist - b.dist; });
+  };
+  /* A tap that falls as near two displays as one: ask which. */
+  O.planChoose = function (near, onDisplay) {
+    var closer = null;
+    var list = h('div.list.op-fp-choose', near.slice(0, 6).map(function (n) {
+      var d = n.it.d, info = O.displayInfo(d);
+      return h('button.op-mini' + (O.selection.has(d.id) ? '.sel' : ''), { type: 'button', onclick: function () { if (closer) closer(d); } },
+        h('span.op-check', VF.icon('check', 'sm')), h('span.grow.ellipsis', d.name), h('span.small', info.line));
+    }));
+    VF.modal({ title: 'Which display?', icon: 'tv', body: list, actions: [{ label: 'Cancel', kind: 'ghost', value: null }], onOpen: function (close) { closer = close; } })
+      .then(function (d) { if (d && typeof d === 'object') onDisplay(d); });
+  };
+
   /* opts: { compact, onDisplay(d), onArea(area), zones, extras, selection } -> { el, update(), count } */
   O.plan = function (floor, opts) {
     opts = opts || {};
@@ -1537,6 +1599,7 @@ var Operator = (function () {
       var g = O.svg('g', { 'class': 'op-parea-tag' + (opts.onArea ? ' tap' : ''), role: opts.onArea ? 'button' : null, 'aria-label': opts.onArea ? 'Select every display in ' + a.name : null,
         onclick: opts.onArea ? function () { opts.onArea(a); } : null });
       if (opts.onArea) g.appendChild(O.svg('rect', { 'class': 'op-hit', x: L.x + 4, y: L.y - th / 2 - 10, width: tw + 20, height: th + 20 }));
+      g._pill = { x: L.x + 14, y: L.y - th / 2, w: tw, h: th, cx: L.x + 14 + tw / 2, cy: L.y, rot: 0 };
       g.appendChild(O.svg('rect', { x: L.x + 14, y: L.y - th / 2, width: tw, height: th, rx: th / 2, stroke: color }));
       g.appendChild(O.svg('text', { x: L.x + 14 + tw / 2, y: L.y, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: color }, name));
       svg.appendChild(g);
@@ -1615,8 +1678,32 @@ var Operator = (function () {
         g.appendChild(src);
       }
       svg.appendChild(g);
-      items.push({ g: g, d: d, src: src, cls: '' });
+      items.push({ g: g, d: d, src: src, cls: '', box: { x: L.x, y: L.y, w: w, h: hh, cx: cx, cy: cy, rot: rot } });
     });
+
+    /* Finger-sized targets. On a small screen a display is drawn smaller than a fingertip
+       (about 20 px on a 7-inch touch screen), and the drawing keeps the venue's real
+       proportions, so the TARGET grows instead: a tap that lands near a display, not on it,
+       goes to the nearest display within reach (each display reaches at least 12 px beyond
+       its edge, more when it is drawn small, so a target is about 44 px across). When two
+       displays are as near as each other, the tap asks which one was meant. Zone, scene and
+       area-name buttons keep their own taps. */
+    if (opts.onDisplay && items.length) {
+      svg.addEventListener('click', function (ev) {
+        var t = ev.target;
+        if (t && t.closest && t.closest('g.op-pd, .op-pzone, .op-pscene')) return;
+        var tag = t && t.closest ? t.closest('.op-parea-tag') : null;
+        if (tag && !(t.classList && t.classList.contains('op-hit'))) return;
+        var near = O.planNearest(svg, items, ev.clientX, ev.clientY);
+        if (!near.length) return;
+        /* An area name's invisible margin gives way to a display that is nearer than the name. */
+        if (tag && tag._pill && O.planDistance(svg, tag._pill, ev.clientX, ev.clientY) <= near[0].dist) return;
+        ev.stopPropagation();
+        if (tag) ev.preventDefault();
+        if (near.length > 1 && near[1].dist - near[0].dist < 4) { O.planChoose(near, opts.onDisplay); return; }
+        opts.onDisplay(near[0].it.d);
+      }, true);
+    }
 
     function update() {
       items.forEach(function (it) {
@@ -1964,6 +2051,8 @@ var Operator = (function () {
     Object.keys(opSeen).forEach(function (id) { if (!present[id]) delete opSeen[id]; });
     var active = doc.activeScene && doc.activeScene.name ? doc.activeScene : null;
     sig = (active ? 'a' + active.id + active.at : '') + '|' + sig;
+    /* Only "No scene active" to say: a short screen gives the line to the floor plan. */
+    O.setClass(ui.activity, 'quiet', !active && !shown.length);
     O.patch(ui.activity, sig, function () {
       var lead = active ? h('div.op-act.idle', VF.icon('zap', 'sm'), h('span.op-act-text', 'Active scene: ', h('b', active.name), active.at ? ' since ' + VF.fmtTime(active.at) : ''))
         : (O.list('scenes').length && !shown.length ? h('div.op-act.idle.none', h('span.op-act-text', 'No scene active')) : null);
@@ -2416,12 +2505,19 @@ var Operator = (function () {
     }
     var pOn = canPower ? powerBtn('on') : null, pOff = canPower ? powerBtn('off') : null;
 
-    var side = h('aside.panel.op-fp-side.scroll',
+    /* On a short screen the panel scrolls to reach Power On / Power Off: a fade at the cut
+       edge says there is more below. */
+    var more = h('div.op-fp-more', { 'aria-hidden': 'true' }, h('span', VF.icon('chevron-down', 'sm')));
+    var side = h('aside.panel.op-fp-side.scroll', { onscroll: function () { paintMore(); } },
       h('div.op-fp-block', selTitle, selList),
       unplacedBox,
       canRoute ? srcBtn : null,
       routeBtn, listenRow,
-      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null);
+      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null,
+      more);
+    function paintMore() { O.setClass(side, 'more', side.scrollHeight - side.scrollTop - side.clientHeight > 4); }
+    var onResize = VF.debounce(paintMore, 150);
+    window.addEventListener('resize', onResize);
 
     /* bottom bar: scene shortcuts and one audio zone */
     var scenes = O.sceneBar();
@@ -2515,10 +2611,11 @@ var Operator = (function () {
       if (pOff) pOff.disabled = !n || pOff._busy === true;
       if (scenes) scenes.update();
       if (zoneCtl) zoneCtl.update();
+      paintMore();
     }
 
     setFloor(S.floorId);
-    return { update: update };
+    return { update: update, destroy: function () { window.removeEventListener('resize', onResize); } };
   });
 })();
 </script>

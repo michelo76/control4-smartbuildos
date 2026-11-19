@@ -37,6 +37,22 @@ var Studio = (function () {
   S.role = function () { return S.boot && S.boot.role === 'client' ? 'client' : 'installer'; };
   S.isClient = function () { return S.role() === 'client'; };
   S.clientStanding = function () { return (S.boot && S.boot.client) || null; };
+  /* Why a client may not publish or discard now, in a venue manager's words, or null.
+     The driver names the reason in the standing (src/venueflow/core.lua, _installerPending):
+     "changes saved by the installer", "changes saved remotely by the dealer", or the
+     installer-owned part of the venue that differs from what is published. */
+  S.pendingReason = function () {
+    var st = S.clientStanding(), p = st && st.installerPending;
+    if (!S.isClient() || !p) return null;
+    var keep = 'You can keep editing here, but you cannot publish or discard until then.';
+    if (p === 'changes saved remotely by the dealer') {
+      return { who: 'dealer', title: 'Your dealer saved changes remotely that are not live yet.', ask: 'Ask your dealer to publish or discard their changes.', keep: keep, short: 'Waiting for your dealer to publish or discard their changes.' };
+    }
+    if (p === true || p === 'changes saved by the installer') {
+      return { who: 'installer', title: 'Your installer saved changes that are not live yet.', ask: 'Ask your installer to publish or discard their changes.', keep: keep, short: 'Waiting for your installer to publish or discard their changes.' };
+    }
+    return { who: 'installer', title: 'The draft has a change to ' + p + ' that only your installer can make, and it is not live yet.', ask: 'Ask your installer to publish or discard it.', keep: keep, short: 'Waiting for your installer to publish or discard their change.' };
+  };
   function allowed(def) { return S.isClient() ? CLIENT_SECTIONS.indexOf(def.id) >= 0 : !def.clientOnly; }
   function landing() {
     if (S.isClient()) return 'home';
@@ -52,6 +68,8 @@ var Studio = (function () {
   S.config = function () { return config; };
   S.hasDraft = function () { return config !== null; };
   S.revision = function () { return revision; };
+  /* true when this page's last save was refused because someone else saved the draft. */
+  S.isStale = function () { return stale; };
   S.issues = function () { return issues; };
   S.summary = function () { return summary; };
   /* Issues about one entity. The driver's kinds: floor, area, source, display, audioZone, group, lighting,
@@ -421,9 +439,11 @@ var Studio = (function () {
      Returns Promise(reply). */
   S.serverEdit = function (command, payload) {
     return S.flush().then(function (saved) {
-      if (!saved && config) return { ok: false, status: 'failed', errorCode: 'VF_STALE_DRAFT', message: saveError || 'Your last changes could not be saved, so this was not done.' };
+      if (!saved && config) return { ok: false, status: 'failed', errorCode: stale ? 'VF_STALE_DRAFT' : 'VF_NOT_SAVED', message: saveError || 'Your last changes could not be saved, so this was not done.' };
       var body = Object.assign({}, payload || {});
-      if (command === 'PROFILE_PIN_SET' && revision !== null) body.baseRevision = revision;
+      /* The draft this page shows (last loaded or saved here): the driver refuses with
+         VF_STALE_DRAFT when someone else has saved since. */
+      if ((command === 'PROFILE_PIN_SET' || command === 'DRAFT_DISCARD') && revision !== null) body.baseRevision = revision;
       return VF.api(command, body, { since: false }).then(function (r) { return S.reload().then(function () { return r; }); });
     });
   };
@@ -492,10 +512,10 @@ var Studio = (function () {
     if (els.title) els.title.textContent = client ? 'Venue Studio' : 'Installer Studio';
     document.title = client ? 'VenueFlow Venue Studio' : 'VenueFlow Installer Studio';
     if (els.openop) els.openop.textContent = client ? 'Back to control' : 'Operator view';
-    var st = S.clientStanding();
+    var why = S.pendingReason();
     if (els.pending) {
-      els.pending.classList.toggle('hidden', !(client && st && st.installerPending));
-      els.pending.textContent = 'Your installer has unfinished changes in this venue. You can keep editing; publishing waits until they finish.';
+      els.pending.classList.toggle('hidden', !why);
+      els.pending.textContent = why ? why.title + ' ' + why.ask : '';
     }
     VF.mount(els.mode, b.driver.simulation ? h('span.chip.warn', h('span.dot'), 'Simulation') : h('span.chip.ok', h('span.dot'), 'Live'),
       S.published ? h('span.chip', 'Published ' + S.published.versionId) : h('span.chip.warn', 'Not published'));

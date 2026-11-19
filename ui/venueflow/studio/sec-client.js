@@ -29,12 +29,12 @@
 
   /* ── home ────────────────────────────────────────────────────────────── */
   function renderHome(container) {
-    var st = S.clientStanding() || {}, pub = S.published, c = S.config();
+    var pub = S.published, c = S.config(), pending = S.pendingReason();
     var sum = S.summary();
     var schedules = c ? S.list('rules').filter(function (r) { return r.trigger && r.trigger.type === 'schedule'; }).length : 0;
     VF.mount(container,
       S.sectionHead('Your venue', 'Signed in as ' + ((S.boot && S.boot.who) || 'staff') + '. Changes are kept as a draft until you publish them.'),
-      st.installerPending ? h('div.banner.warn', icon('alert'), h('div', h('b', 'Your installer has unfinished changes. '), 'You can keep editing here. Publishing waits until they publish or discard their work.')) : null,
+      pending ? h('div.banner.warn', icon('alert'), h('div', h('b', pending.title + ' '), pending.ask + ' ' + pending.keep)) : null,
       !c ? h('div.empty', h('p', 'There is nothing to edit yet. Your installer sets the venue up first.')) :
         h('div.col',
           h('div.list',
