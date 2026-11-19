@@ -923,7 +923,7 @@ do
   H.deviceVariables[60] = {
     ["1000"] = { name = "TEMPERATURE_F", value = "55" },
     ["1001"] = { name = "HUMIDITY", value = "61" },
-    ["1002"] = { name = "OWNER_NAME", value = "Jane" },
+    ["1002"] = { name = "OWNER_NAME", value = "Resident One" },
     ["1003"] = { name = "WIFI_PASSWORD", value = "hunter2" },
   }
   H.devices[70] = { deviceName = "Porch Camera", driverFileName = "uniview_camera.c4z", roomId = 1, roomName = "Entry" }
@@ -985,7 +985,7 @@ do
       and b.omitted.personal == 1
       and b.omitted.secret == 1
       and not JSON:encode(b):find("hunter2", 1, true)
-      and not JSON:encode(b):find("Jane", 1, true),
+      and not JSON:encode(b):find("Resident One", 1, true),
     JSON:encode(b)
   )
   check(

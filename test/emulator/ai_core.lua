@@ -1170,7 +1170,7 @@ end
 local probe = standIn("Wine Fridge", "generic-sensor", {
   { "TEMPERATURE_F", "55" },
   { "HUMIDITY", "61" },
-  { "OWNER_NAME", "Jane" },
+  { "OWNER_NAME", "Resident One" },
   { "WIFI_PASSWORD", "hunter2" },
 })
 local doorLock = standIn("Front Door", "generic-lock", {
@@ -1209,7 +1209,7 @@ check(
   "the live values as Director holds them; the owner's name and the Wi-Fi password stayed in the home",
   got.TEMPERATURE_F == "55" and got.HUMIDITY == "61" and got.OWNER_NAME == nil and got.WIFI_PASSWORD == nil
     and rb.omitted.personal == 1 and rb.omitted.secret == 1
-    and not json.encode(rc):find("hunter2", 1, true) and not json.encode(rc):find("Jane", 1, true),
+    and not json.encode(rc):find("hunter2", 1, true) and not json.encode(rc):find("Resident One", 1, true),
   rc and json.encode(rb)
 )
 rs, rd, rc = dsr({ state_ref = READ_REF, device_id = doorLock.id, scope = "system" })

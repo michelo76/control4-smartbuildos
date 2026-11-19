@@ -89,7 +89,7 @@ local FX = {
     { "LOCK_STATUS", "Locked" },
     { "BATTERY_LEVEL", "77" },
     { "RSSI", "-60" },
-    { "LAST_USER", "Jane" },
+    { "LAST_USER", "Resident One" },
     { "USER_CODE_1", "1234" },
     { "Slot 3 Label", "Nanny" }, -- personal data under an unpredictable name
     { "AUTO_LOCK_TIME", "30" },
@@ -674,7 +674,7 @@ do
     "no dropped secret or personal NAME or VALUE is in the body",
     not raw:find("USER", 1, true)
       and not raw:find('"1234"', 1, true)
-      and not raw:find("Jane", 1, true)
+      and not raw:find("Resident One", 1, true)
       and not raw:find("Nanny", 1, true),
     raw
   )
