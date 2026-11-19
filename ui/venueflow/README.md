@@ -38,6 +38,10 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    web views. `?.`, `??`, arrow functions, `async`/`await`, template strings,
    `Object.entries`, CSS grid and flex `gap` are fine. No `structuredClone`
    dependence without a fallback (use `VF.clone`).
+   `test/test_venueflow_engine_floor.lua` scans the sources and the built
+   pages for features Gecko 96 lacks (and for secure-context-only APIs: the
+   pages are served over plain HTTP) and names the file, line and feature.
+   It is a static scan, not a run on a touch screen.
 2. **No external resource of any kind.** The relay sends a Content Security
    Policy of `default-src 'none'` with inline script and style, `data:` and
    `blob:` images, and `connect-src 'self'`. No CDN, web font, remote image,
