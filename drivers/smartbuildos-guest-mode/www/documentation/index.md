@@ -419,7 +419,8 @@ The status properties sit at the top of the Properties tab. **Current Guest**
 names who is in. **Next Check-in** reads like `Tue 10 Nov 15:00 Guest`. **Next
 Check-out** is the current stay's check-out, or `open-ended (manual)`. **Last
 Poll** is when the calendars were last loaded. A `-` means there is nothing to
-show.
+show. **AI Core** says whether this driver reports to SmartBuildOS AI Core;
+see [AI Core](#ai-core).
 
 **Guest Status** has two values beyond the five above:
 
@@ -455,6 +456,50 @@ one bad load among several good ones it keeps the old text.
 | No *Guest Arriving Today* on a changeover day | The turnover ran up to the check-in. See [A same-day changeover](#a-same-day-changeover)                                                                                           |
 | `GUEST_PIN` is empty during a stay            | **Guest PIN** is `Off`, or was switched to `Per Stay` after the check-in: run *Regenerate Guest PIN*                                                                               |
 | Events an hour or more out                    | **Check-in Time**, **Check-out Time**, or the controller's own clock and time zone                                                                                                 |
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this
+driver tells it, over the SmartBuildOS Agent, what it is and whether the
+booking calendars load. Health and counts only. Without AI Core it sends
+nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value | Meaning |
+| --- | --- |
+| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
+| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
+| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
+| `Not installed` | No AI Core in the project: this driver sends nothing to it |
+| `Found — not responding` | AI Core is installed but did not answer |
+| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
+| `Found — not licensed (v…)` | AI Core is installed without a licence |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
+| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
+| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+
+What it reports:
+
+- **What it is**: guest stays from the host's booking calendars, and the
+  words people use (guest, booking, check-in, turnover…).
+- **State**: how many calendars are configured, loaded and failing, and
+  whether the licence has halted the driver. Never the guest status (it
+  says whether anyone is in the home), a guest's name, stay dates or
+  counts, the guest PIN, the Wi-Fi password or a calendar address (it
+  carries a private token).
+- **Faults**: every calendar failed to load (Calendars Unavailable) and
+  they load again (Calendars Restored).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing.
+
+Reports are lossy by design (a few a minute at most); nothing is queued
+while AI Core is absent, and nothing changes in this driver when AI Core is
+not installed. Tested in unit tests only: nothing here has run on a
+physical controller.
 
 ## What is not claimed
 

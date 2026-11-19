@@ -62,6 +62,19 @@ variables for the dealer's own lock and welcome-screen programming.
 5. Wire *Guest PIN Changed* to the lock's own user-code action on the bench
    lock and confirm the code opens the door; *Guest PIN Cleared* removes it.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `guest_mode` (guide §9 `start`) and reports, health and
+counts only: a describe (guest stays from booking calendars), a state
+from `paint()` (calendars configured / loaded / failing, halted by
+licence) and the diagnostics `calendars.unavailable` /
+`calendars.restored` beside the existing calendar events. Never the guest
+status, names, dates, stay counts, PIN, Wi-Fi password or calendar
+addresses. No events, queries or actions. Without AI Core nothing is
+sent. Unit tests only (`test/test_guestmode_aicore.lua`); nothing here has
+run on a controller.
+
 ## Not included in v1
 
 - Multiple units per driver (add one driver per unit).
