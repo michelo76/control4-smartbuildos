@@ -23,7 +23,10 @@ everything off, a push notification when a display does not confirm.
 Commands from Composer run with full access: whoever programs the controller
 already controls it. A command that is refused (an unknown scene, a scene
 whose condition is not met, a restricted licence) writes the reason to the
-**Last Error** property and the Lua tab; it never fails silently.
+**Last Error** property and the Lua tab; it never fails silently. Under a
+restricted licence, **Trigger the VenueFlow event** starts no rule and is
+refused: Last Error reads, for example,
+`TRIGGER_EVENT refused: licence restricted: 2 rule(s) not run`.
 
 ### Events (Programming, the VenueFlow driver's events)
 
@@ -31,8 +34,8 @@ whose condition is not met, a restricted licence) writes the reason to the
 | --- | --- | --- |
 | Scene Activated | a scene starts, from anywhere | variable ACTIVE_SCENE |
 | Notification | a scene or rule runs a "Send notification" step | variable NOTIFICATION_TEXT |
-| Alert Raised | VenueFlow raises an alert that stays until dismissed (a notification, an interrupted scene, a missed schedule) | variable ALERT_COUNT |
-| Configuration Published | the installer publishes or rolls back | |
+| Alert Raised | once for each stored alert (a notification, an interrupted scene, a missed schedule), and once when a detected alert appears (a display or zone change not confirmed, a display offline, a restricted licence); again for a detected alert only after it cleared and came back | variable ALERT_COUNT |
+| Configuration Published | a publish, by the installer, a client in the Venue Studio or Remote Management, and every rollback | |
 | Venue Opened, Venue Closed | the venue status changes | variable VENUE_STATUS |
 | Licence Restricted, Licence Restored | the SmartBuildOS licence starts or stops restricting scenes and publishing | |
 
@@ -45,8 +48,20 @@ VenueFlow display and audio zone**.
 Variables (read-only): `VENUE_STATUS` (open, closed), `ACTIVE_SCENE`,
 `NOTIFICATION_TEXT`, `ALERT_COUNT`.
 
-Conditionals: *Venue is open*; *Active scene* = or != a scene name;
-*VenueFlow has alerts*.
+Conditionals: *Venue is open* (choose open or closed); *Active scene* = or
+!= a scene name; *VenueFlow has alerts* (choose showing alerts or clear).
+The driver answers the choice made: "Venue is open: closed" is true when the
+venue is closed, "VenueFlow has alerts: clear" when there is none. It reads
+the choice from the `VALUE` Composer passes, as in the DriverWorks sample;
+how Composer passes it has been checked under the test shim only, not on a
+controller (HARDWARE_VALIDATION.md, "Not yet run").
+
+**One count of alerts.** `ALERT_COUNT`, the **Alerts** property and
+*VenueFlow has alerts* all count every current alert of the whole venue:
+each stored alert until someone dismisses it, and each detected alert until
+its cause clears. A muted zone is shown on the Manager screen but is not an
+alert here: muting is something staff do on purpose. A detected alert is
+noticed within about a quarter of a second of the change behind it.
 
 ### Sending Control4 events into VenueFlow rules
 

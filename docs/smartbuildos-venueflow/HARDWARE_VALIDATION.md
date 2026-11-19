@@ -1,14 +1,18 @@
 # VenueFlow hardware validation
 
-**Status: started 14 November 2026.** On the bench controller H1 passed, the
-laptop part of H2 passed, and H3 passed including a driver restart (see
-Results). The bench runs build `20261114.191046`, which carries the
-fixes for the three defects found. Build `20261114.233926` (the Venue Studio for
-the client, the channel label, source controls, Remote Management) is newer and **has not
-been on a controller**: see "Not yet run for build 20261114.233926" below. Still to do: H2 on Navigators, the H3
-network drop and a restart of the controller itself, H4 to H10. Everything
-so far was in Simulation: nothing has been sent to real equipment. Until H1
-to H9 pass, the build is "simulation verified", not production ready.
+**Status: started 14 November 2026; nothing run since.** On the bench
+controller H1 passed, the laptop part of H2 passed, and H3 passed including a
+driver restart (see Results). The bench still runs build `20261114.191046`,
+which carries the fixes for the three defects found on the bench. Build
+`20261114.233926` (the Venue Studio for the client, the channel label,
+source controls, Remote Management) and everything since (the six review
+fixes of 15 November 2026 and the review and audit fixes of 18 November
+2026, RELEASE_NOTES.md) **have not been on a controller**: see "Not yet run"
+below, and "Order of the remaining runs". Still to do: H2 on Navigators, the
+H3 network drop and a restart of the controller itself, H4 to H10.
+Everything so far was in Simulation: nothing has been sent to real
+equipment. Until H1 to H9 pass, VenueFlow is "simulation verified", not
+production ready.
 
 ## Before you start
 
@@ -154,7 +158,8 @@ Optional: the relay is the transport. This settles two unconfirmed points.
 | --- | --- |
 | All of the above | The owner present at the bench, and Composer confirmed on the bench system |
 | H6 on a matrix, AV-over-IP, a video wall; H7 on a multi-zone amplifier | That hardware in the bench project |
-| H10 denial | The `SBOS_VENUEFLOW` SKU in the platform (SMARTBUILDOS_INTEGRATION.md) |
+| H10 denial, and *Trigger the VenueFlow event* under a restricted licence | The owner applying the catalogue-row migration for `SBOS_VENUEFLOW` on smartbuildos.io (it exists, merged 15 November 2026, and is not applied), then a test entitlement set to denied with enforcement (SMARTBUILDOS_INTEGRATION.md) |
+| Everything in "Not yet run" | A VenueFlow build from current source imported on the bench (the bench runs `20261114.191046`) |
 | H9 daylight-saving | The calendar |
 
 ## Results
@@ -258,10 +263,13 @@ session" above: a route to a display outside the Bartender profile was
 refused with `VF_FORBIDDEN` on the controller, and the Studio page served by
 the new build is 539,888 bytes, identical in size to the built page.
 
-## Not yet run for build 20261114.233926
+## Not yet run
 
-Everything in this section is simulation verified only (desktop browser and
-test suites). None of it has run on a controller.
+Everything in this section is simulation verified only (desktop browser,
+the simulator and the test shim). None of it has run on a controller. The
+first rows came with build `20261114.233926`, the next with the review fixes
+of 15 November 2026, the last with the review and audit fixes of 18 November
+2026. The order to run them in is under "Order of the remaining runs".
 
 | Check | What to do | Status |
 | --- | --- | --- |
@@ -271,10 +279,53 @@ test suites). None of it has run on a controller.
 | Source controls reach a cable or satellite box | **Live mode, one real box.** Give a profile "Use source controls", open the source's remote and press CH +, CH -, each digit, Enter and Last. Watch the screen. Then a favourite ("206"): all digits must land, in order. If a digit is dropped, the 350 ms spacing is too short for that box | Not run. **The least certain item in this build**: sending these commands from another driver to the source's device is not documented |
 | Source controls, other kinds | The same for a streaming box (arrows, OK, play, pause) and a media player | Not run |
 | One box, many screens | Route one box to three displays, press CH +: all three change. The remote says how many screens are showing it | Not run |
-| Remote Management, registration | Set the property to Draft only. Remote Management Status must reach "On - draft only" once the Agent answers | Not run. Needs an Agent build that knows the `venueflow` module |
-| Remote Management, end to end | From smartbuildos.io (System Studio, Drivers & Licenses, VenueFlow): Refresh from controller, change a channel label, Send as draft, check the draft on the local Studio, Publish, Roll back. Time each step. Then edit the draft on site and send a remote draft made from the older copy: it must be refused as stale | Not run. Needs the web repository's branch `codex/venueflow-studio` deployed and an Agent build from this branch |
+| Remote Management, registration | With a build from current source and the bench Agent (built from `main` on 18 November 2026), set the property to Draft only. Remote Management Status must reach "On - draft only" once the Agent answers, and the module must appear for the system in System Studio. Then set it to Off and back | Not run. The Agent allows the `venueflow` module; a VenueFlow registration with it has never been watched |
+| Remote Management, end to end | From smartbuildos.io (System Studio, Drivers & Licenses, VenueFlow): Refresh from controller; the module's row must show the one-line summary and the live version (`config_version`, the published version id, or `none`). Change a channel label, Send as draft, check the draft on the local Studio (a client signed in there must now be told the installer has unfinished changes), Publish, Roll back: after each, the live version shown must be the new one. Time each step. Then edit the draft on site and send a remote draft made from the older copy: it must be refused as stale | Not run. The platform side is deployed; it has never been run with a controller |
 | Remote Management, a large venue | Send a draft near the size limit (about 170 kB of JSON) and watch the controller: Agent check-in time, driver responsiveness | Not run |
-| Two rules on one Control4 variable (source after the build; needs a new build) | **Live.** Two enabled rules triggered by the same device variable, each doing something visible; change the variable in Composer. Both must run. Then one rule on a mapped room's `POWER_STATE`: switch that room from a Control4 remote; the rule runs AND the display's state on the tile follows | Not run. Simulated Director only (`test_venueflow_adapter.lua`); whether Director calls a listener at once when it is set, and what a rule does with that first call after a publish, is unobserved |
-| Stopping a scene mid-queue (same source) | **Live, a scene routing to at least eight displays.** Activate it and press Stop in Executions within a second. Count the displays that changed: no more should change after the stop. Repeat with All Off instead of Stop: no display comes back on | Not run |
-| A sample draft in Live (same source) | In Simulation load a sample without publishing, switch Control Mode to Live, open a display's inspector and press Test Power Off and Query Status. Both must answer "simulation only" and the Lua tab must show no command | Not run |
-| A schedule right after a publish (same source) | Publish a schedule due in the next minute, about ten seconds before that minute starts. It must fire | Not run |
+| Two rules on one Control4 variable (review fixes of 15 November) | **Live.** Two enabled rules triggered by the same device variable, each doing something visible; change the variable in Composer. Both must run. Then one rule on a mapped room's `POWER_STATE`: switch that room from a Control4 remote; the rule runs AND the display's state on the tile follows | Not run. Simulated Director only (`test_venueflow_adapter.lua`); whether Director calls a listener at once when it is set, and what a rule does with that first call after a publish, is unobserved |
+| Stopping a scene mid-queue (same) | **Live, a scene routing to at least eight displays.** Activate it and press Stop in Executions within a second. Count the displays that changed: no more should change after the stop. Repeat with All Off instead of Stop: no display comes back on | Not run |
+| A sample draft in Live (same) | In Simulation load a sample without publishing, switch Control Mode to Live, open a display's inspector and press Test Power Off and Query Status. Both must answer "simulation only" and the Lua tab must show no command | Not run |
+| A schedule right after a publish (same) | Publish a schedule due in the next minute, about ten seconds before that minute starts. It must fire | Not run |
+| A client refused on the default profile (18 November) | Signed in as the client in the Venue Studio, change the permissions of the profile a tile opens with, then of a station's profile, and try to set or clear the PIN of each. Every one must be refused as installer-only ("the profile a screen or station opens with"). Changing another staff profile must still work | Not run |
+| A client refused while the installer has saved work (same) | In the installer's Studio, change a schedule and let it save; do not publish. Signed in as the client, try Publish and Discard: both refused, and the client's Studio shows "Your installer has unfinished changes". Publish as the installer: the client can publish again. Repeat with the installer setting a staff PIN | Not run |
+| Revisions after a backup restore (same) | Note the draft revision, export a backup, discard the draft, restore the backup: the restored draft's revision must be higher than any revision seen before | Not run |
+| *Configuration Published* on a rollback (same) | In Composer, program the VenueFlow event *Configuration Published* to do something visible (or watch the Flight Recorder). Publish, then roll back in Publish and Rollback: the event must fire both times, and the rollback's marker must name the new live version and the version it restored | Not run |
+| *Venue is open* in Composer programming, both senses (same) | Program two lines: IF *Venue is open* is open, and IF *Venue is open* is closed, each doing something visible. Mark the venue open and closed and run each line. Then the same for *VenueFlow has alerts* (showing alerts, and clear). Each line must run only in its own case | Not run. **The test shim cannot tell how Composer passes the choice**: the driver reads it from `VALUE` as the DriverWorks sample does; that is what this check settles |
+| *Alert Raised* when a display stops confirming (same) | Program *Alert Raised* to do something visible and watch ALERT_COUNT and the Alerts property. In Simulation, give a display the simulator fault "silent" and route to it; in Live, unplug a display's control and route to it. After about 8 seconds the event must fire once, and ALERT_COUNT and Alerts must both go up by one. Resolve once the cause is gone: both go back down. The event fires again only when the alert comes back | Not run |
+| *Trigger the VenueFlow event* under a restricted licence (same) | With the denial of H10 in place, run *Trigger the VenueFlow event* for a name a rule waits for. No rule runs, and Last Error reads `TRIGGER_EVENT refused: licence restricted: 1 rule(s) not run` | Not run. Blocked: see "Blocked today" |
+| A channel dialled across a publish (same) | **Live, one real box.** Press a favourite with three or four digits and publish a change from the Studio at once: every digit must land and Diagnostics must show no stop. Then press it again and change the source's Control4 device (or Control Mode) at once: the rest of the digits stop, and Diagnostics says so (`VF_CANCELLED`) | Not run |
+
+## Order of the remaining runs
+
+Each step needs only what the steps before it needed, plus what is named.
+Import a build from current source first (`make venueflow`, then import
+`dist/oss/smartbuildos-venueflow.c4z`, after reading Composer's title bar).
+
+1. **Bench controller in Simulation, Composer Pro and a laptop on the bench
+   LAN; no AV equipment.** Re-run H1 and H3 on the new build, then: a client
+   refused on the default profile, a client refused while the installer has
+   saved work, revisions after a backup restore, *Configuration Published*
+   on a rollback, *Venue is open* both senses, *Alert Raised* with the
+   simulator fault, client limits on the controller, a sample draft in Live
+   (switching to Live with a sample sends nothing), a schedule right after a
+   publish.
+2. **The same, plus the SmartBuildOS Agent in the project and a dealer
+   account on smartbuildos.io that holds the bench system.** Remote
+   Management registration, then end to end, then a large venue.
+3. **The same, plus a T3 or T4 touch screen and a phone and a tablet with
+   the Control4 app.** H2 on Navigators, the Venue Studio on a touch screen
+   and in the app, H8.
+4. **Live, with the AV part of the bench project** (two display rooms with a
+   video path from two shared sources through a matrix or AV-over-IP, one
+   audio zone room with volume control). H4 to H7, *Alert Raised* with an
+   unplugged display, stopping a scene mid-queue, two rules on one Control4
+   variable, H5.
+5. **Live, plus one real cable or satellite box** (and a streaming box and a
+   media player, when available). Source controls, other kinds, one box on
+   many screens, a channel dialled across a publish.
+6. **Someone at the controller for a service evening.** H9 including a
+   restart of the controller itself, and the H3 network drop.
+7. **After the owner applies the `SBOS_VENUEFLOW` catalogue-row migration,
+   with a test entitlement set to denied.** H10, and *Trigger the VenueFlow
+   event* under a restricted licence.
+8. **When the calendar allows.** The daylight-saving row of H9.

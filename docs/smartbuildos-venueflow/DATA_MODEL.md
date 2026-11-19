@@ -77,8 +77,18 @@ names up to 80 characters.
 { "id": "sports-1", "name": "Sports 1",
   "kind": "satellite",               // cable | satellite | streaming | signage | laptop | conference | music | camera | other
   "c4DeviceId": 3001,                // the Control4 device id of the source (the id a room selects)
-  "video": true, "audio": true, "enabled": true }
+  "video": true, "audio": true, "enabled": true,
+  "channel": "ESPN 206",             // optional channel label, up to 40 characters: a note shown beside the name; it tunes nothing
+  "controls": [ "channel", "keypad" ],   // basic control groups: channel | keypad | navigation | transport
+  "favorites": [ { "id": "espn", "name": "ESPN", "channel": "206" } ],   // up to 24; name up to 24 characters
+  "tuneEnter": true }                // optional: false = dial a favourite without Enter after the digits
 ```
+
+`controls` defaults by `kind` when absent (a cable or satellite source gets
+`channel` and `keypad`). A favourite's `channel` is digits with at most one
+dash or dot (`206`, `5-1`). Favourites need the `keypad` group to be dialled
+(a warning otherwise). Keys go to the source's own `c4DeviceId`; see
+PROTOCOL.md, "Source control commands".
 
 ### Display
 
@@ -202,10 +212,10 @@ A panel has at most six buttons.
 
 | `type` | Fields | Fires when |
 | --- | --- | --- |
-| `manual` | | only from Installer Studio (Execute Test) |
+| `manual` | | only from Installer Studio (Execute test) |
 | `scene_activated` | `sceneId` | that scene runs (from a screen, a schedule, Composer, or another scene) |
 | `schedule` | `days` (1 = Monday .. 7 = Sunday), `time` "HH:MM" | the controller's local clock reaches it |
-| `c4_event` | `name` | Composer programming runs the driver command *Trigger VenueFlow Event* with that name |
+| `c4_event` | `name` | Composer programming runs the driver command *Trigger the VenueFlow event* with that name |
 | `external` | `name` | the same mechanism and the same names as `c4_event`; the type only records that the event comes from another system through a Control4 driver |
 | `device_state` | `entity` display or zone, `id`, `field` (display: power, source; zone: power, source, muted), `equals`? | that state changes (to `equals`, when given) |
 | `c4_variable` | `deviceId`, `variable` | that Control4 variable changes |
@@ -272,18 +282,29 @@ that ends up running itself is refused (`SCENE_CYCLE`).
   "permissions": {
     "floors": "all", "areas": [ "bar" ], "sources": "all", "zones": [ "zone-bar" ], "sceneIds": [ "game-day" ],
     "routeVideo": true, "power": true, "audio": true, "lighting": false, "shades": false,
-    "scenes": true, "venueStatus": false, "allOff": false, "viewAlerts": false },
+    "scenes": true, "venueStatus": false, "allOff": false, "viewAlerts": false,
+    "sourceControl": false,          // may use a source's basic controls (channel keys, keypad, favourites)
+    "studio": false },               // may open the Venue Studio, with a PIN (installer sets it; a client cannot)
   "pinSalt": "...", "pinHash": "..." }   // never sent to a browser; the Studio sees "hasPin"
 ```
 
 A display is available to a profile when its floor and its area are. Scope
-lists are `"all"` or a list of ids. Configuration access is not a profile
-permission: it needs an Installer Studio session.
+lists are `"all"` or a list of ids.
+
+Configuration access: the whole configuration needs an Installer Studio
+session. A profile with `permissions.studio` true opens the Venue Studio on
+its PIN session and may change only the client-owned parts
+(`src/venueflow/clientscope.lua`: scenes, schedules, staff profiles and
+PINs, source names, channel labels and favourites, volume presets). A
+profile with `studio` but no PIN is warned about (`STUDIO_NO_PIN`): it
+cannot sign in to the Studio. Which profiles hold `studio` is the
+installer's to decide, and the default profile and every station's profile
+are installer-owned as whole records: a client cannot change them.
 
 ### Station
 
 ```jsonc
-{ "id": "host-stand", "name": "Host station", "address": "192.168.1.52", "profileId": "host" }
+{ "id": "host-stand", "name": "Host station", "address": "<the screen's LAN address>", "profileId": "host" }
 ```
 
 A tile opened from that LAN address acts as that profile instead of
@@ -346,6 +367,26 @@ operation (`operations` in the state document, or `OPERATION_GET`):
 The store keeps the **draft**, the **published** version and up to five
 **previous** versions, through the controller's persistence API. Floor-plan
 images are kept apart under content keys and shared between versions.
+
+`by` is who published: `installer`, `remote` (Remote Management) or
+`profile:<id>` (a client in the Venue Studio).
+
+The stored draft record is
+`{ config, revision, savedAt, basedOn, savedBy }`. `savedBy` is the sorted
+list of who saved the draft since the last publish or discard
+(`installer`, `remote`, `profile:<id>`); a publish or a discard empties it.
+While it names anyone but a profile, a client cannot publish or discard the
+draft. `savedBy` stays on the controller: a page receives the draft without
+it.
+
+Draft revisions come from a counter stored on its own
+(`vf_draft_revision_v1`, `{ last }`) and never repeat for the life of the
+stored venue: a discard, a publish or a restore does not restart them. A
+venue stored before the counter existed starts from its draft's revision.
+
+A backup is `{ format, version, schema, exportedAt, revision, draft,
+published, images }`; `revision` carries the counter, and a
+restore never sets it below that value.
 
 ## Licence state
 

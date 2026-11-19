@@ -69,15 +69,21 @@ assuming a controller can run arbitrary background services. Three options:
 | 3. SmartBuildOS Edge or cloud hosting the Studio | Rejected as the primary path: it would make configuration depend on a subscription and a connection. It remains the right place for multi-venue features (see SMARTBUILDOS_INTEGRATION.md). |
 
 Cost of option 1, stated plainly: the Studio is reachable only on the venue
-LAN (remote configuration needs the dealer's own VPN or remote access), it is
-plain HTTP on that LAN, and the page is a large reply for the driver's socket
+LAN (opening it from elsewhere needs the dealer's own VPN or remote access;
+Remote Management, below, moves configuration through the SmartBuildOS
+Agent instead, and has not been run with a controller), it is plain HTTP on
+that LAN, and the page is a large reply for the driver's socket
 (a hardware validation item).
 
 ## Trust
 
-- **The only door is `core:handle(request, transport)`.** The relay has five
-  routes; one of them (`POST /api`) carries commands, and every command goes
-  through `handle`.
+- **The only door is `core:handle(request, transport)`.** The relay has six
+  routes (`GET /ping`, `/app`, `/studio`, `POST /api`, `POST /image`,
+  `OPTIONS`); `POST /api` carries commands, and every command goes through
+  `handle`. `POST /image` takes a floor-plan picture for an installer
+  session and nothing else. The other way in, Remote Management, arrives
+  from the SmartBuildOS Agent with the token the Agent issued and goes
+  through `Core:remote`, which runs the same handlers as an installer.
 - **Identity is something the driver minted.** A session token from a PIN or
   the Installer Passcode, or the tile token the driver wrote into the web
   view URL. A page never states its profile; unknown fields in a request are
@@ -89,8 +95,16 @@ plain HTTP on that LAN, and the page is a large reply for the driver's socket
 - **A profile sees only its part of the venue.** The configuration and state
   sent to a page are filtered (`Access:view`, `core:operatorState`), and carry
   no Control4 id, program or PIN material.
-- **Configuration is not a profile permission.** It needs an Installer Studio
-  session; no profile, not even "Installer", can read or change the draft.
+- **Configuration is the installer's, with one narrow exception.** The whole
+  configuration needs an Installer Studio session. A staff profile the
+  installer gave the Venue Studio permission (`permissions.studio`) opens the
+  Studio on its PIN session as a client, and the driver compares every client
+  save, publish, discard and rollback with the installer-owned part
+  (`clientscope.lua`): scenes, schedules, staff profiles and PINs (not the
+  profiles screens and stations open with), source names, channel labels and
+  favourites and volume presets are the client's; everything else is
+  refused. A client also cannot publish or discard a draft holding the
+  installer's or the dealer's saved work.
 - **Secrets.** PINs are stored as salted HMACs and are never sent to a
   browser. The Installer Passcode is a hidden driver property, never logged,
   never in a backup. Tokens live in the driver's memory and end with a
@@ -140,7 +154,8 @@ Through `lib.persist` (the controller's `PersistSetValue`):
 
 | Key | Content |
 | --- | --- |
-| `vf_draft_v1` | the draft configuration, its revision |
+| `vf_draft_v1` | the draft configuration, its revision, who saved it since the last publish or discard (`savedBy`) |
+| `vf_draft_revision_v1` | the last draft revision ever given (revisions never repeat) |
 | `vf_published_v1` | the published version |
 | `vf_history_v1` | up to five previous versions |
 | `vf_images_v1`, `vf_img_<key>` | floor-plan pictures, by content key |
@@ -155,15 +170,17 @@ Device state is not persisted: it is read from Control4 at start.
 | --- | --- |
 | `core.lua` | wiring, identity, command handlers, alerts, Composer commands |
 | `protocol.lua` | request validation, reply envelope |
-| `relay.lua` | HTTP parsing and the five routes |
+| `relay.lua` | HTTP parsing and the six routes |
 | `auth.lua` | PIN and passcode checks, lockout, sessions |
 | `access.lua` | what a profile may see and do |
+| `clientscope.lua` | what a Venue Studio client may change (the installer-owned part of a configuration) |
 | `schema.lua` | the configuration: defaults, validation, migration |
 | `templates.lua` | business types, scene and profile templates, the two reference venues |
 | `store.lua` | draft, published, history, pictures, backup |
 | `state.lua`, `tracker.lua`, `queue.lua` | cells, operations, command serialisation |
 | `routing.lua` | video routes and display power |
 | `audio.lua` | audio zones, lighting presets, shades |
+| `sourcecontrol.lua` | a source's basic controls: the closed key list, favourites dialled digit by digit |
 | `rules.lua` | program validation, conditions, the runner, dry run |
 | `scheduler.lua` | schedules |
 | `discovery.lua` | device enumeration and classification |
