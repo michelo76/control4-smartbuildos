@@ -74,10 +74,6 @@ local PENDING = {
   ["smartbuildos-system-link-shade"] = true,
   ["smartbuildos-system-link-temperature"] = true,
   ["smartbuildos-system-link-thermostat"] = true,
-  ["unifi-protect-camera"] = true,
-  ["unifi-protect-light"] = true,
-  ["unifi-protect-sensor"] = true,
-  ["unifi-protect-viewport"] = true,
 }
 
 local XML =

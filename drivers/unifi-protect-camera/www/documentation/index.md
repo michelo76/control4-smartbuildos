@@ -265,6 +265,10 @@ deliberate override.
 - Events reach this driver only while it is bound and the Gateway's **Event
   Stream** is connected. Nothing is queued for later.
 
+## AI Core
+
+The read-only **AI Core** property shows `Installed — reports through UniFi Protect Gateway (SBOS)` when SmartBuildOS AI Core is in the project and `Not installed` when it is not; this driver never talks to AI Core itself (the UniFi Protect Gateway driver is the one that reports), and it shows `Searching…` until Director first answers.
+
 ## What is not claimed
 
 - **No recorded video.** Live streams and stills only; recordings stay in the

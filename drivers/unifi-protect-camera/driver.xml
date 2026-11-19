@@ -271,6 +271,12 @@
         <description>The build actually running on this instance. If this does not match the newest build after an update, the project is serving a cached copy of the driver.</description>
       </property>
       <property>
+        <name>AI Core</name>
+        <type>STRING</type>
+        <default>Searching…</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
         <name>Logging</name>
         <type>LABEL</type>
         <default>Logging</default>
