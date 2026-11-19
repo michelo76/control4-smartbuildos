@@ -59,6 +59,10 @@ local Mdns = require("bond.mdns")
 --- property. LEGACY = operate normally until the entitlement backend lists
 --- the SKU; child drivers inherit through this gateway.
 local license = require("sbos.license")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load. One module id (bond_bridge) for every
+--- gateway instance; each registers under its own device id.
+local aireport = require("sbos.aireport")
 
 --- The one client this driver drives.
 local bond = Bond:new()
@@ -200,6 +204,43 @@ local function bondHost()
   return tostring(bond.baseUrl or ""):gsub("^https?://", ""):gsub(":%d+$", "")
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise); every gateway instance reports for itself:
+--   describe   a Bond Bridge gateway for ceiling fans, shades, fireplaces
+--              and lights
+--   state      configured, connected, devices and scenes in the inventory
+--              (counts). Never the Bond's address, its id, the token or a
+--              device name
+--   diagnostic the Bond went offline / came back (the driver's own Bond
+--              Offline / Bond Online transition)
+--   events, queries, actions: none. Fans, shades and fireplaces are
+--              controlled through their own child drivers.
+
+local function aiReportState()
+  aireport.state({
+    configured = bond:hasAddress() == true,
+    connected = gConnected == true,
+    devices = gInventory and #(gInventory.devices or {}) or 0,
+    scenes = gInventory and #(gInventory.scenes or {}) or 0,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = "SBOS_BOND" })
+  aireport.describe({
+    summary = "A Bond Bridge gateway: connects this home's Bond-controlled ceiling fans, motorized shades, fireplaces and lights to Control4, each as its own device.",
+    controls = {
+      { id = "fans", label = "Ceiling fans", class = "climate" },
+      { id = "shades", label = "Shades", class = "shade" },
+      { id = "fireplaces", label = "Fireplaces", class = "climate" },
+      { id = "lights", label = "Fan lights", class = "light" },
+    },
+    vocabulary = { "fan", "ceiling fan", "fan speed", "shade", "blinds", "fireplace", "fan light", "bond" },
+  })
+end
+
 --- Single writer for connection state: property, conditional, events, log —
 --- transitions only.
 --- @param connected boolean
@@ -219,16 +260,19 @@ local function setConnected(connected, reason)
       pcall(function()
         C4:FireEvent("Bond Online")
       end)
+      aireport.diagnostic("info", "bond.online", "The Bond answers again")
     else
       log:warn("Bond disconnected: %s", line)
       pcall(function()
         C4:FireEvent("Bond Offline")
       end)
+      aireport.diagnostic("warning", "bond.offline", "The Bond does not answer")
     end
     pcall(function()
       C4:SetConditionalState("BOND_CONNECTED", connected)
     end)
   end
+  aiReportState()
 end
 
 --- One dealer-readable line out of a lib.http rejection. A rejection WITH a
@@ -633,6 +677,7 @@ local function applyInventory(inventory)
   UpdateProperty("Devices", tostring(#inventory.devices))
   UpdateProperty("Scenes", tostring(#(inventory.scenes or {})))
   UpdateProperty("Last Sync", inventory.updated_at)
+  aiReportState()
 
   ensureFunctionBindings(inventory.devices)
   pushDeviceStates(inventory.devices)
@@ -1155,6 +1200,8 @@ function OnDriverLateInit()
   registerGatewayEvents()
 
   license.setup({ sku = "SBOS_BOND" })
+  startAiCore()
+  aiReportState()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -1187,6 +1234,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   CancelTimer(POLL_TIMER)
   CancelTimer(PROVISION_RENAME_TIMER)
   stopPush()
