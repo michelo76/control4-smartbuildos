@@ -289,7 +289,7 @@ Driver `feat/ai-core-round2` (stacked on the frozen `09d138b`) and platform `cod
 | Driver `64660fb` (live read) | 194 test files, 0 failed; lint 0/0; emulator 132, 47, 39, 34, 24, all passing |
 | Driver `1a663b1` (filter fixes and presets) | 194 test files, 0 failed; lint 0/0; emulator 132, 47, 39, 37, 24 |
 | Platform `e68167946` (wire, handler, round-two migration) | unit 12,710 of 12,710; typecheck 0 errors; lint 0 errors and 1,432 pre-existing warnings; browser 22 of 22; the twelve frozen migration files unchanged |
-| The round-two heads (the platform's tools-and-presets head; the driver's last head) | ⟨conductor: round-two final totals⟩ |
+| The round-two heads (the platform's tools-and-presets head; the driver's last head) | Platform `b08262c1b` on `codex/ai-core-round2`: unit tests 12,753 of 12,753 (run with the driver repo), typecheck 0 errors, lint 0 errors and 1,432 pre-existing warnings, browser tests 23 of 23, the twelve frozen migration files and the round-two migration unchanged; driver `2be9c87` on `feat/ai-core-round2`, run against that platform head: 194 test files, 13,820 checks, 0 failed, lint 0 warnings and 0 errors, emulator runs 147, 47, 39, 37 and 24 all passing; guide consistency 1,035 assertions and browser 841 controls, 2,490,800 assertions, 0 failures. All simulation; nothing on hardware |
 
 ### Reported by workers, not rerun by the conductor
 
