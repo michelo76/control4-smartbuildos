@@ -60,6 +60,19 @@ changes. Measuring continues with no Agent (`measuring_local`).
 Every `require` sits at module scope, including `tracer.catalog_data`, so
 the squish step packages the catalogue.
 
+## AI Core reporting (`sbos.aireport`, attach mode)
+
+When SmartBuildOS AI Core is installed, the driver reports to it over its
+OWN module client (guide §9 `attach`): `onRegistered` and `onAgentState`
+are forwarded and `onDirectoryChanged` added; `aireport.stop()` leaves the
+client to the driver's own `client.stop()`. Reports: a describe (the
+usage meter), a state from `paint()` (measuring status, days recorded,
+rooms / lights / keypads watched, listeners; never hours or presses) and
+the diagnostics `meter.degraded` / `meter.restored` beside the existing
+events. No events, queries or actions. Its only new v2 frame is the
+helper's `DISCOVER {module_id: "ai_core"}`. Unit tests only
+(`test/test_usage_aicore.lua`); nothing here has run on a controller.
+
 ## Verification
 
 | Suite | Checks | Covers |
