@@ -167,6 +167,43 @@ Cloud events (low-volume, mode-level only): rides the existing Agent roster /
 event path in a later phase; V1 ships local-first with zero cloud dependency
 (§62 non-negotiable).
 
+## AI Core (`sbos.aireport`, start mode)
+
+When SmartBuildOS AI Core is installed, Mode Composer reports to it over the
+module bus (guide §9); without AI Core it sends nothing. The driver has no
+`DC_FILENAME` (not even in the DriverCentral variant), so it passes
+`file = "smartbuildos-mode-composer.c4z"` explicitly.
+
+- **describe**: house modes; controls `presence_mode`, `lifestyle_mode`
+  (class `mode`); homeowner vocabulary. Mode names are NOT in the describe,
+  so editing modes does not change the declaration hash.
+- **state** (from `refreshStateSurface` and `saveConfig`): active presence
+  and lifestyle mode, transitioning, mode counts per category, occupancy,
+  warning count, read-only config, last activation (mode, result, time).
+- **event**: `mode.changed` (category, mode, previous),
+  `mode.countdown_started`.
+- **diagnostic**: `activation.failed`, `activation.blocked`,
+  `activation.partial` (counts only, no device names).
+- **queries**: `current_modes` (every mode, its category, enabled, active),
+  `recent_activations {count 1..10}` (mode, result, source, time, commands).
+- **action** `activate_mode { mode: string ≤ 64, required }`, risk **high**
+  (a mode can drive locks and security), so the platform keeps it
+  portal-only and never auto-runs it. The handler resolves the name with
+  `model.findByName` and runs `activateFromSurface(id, "SMARTBUILDOS")`,
+  the same path as the Composer command (preflight, countdown, priority;
+  Navigator's hold-to-confirm does not apply, the approval replaces it).
+  Result text is the real outcome: `X is active` (finished), `X starts in N
+  seconds`, `Activating X: N device command(s) are being sent; the outcome
+  follows as an event` (async queue), `X is already active`; refusals
+  (`ok = false`): unknown or switched-off mode, blocked by preflight, failed.
+  The helper refuses bad params, an unverified AI Core and a stale
+  `declaration_hash` before the handler runs. Activations stay ungated by
+  the licence, as every other activation.
+
+Emulator and unit tests only (`test/test_mode_composer_aicore.lua`,
+`test/emulator/ai_core_reference_drivers.lua`); nothing has run on a
+physical controller.
+
 ## Security stance (§61, §106)
 
 Sensitive actions (disarm, unlock, garage open) are never part of any template,
