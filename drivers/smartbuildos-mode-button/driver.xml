@@ -38,6 +38,12 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>AI Core</name>
+        <type>STRING</type>
+        <default>Searching…</default>
+        <readonly>true</readonly>
+      </property>
+      <property>
         <name>Mode</name>
         <type>LIST</type>
         <items><item>-</item></items>

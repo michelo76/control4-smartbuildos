@@ -17,6 +17,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+local aipresence = require("sbos.aipresence")
 
 local MANAGER_FILENAMES = { ["smartbuildos-mode-composer.c4z"] = true, ["smartbuildos-mode-composer.c4i"] = true }
 local MODE_KEY = "ModeButtonModeId"
@@ -168,6 +169,7 @@ end
 -- ─── Manager traffic ─────────────────────────────────────────────────────────
 
 EC.MC_STATE = function(tParams)
+  aipresence.recheck() -- the manager's pushes: the bounded AI Core re-check (KI-42)
   local ok, decoded = pcall(function()
     return JSON:decode((tParams or {}).modes or "[]")
   end)
@@ -258,8 +260,10 @@ function OnDriverLateInit()
   gInitialized = true
   UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version") or "")
   UpdateProperty("Driver Status", "Online")
+  aipresence.start({ file = "smartbuildos-mode-button.c4z" })
 end
 
 function OnDriverDestroyed()
   KillAllTimers()
+  aipresence.stop()
 end

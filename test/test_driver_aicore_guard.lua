@@ -58,7 +58,6 @@ local CHILD_BASES = {
 local PENDING = {
   ["smartbuildos-venueflow"] = true,
   ["smartbuildos-insights"] = true,
-  ["smartbuildos-mode-button"] = true,
 }
 
 local XML =
