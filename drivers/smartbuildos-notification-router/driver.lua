@@ -45,6 +45,9 @@ local Router = require("notify.router")
 local Formatters = require("notify.formatters")
 local Template = require("notify.template")
 local Inbound = require("notify.inbound")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -280,6 +283,48 @@ local function routerStatus()
   return "ready"
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise). HEALTH AND COUNTS ONLY:
+--   describe   one Notify command routed to Telegram, Pushover, Slack /
+--              Discord, a webhook or SMS, with quiet hours and limits
+--   state      router status, ready targets, sent / failed / received
+--              today, deliveries pending (counts). Never a message, a
+--              title, a sender, a chat id or number, a target address or
+--              any credential
+--   diagnostic delivery degraded / restored (the driver's own Router
+--              Degraded / Restored transition)
+--   events, queries, actions: none. Sending a notification stays with
+--              Composer programming.
+
+local function aiReport(status, readyCount, healthy, changed)
+  aireport.state({
+    router_status = status,
+    targets_ready = readyCount,
+    sent_today = tonumber(gCounts.sent) or 0,
+    failed_today = tonumber(gCounts.failed) or 0,
+    received_today = tonumber(gCounts.received) or 0,
+    pending = pendingCount(),
+  })
+  if changed then
+    aireport.diagnostic(
+      healthy and "info" or "warning",
+      healthy and "router.restored" or "router.degraded",
+      "Notification routing status: " .. status
+    )
+  end
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Sends this home's notifications to the right place (Telegram, Pushover, Slack or Discord, a webhook or a text message), with per-target quiet hours, priorities, duplicate filtering and a rate limit.",
+    controls = { { id = "notifications", label = "Notifications", class = "other" } },
+    vocabulary = { "notification", "alert", "message", "text", "telegram", "pushover", "quiet hours", "notify me" },
+  })
+end
+
 local function paint()
   rollDay()
   local status = routerStatus()
@@ -300,10 +345,12 @@ local function paint()
   setVar("LAST_FAILED_TARGET", gLastFailedTarget)
   setVar("PENDING_DELIVERIES", pendingCount())
   local healthy = status == "ready" or status == "sending"
-  if gLastStatus ~= nil and gLastStatus ~= healthy then
+  local changed = gLastStatus ~= nil and gLastStatus ~= healthy
+  if changed then
     fire(healthy and EVENT_RESTORED or EVENT_DEGRADED)
   end
   gLastStatus = healthy
+  aiReport(status, #ready, healthy, changed)
 end
 
 local function saveNow()
@@ -994,6 +1041,7 @@ function OnDriverLateInit(reason)
     reconcileLicence()
     paint()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -1007,6 +1055,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   saveNow()
   CancelTimer(POLL_TIMER)
   for id in pairs(gPending) do
