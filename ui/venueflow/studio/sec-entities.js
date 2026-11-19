@@ -6,80 +6,15 @@
    Every section is a list on the left and an editor for the selected item on
    the right. The selection lives in a module variable, so the re-render that
    follows each change keeps the same item open. Changes go through
-   Studio.update (silently) followed by a re-render that waits for the pointer
-   to be released and puts the keyboard focus back where it was, so a click on
-   the next control right after typing is not lost. */
+   Studio.update (silently) followed by Studio.refreshSoon: a re-render that
+   waits for the pointer to be released and puts the keyboard focus back where
+   it was, so a click on the next control right after typing is not lost. */
 (function () {
   'use strict';
   var h = VF.h, icon = VF.icon, S = Studio;
-  var MINE = { devices: 1, sources: 1, zones: 1, groups: 1, ambient: 1, rooms: 1, profiles: 1 };
 
-  /* ── a re-render that keeps the installer's place ────────────────────── */
-  var wanted = false, timer = null, downAt = 0, downEl = null, changedEl = null;
-  document.addEventListener('pointerdown', function (e) { downAt = Date.now(); downEl = e.target; }, true);
-  ['pointerup', 'pointercancel'].forEach(function (n) { document.addEventListener(n, function () { downAt = 0; if (wanted) later(60); }, true); });
-  document.addEventListener('click', function () { downAt = 0; }, true);
-  document.addEventListener('change', function (e) { changedEl = e.target; downAt = 0; }, true);
-  document.addEventListener('focusin', function (e) { var t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) t._enInit = t.value; }, true);
-  function later(ms) { clearTimeout(timer); timer = setTimeout(run, ms || 0); }
-  function refresh() { wanted = true; later(0); }
-
-  function labelOf(el) {
-    var own = el.getAttribute('aria-label'); if (own) return own;
-    var wrap = el.closest('label, .en-fld');
-    if (wrap) {
-      for (var i = 0; i < wrap.childNodes.length; i++) {
-        var n = wrap.childNodes[i];
-        if (n.nodeType === 3 && n.textContent.trim()) return n.textContent.trim();
-        if (n.nodeType === 1 && n.tagName === 'SPAN') return n.textContent.trim();
-      }
-    }
-    return el.tagName === 'BUTTON' ? el.textContent.trim().slice(0, 40) : '';
-  }
-  function focusKey(el) { var scope = el.closest('[data-fk]'); return (scope ? scope.dataset.fk : '') + '|' + el.tagName + '|' + (el.type || '') + '|' + labelOf(el); }
-  function findByKey(root, key) {
-    var all = root.querySelectorAll('input, select, textarea, button');
-    for (var i = 0; i < all.length; i++) { if (focusKey(all[i]) === key) return all[i]; }
-    return null;
-  }
-  function run() {
-    if (!wanted) return;
-    if (!MINE[S.currentSection()]) { wanted = false; return; }
-    if (downAt && Date.now() - downAt < 700) { later(90); return; }   /* let the click land first */
-    var main = document.getElementById('main'); if (!main) return;
-    var a = document.activeElement, inside = !!(a && a !== document.body && main.contains(a));
-    if (inside && a.tagName === 'SELECT' && a !== changedEl && a === downEl) {   /* a pick list opened by touch or mouse would close */
-      if (!a._enWait) {
-        a._enWait = true;
-        var go = function () { a._enWait = false; a.removeEventListener('blur', go); a.removeEventListener('change', go); later(0); };
-        a.addEventListener('blur', go); a.addEventListener('change', go);
-      }
-      return;
-    }
-    var keep = null;
-    if (inside) {
-      keep = { key: focusKey(a), value: null, s: null, e: null };
-      if ((a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio') || a.tagName === 'TEXTAREA') {
-        if (a !== changedEl && a._enInit !== undefined && a.value !== a._enInit) keep.value = a.value;   /* typed, not committed yet */
-        try { keep.s = a.selectionStart; keep.e = a.selectionEnd; } catch (e) { /* number fields have no selection */ }
-      }
-    }
-    var scrolls = {};
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { scrolls[el.dataset.enScroll] = el.scrollTop; });
-    wanted = false; changedEl = null; downEl = null;
-    S.refresh();
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { var v = scrolls[el.dataset.enScroll]; if (v) el.scrollTop = v; });
-    if (!keep) return;
-    var el = findByKey(main, keep.key); if (!el) return;
-    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
-    if (keep.value !== null && el.value !== keep.value) {
-      el.value = keep.value;
-      var fired = false;
-      el.addEventListener('change', function () { fired = true; });
-      el.addEventListener('blur', function () { if (!fired) el.dispatchEvent(new Event('change', { bubbles: true })); });
-    }
-    if (keep.s !== null && keep.s !== undefined) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
-  }
+  /* ── a re-render that keeps the installer's place (Studio.refreshSoon) ── */
+  function refresh() { S.refreshSoon(); }
 
   /* ── small helpers ───────────────────────────────────────────────────── */
   function upd(label, fn) { S.update(label, fn, { silent: true }); refresh(); }

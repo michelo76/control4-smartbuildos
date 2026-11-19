@@ -579,6 +579,16 @@ svg.op-plan.compact { height: auto; }
   .op-mgr-stats > .op-stat:last-child { grid-column: span 2; }
   .op-mgr-cols { grid-template-columns: minmax(0, 1fr); }
 }
+/* Phones: the volume slider gets a row of its own in the floor plan's bottom bar (the zone picker
+   above it), and a little room from the gaps in every zone control, so a finger can set a level
+   (about 240 px in the bar and 200 px or more everywhere at 390 px wide; the bar's was 84 px). */
+@media (max-width: 600px) {
+  .op-fp-audio { flex-wrap: wrap; }
+  .op-fp-zonepick { flex: 1 1 100%; }
+  .op-fp-zone { flex: 1 1 100%; }
+  .op-zc-vol { gap: 8px; }
+  .op-zc-pct { min-width: 44px; }
+}
 @media (max-width: 560px) {
   .op-nav button { flex-direction: column; gap: 2px; padding: 5px 4px; min-height: 52px; font-size: 11.5px; line-height: 1.15; white-space: normal; text-align: center; }
 }
@@ -671,6 +681,40 @@ var VF = (function () {
   };
   VF.clear = function (el) { while (el.firstChild) el.removeChild(el.firstChild); return el; };
   VF.mount = function (el) { VF.clear(el); for (var i = 1; i < arguments.length; i++) VF.append(el, arguments[i]); return el; };
+  /* Makes `el` look like `next` (a detached element painted from scratch) while keeping every node of
+     `el` that did not change: a button whose own attributes (and checked/value/disabled state) are the
+     same stays the SAME element, so a tap that has begun on it still lands; only what differs is
+     replaced. A kept element keeps its own listeners, so use this only where a listener's behaviour
+     follows from what the element shows (its attributes and text), as in a repaint of the same data.
+     The children of `next` that are used are moved into `el`. */
+  function sameShell(a, b) {
+    if (a.nodeType !== 1 || b.nodeType !== 1 || a.tagName !== b.tagName) return false;
+    var aa = a.attributes, i;
+    if (aa.length !== b.attributes.length) return false;
+    for (i = 0; i < aa.length; i++) { if (b.getAttribute(aa[i].name) !== aa[i].value) return false; }
+    if (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA') {
+      if (a.value !== b.value || a.checked !== b.checked || a.disabled !== b.disabled) return false;
+    }
+    return true;
+  }
+  function patchChildren(el, next) {
+    var have = Array.prototype.slice.call(el.childNodes), want = Array.prototype.slice.call(next.childNodes), i, a, b;
+    for (i = 0; i < Math.max(have.length, want.length); i++) {
+      a = have[i]; b = want[i];
+      if (!b) el.removeChild(a);
+      else if (!a) el.appendChild(b);
+      else if (a.nodeType === 3 && b.nodeType === 3) { if (a.data !== b.data) a.data = b.data; }
+      else if (sameShell(a, b)) patchChildren(a, b);
+      else el.replaceChild(b, a);
+    }
+  }
+  VF.patch = function (el, next) {
+    var i, at = el.attributes;
+    for (i = at.length - 1; i >= 0; i--) { if (!next.hasAttribute(at[i].name)) el.removeAttribute(at[i].name); }
+    for (i = 0; i < next.attributes.length; i++) { if (el.getAttribute(next.attributes[i].name) !== next.attributes[i].value) el.setAttribute(next.attributes[i].name, next.attributes[i].value); }
+    patchChildren(el, next);
+    return el;
+  };
 
   /* ── icons (24x24, stroke) ───────────────────────────────────────────── */
   var IC = {

@@ -58,7 +58,7 @@
       return h('div.cl-row',
         h('div.cl-row-ic', icon(VF.SOURCE_ICON[src.kind] || 'monitor')),
         S.text('Name', src.name, function (v) {
-          if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+          if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
           ed('Rename source', function (x) { x.name = v; });
         }, { max: 40 }),
         S.text('Channel label', src.channel || '', function (v) {
@@ -69,7 +69,7 @@
     /* Favourite channels, for the sources whose installer gave them a keypad. */
     var favs = S.list('sources').filter(function (src) { return VF.asList(src.controls).indexOf('keypad') >= 0; }).map(function (src) {
       return h('div.card.col', h('div.row.between', h('h3', src.name), h('span.small.muted', VF.asList(src.favorites).length + ' favourite' + (VF.asList(src.favorites).length === 1 ? '' : 's'))),
-        S.favoritesEditor(src, function (label, fn) { S.update(label, function (c) { var x = VF.byId(c.sources, src.id); if (x) fn(x); }); }));
+        S.favoritesEditor(src, function (label, fn) { S.update(label, function (c) { var x = VF.byId(c.sources, src.id); if (x) fn(x); }, { silent: true }); S.refreshSoon(); }));
     });
     VF.mount(container,
       S.sectionHead('Channels and source names', 'What staff see on each source button. The channel label is a note for staff: it does not change the channel.'),
@@ -81,7 +81,9 @@
   function renderPresets(container) {
     if (!S.hasDraft()) { VF.mount(container, S.sectionHead('Volume presets'), h('div.empty', h('p', 'There is no draft to edit.'))); return; }
     var zones = S.list('audioZones');
-    function edZone(id, label, fn) { S.update(label, function (c) { var z = VF.byId(c.audioZones, id); if (z) { z.presets = VF.asList(z.presets); fn(z); } }); }
+    /* Saved silently, then redrawn once the finger is up (Studio.refreshSoon): a tap on the next
+       control right after typing a name or a level is not lost to the redraw. */
+    function edZone(id, label, fn) { S.update(label, function (c) { var z = VF.byId(c.audioZones, id); if (z) { z.presets = VF.asList(z.presets); fn(z); } }, { silent: true }); S.refreshSoon(); }
     var cards = zones.map(function (z) {
       var lo = typeof z.minVolume === 'number' ? z.minVolume : 0, hi = typeof z.maxVolume === 'number' ? z.maxVolume : 100;
       var presets = VF.asList(z.presets);
@@ -90,7 +92,7 @@
         presets.length ? presets.map(function (p) {
           return h('div.cl-row',
             S.text('Name', p.name, function (v) {
-              if (!v) { VF.toast('A name is needed.', 'warn'); S.refresh(); return; }
+              if (!v) { VF.toast('A name is needed.', 'warn'); S.refreshSoon(); return; }
               edZone(z.id, 'Rename preset', function (x) { var q = VF.byId(x.presets, p.id); if (q) q.name = v; });
             }, { max: 24 }),
             S.number('Level', p.level, function (v) {

@@ -132,6 +132,34 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    bar's columns of displays 5 px apart, where a tap in the gap asks which
    display was meant. Whether a T3 or T4 adjusts taps itself is not known;
    with this change it does not matter for the plan.
+   **The volume slider on phones.** At 600 px wide or less the slider has a
+   row of its own in the Floor Plan's bottom bar (the zone picker above it)
+   and the gaps beside it are smaller. Measured 19 November 2026 (Chromium
+   159, WebKit 27.2, Firefox 159, touch emulation, simulator), slider width
+   at 390x844: Floor Plan bar 236 px (was 84), Room Control 224 (was 210),
+   Command Center zone cards 236 (was 222), the zone dialog 208 (was 194);
+   at 844x390 538, 664, 676 and 396 px, unchanged; 1024x600 and 1280x800
+   unchanged (Floor Plan bar 110 and 170 px, Command Center cards 94 and
+   158 px, the narrowest at those sizes). Each was dragged to a set value in
+   every view at both phone sizes: by touch in Chromium, by mouse in WebKit
+   and Firefox, reaching the value and sending it.
+   **Taps while the Studio saves.** No Studio control is taken down and
+   rebuilt under a finger after an edit. A text field is saved silently and
+   the section is redrawn only once the finger or mouse is up
+   (`Studio.refreshSoon`), so a tap on another control that itself commits
+   the field still lands; the Scenes, Visual Programming and Scheduling
+   panels that repaint on each save acknowledgement patch what changed
+   (`VF.patch`) and leave unchanged tabs and buttons standing. Measured 19
+   November 2026 in the three engines (Chromium by real touch events, WebKit
+   and Firefox by mouse, each press held 150 ms), a press right after typing
+   and at 0, 100, 350, 700, 860 (across the save acknowledgement), 1300 and
+   1600 ms after an edit, on the scene's Dry run, Execute test and Log tab,
+   a rule's Validate, a Scheduling "Edit", Add source, Add audio zone, Add
+   profile and, as a client, Dry run, Add a preset, Add a favourite channel
+   and Add profile: every press acted. Before: 38 of the 288 presses were
+   lost (Chromium 6, WebKit 16, Firefox 16), all right after typing or
+   across the save acknowledgement (a 39th, in Firefox, was the measurement
+   pressing a field Firefox had scrolled back into view).
 10. **Look.** Dark midnight navy, teal primary accent, amber for attention,
     green for confirmed. Use the tokens and components in
     `shared/base.css` (`.panel`, `.card`, `.btn`, `.seg`, `.chip`, `.field`,
