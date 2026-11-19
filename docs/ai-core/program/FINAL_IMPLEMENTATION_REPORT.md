@@ -174,7 +174,7 @@ After the final rerun, the documents-only close-out commits changed only documen
 | `.c4z` for the changed drivers (10.8, 12.19) | No packager in this worktree |
 | New versions of all 52 drivers (12.20) | Owner decision and go-ahead |
 | The last migration fix from the independent review (lock ordering, 10.14) | In progress at the time of writing |
-| Round two (Phase 13): built in simulation on unpushed branches; the platform's matching preset rule and temperature unit (13.11) in progress; hardware checks 13.12–13.15; camera descriptions on hold (13.16) | See section 10; owner decisions 26–30 |
+| Round two (Phase 13): built in simulation on unpushed branches; the platform's matching preset rule and temperature unit (13.11) written, not yet rerun; hardware checks 13.12–13.15; camera descriptions on hold (13.16) | See section 10; owner decisions 26–30 |
 | "Rarely used scenes", seasonal patterns, away-mode recommendations | The data does not support them: about 30 days of history and no scene inventory |
 | Automatic acceptance of a programming recommendation into a blueprint | Composer Studio has no per-project programming field |
 | Driver-side licence transfer workflow | Transfer is a platform staff action today |
@@ -305,5 +305,5 @@ Driver `feat/ai-core-round2` (stacked on the frozen `09d138b`) and platform `cod
 
 ### Still open in round two
 
-- The platform's identical preset `sk-` rule and temperature unit were being added by another worker at the time of writing (13.11).
+- The platform's identical preset `sk-` rule and temperature unit landed on `codex/ai-core-round2` while these documents were written (13.11, Implemented); not yet rerun by the conductor.
 - Owner decisions 26–30 (section 9).
