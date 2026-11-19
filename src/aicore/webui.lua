@@ -14,7 +14,8 @@
 ---              the bus and, only on {verified:true, role:"owner"}, unlocks
 ---              THIS session in memory. While a session is locked no route
 ---              returns any conversation content, /ask is refused, and the
----              suggestions and "explain what just happened" are withheld.
+---              suggestions (the dealer's presets among them) and "explain
+---              what just happened" are withheld.
 ---   approvals  one owner-PIN entry per item. "Review next item" asks PIN
 ---              Lock for an `approval` challenge bound to that item's ref;
 ---              after the redeem AI Core holds a proof for that ONE ref, 60
@@ -84,6 +85,16 @@ M.SUGGESTIONS = {
   { id = "attention", label = "Does anything need attention?", question = "Does any device or system need attention?" },
 }
 M.EXPLAIN_QUESTION = "Explain what just happened in the house in the last few minutes, in plain words."
+
+--- The dealer's preset questions (round two, D-R2b; configuration key
+--- touchscreen.presets, validated whole by aicore.config): shown IN
+--- ADDITION to M.SUGGESTIONS, before them, and only to an unlocked session.
+--- Each is offered as { id = "p<index>-<rev>", label = its text }. `rev`
+--- changes whenever the list changes (and starts from the clock, so a page
+--- that outlived a restart holds ids nobody issues), so an id from an older
+--- list is refused (unknown_suggestion) and never mapped to whichever
+--- question now sits at that index. Asking one sends exactly its text.
+M.PRESETS_MAX = 6
 
 --- Every reason a reply may carry, in plain words. A reason that is not
 --- here is never shown as a code: it becomes M.FALLBACK_TEXT.
@@ -315,6 +326,8 @@ UI.__index = UI
 ---   cloud(op, body, cb)           -> cb(answer{status, result, error_code})
 ---   take()                        -> the shared command bucket (true = may send)
 ---   appHtml()                     -> the page
+---   presets()                     -> optional: the dealer's preset questions
+---                                    (the current configuration's list)
 ---   onChange()                    -> optional: the touchscreen summary changed
 --- }
 function M.new(deps)
@@ -328,6 +341,8 @@ function M.new(deps)
   self.approvals = { enabled = false, count = 0, eligible = {}, portal_only_count = 0, checked_at = nil, at = nil }
   self.approvalsInflight = false
   self.approvalsReason = nil
+  self.presetRev = math.floor(tonumber(deps.now()) or 0)
+  self.presetSig = nil
   self.counters = {
     sessions_opened = 0,
     sessions_evicted = 0,
@@ -784,6 +799,51 @@ local function addEntry(s, entry)
   end
 end
 
+--- The current preset list (plain strings, at most PRESETS_MAX) and its
+--- revision. The revision moves whenever the list differs from the one
+--- last seen, so ids issued for an older list stop resolving.
+local function currentPresets(self)
+  local raw = self.deps.presets and self.deps.presets() or nil
+  local list = {}
+  if type(raw) == "table" then
+    for _, text in ipairs(raw) do
+      if type(text) == "string" and #list < M.PRESETS_MAX then
+        list[#list + 1] = text
+      end
+    end
+  end
+  -- A preset can never hold a newline (aicore.config), so this join is
+  -- unambiguous.
+  local sig = table.concat(list, "\n")
+  if sig ~= self.presetSig then
+    self.presetSig = sig
+    self.presetRev = self.presetRev + 1
+  end
+  return list, tostring(self.presetRev)
+end
+
+--- The question a suggestion id stands for, or nil.
+local function suggestionQuestion(self, id)
+  if type(id) ~= "string" then
+    return nil
+  end
+  local index, rev = id:match("^p(%d)%-(%d+)$")
+  if index ~= nil then
+    local list, current = currentPresets(self)
+    index = tonumber(index)
+    if rev == current and index >= 1 and index <= #list then
+      return list[index]
+    end
+    return nil
+  end
+  for _, sug in ipairs(M.SUGGESTIONS) do
+    if sug.id == id then
+      return sug.question
+    end
+  end
+  return nil
+end
+
 local function ask(self, s, body)
   local ok, why = self:chatAvailable()
   if not ok then
@@ -804,11 +864,7 @@ local function ask(self, s, body)
   if body.explain == true then
     question = M.EXPLAIN_QUESTION
   elseif body.suggestion_id ~= nil then
-    for _, sug in ipairs(M.SUGGESTIONS) do
-      if sug.id == body.suggestion_id then
-        question = sug.question
-      end
-    end
+    question = suggestionQuestion(self, body.suggestion_id)
     if question == nil then
       return false, "unknown_suggestion"
     end
@@ -945,6 +1001,10 @@ local function chatView(self, s)
     list[#list + 1] = { id = e.id, q = e.q, a = e.a, state = e.state, message = e.message, at = e.at }
   end
   local sug = {}
+  local presets, rev = currentPresets(self)
+  for i, text in ipairs(presets) do
+    sug[#sug + 1] = { id = "p" .. i .. "-" .. rev, label = text }
+  end
   for _, x in ipairs(M.SUGGESTIONS) do
     sug[#sug + 1] = { id = x.id, label = x.label }
   end

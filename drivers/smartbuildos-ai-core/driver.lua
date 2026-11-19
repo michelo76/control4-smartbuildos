@@ -2088,6 +2088,9 @@ function OnDriverLateInit(reason)
       return gBucket.take()
     end,
     appHtml = gWeb.appHtml,
+    presets = function()
+      return gConfig.touchscreen and gConfig.touchscreen.presets or {}
+    end,
     onChange = gWeb.paint,
   })
 
