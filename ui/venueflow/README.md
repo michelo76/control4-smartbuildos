@@ -38,6 +38,10 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    web views. `?.`, `??`, arrow functions, `async`/`await`, template strings,
    `Object.entries`, CSS grid and flex `gap` are fine. No `structuredClone`
    dependence without a fallback (use `VF.clone`).
+   `test/test_venueflow_engine_floor.lua` scans the sources and the built
+   pages for features Gecko 96 lacks (and for secure-context-only APIs: the
+   pages are served over plain HTTP) and names the file, line and feature.
+   It is a static scan, not a run on a touch screen.
 2. **No external resource of any kind.** The relay sends a Content Security
    Policy of `default-src 'none'` with inline script and style, `data:` and
    `blob:` images, and `connect-src 'self'`. No CDN, web font, remote image,
@@ -59,9 +63,24 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
 8. **Hide what a profile cannot do, and still handle `VF_FORBIDDEN`.**
    Permissions are enforced in the driver; the page only avoids offering what
    will be refused.
-9. **Touch first.** Targets at least 44 px (`--touch` is 48 px). Works at
-   1280x800 and 1024x768 landscape; the operator page also degrades to a
-   phone in portrait (single column). No hover-only affordance.
+9. **Touch first.** Targets at least 44 px (`--touch` is 48 px; `.btn.sm` is
+   36 px and is kept for secondary actions). No hover-only affordance.
+   Screen sizes measured (November 2026, desktop Chromium with touch
+   emulation against the simulator, both sample venues; NOT on a T3, a T4
+   or a phone): every control of the operator page can be reached, by
+   scrolling where needed, and is not covered by another element, at
+   1024x600 (T3 7"), 1280x800 (T3 10", T4 8"), 1920x1200 (T4 10"),
+   1180x820 and 820x1180 (tablets), 390x844 and 844x390 (phones), in all
+   four interfaces and with a display selected, all displays selected, the
+   source picker, a remote, a zone sheet, the All Off preview, the profile
+   menu, the offline banner and the sign-in PIN pad open. The Venue Studio
+   (a client session) passes the same check at 390x844, 820x1180, 1024x600
+   and 1280x800; the Installer Studio at 1024x600, 1024x768, 1280x800 and
+   1920x1200 (it is not meant for phones). At 1024x600 the Floor Plan side
+   panel scrolls to reach Power On / Power Off, and the floor plan's
+   display shapes are drawn smaller than a 44 px target; tapping an area
+   name or a group selects several displays at once. Re-check any layout
+   change at 1024x600 first.
 10. **Look.** Dark midnight navy, teal primary accent, amber for attention,
     green for confirmed. Use the tokens and components in
     `shared/base.css` (`.panel`, `.card`, `.btn`, `.seg`, `.chip`, `.field`,

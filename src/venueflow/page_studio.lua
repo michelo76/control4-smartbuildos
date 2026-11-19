@@ -84,7 +84,7 @@ svg.ic.lg { width: 28px; height: 28px; } svg.ic.xl { width: 44px; height: 44px; 
 .btn.on, .btn[aria-pressed="true"] { background: var(--teal-soft); border-color: var(--teal-line); color: var(--teal); }
 .btn.sm { min-height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13.5px; }
 .btn.lg { min-height: 58px; padding: 0 24px; font-size: 17px; border-radius: 14px; }
-.btn.icon { padding: 0; width: var(--touch); } .btn.icon.sm { width: 36px; }
+.btn.icon { padding: 0; width: var(--touch); flex-shrink: 0; } .btn.icon.sm { width: 36px; }
 .btn.block { width: 100%; }
 .btn:disabled, .btn[disabled] { opacity: .42; cursor: default; box-shadow: none; transform: none; }
 
@@ -123,6 +123,8 @@ label.lbl > .hint, .hint { font-size: 12px; color: var(--muted); font-weight: 40
 /* toggle */
 .toggle { position: relative; width: 50px; height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel-3); cursor: pointer; flex: none; padding: 0; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c9d6ea; transition: transform .14s; }
+/* The switch is drawn 28 px high; its touch area reaches 44 px without changing the look. */
+.toggle::before { content: ""; position: absolute; left: -2px; right: -2px; top: -8px; bottom: -8px; }
 .toggle.on, .toggle[aria-checked="true"] { background: var(--teal); border-color: transparent; }
 .toggle.on::after, .toggle[aria-checked="true"]::after { transform: translateX(22px); background: #fff; }
 
@@ -218,6 +220,10 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 @media (max-width: 1180px) { #top { gap: 8px; padding: 8px 10px; } #top #openop { display: none; } #top .brand { font-size: 18px; } }
 @media (max-width: 1060px) { #top #mode { display: none; } }
 #top > * { flex-shrink: 0; } #top > #venue { flex-shrink: 1; }
+/* Phones: the save state, the issues button and Sign out go to a second line instead of off the edge. */
+@media (max-width: 600px) { #top { flex-wrap: wrap; row-gap: 6px; } #top > #venue { flex: 1 1 120px; } #save .chip { white-space: normal; } }
+/* The open section drawer leaves the Sections button on top, so it also closes the drawer. */
+@media (max-width: 1000px) { #nav { padding-top: 84px; } #app.navopen #navtoggle { position: relative; z-index: 801; } }
 
 /* Venue Studio (a client session) */
 #pending { margin: 0; border-radius: 0; }
@@ -643,6 +649,8 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .vp-rule-open { display: flex; flex-direction: column; gap: 3px; text-align: left; background: transparent; border: 0; padding: 4px 6px; border-radius: 10px; cursor: pointer; color: inherit; min-width: 0; min-height: 44px; justify-content: center; }
 .vp-rule-open:hover b { color: var(--teal); }
 .vp-rule-open > span { overflow-wrap: anywhere; }
+/* Phones: the rule name keeps the line; its state chip and buttons go under it. */
+@media (max-width: 600px) { .vp-rule { flex-wrap: wrap; } .vp-rule > .vp-rule-open { flex: 1 1 calc(100% - 70px); } .vp-rule > .row.tight { margin-left: auto; } }
 
 /* editor frame */
 .vp-ehead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
