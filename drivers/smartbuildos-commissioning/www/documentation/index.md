@@ -176,22 +176,22 @@ nothing is lost: the run record above is the source of truth.
 
 ## Properties
 
-| Property                                                                                | What it shows or sets                                                    |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Driver Status**, **Driver Version**                                                   | State of the driver                                                      |
-| **Run Status**, **Run Summary**                                                         | `idle` to `signed_off`, and passed, failed, skipped, open                |
-| **Test List**                                                                           | Items and rooms found                                                    |
-| **Technician Page**                                                                     | The link to open on the phone                                            |
-| **Last Result**                                                                         | The last signed-off run                                                  |
-| **Last Refusal**                                                                        | The last command the driver did not accept, with the reason              |
-| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | Licensing, from the Agent                                                |
-| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
-| **Technician Name**                                                                     | Who signs off when the page does not ask                                 |
-| **Add Item**, **Add Item As**                                                           | Add a device to the list by hand                                         |
-| **AV Test Source**, **AV Test Volume**                                                  | The source to route into each room, and the volume (1 to 40, default 15) |
-| **Settle Seconds**                                                                      | Wait between acting and reading back (1 to 30, default 4)                |
-| **App Relay Address**                                                                   | `Auto`, or the controller address the page is served on                  |
-| **Log Level**, **Log Mode**                                                             | Diagnostics                                                              |
+| Property                                                                                | What it shows or sets                                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Driver Status**, **Driver Version**                                                   | State of the driver                                                          |
+| **Run Status**, **Run Summary**                                                         | `idle` to `signed_off`, and passed, failed, skipped, open                    |
+| **Test List**                                                                           | Items and rooms found                                                        |
+| **Technician Page**                                                                     | The link to open on the phone                                                |
+| **Last Result**                                                                         | The last signed-off run                                                      |
+| **Last Refusal**                                                                        | The last command the driver did not accept, with the reason                  |
+| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | Licensing, from the Agent                                                    |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
+| **Technician Name**                                                                     | Who signs off when the page does not ask                                     |
+| **Add Item**, **Add Item As**                                                           | Add a device to the list by hand                                             |
+| **AV Test Source**, **AV Test Volume**                                                  | The source to route into each room, and the volume (1 to 40, default 15)     |
+| **Settle Seconds**                                                                      | Wait between acting and reading back (1 to 30, default 4)                    |
+| **App Relay Address**                                                                   | `Auto`, or the controller address the page is served on                      |
+| **Log Level**, **Log Mode**                                                             | Diagnostics                                                                  |
 
 ## Limits
 
@@ -224,46 +224,45 @@ by automated tests against a pretend project. In particular:
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it, over the SmartBuildOS Agent, what it is and how the
-commissioning run stands. Without AI Core it sends nothing more than
-before.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what it is and how the commissioning run
+stands. Without AI Core it sends nothing more than before.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: the installer's test run before handover, and the words
-  people use (commissioning, handover, as-built…).
-- **State**: the run status, whether the driver is read-only, the size of
-  the test list (items, rooms) and the run's passed, failed, skipped and
-  open counts, as **Run Summary** shows them. Never item or room names,
-  notes or who ran or signed off the run.
+- **What it is**: the installer's test run before handover, and the words people
+  use (commissioning, handover, as-built…).
+- **State**: the run status, whether the driver is read-only, the size of the
+  test list (items, rooms) and the run's passed, failed, skipped and open
+  counts, as **Run Summary** shows them. Never item or room names, notes or who
+  ran or signed off the run.
 
-What it will answer when asked: nothing beyond the reports. A failed test
-item is a result of the run, not a fault of this driver, so it is not
-reported as one.
+What it will answer when asked: nothing beyond the reports. A failed test item
+is a result of the run, not a fault of this driver, so it is not reported as
+one.
 
 What it can be asked to do: nothing. Every test acts on real devices.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in unit tests only: nothing here has run on a
-physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

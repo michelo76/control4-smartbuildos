@@ -189,11 +189,11 @@ challenge (60 seconds, one try), and AI Core is told only the outcome.
 - **Owner codes only.** Staff, vendor and guest codes are always refused here,
   whatever guarded actions you gave them, and no setting widens this. A
   disabled, expired, used-up or out-of-hours owner code is refused too.
-- **One lockout.** A wrong PIN typed on the AI Core page counts against the
-  same `page` lockout as the Actions tab, with the same **Max Wrong Attempts**
-  and **Lockout Minutes**. Wrong PINs on the AI Core page lock the Actions tab,
-  and wrong PINs on the Actions tab pause AI Core verification. *Clear
-  Lockouts* clears both.
+- **One lockout.** A wrong PIN typed on the AI Core page counts against the same
+  `page` lockout as the Actions tab, with the same **Max Wrong Attempts** and
+  **Lockout Minutes**. Wrong PINs on the AI Core page lock the Actions tab, and
+  wrong PINs on the Actions tab pause AI Core verification. *Clear Lockouts*
+  clears both.
 - **What AI Core learns:** that an owner PIN was accepted, when, and the role
   `owner`. Never the PIN, never the code's name, and nothing that says which
   owner code was typed. The cloud records "approved at the touchscreen with an

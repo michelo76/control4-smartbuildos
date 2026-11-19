@@ -453,7 +453,11 @@ do
       end
     end
   end
-  check("every MODULE_IDS / RESERVED_MODULES file is a directory in drivers/", #missing == 0, table.concat(missing, "; "))
+  check(
+    "every MODULE_IDS / RESERVED_MODULES file is a directory in drivers/",
+    #missing == 0,
+    table.concat(missing, "; ")
+  )
 
   local unknown = {}
   for file, root in pairs(aipresence.CHILDREN) do
@@ -482,9 +486,16 @@ do
     nRoots = nRoots + (aireport.MODULE_IDS[file] and 1 or 0)
     nChildren = nChildren + (aipresence.CHILDREN[file] and 1 or 0)
   end
-  check("every driver directory is exactly one of root / child / exempt", #unclassified == 0, table.concat(unclassified, "; "))
+  check(
+    "every driver directory is exactly one of root / child / exempt",
+    #unclassified == 0,
+    table.concat(unclassified, "; ")
+  )
   check("21 roots + 30 children + the Agent", nRoots == 21 and nChildren == 30, nRoots .. "/" .. nChildren)
-  check("exempt is the Agent alone", aireport.EXEMPT["smartbuildos.c4z"] ~= nil and next(aireport.EXEMPT, "smartbuildos.c4z") == nil)
+  check(
+    "exempt is the Agent alone",
+    aireport.EXEMPT["smartbuildos.c4z"] ~= nil and next(aireport.EXEMPT, "smartbuildos.c4z") == nil
+  )
 
   local gaps = {}
   for file in pairs(aireport.MODULE_IDS) do
@@ -527,7 +538,11 @@ do
       end
     end
   end
-  check("DRIVER_FILENAMES[1], where set, names the driver's own directory", #wrongOss == 0, table.concat(wrongOss, "; "))
+  check(
+    "DRIVER_FILENAMES[1], where set, names the driver's own directory",
+    #wrongOss == 0,
+    table.concat(wrongOss, "; ")
+  )
 end
 
 -- ── [2] the closed value list ───────────────────────────────────────────────
@@ -601,7 +616,10 @@ do
   check("start returns true", ok)
   check("value: SmartBuildOS Agent not found", value() == V.no_agent, value())
   check("zero SendToDevice", #frames == 0, #frames)
-  check("event refused as absent, nothing sent", select(2, aireport.event("weather.change", "x")) == "absent" and #frames == 0)
+  check(
+    "event refused as absent, nothing sent",
+    select(2, aireport.event("weather.change", "x")) == "absent" and #frames == 0
+  )
   check("an unknown file is refused, nothing set up", aireport.start({ file = "nope.c4z" }) == false)
   -- KI-47: an empty summary in the start options is ignored, not sent.
   aireport.start({ sku = "SBOS_ATMOSPHERE", summary = "  " })
@@ -639,8 +657,14 @@ do
     #frames == 1 and frames[1].command == "SBOS_MODULE_REGISTER",
     #frames
   )
-  check("reports refused as absent", aireport.state({ temp = 20 }) == false and aireport.diagnostic("info", "x", "y") == false)
-  check("the client retries registration slowly (300 s)", timers.SbosModuleRegister and timers.SbosModuleRegister.ms == 300000)
+  check(
+    "reports refused as absent",
+    aireport.state({ temp = 20 }) == false and aireport.diagnostic("info", "x", "y") == false
+  )
+  check(
+    "the client retries registration slowly (300 s)",
+    timers.SbosModuleRegister and timers.SbosModuleRegister.ms == 300000
+  )
   check("still only one frame", #frames == 1)
 end
 
@@ -653,14 +677,29 @@ do
   EC.SBOS_DRIVER_CONFIG = mine
   aireport.start({ sku = "SBOS_ATMOSPHERE" })
   check("registered at v2", client.isRegistered() and client.protocol() == 2)
-  check("verified by the Agent (reserved id bound to its file)", agent.registry:find("atmosphere", tostring(SELF)).verified == true)
+  check(
+    "verified by the Agent (reserved id bound to its file)",
+    agent.registry:find("atmosphere", tostring(SELF)).verified == true
+  )
   local reg = last("SBOS_MODULE_REGISTER")
   local manifest = JSON:decode(reg.params.manifest)
-  check("module id from MODULE_IDS, singleton false", reg.params.module_id == "atmosphere" and reg.params.singleton == "false")
-  check("manifest driver sbos.atmosphere, no capabilities without declarations", manifest.driver == "sbos.atmosphere" and #manifest.capabilities == 0)
+  check(
+    "module id from MODULE_IDS, singleton false",
+    reg.params.module_id == "atmosphere" and reg.params.singleton == "false"
+  )
+  check(
+    "manifest driver sbos.atmosphere, no capabilities without declarations",
+    manifest.driver == "sbos.atmosphere" and #manifest.capabilities == 0
+  )
   check("EC.SBOS_DRIVER_CONFIG left to the driver (claim_driver_config = false)", EC.SBOS_DRIVER_CONFIG == mine)
-  check("debug printing suppressed for module frames", EC.suppressDebug and EC.suppressDebug.SBOS_MODULE_REQUEST == true)
-  check("discover sent for ai_core", count("SBOS_MODULE_DISCOVER") == 1 and last("SBOS_MODULE_DISCOVER").params.filter:find("ai_core") ~= nil)
+  check(
+    "debug printing suppressed for module frames",
+    EC.suppressDebug and EC.suppressDebug.SBOS_MODULE_REQUEST == true
+  )
+  check(
+    "discover sent for ai_core",
+    count("SBOS_MODULE_DISCOVER") == 1 and last("SBOS_MODULE_DISCOVER").params.filter:find("ai_core") ~= nil
+  )
   check("value: Not installed", value() == V.not_installed, value())
   local results = {
     { aireport.state({ temp = 20 }) },
@@ -672,7 +711,11 @@ do
     "state / event / diagnostic answer absent; describe stores only",
     results[1][2] == "absent" and results[2][2] == "absent" and results[3][2] == "absent" and results[4][1] == true
   )
-  check("ZERO SBOS_MODULE_REQUEST frames while ai_core is absent", count("SBOS_MODULE_REQUEST") == 0, count("SBOS_MODULE_REQUEST"))
+  check(
+    "ZERO SBOS_MODULE_REQUEST frames while ai_core is absent",
+    count("SBOS_MODULE_REQUEST") == 0,
+    count("SBOS_MODULE_REQUEST")
+  )
   local others = 0
   for _, f in ipairs(frames) do
     if f.id ~= AGENT then
@@ -742,15 +785,26 @@ do
       and s.facts.driver_status == "Running"
       and s.facts.license == "Licensed"
   )
-  check("the Agent stamped the sender", describes[1].from == "atmosphere" and describes[1].from_instance == tostring(SELF))
+  check(
+    "the Agent stamped the sender",
+    describes[1].from == "atmosphere" and describes[1].from_instance == tostring(SELF)
+  )
   check("value: Found — reporting (v20261118.2)", value() == "Found — reporting (v20261118.2)", value())
 
   ai.state = "cloud_unreachable"
   aireport.state({ temperature_f = 72 })
-  check("answer cloud_unreachable -> reporting, cloud offline", value() == "Found — reporting, cloud offline (v20261118.2)", value())
+  check(
+    "answer cloud_unreachable -> reporting, cloud offline",
+    value() == "Found — reporting, cloud offline (v20261118.2)",
+    value()
+  )
   ai.state = "agent_unpaired"
   aireport.state({ temperature_f = 73 })
-  check("answer agent_unpaired -> Agent not paired", value() == "Found — SmartBuildOS Agent not paired (v20261118.2)", value())
+  check(
+    "answer agent_unpaired -> Agent not paired",
+    value() == "Found — SmartBuildOS Agent not paired (v20261118.2)",
+    value()
+  )
   ai.state = "unlicensed"
   aireport.state({ temperature_f = 74 })
   check("answer unlicensed -> not licensed", value() == "Found — not licensed (v20261118.2)", value())
@@ -776,19 +830,31 @@ do
   ai.accepted, ai.reason = true, nil
   aiRegister({ status = "ready" })
   pushDirectory()
-  check("status back to ready -> a state is sent and its answer repaints", value() == "Found — reporting (v20261118.2)", value())
+  check(
+    "status back to ready -> a state is sent and its answer repaints",
+    value() == "Found — reporting (v20261118.2)",
+    value()
+  )
 
   -- updated: an AI Core build without ai_core.report
   local before = #ai.received
   aiRegister({ version = "20261101.1", caps = {} })
   pushDirectory()
-  check("updated (no ai_core.report): AI Core update required", value() == "Found — AI Core update required (v20261101.1)", value())
+  check(
+    "updated (no ai_core.report): AI Core update required",
+    value() == "Found — AI Core update required (v20261101.1)",
+    value()
+  )
   aireport.event("weather.change", "x")
   aireport.state({ temperature_f = 80 })
   check("…and nothing is sent to it", #ai.received == before, #ai.received - before)
   aiRegister({ version = "20261101.1", caps = { { id = "ai_core.report", version = 0, kind = "request" } } })
   pushDirectory()
-  check("a lower capability version is also update-required", value() == "Found — AI Core update required (v20261101.1)", value())
+  check(
+    "a lower capability version is also update-required",
+    value() == "Found — AI Core update required (v20261101.1)",
+    value()
+  )
 
   -- updated: a new AI Core build with the capability
   local d0 = #reportsOfKind("describe")
@@ -801,7 +867,11 @@ do
   -- unsupported_version answer
   ai.accepted, ai.reason = false, "unsupported_version"
   aireport.state({ temperature_f = 81 })
-  check("answer unsupported_version -> AI Core update required", value() == "Found — AI Core update required (v20261120.1)", value())
+  check(
+    "answer unsupported_version -> AI Core update required",
+    value() == "Found — AI Core update required (v20261120.1)",
+    value()
+  )
   local n = #ai.received
   aireport.state({ temperature_f = 82 })
   check("…and the helper stops sending", #ai.received == n)
@@ -824,14 +894,22 @@ do
   agent.bus:tick()
   local d1 = #reportsOfKind("describe")
   pushDirectory()
-  check("live again -> describe re-sent, reporting", #reportsOfKind("describe") == d1 + 1 and value() == "Found — reporting (v20261121.1)", value())
+  check(
+    "live again -> describe re-sent, reporting",
+    #reportsOfKind("describe") == d1 + 1 and value() == "Found — reporting (v20261121.1)",
+    value()
+  )
 
   -- unverified
   resolverOff = true
   aiRegister()
   pushDirectory()
   check("unverified ai_core row seen as unverified", aireport.target().verified == false)
-  check("unverified: reports continue (no closed value for it)", value() == "Found — reporting (v20261121.1)", value())
+  check(
+    "unverified: reports continue (no closed value for it)",
+    value() == "Found — reporting (v20261121.1)",
+    value()
+  )
   resolverOff = false
   aiRegister()
   pushDirectory()
@@ -885,13 +963,20 @@ end
 -- ── [8] bounds ──────────────────────────────────────────────────────────────
 print("[8] kind, size and rate bounds")
 do
-  check("exactly four kinds", (function()
-    local n = 0
-    for _ in pairs(aireport.KINDS) do
-      n = n + 1
-    end
-    return n == 4 and aireport.KINDS.describe and aireport.KINDS.state and aireport.KINDS.event and aireport.KINDS.diagnostic
-  end)())
+  check(
+    "exactly four kinds",
+    (function()
+      local n = 0
+      for _ in pairs(aireport.KINDS) do
+        n = n + 1
+      end
+      return n == 4
+        and aireport.KINDS.describe
+        and aireport.KINDS.state
+        and aireport.KINDS.event
+        and aireport.KINDS.diagnostic
+    end)()
+  )
   fresh()
   newAgent(2)
   aiRegister()
@@ -1021,7 +1106,10 @@ do
     #reportsOfKind("describe") == dCount + 2
   )
   check("…and every directory change re-sends the latest state", #reportsOfKind("state") == sBefore + 1)
-  check("controls: class closed", aireport.describe({ controls = { { id = "x", label = "X", class = "toaster" } } }) == false)
+  check(
+    "controls: class closed",
+    aireport.describe({ controls = { { id = "x", label = "X", class = "toaster" } } }) == false
+  )
   check("describe keys closed", aireport.describe({ hash = "x" }) == false)
   -- KI-47: no describe the helper builds may carry empty text, because AI
   -- Core refuses such a describe whole. Checked against AI Core's own
@@ -1044,9 +1132,15 @@ do
   local okB, whyB = aireport.describe({ summary = " \t " })
   check(
     "an explicitly empty or blank summary is refused (summary), the old one kept",
-    okE == false and whyE == "summary" and okB == false and whyB == "summary" and aireport.buildDescribe().summary == "Weather."
+    okE == false
+      and whyE == "summary"
+      and okB == false
+      and whyB == "summary"
+      and aireport.buildDescribe().summary == "Weather."
   )
-  local okC = aireport.describe({ controls = { { id = "zone_1", label = "", class = "other" }, { id = "zone_2", class = "other" } } })
+  local okC = aireport.describe({
+    controls = { { id = "zone_1", label = "", class = "other" }, { id = "zone_2", class = "other" } },
+  })
   local controls = aireport.buildDescribe().controls
   check(
     "a control with an empty or missing label is labelled with its id",
@@ -1066,7 +1160,10 @@ do
     tostring(okDup) .. ":" .. tostring(whyDup)
   )
   local okDup2, whyDup2 = aireport.describe({
-    controls = { { id = "zone_1", label = "One", class = "other" }, { id = "zone_1\1", label = "Two", class = "other" } },
+    controls = {
+      { id = "zone_1", label = "One", class = "other" },
+      { id = "zone_1\1", label = "Two", class = "other" },
+    },
   })
   check("…also when two ids only differ before cleaning", okDup2 == false and whyDup2 == "control_duplicate")
   check("…and AI Core accepts the describe the helper still holds", aiCoreAccepts())
@@ -1114,7 +1211,8 @@ do
   check("<= 6 params", q({ id = "q", params = seven }) == "params")
   check(
     "duplicate param refused",
-    q({ id = "q", params = { { name = "a", type = "boolean" }, { name = "a", type = "boolean" } } }) == "param_duplicate"
+    q({ id = "q", params = { { name = "a", type = "boolean" }, { name = "a", type = "boolean" } } })
+      == "param_duplicate"
   )
   check("enum needs values", q({ id = "q", params = { { name = "a", type = "enum" } } }) == "param_values")
   check("min <= max", q({ id = "q", params = { { name = "a", type = "integer", min = 5, max = 1 } } }) == "param_range")
@@ -1125,10 +1223,14 @@ do
   )
   -- KI-47: required, non-empty text. AI Core refuses a describe with empty
   -- text, so the helper refuses the declaration instead.
-  check("query without a description → query_description", reason(aireport.declareQuery({ id = "q" }, NOOP)) == "query_description")
+  check(
+    "query without a description → query_description",
+    reason(aireport.declareQuery({ id = "q" }, NOOP)) == "query_description"
+  )
   check(
     "query with an empty or blank description → query_description",
-    q({ id = "q", description = "" }) == "query_description" and q({ id = "q", description = "   " }) == "query_description"
+    q({ id = "q", description = "" }) == "query_description"
+      and q({ id = "q", description = "   " }) == "query_description"
   )
   check("query with a missing id → query_id", q({ description = "d" }) == "query_id" and q({ id = "" }) == "query_id")
   check(
@@ -1141,7 +1243,10 @@ do
     a({ id = "a", risk = "low" }) == "action_title" and a({ id = "a", title = "", risk = "low" }) == "action_title"
   )
   check("action with a missing id → action_id", a({ title = "A", risk = "low" }) == "action_id")
-  check("nothing refused above was declared", next(aireport._state().queries) == nil and next(aireport._state().actions) == nil)
+  check(
+    "nothing refused above was declared",
+    next(aireport._state().queries) == nil and next(aireport._state().actions) == nil
+  )
 
   local queryCalls, actionCalls = 0, 0
   local okQ = aireport.declareQuery({
@@ -1195,13 +1300,21 @@ do
     #d.queries == 1 and d.queries[1].id == "forecast" and #d.actions == 1 and d.actions[1].risk == "low"
   )
   local itemD, whyD, fieldD = require("aicore.reports").validate("atmosphere", "800", d)
-  check("AI Core accepts the describe carrying the declarations", itemD ~= nil, tostring(whyD) .. ":" .. tostring(fieldD))
+  check(
+    "AI Core accepts the describe carrying the declarations",
+    itemD ~= nil,
+    tostring(whyD) .. ":" .. tostring(fieldD)
+  )
   local hash = d.hash
   check("declarationHash() is the describe hash", aireport.declarationHash() == hash)
 
   -- queries
   local r = aiAsk("ai.query", { query_id = "forecast", params = { day = "today", hours = 3 } })
-  check("valid query answered ok", r and r.status == "ok" and r.result.ok == true and r.result.data.high_f == 80, r and r.error_code)
+  check(
+    "valid query answered ok",
+    r and r.status == "ok" and r.result.ok == true and r.result.data.high_f == 80,
+    r and r.error_code
+  )
   local function refused(args, code)
     local n = queryCalls
     local a = aiAsk("ai.query", args)
@@ -1209,39 +1322,73 @@ do
   end
   check("unknown query refused", refused({ query_id = "nope" }, "invalid_args"))
   check("args keys closed", refused({ query_id = "forecast", params = { day = "today" }, x = 1 }, "invalid_args"))
-  check("unknown param refused", refused({ query_id = "forecast", params = { day = "today", zone = 1 } }, "invalid_args"))
+  check(
+    "unknown param refused",
+    refused({ query_id = "forecast", params = { day = "today", zone = 1 } }, "invalid_args")
+  )
   check("missing required refused", refused({ query_id = "forecast", params = { hours = 3 } }, "invalid_args"))
-  check("enum outside values refused", refused({ query_id = "forecast", params = { day = "yesterday" } }, "invalid_args"))
-  check("integer must be integral", refused({ query_id = "forecast", params = { day = "today", hours = 2.5 } }, "invalid_args"))
+  check(
+    "enum outside values refused",
+    refused({ query_id = "forecast", params = { day = "yesterday" } }, "invalid_args")
+  )
+  check(
+    "integer must be integral",
+    refused({ query_id = "forecast", params = { day = "today", hours = 2.5 } }, "invalid_args")
+  )
   check("integer range", refused({ query_id = "forecast", params = { day = "today", hours = 49 } }, "invalid_args"))
   check("number range", refused({ query_id = "forecast", params = { day = "today", ratio = 1.5 } }, "invalid_args"))
   check("boolean type", refused({ query_id = "forecast", params = { day = "today", detail = "yes" } }, "invalid_args"))
-  check("string length", refused({ query_id = "forecast", params = { day = "today", units = "fahrenheit" } }, "invalid_args"))
-  check("string with a control character", refused({ query_id = "forecast", params = { day = "today", units = "f\1" } }, "invalid_args"))
+  check(
+    "string length",
+    refused({ query_id = "forecast", params = { day = "today", units = "fahrenheit" } }, "invalid_args")
+  )
+  check(
+    "string with a control character",
+    refused({ query_id = "forecast", params = { day = "today", units = "f\1" } }, "invalid_args")
+  )
   check("wrong type for enum", refused({ query_id = "forecast", params = { day = 1 } }, "invalid_args"))
   r = aiAsk("ai.query", { query_id = "forecast", params = { day = "today", hours = 13 } })
   check("a failing handler -> internal_error", r and r.status == "error" and r.error_code == "internal_error")
   r = aiAsk("ai.query", { query_id = "forecast", params = { day = "today", hours = 14 } })
   check("data deeper than 3 -> internal_error", r and r.status == "error" and r.error_code == "internal_error")
   r = aiAsk("ai.query", { query_id = "forecast", params = { day = "today", hours = 15 } })
-  check("handler nil, reason -> {ok=false, reason}", r and r.status == "ok" and r.result.ok == false and r.result.reason == "feed_down")
+  check(
+    "handler nil, reason -> {ok=false, reason}",
+    r and r.status == "ok" and r.result.ok == false and r.result.reason == "feed_down"
+  )
   local direct
-  aireport._serveQuery({ from_module_id = "flight_recorder", args = { query_id = "forecast", params = { day = "today" } } }, function(s, res, code)
-    direct = { s, res, code }
-  end)
-  check("a requester other than ai_core is refused (beyond the bus policy)", direct[1] == "error" and direct[3] == "not_permitted")
+  aireport._serveQuery(
+    { from_module_id = "flight_recorder", args = { query_id = "forecast", params = { day = "today" } } },
+    function(s, res, code)
+      direct = { s, res, code }
+    end
+  )
+  check(
+    "a requester other than ai_core is refused (beyond the bus policy)",
+    direct[1] == "error" and direct[3] == "not_permitted"
+  )
 
   -- actions
   local function act(args)
     return aiAsk("ai.action", args)
   end
-  r = act({ action_id = "refresh_now", params = { source = "backup" }, ai_action_id = "act-1", declaration_hash = hash })
+  r =
+    act({ action_id = "refresh_now", params = { source = "backup" }, ai_action_id = "act-1", declaration_hash = hash })
   check(
     "action with the current hash runs once",
-    r and r.status == "ok" and r.result.ok == true and r.result.result_text == "Refreshed from backup" and actionCalls == 1
+    r
+      and r.status == "ok"
+      and r.result.ok == true
+      and r.result.result_text == "Refreshed from backup"
+      and actionCalls == 1
   )
   check("…a finished action is plain success (no in_progress key)", r and r.result.in_progress == nil)
-  r = act({ action_id = "refresh_now", params = { source = "primary" }, ai_action_id = "act-1b", declaration_hash = hash })
+  r = act({
+    action_id = "refresh_now",
+    params = { source = "primary" },
+    ai_action_id = "act-1b",
+    declaration_hash = hash,
+  })
   check(
     "started, not finished: { ok = true, in_progress = true, result_text } (ruling 23)",
     r
@@ -1256,7 +1403,11 @@ do
   r = act({ action_id = "refresh_now", params = {}, ai_action_id = "act-2", declaration_hash = "0000000000000000" })
   check(
     "declaration_hash mismatch refused, handler not run",
-    r and r.status == "error" and r.error_code == "not_permitted" and r.result.reason == "declaration_changed" and actionCalls == 1
+    r
+      and r.status == "error"
+      and r.error_code == "not_permitted"
+      and r.result.reason == "declaration_changed"
+      and actionCalls == 1
   )
   r = act({ action_id = "refresh_now", params = {}, ai_action_id = "act-3" })
   check("missing declaration_hash refused", r and r.error_code == "not_permitted" and actionCalls == 1)
@@ -1286,10 +1437,13 @@ do
   local regs = count("SBOS_MODULE_REGISTER")
   -- A second, different declaration under the same id is refused: the
   -- first one stays, the hash does not move.
-  local okDupA, whyDupA = aireport.declareAction({ id = "refresh_now", title = "Refresh now", description = "d", risk = "medium" }, function()
-    actionCalls = actionCalls + 1
-    return "dup"
-  end)
+  local okDupA, whyDupA = aireport.declareAction(
+    { id = "refresh_now", title = "Refresh now", description = "d", risk = "medium" },
+    function()
+      actionCalls = actionCalls + 1
+      return "dup"
+    end
+  )
   check(
     "a different action under a declared id is refused (action_duplicate), the hash unchanged",
     okDupA == false and whyDupA == "action_duplicate" and aireport.declarationHash() == hash,
@@ -1313,10 +1467,14 @@ do
     actionCalls = actionCalls + 1
     return "Refreshed from " .. tostring(params.source or "primary")
   end)
-  check("re-declaring the SAME declaration is accepted (handler swapped, hash unchanged)", okSame == true and aireport.declarationHash() == hash)
+  check(
+    "re-declaring the SAME declaration is accepted (handler swapped, hash unchanged)",
+    okSame == true and aireport.declarationHash() == hash
+  )
   check(
     "options are closed",
-    select(2, aireport.declareQuery({ id = "forecast", description = "x" }, function() end, { force = true })) == "options"
+    select(2, aireport.declareQuery({ id = "forecast", description = "x" }, function() end, { force = true }))
+      == "options"
   )
   local dNow = aireport.buildDescribe()
   local itemNow = require("aicore.reports").validate("atmosphere", "800", dNow)
@@ -1329,7 +1487,10 @@ do
   r = act({ action_id = "refresh_now", params = {}, ai_action_id = "act-7", declaration_hash = hash })
   check("…the old hash is refused", r and r.result.reason == "declaration_changed" and actionCalls == 1)
   check("same capability set: no re-registration", count("SBOS_MODULE_REGISTER") == regs)
-  check("…describe re-sent with the new hash", reportsOfKind("describe")[#reportsOfKind("describe")].args.hash == aireport.declarationHash())
+  check(
+    "…describe re-sent with the new hash",
+    reportsOfKind("describe")[#reportsOfKind("describe")].args.hash == aireport.declarationHash()
+  )
 
   -- declaring the first query after start re-registers with the new manifest
   fresh()
@@ -1341,7 +1502,10 @@ do
     return { t = 1 }
   end)
   manifest = JSON:decode(last("SBOS_MODULE_REGISTER").params.manifest)
-  check("first query after start -> re-registered advertising ai.query", count("SBOS_MODULE_REGISTER") == regs + 1 and manifest.capabilities[1].id == "ai.query")
+  check(
+    "first query after start -> re-registered advertising ai.query",
+    count("SBOS_MODULE_REGISTER") == regs + 1 and manifest.capabilities[1].id == "ai.query"
+  )
   r = aiAsk("ai.query", { query_id = "now" })
   check("…and served", r and r.status == "ok" and r.result.data.t == 1)
 end
@@ -1361,7 +1525,10 @@ do
     driver_version = "1",
     singleton = true,
     require_protocol = 2,
-    manifest = { driver = "sbos.flight_recorder", capabilities = aireport.capabilities({ { id = "events.query", version = 1 } }) },
+    manifest = {
+      driver = "sbos.flight_recorder",
+      capabilities = aireport.capabilities({ { id = "events.query", version = 1 } }),
+    },
     onRegistered = function(reply)
       driverSaw[#driverSaw + 1] = "registered"
       aireport.onRegistered(reply)
@@ -1392,7 +1559,10 @@ do
   end)
   check("attach never re-registers the driver's client", count("SBOS_MODULE_REGISTER") == regs)
   aireport.stop()
-  check("stop in attach mode leaves the driver's client registered", client.isRegistered() and count("SBOS_MODULE_UNREGISTER") == 0)
+  check(
+    "stop in attach mode leaves the driver's client registered",
+    client.isRegistered() and count("SBOS_MODULE_UNREGISTER") == 0
+  )
 
   -- attach against a v1-only Agent where the driver does not require v2
   fresh()
@@ -1460,7 +1630,11 @@ do
   end
   EC.SBOS_MODULE_AGENT_HELLO({})
   UpdateProperty = realUpdate
-  check("hello -> Searching… then re-registered and reporting again", seen[1] == V.searching and value() == "Found — reporting (v20261118.2)", table.concat(seen, " | "))
+  check(
+    "hello -> Searching… then re-registered and reporting again",
+    seen[1] == V.searching and value() == "Found — reporting (v20261118.2)",
+    table.concat(seen, " | ")
+  )
 end
 
 -- ── [13] stop ───────────────────────────────────────────────────────────────
@@ -1500,7 +1674,10 @@ do
     return os.time() + 61
   end
   aireport.state({ temperature_f = 80 })
-  check("a state answered need_describe -> the same-hash describe goes again at once", #reportsOfKind("describe") == d0 + 1)
+  check(
+    "a state answered need_describe -> the same-hash describe goes again at once",
+    #reportsOfKind("describe") == d0 + 1
+  )
   check("…counted", aireport.counters().describe_requested == 1, aireport.counters().describe_requested)
   aireport._clock = function()
     return os.time() + 122
@@ -1545,7 +1722,11 @@ do
   check("the default file is DRIVER_FILENAMES[1]", aireport._defaultFile() == "smartbuildos-atmosphere.c4z")
   local ok, why = aireport.start({ sku = "SBOS_ATMOSPHERE" })
   check("start with neither file nor DC_FILENAME works in the OSS build", ok == true, why)
-  check("…registered as atmosphere and reporting", client.isRegistered() and value() == "Found — reporting (v20261118.2)", value())
+  check(
+    "…registered as atmosphere and reporting",
+    client.isRegistered() and value() == "Found — reporting (v20261118.2)",
+    value()
+  )
   aireport.stop()
   DRIVER_FILENAMES = nil
   local okNone, whyNone = aireport.start({})

@@ -352,7 +352,16 @@ local function startAiCore()
   aireport.describe({
     summary = "The Home Guide on the touchscreens: a manual of this home built from the project, room by room, with how each kind of device is used, the dealer's notes and who to call for help.",
     controls = { { id = "home_guide", label = "Home Guide", class = "other" } },
-    vocabulary = { "home guide", "manual", "user guide", "help", "instructions", "how do I", "who do I call", "support" },
+    vocabulary = {
+      "home guide",
+      "manual",
+      "user guide",
+      "help",
+      "instructions",
+      "how do I",
+      "who do I call",
+      "support",
+    },
   })
 end
 

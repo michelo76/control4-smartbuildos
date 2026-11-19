@@ -40,7 +40,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -117,7 +119,12 @@ C4.GetDevices = function()
   return {
     [SELF] = { deviceName = "Daypart", driverFileName = "smartbuildos-daypart.c4z" },
     [ROOM] = { deviceName = "Main Dining", driverFileName = "roomdevice.c4i", roomId = ROOM, roomName = "Main Dining" },
-    [PLAYLIST] = { deviceName = "Digital Music", driverFileName = "streamer.c4z", roomId = ROOM, roomName = "Main Dining" },
+    [PLAYLIST] = {
+      deviceName = "Digital Music",
+      driverFileName = "streamer.c4z",
+      roomId = ROOM,
+      roomName = "Main Dining",
+    },
   }
 end
 C4.GetDeviceVariables = function()
@@ -191,7 +198,11 @@ H.aiRegister()
 H.pushDirectory()
 EC.PAUSE_SCHEDULE()
 local facts = H.reports("state")[#H.reports("state")].args.facts
-check("paused: schedule_status paused, paused true", facts.schedule_status == "paused" and facts.paused == true, JSON:encode(facts))
+check(
+  "paused: schedule_status paused, paused true",
+  facts.schedule_status == "paused" and facts.paused == true,
+  JSON:encode(facts)
+)
 EC.RESUME_SCHEDULE()
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 

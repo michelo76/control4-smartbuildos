@@ -150,7 +150,10 @@ R.lifecycle({
     for _, c in ipairs(d.controls) do
       classes[#classes + 1] = c.class
     end
-    check("describe: sun position and facades (weather, sensor)", table.concat(classes, ",") == "weather,weather,sensor")
+    check(
+      "describe: sun position and facades (weather, sensor)",
+      table.concat(classes, ",") == "weather,weather,sensor"
+    )
     check("describe: no query declared", #d.queries == 0)
   end,
   state = function(facts)
@@ -183,16 +186,28 @@ OnPropertyChanged("Location Source")
 local dg = lastDiag()
 check(
   "no usable location: location.unresolved (warning), the driver's own no_location",
-  dg ~= nil and dg.code == "location.unresolved" and dg.severity == "warning" and Properties["Solar Status"] == "no_location",
+  dg ~= nil
+    and dg.code == "location.unresolved"
+    and dg.severity == "warning"
+    and Properties["Solar Status"] == "no_location",
   dg and JSON:encode(dg)
 )
-check("state: solar_status no_location, no phase", H.reports("state")[#H.reports("state")].args.facts.solar_status == "no_location")
+check(
+  "state: solar_status no_location, no phase",
+  H.reports("state")[#H.reports("state")].args.facts.solar_status == "no_location"
+)
 Properties["Location Source"] = "Control4 Project"
 OnPropertyChanged("Location Source")
 dg = lastDiag()
-check("resolved again: location.resolved (info)", dg ~= nil and dg.code == "location.resolved" and dg.severity == "info")
+check(
+  "resolved again: location.resolved (info)",
+  dg ~= nil and dg.code == "location.resolved" and dg.severity == "info"
+)
 local everything = JSON:encode(H.reports())
-check("still no coordinates or city in any report", everything:find("25.76", 1, true) == nil and everything:find("Lauderhill", 1, true) == nil)
+check(
+  "still no coordinates or city in any report",
+  everything:find("25.76", 1, true) == nil and everything:find("Lauderhill", 1, true) == nil
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

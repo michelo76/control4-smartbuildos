@@ -371,7 +371,7 @@ All are read-only.
 | **Driver Version**                                                                      | The build that is running                                                                                                          |
 | **Panel Status**                                                                        | Whether the tile accepts edits. See [The tile](#the-tile-who-sees-what)                                                            |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the Agent reports for this driver                                                                                             |
-| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                       |
 | **App Data Relay**                                                                      | The relay and the address the tile is served from. See [Reading App Data Relay](#reading-app-data-relay)                           |
 | **Last Change**                                                                         | The last accepted change: setting, value, source (`web view`, `programming` or `Composer`) and time. `none yet` until there is one |
 | **Dealer PIN**                                                                          | The secret the tile asks for before a change. Masked. Empty makes the tile read-only                                               |
@@ -407,46 +407,45 @@ All are read-only.
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it, over the SmartBuildOS Agent, what the panel is and
-whether it can be edited. Without AI Core it sends nothing more than
-before.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what the panel is and whether it can be
+edited. Without AI Core it sends nothing more than before.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: the installer's adjustable settings (timeouts, dim
-  levels, delays) behind a Dealer PIN, and the words people use for them.
+- **What it is**: the installer's adjustable settings (timeouts, dim levels,
+  delays) behind a Dealer PIN, and the words people use for them.
 - **State**: how many settings are configured, and whether the panel is
-  writable, read-only or locked. Never the setting names or values, and
-  never the PIN or any attempt at it.
-- **Faults**: the panel locked itself after wrong PIN entries (the Panel
-  Locked event).
+  writable, read-only or locked. Never the setting names or values, and never
+  the PIN or any attempt at it.
+- **Faults**: the panel locked itself after wrong PIN entries (the Panel Locked
+  event).
 
 What it will answer when asked: nothing beyond the reports.
 
-What it can be asked to do: nothing. Changing a setting stays behind the
-Dealer PIN.
+What it can be asked to do: nothing. Changing a setting stays behind the Dealer
+PIN.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in unit tests only: nothing here has run on a
-physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

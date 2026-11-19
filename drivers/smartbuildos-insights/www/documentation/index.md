@@ -111,7 +111,11 @@ Composer sends them.
 
 ## AI Core
 
-The read-only **AI Core** property shows `Installed — this driver does not report` when SmartBuildOS AI Core is in the project (neither this driver nor the SmartBuildOS Agent it belongs to sends AI Core reports) and `Not installed` when it is not; it shows `Searching…` until Director first answers.
+The read-only **AI Core** property shows
+`Installed — this driver does not report` when SmartBuildOS AI Core is in the
+project (neither this driver nor the SmartBuildOS Agent it belongs to sends AI
+Core reports) and `Not installed` when it is not; it shows `Searching…` until
+Director first answers.
 
 ## What is not claimed
 

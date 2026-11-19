@@ -462,7 +462,9 @@ local function aiHistoryCoverage()
     capacity = ring.capacity,
     oldest_at = oldest and tonumber(oldest.t) and math.floor(oldest.t) or nil,
     newest_at = newest and tonumber(newest.t) and math.floor(newest.t) or nil,
-    span_seconds = (oldest and newest and tonumber(oldest.t) and tonumber(newest.t)) and math.floor(newest.t - oldest.t) or 0,
+    span_seconds = (oldest and newest and tonumber(oldest.t) and tonumber(newest.t)) and math.floor(
+      newest.t - oldest.t
+    ) or 0,
     entries_evicted = tonumber(ring.evicted) or 0,
     by_kind = byKind,
     recording_status = recordingStatus(),
@@ -480,7 +482,11 @@ local function aiCaptureCoverage()
     if i > 5 then
       break
     end
-    storms[i] = { device = tostring(st.device_label or ""), event_name = tostring(st.event_name or ""), count = tonumber(st.count) or 0 }
+    storms[i] = {
+      device = tostring(st.device_label or ""),
+      event_name = tostring(st.event_name or ""),
+      count = tonumber(st.count) or 0,
+    }
   end
   return {
     recording_status = recordingStatus(),
@@ -518,8 +524,17 @@ local function aiDescribe()
       { id = "event_history", label = "Event history", class = "other" },
     },
     vocabulary = {
-      "what happened", "history", "recorder", "events", "activity", "timeline", "routine",
-      "why did", "when did", "last night", "storm",
+      "what happened",
+      "history",
+      "recorder",
+      "events",
+      "activity",
+      "timeline",
+      "routine",
+      "why did",
+      "when did",
+      "last night",
+      "storm",
     },
   })
 end

@@ -269,7 +269,11 @@ local function reconcileLicence()
     gEngine:setReadOnly(true)
     log:warn("SmartBuildOS licence: %s — Logic Pack is read-only", tostring(license.statusLabel()))
     fire(EVENT_READONLY)
-    aireport.diagnostic("warning", "pack.read_only", "Logic Pack is read-only: the SmartBuildOS licence does not cover it")
+    aireport.diagnostic(
+      "warning",
+      "pack.read_only",
+      "Logic Pack is read-only: the SmartBuildOS licence does not cover it"
+    )
   elseif not halt and gHalted then
     gHalted = false
     gEngine:setReadOnly(false)

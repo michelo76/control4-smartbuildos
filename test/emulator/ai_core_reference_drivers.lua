@@ -200,7 +200,13 @@ local reporterIds = {}
 local reportFrames = 0
 local realSend = d.sendToDevice
 d.sendToDevice = function(self, from, id, command, params)
-  if from ~= nil and reporterIds[from.id] and command == "SBOS_MODULE_REQUEST" and params and params.capability == "ai_core.report" then
+  if
+    from ~= nil
+    and reporterIds[from.id]
+    and command == "SBOS_MODULE_REQUEST"
+    and params
+    and params.capability == "ai_core.report"
+  then
     reportFrames = reportFrames + 1
   end
   return realSend(self, from, id, command, params)
@@ -229,15 +235,36 @@ local function row(module, dev)
     end
   end
 end
-check("Atmosphere registered (start mode), verified", row("atmosphere", atmo) ~= nil and row("atmosphere", atmo).verified == true)
-check("Mode Composer registered (start mode, file given), verified", row("mode_composer", mc) ~= nil and row("mode_composer", mc).verified == true)
-check("Flight Recorder registered once (its own client), verified", row("flight_recorder", fr) ~= nil and row("flight_recorder", fr).verified == true)
-check("weather is flowing", tostring(atmo.Properties["Weather Status"]):find("86", 1, true) ~= nil, atmo.Properties["Weather Status"])
+check(
+  "Atmosphere registered (start mode), verified",
+  row("atmosphere", atmo) ~= nil and row("atmosphere", atmo).verified == true
+)
+check(
+  "Mode Composer registered (start mode, file given), verified",
+  row("mode_composer", mc) ~= nil and row("mode_composer", mc).verified == true
+)
+check(
+  "Flight Recorder registered once (its own client), verified",
+  row("flight_recorder", fr) ~= nil and row("flight_recorder", fr).verified == true
+)
+check(
+  "weather is flowing",
+  tostring(atmo.Properties["Weather Status"]):find("86", 1, true) ~= nil,
+  atmo.Properties["Weather Status"]
+)
 check("AI Core absent: no report frame from any of the three", reportFrames == 0, reportFrames)
 for _, dev in ipairs({ atmo, mc, fr }) do
-  check(dev.name .. ": AI Core = Not installed", dev.Properties["AI Core"] == "Not installed", dev.Properties["AI Core"])
+  check(
+    dev.name .. ": AI Core = Not installed",
+    dev.Properties["AI Core"] == "Not installed",
+    dev.Properties["AI Core"]
+  )
 end
-check("no runtime error so far", #atmo.errors + #mc.errors + #fr.errors + #agent.errors == 0, atmo.errors[1] or mc.errors[1] or fr.errors[1] or agent.errors[1])
+check(
+  "no runtime error so far",
+  #atmo.errors + #mc.errors + #fr.errors + #agent.errors == 0,
+  atmo.errors[1] or mc.errors[1] or fr.errors[1] or agent.errors[1]
+)
 
 -- Atmosphere's remote settings (sbos.mirror) survive the helper's client.
 d:executeCommand(atmo, "SBOS_DRIVER_CONFIG", {
@@ -253,7 +280,11 @@ local aic = assert(d:addDevice(OUT .. "/reports/smartbuildos-ai-core", { roomId 
 d:advance(90000)
 local ver = "20261118.000001" -- stamped by the run script
 for _, dev in ipairs({ atmo, mc, fr }) do
-  check(dev.name .. ": Found — reporting (v" .. ver .. ")", dev.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")", dev.Properties["AI Core"])
+  check(
+    dev.name .. ": Found — reporting (v" .. ver .. ")",
+    dev.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")",
+    dev.Properties["AI Core"]
+  )
 end
 local function from(mod, dev, kind)
   return function(it)
@@ -264,18 +295,39 @@ local function lastItem(mod, dev, kind)
   local list = items(0, from(mod, dev, kind))
   return list[#list]
 end
-local da, dm, df = lastItem("atmosphere", atmo, "describe"), lastItem("mode_composer", mc, "describe"), lastItem("flight_recorder", fr, "describe")
-check("Atmosphere's describe reached the cloud (2 queries, no action)", da and #da.queries == 2 and #da.actions == 0, da and json.encode(da.queries))
+local da, dm, df =
+  lastItem("atmosphere", atmo, "describe"),
+  lastItem("mode_composer", mc, "describe"),
+  lastItem("flight_recorder", fr, "describe")
+check(
+  "Atmosphere's describe reached the cloud (2 queries, no action)",
+  da and #da.queries == 2 and #da.actions == 0,
+  da and json.encode(da.queries)
+)
 check(
   "Mode Composer's describe reached the cloud (2 queries, activate_mode HIGH)",
   dm and #dm.queries == 2 and #dm.actions == 1 and dm.actions[1].id == "activate_mode" and dm.actions[1].risk == "high",
   dm and json.encode(dm.actions)
 )
-check("Flight Recorder's describe reached the cloud (2 queries, no action)", df and #df.queries == 2 and #df.actions == 0)
-local sa, sm, sf = lastItem("atmosphere", atmo, "state"), lastItem("mode_composer", mc, "state"), lastItem("flight_recorder", fr, "state")
-check("Atmosphere's state: weather facts", sa and sa.facts.condition == "Partly Cloudy" and sa.facts.temperature_f == 86, sa and json.encode(sa.facts))
+check(
+  "Flight Recorder's describe reached the cloud (2 queries, no action)",
+  df and #df.queries == 2 and #df.actions == 0
+)
+local sa, sm, sf =
+  lastItem("atmosphere", atmo, "state"),
+  lastItem("mode_composer", mc, "state"),
+  lastItem("flight_recorder", fr, "state")
+check(
+  "Atmosphere's state: weather facts",
+  sa and sa.facts.condition == "Partly Cloudy" and sa.facts.temperature_f == 86,
+  sa and json.encode(sa.facts)
+)
 check("Mode Composer's state: mode counts", sm and sm.facts.presence_modes == 2, sm and json.encode(sm.facts))
-check("Flight Recorder's state: recording facts", sf and type(sf.facts.recording_status) == "string", sf and json.encode(sf.facts))
+check(
+  "Flight Recorder's state: recording facts",
+  sf and type(sf.facts.recording_status) == "string",
+  sf and json.encode(sf.facts)
+)
 
 print("[3] events flow")
 local mark = #rpc
@@ -315,11 +367,23 @@ local function query(module, dev, queryId, params)
   end
 end
 local q = query("atmosphere", atmo, "weather_source")
-check("Atmosphere weather_source: completed, station and office", q and q.status == "completed" and q.data.observation_station == "KFLL" and q.data.forecast_office == "MFL", q and json.encode(q))
+check(
+  "Atmosphere weather_source: completed, station and office",
+  q and q.status == "completed" and q.data.observation_station == "KFLL" and q.data.forecast_office == "MFL",
+  q and json.encode(q)
+)
 q = query("mode_composer", mc, "current_modes")
-check("Mode Composer current_modes: completed, Home active", q and q.status == "completed" and q.data.presence_mode == "Home" and #q.data.modes == 2, q and json.encode(q))
+check(
+  "Mode Composer current_modes: completed, Home active",
+  q and q.status == "completed" and q.data.presence_mode == "Home" and #q.data.modes == 2,
+  q and json.encode(q)
+)
 q = query("flight_recorder", fr, "history_coverage")
-check("Flight Recorder history_coverage: completed", q and q.status == "completed" and type(q.data.entries_held) == "number" and q.data.capacity == 500, q and json.encode(q))
+check(
+  "Flight Recorder history_coverage: completed",
+  q and q.status == "completed" and type(q.data.entries_held) == "number" and q.data.capacity == 500,
+  q and json.encode(q)
+)
 
 print("[5] the Mode Composer action round trip")
 local function actionResult(id)
@@ -342,7 +406,11 @@ moduleCommand("invoke_driver_action", {
 })
 d:advance(10000)
 local ar = actionResult(aid)
-check("activate_mode Away: completed, with the driver's real outcome", ar and ar.status == "completed" and ar.result_text == "Away is active", ar and json.encode(ar))
+check(
+  "activate_mode Away: completed, with the driver's real outcome",
+  ar and ar.status == "completed" and ar.result_text == "Away is active",
+  ar and json.encode(ar)
+)
 check("…the house really is in Away", mc.Properties["Presence Mode"] == "Away", mc.Properties["Presence Mode"])
 aid = uuid()
 moduleCommand("invoke_driver_action", {
@@ -355,7 +423,11 @@ moduleCommand("invoke_driver_action", {
 })
 d:advance(10000)
 ar = actionResult(aid)
-check("an unknown mode: failed, the driver's words (never completed)", ar and ar.status == "failed" and ar.result_text == "No mode is named Garage", ar and json.encode(ar))
+check(
+  "an unknown mode: failed, the driver's words (never completed)",
+  ar and ar.status == "failed" and ar.result_text == "No mode is named Garage",
+  ar and json.encode(ar)
+)
 check("…nothing changed", mc.Properties["Presence Mode"] == "Away")
 aid = uuid()
 moduleCommand("invoke_driver_action", {
@@ -368,7 +440,11 @@ moduleCommand("invoke_driver_action", {
 })
 d:advance(10000)
 ar = actionResult(aid)
-check("a stale declaration hash: failed declaration_changed", ar and ar.status == "failed" and ar.result_text == "declaration_changed", ar and json.encode(ar))
+check(
+  "a stale declaration hash: failed declaration_changed",
+  ar and ar.status == "failed" and ar.result_text == "declaration_changed",
+  ar and json.encode(ar)
+)
 check("…nothing changed", mc.Properties["Presence Mode"] == "Away")
 
 print("[6] AI Core goes away and comes back")
@@ -385,7 +461,11 @@ check("no report frame while AI Core is gone", reportFrames == before, reportFra
 aic = assert(d:addDevice(OUT .. "/reports/smartbuildos-ai-core", { roomId = room, name = "AI Core" }))
 d:advance(90000)
 for _, dev in ipairs({ atmo, mc, fr }) do
-  check(dev.name .. ": Found — reporting again", dev.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")", dev.Properties["AI Core"])
+  check(
+    dev.name .. ": Found — reporting again",
+    dev.Properties["AI Core"] == "Found — reporting (v" .. ver .. ")",
+    dev.Properties["AI Core"]
+  )
 end
 check(
   "no runtime errors (Agent, AI Core, the three drivers)",

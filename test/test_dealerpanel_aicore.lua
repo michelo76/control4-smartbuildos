@@ -39,7 +39,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -232,7 +234,10 @@ check(
 )
 check("the state follows (locked)", H.reports("state")[#H.reports("state")].args.facts.locked == true)
 local everything = JSON:encode(H.reports())
-check("no PIN attempt in any report", everything:find("nope", 1, true) == nil and everything:find("4321", 1, true) == nil)
+check(
+  "no PIN attempt in any report",
+  everything:find("nope", 1, true) == nil and everything:find("4321", 1, true) == nil
+)
 check("every report valid for AI Core", H.allValid(), select(2, H.allValid()))
 
 R.finish()

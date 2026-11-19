@@ -283,7 +283,14 @@ local function startAiCore()
       { id = "battery", label = "Home battery level", class = "power" },
     },
     vocabulary = {
-      "power outage", "power cut", "blackout", "battery", "backup power", "generator", "load shedding", "grid",
+      "power outage",
+      "power cut",
+      "blackout",
+      "battery",
+      "backup power",
+      "generator",
+      "load shedding",
+      "grid",
     },
   })
 end
@@ -382,7 +389,11 @@ local function onEngineEvent(kind, f)
     aireport.diagnostic(
       "fault",
       "load.restore_failed",
-      string.format("Load %s did not come back after %s restore tries; check it by hand", tostring(f.slot), tostring(f.tries))
+      string.format(
+        "Load %s did not come back after %s restore tries; check it by hand",
+        tostring(f.slot),
+        tostring(f.tries)
+      )
     )
   elseif kind == "restore_unverified" then
     log:info(

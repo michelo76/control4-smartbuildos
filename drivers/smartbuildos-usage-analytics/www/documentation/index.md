@@ -391,7 +391,7 @@ All are read-only.
 | **Agent Link**                                                                          | `Agent device 72 — registered` with the Agent's device id, or that no Agent was found                                                         |
 | **Agent Connection**                                                                    | The state of the link to the Agent                                                                                                            |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | The licence as the Agent reports it                                                                                                           |
-| **AI Core** | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core) |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                                  |
 | **Sources**                                                                             | What is measured, for example `2 room(s), 2 light(s), 1 keypad(s); 7 listener(s), 2 event subscription(s); 1 room(s) without media variables` |
 | **Today**                                                                               | Today's totals, for example `media 2.0 h, lights 3.6 h, 6 keypad press(es)`                                                                   |
 | **Days Recorded**                                                                       | Days held, today included, up to 30                                                                                                           |
@@ -480,35 +480,35 @@ waiting. It starts from zero when the driver restarts.
 
 ## AI Core
 
-When the SmartBuildOS AI Core driver is installed in the project, this
-driver tells it how measuring is going, over the same Agent connection it
-already uses. Without AI Core it sends nothing more than before.
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it how measuring is going, over the same Agent connection it already uses.
+Without AI Core it sends nothing more than before.
 
 **AI Core** (read-only property) says where that stands:
 
-| Value | Meaning |
-| --- | --- |
-| `Searching…` | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
-| `SmartBuildOS Agent not found` | No SmartBuildOS Agent in the project |
-| `SmartBuildOS Agent update required` | The Agent is too old to carry AI Core reports |
-| `Not registered — Agent module list full` | The Agent already serves 48 SmartBuildOS drivers |
-| `Not installed` | No AI Core in the project: this driver sends nothing to it |
-| `Found — not responding` | AI Core is installed but did not answer |
-| `Found — AI Core update required (v…)` | AI Core is too old for this driver's reports |
-| `Found — not licensed (v…)` | AI Core is installed without a licence |
-| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired |
-| `Found — reporting, cloud offline (v…)` | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now |
-| `Found — reporting (v…)` | Reports reach AI Core, which passes them on |
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
 
 What it reports:
 
-- **What it is**: the usage meter and the words people use (how often, how
-  long, most used…).
-- **State**: the measuring status, days recorded, and how many rooms,
-  lights and keypads are watched (what **Measuring Status**, **Days
-  Recorded** and **Sources** show). Never the hours or presses themselves:
-  how the household uses the home stays in the daily summaries described
-  in [What leaves the controller](#what-leaves-the-controller).
+- **What it is**: the usage meter and the words people use (how often, how long,
+  most used…).
+- **State**: the measuring status, days recorded, and how many rooms, lights and
+  keypads are watched (what **Measuring Status**, **Days Recorded** and
+  **Sources** show). Never the hours or presses themselves: how the household
+  uses the home stays in the daily summaries described in
+  [What leaves the controller](#what-leaves-the-controller).
 - **Faults**: measuring degraded (unlicensed, no Agent) and restored (the
   driver's own Measuring Degraded / Restored events).
 
@@ -516,10 +516,10 @@ What it will answer when asked: nothing beyond the reports.
 
 What it can be asked to do: nothing.
 
-Reports are lossy by design (a few a minute at most); nothing is queued
-while AI Core is absent, and nothing changes in this driver when AI Core is
-not installed. Tested in unit tests only: nothing here has run on a
-physical controller.
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

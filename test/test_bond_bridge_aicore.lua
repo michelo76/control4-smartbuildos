@@ -42,7 +42,9 @@ local function advance(ms)
   while true do
     local bestId, bestAt
     for id, t in pairs(clock.timers) do
-      if t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId))) then
+      if
+        t.at <= target and (bestAt == nil or t.at < bestAt or (t.at == bestAt and tostring(id) < tostring(bestId)))
+      then
         bestId, bestAt = id, t.at
       end
     end
@@ -118,7 +120,12 @@ local routes = {
   { match = "/v2/devices/fan1/properties", body = { ["_"] = "p-fan", max_speed = 6 } },
   {
     match = "/v2/devices/fan1",
-    body = { name = "Whitfield Master Fan", type = "CF", location = "Master Bedroom", actions = { "TurnOn", "TurnOff", "SetSpeed" } },
+    body = {
+      name = "Whitfield Master Fan",
+      type = "CF",
+      location = "Master Bedroom",
+      actions = { "TurnOn", "TurnOff", "SetSpeed" },
+    },
   },
   { match = "/v2/scenes", body = { ["_"] = "sc-0" } },
   { match = "/v2/sidekicks", body = { ["_"] = "sk-0" } },
