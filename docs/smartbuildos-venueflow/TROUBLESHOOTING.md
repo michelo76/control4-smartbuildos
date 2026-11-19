@@ -20,7 +20,8 @@ Start with three places:
 | The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN). Remote Management on smartbuildos.io changes the configuration, not the pages, and has not yet been run with a controller |
 | "This venue has not been set up yet" | Nothing is published. Open Installer Studio and publish |
 | The page says the venue is not set up, and Configuration reads "Sample venue - not run in Live mode" | A reference venue is published and Control Mode is Live. Build the real venue, or return to Simulation |
-| On a small touch screen the wrong display is selected on the floor plan | A tap selects the nearest display within reach; a tap as near two displays as one asks "Which display?". Measured only in desktop Chromium; record what a T3 or T4 does (HARDWARE_VALIDATION.md) |
+| On a small touch screen the wrong display is selected on the floor plan | A tap selects the nearest display within reach; a tap as near two displays as one asks "Which display?", judged from where the finger went down. Measured in three desktop engines (Chromium, WebKit, Firefox), the same in each; record what a T3 or T4 does (HARDWARE_VALIDATION.md) |
+| A volume slider will not stop on the level wanted, on a 7-inch screen | At 1024 x 600 the sliders are about one pixel per volume step. Use a volume preset (Audio Zones, or Volume Presets in the Venue Studio) |
 | A screen asks for a PIN when it should open directly | No profile is chosen under Staff Profiles, "A tile opens as", or that profile has a PIN |
 
 ## Installer Studio

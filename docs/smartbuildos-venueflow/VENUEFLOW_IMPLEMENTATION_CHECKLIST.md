@@ -13,13 +13,14 @@ Rules for this file:
   marked RHV is claimed to work on hardware.
 - The "Evidence" column names the test file or the check.
 
-**State, 19 November 2026: 168 tasks. 142 Completed, 23 Require Hardware
+**State, 19 November 2026: 173 tasks. 144 Completed, 26 Require Hardware
 Verification, 1 Blocked (the `SBOS_VENUEFLOW` catalogue row not applied), 2
 Not Started (the shared module client's two weaknesses; the platform's
 follow-up to on-site-only mapping). Two tasks (4.6 and 20.4) are verified on
 the bench controller, in Simulation, on builds of 14 November 2026; every
 other Completed task is verified on the simulator, the test shim or in
-desktop Chromium. Nothing has controlled real equipment. Phases 23 and 24
+desktop browser engines (Chromium, and since 19 November WebKit and
+Firefox). Nothing has controlled real equipment. Phases 23 and 24
 (the second round and the fixes and decisions of 18 and 19 November 2026)
 have not run on a controller at all.**
 
@@ -143,7 +144,7 @@ The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 | 10.3 | C: Simplified Room Control | Installer-defined buttons and optional controls | Completed | Browser check (conference centre) |
 | 10.4 | D: Manager Overview | Counts, states, alerts, scenes, opening/closing, confirmations | Completed | Browser check |
 | 10.5 | One engine behind all four | Same commands, same state document | Completed | One protocol, one state document: test_venueflow_core, test_venueflow_relay |
-| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in Chromium only (sizes measured with touch emulation, 24.19); scanned statically for Gecko 96 features (24.17) |
+| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in desktop engines only (Chromium, and since 19 Nov 2026 WebKit 27.2 and Firefox 159: 24.31; sizes measured with touch emulation, 24.19); scanned statically for Gecko 96 features (24.17) |
 
 ## Phase 11. Source routing engine
 
@@ -227,7 +228,7 @@ The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 | 18.1 | Sports-bar reference venue | 24 displays, 8 sources, 4 zones, groups, scenes, 3 profiles | Completed | test_venueflow_core "reference sports bar" |
 | 18.2 | Conference-centre venue | Present and valid | Completed | test_venueflow_core "reference conference centre" |
 | 18.3 | Simulator with fault injection | Offline device, unsupported route, silent device | Completed | src/venueflow/sim.lua: offline, silent, wrong, slow; used throughout |
-| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 17 suites, 2590 checks, 0 failed (19 Nov 2026; package checks skipped, no package built) |
+| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 17 suites, 3006 checks, 0 failed (19 Nov 2026; package checks skipped, no package built) |
 | 18.5 | Browser tests | Pages driven against the real Lua core and simulator | Completed | TEST_RESULTS.md "Browser tests" (Chromium) |
 | 18.6 | Whole repository suite still passes | `make test` | Completed | TEST_RESULTS.md: make test exit 0, 134 files (19 Nov 2026) |
 
@@ -273,7 +274,7 @@ The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 
 | ID | Task | Acceptance criterion | Status | Evidence |
 | --- | --- | --- | --- | --- |
-| 23.1 | Venue Studio for the client | A profile with the permission opens the Studio on its PIN and changes only client-owned parts | Requires Hardware Verification | test_venueflow_clientstudio; browser check in desktop Chromium. Not tried on a touch screen or in the Control4 app (HARDWARE_VALIDATION.md, "Not yet run") |
+| 23.1 | Venue Studio for the client | A profile with the permission opens the Studio on its PIN and changes only client-owned parts | Requires Hardware Verification | test_venueflow_clientstudio; browser check in desktop Chromium, and on 19 Nov 2026 in WebKit and Firefox too. Not tried on a touch screen or in the Control4 app (HARDWARE_VALIDATION.md, "Not yet run") |
 | 23.2 | Client limits enforced by the driver | A hand-made request changing an installer-owned part is refused | Completed | test_venueflow_clientstudio "every installer-owned part refused" |
 | 23.3 | Basic source controls | Closed key list, groups per source, permission, keys sent to the source's device | Requires Hardware Verification | test_venueflow_sourcecontrol. That a key reaches a real box is not documented and not seen |
 | 23.4 | Favourite channels | Up to 24 per source, dialled digit by digit, edited by the client | Requires Hardware Verification | test_venueflow_sourcecontrol, test_venueflow_clientstudio. Digit spacing on a real box not seen |
@@ -284,7 +285,7 @@ The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
 
 ## Phase 24. Review and audit fixes and page follow-ups, 18 and 19 November 2026
 
-Simulator, test shim and desktop Chromium only; nothing here has run on a
+Simulator, test shim and desktop browser engines only; nothing here has run on a
 controller, a touch screen or a phone.
 
 | ID | Task | Acceptance criterion | Status | Evidence |
@@ -307,7 +308,7 @@ controller, a touch screen or a phone.
 | 24.16 | Package staleness check | The package check fails when a built package is older than its sources | Completed | test_venueflow_security; seen failing on 18 Nov 2026 against a package built before the last commits of the round |
 | 24.17 | Touch-screen engine floor (Gecko 96) checked statically | The page sources and built pages scanned for features Gecko 96 lacks | Completed | test_venueflow_engine_floor: none found. A static scan against a deny-list, not a run in Gecko; Gecko 96 itself remains untested (10.6) |
 | 24.18 | Shared module client: authenticate the registration reply; leave the Agent when switched Off mid-registration | Fixed for every module driver | Not Started | SECURITY_REVIEW.md, residual risks 8 and 9. Changes the module contract for every module driver |
-| 24.19 | Operator page and Studios reachable at real screen sizes | Every interactive control reachable, not covered, at the measured sizes | Requires Hardware Verification | Browser check, desktop Chromium with touch emulation, simulator, both samples (`ui/venueflow/README.md`). Not on a T3, a T4 or a phone |
+| 24.19 | Operator page and Studios reachable at real screen sizes | Every interactive control reachable, not covered, at the measured sizes | Requires Hardware Verification | Browser check with touch emulation, simulator, both samples, in Chromium 159, WebKit 27.2 and Firefox 159 (desktop engines) with the same result (`ui/venueflow/README.md`). Not on a T3, a T4 or a phone |
 | 24.20 | Floor plan selectable by touch on small screens | A tap near a display selects it; a tap as near two opens "Which display?"; side panel shows it scrolls | Requires Hardware Verification | Browser check (touch emulation): smallest effective target 28 px (sports bar, 1024x600), 46 px (conference centre). On a 7-inch T3: HARDWARE_VALIDATION.md |
 | 24.21 | Long names readable | Display, source and zone names wrap to two lines | Completed | Browser check, desktop Chromium |
 | 24.22 | The Studio names the revision it publishes or discards | `baseRevision` sent; on `VF_STALE_DRAFT` nothing done, draft reloaded, no retry | Completed | Browser check with two tabs, installer and client (simulator); the driver side: test_venueflow_store, test_venueflow_clientstudio |
@@ -319,3 +320,8 @@ controller, a touch screen or a phone.
 | 24.28 | The platform matches the decision | The Whole configuration editor shows mapping read-only, explains `VF_ONSITE_ONLY`, warns on Publish | Not Started | Web repository; SMARTBUILDOS_INTEGRATION.md, platform follow-up |
 | 24.29 | "Tune a channel" step for scenes, rules and schedules | Validated at save and publish with the owner named; dials through the closed key list; stopped with its run; overlap by source; in the Studio for installer and client | Requires Hardware Verification | test_venueflow_rules "tune step", test_venueflow_schema "tune step validation", test_venueflow_sourcecontrol "the tune step's way into the engine", "the engine: ...", test_venueflow_clientstudio "a tune step in the client's hands"; browser check of the editor (simulator). Never seen on a real box |
 | 24.30 | Shade open and closed levels bounded | 0 to 100, else `RANGE` at save and publish | Completed | test_venueflow_schema "shade levels" |
+| 24.31 | The pages in WebKit and Firefox | Every operator, Studio and Venue Studio flow in Chromium, WebKit and Firefox with no page or console error | Requires Hardware Verification | Browser check, 19 Nov 2026: Playwright 1.65, Chromium 159, WebKit 27.2 (desktop, iPhone and iPad descriptors), Firefox 159, simulator (TEST_RESULTS.md, `ui/venueflow/README.md` rule 9). Desktop engines only; Firefox 159 is not 96, WebKit desktop is not iOS Safari |
+| 24.32 | Floor plan taps the same in every engine | A tap is judged from where the finger went down; "Which display?" opens between two displays in all three | Requires Hardware Verification | Browser check in the three engines (targets within 1 px). Whether a T3 or T4 moves taps: unseen |
+| 24.33 | Taps act while the Studio redraws | No control is rebuilt under a finger | Completed | Browser check: 288 of 288 timed presses act in the three engines (38 lost before) |
+| 24.34 | Removing a used favourite asks first | The confirmation names the scenes and schedules that use it, in the Installer Studio and the client's Channels and Names | Completed | Browser check (simulator); the driver's publish check stays the authority (test_venueflow_schema "tune step validation") |
+| 24.35 | Volume slider usable on a phone and a 7-inch screen | Phone: its own row; 7-inch: a finger can set a level | Requires Hardware Verification | Browser check: 236 px at 390x844 (84 before). At 1024x600 the sliders stay 110 and 94 px, about one pixel per step: a known limitation, HARDWARE_VALIDATION.md |

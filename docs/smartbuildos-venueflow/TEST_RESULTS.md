@@ -3,19 +3,14 @@
 First run on 14 November 2026 on macOS with LuaJIT, against build
 `20261114.233926` of `smartbuildos-venueflow.c4z`.
 
-**The counts below are those of 19 November 2026 before the owner
-decisions of that day (on-site-only mapping, the tune step, shade levels).
-Their suites are described here; the counts are refreshed in the next
-run.**
-
 **Automated suites and the whole repository: run again on 19 November 2026**
-on the source of that day (branch `vf/docs-final`, which holds the review
-and audit fixes of 15 and 18 November 2026 and the page follow-ups of 19
-November 2026, RELEASE_NOTES.md). The suites were run with no package in
-the build folder, as in a clean checkout and in CI, so the security suite's
-package checks were skipped. No package built from
-this source exists, so the browser tests and the package section further
-down still describe build `20261114.233926`.
+on the source of that day (branch `vf/docs-final2`, which holds the review
+and audit fixes of 15 and 18 November 2026, the page follow-ups, the owner
+decisions and the browser-engine fixes of 19 November 2026,
+RELEASE_NOTES.md). The suites were run with no package in the build folder,
+as in a clean checkout and in CI, so the security suite's package checks
+were skipped. No package built from this source exists, so the package
+section further down still describes build `20261114.233926`.
 
 **Everything here ran against the simulator (`src/venueflow/sim.lua`), the
 test shim (`test/c4_shim.lua`) with a scripted Director, or a desktop
@@ -33,22 +28,22 @@ make venueflow-test
 | --- | --- | --- | --- |
 | `test_venueflow_routing.lua` | 111 | 0 | single and multi-display routes, invalid destinations, unsupported sources, the six-display partial result, every state class, serialisation, supersession, repeated requests, custom routes, power, outside feedback; stopping a run does not report a command it already sent as stopped |
 | `test_venueflow_audio.lua` | 93 | 0 | audio independence from video, "listen" routes, volume limits, presets, mute, zone power, refusals, lighting and shades as "commanded", shared-room validation |
-| `test_venueflow_rules.lua` | 174 | 0 | scene execution, Game Day end to end, partial runs, dry run sends nothing, every condition and logic operator, IF / ELSE, waits, cancel, overlap protection, every trigger kind, validation (unknown steps, references, cycles, limits), runner bounds, the log; stopping a run stops its queued commands (also under All Off, and not a command a manual request shares); a schedule due just after a start or a publish; the tune step (validation, run, stop, overlap by source) |
+| `test_venueflow_rules.lua` | 220 | 0 | scene execution, Game Day end to end, partial runs, dry run sends nothing, every condition and logic operator, IF / ELSE, waits, cancel, overlap protection, every trigger kind, validation (unknown steps, references, cycles, limits), runner bounds, the log; stopping a run stops its queued commands (also under All Off, and not a command a manual request shares); a schedule due just after a start or a publish; the tune step (validation, run, stop, overlap by source) |
 | `test_venueflow_scheduler.lua` | 49 | 0 | once per day and time, midnight, restart, downtime not caught up, clocks forward, clocks back, a clock set back by hand, upcoming runs, schedules in the core, licence pause; the baseline set at install and carried across a publish |
 | `test_venueflow_permissions.lua` | 249 | 0 | what each profile receives, refusal per display, source, zone and scene, forged identity, every command unauthenticated, PIN sign-in and lockout, session expiry and revocation, Studio sign-in, no default profile, stations; operation detail by id filtered by the profile's access; partly visible operations (label, no `origin`); a scene's area; dismissing only alerts the profile is shown |
 | `test_venueflow_store.lua` | 144 | 0 | empty driver, templates never overwrite silently, draft saves and stale saves, publish and acknowledgements, rollback, bounded history, discard, pictures, backup and restore on a second driver, migration, driver restart; revisions never repeat (discard, publish, restore); PINs kept when there is no draft |
-| `test_venueflow_relay.lua` | 259 | 0 | HTTP parsing across chunks, the chunked receiver, every route, security headers, identity over HTTP, every command closed to an unauthenticated caller, the raw picture upload, invalid payloads, state delivery |
+| `test_venueflow_relay.lua` | 260 | 0 | HTTP parsing across chunks, the chunked receiver, every route, security headers, identity over HTTP, every command closed to an unauthenticated caller, the raw picture upload, invalid payloads, state delivery |
 | `test_venueflow_core.lua` | 273 | 0 | both reference venues, a publish keeping simulated device state, the room-panel profile, All Off and confirm-required scenes, alerts and Resolve, installer test actions, discovery, Composer commands, control mode (sample refused in Live), the diagnostic log (bounded, redacted); mapping tests refused on a sample draft in Live; state across a publish that remaps a display; `ALERT_DISMISS` and the venue's count; the alert timer across a stop and a restart, and across a publish that removes a display; stored alerts not shown to a profile that cannot see what they concern |
 | `test_venueflow_license.lua` | 64 | 0 | the licensing SDK's decision table, a venue through a cloud outage and with no Agent, a definitive denial (automation stops, control does not, nothing switched off), restore; the venue status set under a restricted licence with the rules not run counted |
-| `test_venueflow_schema.lua` | 102 | 0 | defaults, identifiers, every class of error and warning, publishability, mapping integrity under layout changes and deletion; tune step validation; shade levels |
-| `test_venueflow_driver.lua` | 233 | 0 | `driver.lua` under the shim: start, Agent registration, the socket, the Navigator bridge, Live-mode commands (including the shade's `SET_LEVEL_TARGET`, a lighting preset's exact parameters, `MUTE_OFF`) and variable listeners, Composer commands and conditionals (both choices of the true-or-false ones), the one alert count and *Alert Raised*, *Configuration Published* on a rollback, Last Error for a refused or partly run command, the licence gate, passcode change, actions, the Remote Management switch and the Agent token, `save_draft`, `publish`, `rollback` and `refresh_status` through the driver with the status frame and `config_version`, restart |
-| `test_venueflow_security.lua` | 303 | 0 | no code evaluation in engines or pages, pages self-contained, no credential in what ships, built pages and embedded modules current. The package checks (the `.c4z` contents and integrity, and since 18 November whether the package is older than its sources) run only when a package is built, and were skipped here |
-| `test_venueflow_clientstudio.lua` | 217 | 0 | the Venue Studio as a client gets it: who may open it, what a client may change and publish, every installer-owned part refused to a hand-made request, installer-only commands, the installer's unfinished draft, rollback, losing the permission, live warnings not asked again; the profiles a screen or station opens with; whose work is in the draft; PINs and templates refused or attributed; a tune step in the client's hands |
-| `test_venueflow_remote.lua` | 80 | 0 | Remote Management in the core: off, draft only, draft and publish; a remote draft cannot overwrite on-site work; publish only what was reviewed; no PIN material leaves; nothing remote controls equipment; since 19 November, device mapping and device commands on site only (save, publish, rollback; the installer's draft work; the base with no draft; the bounded refusal). The Agent and the platform are not in this test |
-| `test_venueflow_sourcecontrol.lua` | 146 | 0 | basic source controls: the closed key vocabulary and the Control4 command each key becomes, a page naming anything else, who may press, groups per source, an unmapped source, favourites dialled digit by digit in order and spaced, a box that does not answer, a flood of keys, the schema, a client editing favourites but not the controls; a publish, and a change of control mode, while a channel is being dialled. "Sent" means the simulator logged the command; the tune step's way into the engine (dry runs, runs, a source without a keypad, the pause after a cut-off number) |
-| `test_venueflow_engine_floor.lua` | 66 | 0 | a static scan of every page source and both built pages for features Firefox 96 (the touch screens' Gecko 96) lacks, from a deny-list with the Firefox version that shipped each; none found. It runs nothing in Gecko: a pass means none of the listed features appears |
+| `test_venueflow_schema.lua` | 150 | 0 | defaults, identifiers, every class of error and warning, publishability, mapping integrity under layout changes and deletion; tune step validation; shade levels |
+| `test_venueflow_driver.lua` | 243 | 0 | `driver.lua` under the shim: start, Agent registration, the socket, the Navigator bridge, Live-mode commands (including the shade's `SET_LEVEL_TARGET`, a lighting preset's exact parameters, `MUTE_OFF`) and variable listeners, Composer commands and conditionals (both choices of the true-or-false ones), the one alert count and *Alert Raised*, *Configuration Published* on a rollback, Last Error for a refused or partly run command, the licence gate, passcode change, actions, the Remote Management switch and the Agent token, `save_draft`, `publish`, `rollback` and `refresh_status` through the driver with the status frame and `config_version`, restart |
+| `test_venueflow_security.lua` | 314 | 0 | no code evaluation in engines or pages, pages self-contained, no credential in what ships, built pages and embedded modules current. The package checks (the `.c4z` contents and integrity, and since 18 November whether the package is older than its sources) run only when a package is built, and were skipped here |
+| `test_venueflow_clientstudio.lua` | 226 | 0 | the Venue Studio as a client gets it: who may open it, what a client may change and publish, every installer-owned part refused to a hand-made request, installer-only commands, the installer's unfinished draft, rollback, losing the permission, live warnings not asked again; the profiles a screen or station opens with; whose work is in the draft; PINs and templates refused or attributed; a tune step in the client's hands |
+| `test_venueflow_remote.lua` | 340 | 0 | Remote Management in the core: off, draft only, draft and publish; a remote draft cannot overwrite on-site work; publish only what was reviewed; no PIN material leaves; nothing remote controls equipment; since 19 November, device mapping and device commands on site only (save, publish, rollback; the installer's draft work; the base with no draft; the bounded refusal). The Agent and the platform are not in this test |
+| `test_venueflow_sourcecontrol.lua` | 173 | 0 | basic source controls: the closed key vocabulary and the Control4 command each key becomes, a page naming anything else, who may press, groups per source, an unmapped source, favourites dialled digit by digit in order and spaced, a box that does not answer, a flood of keys, the schema, a client editing favourites but not the controls; a publish, and a change of control mode, while a channel is being dialled. "Sent" means the simulator logged the command; the tune step's way into the engine (dry runs, runs, a source without a keypad, the pause after a cut-off number) |
+| `test_venueflow_engine_floor.lua` | 70 | 0 | a static scan of every page source and both built pages for features Firefox 96 (the touch screens' Gecko 96) lacks, from a deny-list with the Firefox version that shipped each; none found. It runs nothing in Gecko: a pass means none of the listed features appears |
 | `test_venueflow_adapter.lua` | 27 | 0 | the Control4 adapter's variable listeners against a scripted Director that keeps one callback per pair: two rules on one variable, a rule on a mapped room's variable, a republish, an unmapped room, the first call on registration, a watcher that fails |
-| **Total (17 suites, 19 November 2026)** | **2590** | **0** | |
+| **Total (17 suites, 19 November 2026)** | **3006** | **0** | |
 
 The brief's seventeen required cases map to these suites:
 
@@ -78,7 +73,7 @@ The brief's seventeen required cases map to these suites:
 make test
 ```
 
-Exit code 0. 134 test files. The suites that print a total add up to 9647
+Exit code 0. 134 test files. The suites that print a total add up to 10063
 checks passed, 0 failed (19 November 2026, on the source of that day, with
 no package in the build folder). This includes the repository guards the new driver
 must pass: driver XML structure, licensing through the Agent, every
@@ -193,10 +188,43 @@ in `ui/venueflow/README.md` and the commit messages):
 - The manual's ten screenshots taken on 19 November 2026 from the
   simulator, and checked to render and enlarge in the built manual.
 
+**Three engines, 19 November 2026.** Playwright 1.65 drove Chromium 159,
+WebKit 27.2 (desktop, and with the iPhone 15 and iPad (gen 7) descriptors)
+and Firefox 159, touch enabled, against the simulator, both sample venues,
+at 1024x600, 1280x800 and 390x844 (the measured sizes of
+`ui/venueflow/README.md`, rule 9, ran in all three with the same result).
+Every operator flow (PIN pad sign-in, the four interfaces, taps on the
+floor plan and "Which display?", routing, power, volume, mute, scenes,
+venue open and close, the source remote and favourites, the profile menu,
+the offline banner and recovery), every Installer Studio section and flow
+(source edit and autosave, a Layout Designer drag, a floor picture through
+the file input, a scene step, dry run, publish, rollback, the two-tab stale
+draft) and the Venue Studio flows passed in all three, with no page error
+and no console error. Four defects were found and fixed: the floor plan
+trusted the target WebKit and Chromium move a touch's click onto (it now
+uses where the finger went down; Firefox does not move taps); Firefox's
+blocked favicon request (an empty icon now); toasts swallowing taps (on a
+phone one sat over the volume slider); dialogs sized from the full viewport
+height (now from the visible area; buttons no longer trigger double-tap zoom
+or text selection). Floor plan effective target after the fix, the same in
+every engine within 1 px: sports bar 27 to 28 px at 1024x600 and 33 at
+390x844 for its columns of displays 5 px apart (a tap in the gap opens
+"Which display?"); conference centre 46 px or more at every size; a tap
+at the centre of every display selects that display in every engine.
+Taps during a Studio redraw: 38 of 288 timed presses were lost across the
+three engines before the fix, none after (288 of 288). The phone volume
+slider on the Floor Plan is 236 px wide at 390x844 (84 before). A pass in
+Firefox 159 is evidence about Gecko behaviour, not proof for Firefox 96.
+
 Not covered by any browser test: Gecko 96 (the touch screens' engine; only
-the static scan above), WebKit, a real touch screen, the Control4 apps, the Navigator bridge transport, a real
-pointer drag on a slider, the native file chooser, a backup file landing on
-disk, and pinch gestures (synthetic events only).
+the static scan above, and Firefox 159 as the same engine family), iOS
+Safari itself (WebKit desktop with phone and tablet descriptors is not iOS
+Safari, and shows no Safari toolbars), a real touch screen, the Control4
+apps, the Navigator bridge transport, a touch drag in WebKit and Firefox
+(mouse there; a real touch drag only in Chromium), long press, pinch,
+double-tap zoom, the iOS on-screen keyboard, private-mode storage on a real
+device, the native file chooser, native colour and time pickers (values set
+and saved, pickers not opened), and a backup file landing on disk.
 
 ## Exclusions
 
