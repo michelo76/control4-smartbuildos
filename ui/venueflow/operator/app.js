@@ -247,10 +247,19 @@ var Operator = (function () {
   O.setVenueStatus = function (status) {
     var open = status === 'open';
     return VF.confirm(open ? 'Mark the venue open?' : 'Mark the venue closed?',
-      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + ' Anything set up to happen at that moment will run. It does not switch anything off by itself.',
+      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + (O.doc().license && O.doc().license.restricted
+        ? ' The SmartBuildOS licence is restricted, so automations set for that moment will not run.' : ' Anything set up to happen at that moment will run.') + ' It does not switch anything off by itself.',
       open ? 'Open venue' : 'Close venue').then(function (go) {
       if (!go) return null;
-      return VF.api('VENUE_STATUS', { status: status }).then(function (r) { VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed'); return r; });
+      return VF.api('VENUE_STATUS', { status: status }).then(function (r) {
+        /* Under a restricted licence the status still changes, but automations waiting for it
+           do not run; the driver counts them (rulesNotRun). */
+        var notRun = r && r.ok && r.data ? Number(r.data.rulesNotRun) || 0 : 0;
+        if (notRun > 0) {
+          VF.toast((open ? 'Venue marked open. ' : 'Venue marked closed. ') + O.plural(notRun, 'automation') + ' set to run at this moment did not run: the SmartBuildOS licence is restricted.', 'warn', 9000);
+        } else VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed');
+        return r;
+      });
     });
   };
 
@@ -513,6 +522,40 @@ var Operator = (function () {
     return O.list('displays').filter(function (d) { return (d.floorId === floorId || !O.find('floors', d.floorId)) && !placed(d); });
   };
 
+  /* Distance in CSS px from a point on the screen to a box of the drawing
+     ({ x, y, w, h, cx, cy, rot } in drawing units, turned by rot degrees about its centre). */
+  O.planDistance = function (svg, box, clientX, clientY) {
+    var m = svg.getScreenCTM();
+    if (!m || !m.a) return Infinity;
+    var ux = (clientX - m.e) / m.a - box.cx, uy = (clientY - m.f) / m.d - box.cy;
+    var r = -(box.rot || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    var px = ux * c - uy * s, py = ux * s + uy * c;
+    var dx = Math.max(0, Math.abs(px) - box.w / 2), dy = Math.max(0, Math.abs(py) - box.h / 2);
+    return Math.sqrt(dx * dx + dy * dy) * m.a;
+  };
+  /* The displays within reach of a tap, nearest first: [{ it, dist }]. */
+  O.planNearest = function (svg, items, clientX, clientY) {
+    var m = svg.getScreenCTM(), scale = m && m.a ? m.a : 1;
+    var out = [];
+    items.forEach(function (it) {
+      var dist = O.planDistance(svg, it.box, clientX, clientY);
+      var reach = Math.max(12, (44 - Math.min(it.box.w, it.box.h) * scale) / 2);
+      if (dist <= reach) out.push({ it: it, dist: dist });
+    });
+    return out.sort(function (a, b) { return a.dist - b.dist; });
+  };
+  /* A tap that falls as near two displays as one: ask which. */
+  O.planChoose = function (near, onDisplay) {
+    var closer = null;
+    var list = h('div.list.op-fp-choose', near.slice(0, 6).map(function (n) {
+      var d = n.it.d, info = O.displayInfo(d);
+      return h('button.op-mini' + (O.selection.has(d.id) ? '.sel' : ''), { type: 'button', onclick: function () { if (closer) closer(d); } },
+        h('span.op-check', VF.icon('check', 'sm')), h('span.grow.ellipsis', d.name), h('span.small', info.line));
+    }));
+    VF.modal({ title: 'Which display?', icon: 'tv', body: list, actions: [{ label: 'Cancel', kind: 'ghost', value: null }], onOpen: function (close) { closer = close; } })
+      .then(function (d) { if (d && typeof d === 'object') onDisplay(d); });
+  };
+
   /* opts: { compact, onDisplay(d), onArea(area), zones, extras, selection } -> { el, update(), count } */
   O.plan = function (floor, opts) {
     opts = opts || {};
@@ -555,6 +598,7 @@ var Operator = (function () {
       var g = O.svg('g', { 'class': 'op-parea-tag' + (opts.onArea ? ' tap' : ''), role: opts.onArea ? 'button' : null, 'aria-label': opts.onArea ? 'Select every display in ' + a.name : null,
         onclick: opts.onArea ? function () { opts.onArea(a); } : null });
       if (opts.onArea) g.appendChild(O.svg('rect', { 'class': 'op-hit', x: L.x + 4, y: L.y - th / 2 - 10, width: tw + 20, height: th + 20 }));
+      g._pill = { x: L.x + 14, y: L.y - th / 2, w: tw, h: th, cx: L.x + 14 + tw / 2, cy: L.y, rot: 0 };
       g.appendChild(O.svg('rect', { x: L.x + 14, y: L.y - th / 2, width: tw, height: th, rx: th / 2, stroke: color }));
       g.appendChild(O.svg('text', { x: L.x + 14 + tw / 2, y: L.y, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: color }, name));
       svg.appendChild(g);
@@ -633,8 +677,49 @@ var Operator = (function () {
         g.appendChild(src);
       }
       svg.appendChild(g);
-      items.push({ g: g, d: d, src: src, cls: '' });
+      items.push({ g: g, d: d, src: src, cls: '', box: { x: L.x, y: L.y, w: w, h: hh, cx: cx, cy: cy, rot: rot } });
     });
+
+    /* Finger-sized targets. On a small screen a display is drawn smaller than a fingertip
+       (about 20 px on a 7-inch touch screen), and the drawing keeps the venue's real
+       proportions, so the TARGET grows instead: a tap that lands near a display, not on it,
+       goes to the nearest display within reach (each display reaches at least 12 px beyond
+       its edge, more when it is drawn small, so a target is about 44 px across). When two
+       displays are as near as each other, the tap asks which one was meant. Zone, scene and
+       area-name buttons keep their own taps. */
+    if (opts.onDisplay && items.length) {
+      /* Where the finger went down. WebKit and Chromium move the click of a touch onto a
+         control NEAR the finger by themselves (seen 19 November 2026: a tap beside one display
+         selected another, or the whole area through its name), Gecko does not. So for a touch
+         the plan decides from the point the finger touched, the same in every engine. */
+      var down = null;
+      svg.addEventListener('pointerdown', function (ev) { down = ev.pointerType === 'touch' ? { x: ev.clientX, y: ev.clientY, at: Date.now() } : null; }, true);
+      var control = function (el) { return el && el.closest ? el.closest('g.op-pd, .op-pzone, .op-pscene, .op-parea-tag') : null; };
+      svg.addEventListener('click', function (ev) {
+        var t = ev.target, x = ev.clientX, y = ev.clientY;
+        if (down && Date.now() - down.at < 1500) {
+          x = down.x; y = down.y;
+          var under = document.elementFromPoint(x, y);
+          if (under && under !== t && svg.contains(under) && control(under) !== control(t)) {
+            /* The engine moved this click: send it again where the finger was. */
+            ev.stopPropagation(); ev.preventDefault();
+            under.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+            return;
+          }
+        }
+        if (t && t.closest && t.closest('g.op-pd, .op-pzone, .op-pscene')) return;
+        var tag = t && t.closest ? t.closest('.op-parea-tag') : null;
+        if (tag && !(t.classList && t.classList.contains('op-hit'))) return;
+        var near = O.planNearest(svg, items, x, y);
+        if (!near.length) return;
+        /* An area name's invisible margin gives way to a display that is nearer than the name. */
+        if (tag && tag._pill && O.planDistance(svg, tag._pill, x, y) <= near[0].dist) return;
+        ev.stopPropagation();
+        if (tag) ev.preventDefault();
+        if (near.length > 1 && near[1].dist - near[0].dist < 4) { O.planChoose(near, opts.onDisplay); return; }
+        opts.onDisplay(near[0].it.d);
+      }, true);
+    }
 
     function update() {
       items.forEach(function (it) {
@@ -982,6 +1067,8 @@ var Operator = (function () {
     Object.keys(opSeen).forEach(function (id) { if (!present[id]) delete opSeen[id]; });
     var active = doc.activeScene && doc.activeScene.name ? doc.activeScene : null;
     sig = (active ? 'a' + active.id + active.at : '') + '|' + sig;
+    /* Only "No scene active" to say: a short screen gives the line to the floor plan. */
+    O.setClass(ui.activity, 'quiet', !active && !shown.length);
     O.patch(ui.activity, sig, function () {
       var lead = active ? h('div.op-act.idle', VF.icon('zap', 'sm'), h('span.op-act-text', 'Active scene: ', h('b', active.name), active.at ? ' since ' + VF.fmtTime(active.at) : ''))
         : (O.list('scenes').length && !shown.length ? h('div.op-act.idle.none', h('span.op-act-text', 'No scene active')) : null);

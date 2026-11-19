@@ -21,6 +21,7 @@
     "VF_NOT_FOUND": "That item no longer exists.",
     "VF_NO_PUBLISHED_CONFIG": "This venue has not been set up yet.",
     "VF_NO_SOURCE_FOR_POWER_ON": "Choose a source to turn this display on.",
+    "VF_ONSITE_ONLY": "That can only be changed on site.",
     "VF_RECURSION_LIMIT": "This scene runs itself in a loop.",
     "VF_ROUTE_UNSUPPORTED": "That source cannot reach this display.",
     "VF_SIMULATION_ONLY": "That is only available in Simulation mode.",
@@ -69,7 +70,7 @@
   "routeStrategies": [ "room", "command", "none" ],
   "schema": 1,
   "sourceKinds": [ "cable", "satellite", "streaming", "signage", "laptop", "conference", "music", "camera", "other" ],
-  "stepTypes": [ "display_power", "route_video", "route_audio", "volume", "mute", "zone_power", "lighting", "shade", "wait", "run_scene", "set_variable", "set_venue_status", "notify", "if" ],
+  "stepTypes": [ "display_power", "route_video", "tune", "route_audio", "volume", "mute", "zone_power", "lighting", "shade", "wait", "run_scene", "set_variable", "set_venue_status", "notify", "if" ],
   "triggerTypes": [ "manual", "scene_activated", "schedule", "c4_event", "external", "device_state", "c4_variable", "venue_status" ],
   "variableTypes": [ "bool", "number", "string" ],
   "venueTypes": [ "sports_bar", "restaurant", "corporate_office", "conference_center", "hotel", "fitness_center", "retail", "custom" ]

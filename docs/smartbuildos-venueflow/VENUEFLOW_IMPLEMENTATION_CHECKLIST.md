@@ -13,16 +13,22 @@ Rules for this file:
   marked RHV is claimed to work on hardware.
 - The "Evidence" column names the test file or the check.
 
-**State, 14 November 2026 (after the first bench session): 130 tasks. 120
-Completed, 9 Require Hardware Verification, 1 Blocked (needs other
-repositories), 0 Not Started. Two tasks (4.6 and 20.4) are verified on the
-bench controller, in Simulation; every other
-Completed task is verified on the simulator, the test shim or in a desktop
-browser. Nothing has controlled real equipment.**
+**State, 19 November 2026: 173 tasks. 144 Completed, 26 Require Hardware
+Verification, 1 Blocked (the `SBOS_VENUEFLOW` catalogue row not applied), 2
+Not Started (the shared module client's two weaknesses; the platform's
+follow-up to on-site-only mapping). Two tasks (4.6 and 20.4) are verified on
+the bench controller, in Simulation, on builds of 14 November 2026; every
+other Completed task is verified on the simulator, the test shim or in
+desktop browser engines (Chromium, and since 19 November WebKit and
+Firefox). Nothing has controlled real equipment. Phases 23 and 24
+(the second round and the fixes and decisions of 18 and 19 November 2026)
+have not run on a controller at all.**
 
-Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
-`feat/dealer-tools`). Driver: `drivers/smartbuildos-venueflow`. Code:
-`src/venueflow`. Pages: `ui/venueflow` (assembled into the driver's `www`).
+The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
+`f0952a4`). The branches it was built on, `feat/venueflow` and
+`feat/dealer-tools`, were merged and removed from the remote. Driver:
+`drivers/smartbuildos-venueflow`. Code: `src/venueflow`. Pages:
+`ui/venueflow` (assembled into the driver's `www`).
 
 ## Phase 1. Repository discovery and requirements
 
@@ -31,9 +37,9 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 1.1 | Find an existing VenueFlow project or assets | Search of the Codex folder and the driver monorepo reported | Completed | None found; only the seven mock-up images supplied with the brief |
 | 1.2 | Identify the driver monorepo conventions | Layout, build, test and worktree rules written down | Completed | ARCHITECTURE.md "House conventions reused" |
 | 1.3 | Locate Agent licensing | `src/sbos/license.lua` API read; SKU pattern known | Completed | ARCHITECTURE.md "Licensing" |
-| 1.4 | Locate reusable WebView pattern | UI Button + LAN relay + embedded page (Daypart, PIN Lock, Commissioning) read | Completed | ARCHITECTURE.md "Transport" |
+| 1.4 | Locate reusable WebView pattern | UI Button + LAN relay + embedded page (Daypart, PIN Lock, Commissioning) read | Completed | ARCHITECTURE.md "House conventions reused"; SDK_RESEARCH.md section 5 |
 | 1.5 | Decide repository ownership | New worktree and branch, nothing existing overwritten | Completed | `git worktree list` |
-| 1.6 | Record cross-repo boundaries | What belongs to the driver repo, the Agent and the web repo listed | Completed | SMARTBUILDOS_INTEGRATION.md "Not built" |
+| 1.6 | Record cross-repo boundaries | What belongs to the driver repo, the Agent and the web repo listed | Completed | SMARTBUILDOS_INTEGRATION.md "Not finished" |
 
 ## Phase 2. Control4 SDK research
 
@@ -65,7 +71,7 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 4.2 | UI Button proxy, binding, connection | Declared as in the bench-proven drivers | Completed | driver.xml; identical to Daypart |
 | 4.3 | Properties, actions, commands, events, variables | Each declared item has a handler | Completed | test_venueflow_driver [7], [10] |
 | 4.4 | Lifecycle | Init, late init, destroy; restart restores state | Completed | test_venueflow_driver [1], [11] |
-| 4.5 | Every `require` at module scope | Build finds every module | Completed | test_driver_require_guard; 38 modules squished |
+| 4.5 | Every `require` at module scope | Build finds every module | Completed | test_driver_require_guard; 43 modules squished (counted in a package built on 18 November 2026; no module added since) |
 | 4.6 | Loads on a controller | Driver added in Composer, no Lua error | Completed | Bench, 14 Nov 2026: HARDWARE_VALIDATION.md Results, H1 passed (Driver Status "Online - Simulation", Last Error "none"; the Lua tab was not open at the moment of start) |
 
 ## Phase 5. WebView communication
@@ -74,7 +80,7 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | --- | --- | --- | --- | --- |
 | 5.1 | Command envelope | requestId, command, payload, ts in; ack, status, errorCode, results, state out | Completed | test_venueflow_relay "invalid payloads", "state delivery" |
 | 5.2 | Schema for every command | Unknown command and invalid payload refused with a code | Completed | test_venueflow_relay: every command validated, every command has a handler |
-| 5.3 | LAN relay transport | HTTP router parses, routes, renders; oversize and malformed refused | Completed | test_venueflow_relay (253 checks); browser tests |
+| 5.3 | LAN relay transport | HTTP router parses, routes, renders; oversize and malformed refused | Completed | test_venueflow_relay; browser tests |
 | 5.4 | Navigator bridge transport | `C4.sendCommand` to `ExecuteCommand`, reply by `C4:SendDataToUI` | Completed | test_venueflow_driver [5] (shim). Delivery on a Navigator: 5.7 |
 | 5.5 | State delivery to pages | Version counter; unchanged state costs one small reply | Completed | test_venueflow_relay "state delivery" |
 | 5.6 | Page loads on Navigators | T3/T4, iOS, Android | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. On the bench both pages load whole from the controller in a desktop browser; no Navigator has opened the tile |
@@ -138,7 +144,7 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 10.3 | C: Simplified Room Control | Installer-defined buttons and optional controls | Completed | Browser check (conference centre) |
 | 10.4 | D: Manager Overview | Counts, states, alerts, scenes, opening/closing, confirmations | Completed | Browser check |
 | 10.5 | One engine behind all four | Same commands, same state document | Completed | One protocol, one state document: test_venueflow_core, test_venueflow_relay |
-| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in Chromium only |
+| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in desktop engines only (Chromium, and since 19 Nov 2026 WebKit 27.2 and Firefox 159: 24.31; sizes measured with touch emulation, 24.19); scanned statically for Gecko 96 features (24.17) |
 
 ## Phase 11. Source routing engine
 
@@ -191,7 +197,7 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 15.1 | License through the Agent | `sbos.license`, SKU `SBOS_VENUEFLOW`, standard properties | Completed | test_driver_license_guard; test_venueflow_driver [1] |
 | 15.2 | Fail open on uncertainty | No Agent, cloud outage, grace: full operation | Completed | test_venueflow_license "cloud outage" |
 | 15.3 | Definitive denial | Manual control and All Off keep working; automation and publishing stop; nothing is switched off | Completed | test_venueflow_license "restricted"; test_venueflow_driver [8] |
-| 15.4 | Entitlement issued by the platform | SKU row and Agent filename registered | Blocked | Needs the web repository (SKU row) and the Agent (DRIVER_FILENAMES): SMARTBUILDOS_INTEGRATION.md |
+| 15.4 | Entitlement issued by the platform | SKU row applied and Agent filename registered | Blocked | Agent side done on 18 Nov 2026: `DRIVER_FILENAMES` and `SKU_FILENAMES` name the driver (test_sbos_updater [10], [11]). The catalogue-row migration for `SBOS_VENUEFLOW` is merged in the web repository and **not applied by the owner**; the store's publish workflow does not name VenueFlow. SMARTBUILDOS_INTEGRATION.md |
 
 ## Phase 16. Local configuration and persistence
 
@@ -222,9 +228,9 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 18.1 | Sports-bar reference venue | 24 displays, 8 sources, 4 zones, groups, scenes, 3 profiles | Completed | test_venueflow_core "reference sports bar" |
 | 18.2 | Conference-centre venue | Present and valid | Completed | test_venueflow_core "reference conference centre" |
 | 18.3 | Simulator with fault injection | Offline device, unsupported route, silent device | Completed | src/venueflow/sim.lua: offline, silent, wrong, slow; used throughout |
-| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 12 suites, 1812 checks, 0 failed |
+| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 17 suites, 3006 checks, 0 failed (19 Nov 2026; package checks skipped, no package built) |
 | 18.5 | Browser tests | Pages driven against the real Lua core and simulator | Completed | TEST_RESULTS.md "Browser tests" (Chromium) |
-| 18.6 | Whole repository suite still passes | `make test` | Completed | TEST_RESULTS.md: make test exit 0, 126 files |
+| 18.6 | Whole repository suite still passes | `make test` | Completed | TEST_RESULTS.md: make test exit 0, 134 files (19 Nov 2026) |
 
 ## Phase 19. Hardware integration tests
 
@@ -252,7 +258,7 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 21.4 | SmartBuildOS integration | Written | Completed | SMARTBUILDOS_INTEGRATION.md |
 | 21.5 | Troubleshooting | Written | Completed | TROUBLESHOOTING.md |
 | 21.6 | Release notes | Written | Completed | RELEASE_NOTES.md |
-| 21.7 | Driver manual in Composer | `www/documentation/index.md` builds | Completed | Built into the .c4z (www/documentation/index.html). No bench screenshots yet |
+| 21.7 | Driver manual in Composer | `www/documentation/index.md` builds | Completed | Built into the .c4z (www/documentation/index.html). Ten screenshots of the pages from the simulator (19 Nov 2026), checked to render and enlarge in the built manual in desktop Chromium; no Composer or bench screenshot yet |
 | 21.8 | Schemas and sample venues | Published as files | Completed | DATA_MODEL.md, schema/*.json, samples/*.json |
 
 ## Phase 22. Release verification
@@ -263,3 +269,59 @@ Worktree: `control4-smartbuildos-venueflow`, branch `feat/venueflow` (cut from
 | 22.2 | Secret scan | No credential in the tree | Completed | gitleaks: no leaks found |
 | 22.3 | Static checks | stylua, driver guards | Completed | TEST_RESULTS.md "Static checks" |
 | 22.4 | Readiness statement | One of: development only, simulation verified, hardware validated, production ready | Completed | RELEASE_NOTES.md: simulation verified |
+
+## Phase 23. Second round: Venue Studio for the client, source controls, Remote Management
+
+| ID | Task | Acceptance criterion | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| 23.1 | Venue Studio for the client | A profile with the permission opens the Studio on its PIN and changes only client-owned parts | Requires Hardware Verification | test_venueflow_clientstudio; browser check in desktop Chromium, and on 19 Nov 2026 in WebKit and Firefox too. Not tried on a touch screen or in the Control4 app (HARDWARE_VALIDATION.md, "Not yet run") |
+| 23.2 | Client limits enforced by the driver | A hand-made request changing an installer-owned part is refused | Completed | test_venueflow_clientstudio "every installer-owned part refused" |
+| 23.3 | Basic source controls | Closed key list, groups per source, permission, keys sent to the source's device | Requires Hardware Verification | test_venueflow_sourcecontrol. That a key reaches a real box is not documented and not seen |
+| 23.4 | Favourite channels | Up to 24 per source, dialled digit by digit, edited by the client | Requires Hardware Verification | test_venueflow_sourcecontrol, test_venueflow_clientstudio. Digit spacing on a real box not seen |
+| 23.5 | Remote Management, driver side | Property, registration only while on, five commands, snapshot without PIN material, published event | Requires Hardware Verification | test_venueflow_remote, test_venueflow_driver. Never registered with a real Agent |
+| 23.6 | Remote Management, platform side | System Studio section, status route, module contract, catalogue-row migration | Completed | In the web repository: merged and deployed 15 Nov 2026 with its unit tests (not checked from this repository). The migration is not applied (15.4) |
+| 23.7 | Remote Management end to end | A draft, publish and rollback from System Studio reach the bench controller | Requires Hardware Verification | HARDWARE_VALIDATION.md, "Not yet run". Never run |
+| 23.8 | Owner decision: may a remote draft replace device mapping and device commands | Decided and enforced | Completed | Decided: on site only (19 Nov 2026). Enforced in the driver: test_venueflow_remote "on-site only: ..." (simulator and shim; never run with a real Agent: 24.27) |
+
+## Phase 24. Review and audit fixes and page follow-ups, 18 and 19 November 2026
+
+Simulator, test shim and desktop browser engines only; nothing here has run on a
+controller, a touch screen or a phone.
+
+| ID | Task | Acceptance criterion | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| 24.1 | Profiles screens and stations open with are the installer's | A client's change, rename, removal or PIN on them is refused | Completed | test_venueflow_clientstudio "the profiles a screen or station opens with", "PINs and templates: refused or attributed" |
+| 24.2 | Whose draft it is | Saves record who saved; a client cannot publish or discard installer or remote work; a restored backup counts as the installer's | Completed | test_venueflow_clientstudio "whose work is in the draft" |
+| 24.3 | Revisions never repeat | Across discard, publish, restore; `baseRevision` on `PUBLISH` and `DRAFT_DISCARD` | Completed | test_venueflow_store "revisions never repeat" |
+| 24.4 | PINs kept when there is no draft | An installer or remote save with no draft keeps every PIN | Completed | test_venueflow_store "PINs when there is no draft" |
+| 24.5 | Partly visible operations | Label counted over what the profile sees; no `origin` for a profile | Completed | test_venueflow_permissions "operations, partly visible" |
+| 24.6 | A channel being dialled across a publish | Finishes unless the source's device or the control mode changed; a stop is logged | Completed | test_venueflow_sourcecontrol "a publish while a channel is being dialled", "the control mode changes ...". On a real box: 23.3 |
+| 24.7 | Stopping a run | A command already sent is not reported as stopped | Completed | test_venueflow_routing "stopping a run: a command already sent is not 'stopped'" |
+| 24.8 | A scene's area | `SCENE_ACTIVATE` refuses an area outside the profile's access | Completed | test_venueflow_permissions "a scene's area" |
+| 24.9 | Alerts a profile is shown | Stored alerts filtered by what they concern; `ALERT_DISMISS` only for an alert shown; the count updated at once | Completed | test_venueflow_permissions "dismissing alerts"; test_venueflow_core "a stored alert about displays a profile cannot see is not shown to it", "ALERT_DISMISS writes the venue's count" |
+| 24.10 | One count of alerts; *Alert Raised* for detected alerts | Property, `ALERT_COUNT` and *VenueFlow has alerts* agree; the event fires when a detected alert appears | Requires Hardware Verification | test_venueflow_driver; test_venueflow_core (the alert timer). In Composer programming: not seen |
+| 24.11 | *Configuration Published* on a rollback; the event names the new version | Fires; `versionId` new, `restoredFrom` the old | Requires Hardware Verification | test_venueflow_driver |
+| 24.12 | True-or-false conditionals honour the false choice | "Venue is closed", "has alerts: clear" | Requires Hardware Verification | test_venueflow_driver. The shim cannot tell how Composer passes the choice |
+| 24.13 | Composer commands under a restricted licence | *Trigger the VenueFlow event* refused or flagged; *Mark the venue* sets the status and reports rules not run; Last Error says so | Requires Hardware Verification | test_venueflow_driver, test_venueflow_license. Needs H10 (15.4) |
+| 24.14 | `refresh_status` summary and `config_version` | One line of at most 200 characters, a status frame at once, the live version | Requires Hardware Verification | test_venueflow_driver. Needs 23.7 |
+| 24.15 | The Agent's updater and SKU lists name VenueFlow | `DRIVER_FILENAMES` and `SKU_FILENAMES` | Completed | test_sbos_updater [10], [11]. The store's publish workflow does not name VenueFlow yet |
+| 24.16 | Package staleness check | The package check fails when a built package is older than its sources | Completed | test_venueflow_security; seen failing on 18 Nov 2026 against a package built before the last commits of the round |
+| 24.17 | Touch-screen engine floor (Gecko 96) checked statically | The page sources and built pages scanned for features Gecko 96 lacks | Completed | test_venueflow_engine_floor: none found. A static scan against a deny-list, not a run in Gecko; Gecko 96 itself remains untested (10.6) |
+| 24.18 | Shared module client: authenticate the registration reply; leave the Agent when switched Off mid-registration | Fixed for every module driver | Not Started | SECURITY_REVIEW.md, residual risks 8 and 9. Changes the module contract for every module driver |
+| 24.19 | Operator page and Studios reachable at real screen sizes | Every interactive control reachable, not covered, at the measured sizes | Requires Hardware Verification | Browser check with touch emulation, simulator, both samples, in Chromium 159, WebKit 27.2 and Firefox 159 (desktop engines) with the same result (`ui/venueflow/README.md`). Not on a T3, a T4 or a phone |
+| 24.20 | Floor plan selectable by touch on small screens | A tap near a display selects it; a tap as near two opens "Which display?"; side panel shows it scrolls | Requires Hardware Verification | Browser check (touch emulation): smallest effective target 28 px (sports bar, 1024x600), 46 px (conference centre). On a 7-inch T3: HARDWARE_VALIDATION.md |
+| 24.21 | Long names readable | Display, source and zone names wrap to two lines | Completed | Browser check, desktop Chromium |
+| 24.22 | The Studio names the revision it publishes or discards | `baseRevision` sent; on `VF_STALE_DRAFT` nothing done, draft reloaded, no retry | Completed | Browser check with two tabs, installer and client (simulator); the driver side: test_venueflow_store, test_venueflow_clientstudio |
+| 24.23 | The client is told why publishing waits | Plain-word reason and who to ask, in the header, on Home and on Publish and Rollback; buttons disabled | Completed | Browser check (simulator). The dealer wording seen only with the page's state set by hand |
+| 24.24 | Screen profiles read-only for a client | Default and station profiles shown read-only, no Delete or PIN buttons | Completed | Browser check for the default profile (simulator). The station case not seen: the samples have no stations |
+| 24.25 | Venue status under a restricted licence on the operator page | The page says how many automations did not run | Completed | Browser check on a simulator started restricted; the driver side: test_venueflow_license |
+| 24.26 | Remote Management refuses device mapping and device commands | A remote save, publish or rollback that changes or puts live a mapping is refused whole with `VF_ONSITE_ONLY` and a bounded detail; nothing stored | Completed | test_venueflow_remote "on-site only: device mapping and device commands", "the installer's work in the draft", "publish and rollback", "with no draft, the live configuration is the base", "guard" |
+| 24.27 | The refusal seen end to end | From smartbuildos.io: Failed, the sentence shown, the draft unchanged | Requires Hardware Verification | HARDWARE_VALIDATION.md, "Not yet run" |
+| 24.28 | The platform matches the decision | The Whole configuration editor shows mapping read-only, explains `VF_ONSITE_ONLY`, warns on Publish | Not Started | Web repository; SMARTBUILDOS_INTEGRATION.md, platform follow-up |
+| 24.29 | "Tune a channel" step for scenes, rules and schedules | Validated at save and publish with the owner named; dials through the closed key list; stopped with its run; overlap by source; in the Studio for installer and client | Requires Hardware Verification | test_venueflow_rules "tune step", test_venueflow_schema "tune step validation", test_venueflow_sourcecontrol "the tune step's way into the engine", "the engine: ...", test_venueflow_clientstudio "a tune step in the client's hands"; browser check of the editor (simulator). Never seen on a real box |
+| 24.30 | Shade open and closed levels bounded | 0 to 100, else `RANGE` at save and publish | Completed | test_venueflow_schema "shade levels" |
+| 24.31 | The pages in WebKit and Firefox | Every operator, Studio and Venue Studio flow in Chromium, WebKit and Firefox with no page or console error | Requires Hardware Verification | Browser check, 19 Nov 2026: Playwright 1.65, Chromium 159, WebKit 27.2 (desktop, iPhone and iPad descriptors), Firefox 159, simulator (TEST_RESULTS.md, `ui/venueflow/README.md` rule 9). Desktop engines only; Firefox 159 is not 96, WebKit desktop is not iOS Safari |
+| 24.32 | Floor plan taps the same in every engine | A tap is judged from where the finger went down; "Which display?" opens between two displays in all three | Requires Hardware Verification | Browser check in the three engines (targets within 1 px). Whether a T3 or T4 moves taps: unseen |
+| 24.33 | Taps act while the Studio redraws | No control is rebuilt under a finger | Completed | Browser check: 288 of 288 timed presses act in the three engines (38 lost before) |
+| 24.34 | Removing a used favourite asks first | The confirmation names the scenes and schedules that use it, in the Installer Studio and the client's Channels and Names | Completed | Browser check (simulator); the driver's publish check stays the authority (test_venueflow_schema "tune step validation") |
+| 24.35 | Volume slider usable on a phone and a 7-inch screen | Phone: its own row; 7-inch: a finger can set a level | Requires Hardware Verification | Browser check: 236 px at 390x844 (84 before). At 1024x600 the sliders stay 110 and 94 px, about one pixel per step: a known limitation, HARDWARE_VALIDATION.md |

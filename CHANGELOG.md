@@ -51,12 +51,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
     driver sends the documented Control4 command to the source's own device.
     Simulation verified only: not yet seen to move a real box, and there is no
     feedback.
-  - **Remote Management, driver side.** A property (Off by default, Draft only,
-    Draft and publish) lets smartbuildos.io read the configuration, fill the
-    draft and, where allowed, publish and roll back, through the Agent's module
-    contract (module `venueflow`; one new Agent allowlist entry and one envelope
-    prefix). It never controls equipment. **The platform side does not exist
-    yet**, so nothing can be managed remotely today.
+  - **Remote Management.** A property (Off by default, Draft only, Draft and
+    publish) lets smartbuildos.io read the configuration, fill the draft and,
+    where allowed, publish and roll back, through the Agent's module contract
+    (module `venueflow`; one Agent allowlist entry and one envelope prefix). It
+    never controls equipment. The smartbuildos.io side (System Studio, Drivers &
+    Licenses, VenueFlow) is merged and deployed, but the two sides have **never
+    been run together with a controller**, and the catalogue row for
+    `SBOS_VENUEFLOW` is not applied yet, so no licence can be issued for it.
 - **Agent: restarts counted per day.** New property **Director Reloads Today**
   and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the controller's
   local midnight, back to 0 every midnight. The reload report to SmartBuildOS
@@ -228,6 +230,79 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   midnight, and an expired one came back). Daypart Scheduler: a block started by
   hand resumes its volume ramp after a pause or a restart. MQTT Bridge: a child
   driver that reloads gets its retained state again.
+
+- **VenueFlow: client limits, draft ownership, alerts and Composer wiring** (18
+  November 2026; simulator and test shim only, not run on a controller). Found
+  by an adversarial review and a gap audit. In the Venue Studio, the profile a
+  tile opens with and every station's profile are the installer's as whole
+  records, PINs included. Every draft save records who made it, and a client can
+  no longer publish or discard a draft holding the installer's or the dealer's
+  unfinished work. Draft revisions never repeat (across a discard, a publish and
+  a backup restore); `PUBLISH` and `DRAFT_DISCARD` take an optional
+  `baseRevision`. Operations shown to a staff profile no longer carry `origin`,
+  and one the profile sees only part of gets a label counted over that part. A
+  channel being dialled finishes across a publish unless its source's device or
+  the control mode changed. `SCENE_ACTIVATE` refuses an area outside the
+  profile's access, and `ALERT_DISMISS` an alert the profile is not shown. The
+  Alerts property, `ALERT_COUNT` and *VenueFlow has alerts* now count the same
+  alerts, detected ones included, and *Alert Raised* fires when a detected alert
+  appears. *Configuration Published* fires on a rollback, the two true-or-false
+  conditionals honour the "closed" and "clear" choices, and *Trigger the
+  VenueFlow event* under a restricted licence is refused with a reason in Last
+  Error, and a partly run one is reported there too; *Mark the venue* always
+  sets the status and writes Last Error for rules a restricted licence kept from
+  running. Stored alerts are shown on the operator page only to profiles that
+  may see what they concern, and dismissing one updates `ALERT_COUNT` at once. A
+  save with no draft keeps the staff PINs (the installer and remote paths
+  dropped them). `refresh_status` answers with a one-line summary and the module
+  reports the live version as `config_version`. The Agent lists
+  `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
+  `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
+
+- **VenueFlow pages in three browser engines** (19 November 2026; desktop
+  engines against the simulator, not a T3, a T4 or a phone). The pages ran for
+  the first time in WebKit 27.2 and Firefox 159 as well as Chromium 159
+  (Playwright 1.65, touch enabled, both sample venues): every operator, Studio
+  and Venue Studio flow passed with no page or console error. Fixed: the floor
+  plan now judges a tap from where the finger went down (WebKit and Chromium
+  moved it onto a nearby control); an empty page icon (Firefox logged a blocked
+  favicon request); toasts let taps through; dialogs size to the visible area
+  and buttons no longer trigger double-tap zoom; no Studio control is rebuilt
+  under a finger (38 of 288 timed taps were lost before, none after); the phone
+  Floor Plan volume slider has its own row (84 to 236 px wide). Removing a
+  favourite channel a scene or schedule uses now asks first and names them.
+  Known: at 1024x600 the volume sliders are about one pixel per step. Firefox
+  159 is not the touch screens' Firefox 96.
+
+- **VenueFlow: device mapping is on site only; a "Tune a channel" step** (19
+  November 2026; simulator and test shim only, not run on a controller). Owner
+  decisions. Remote Management refuses, whole and with the new code
+  `VF_ONSITE_ONLY`, a remote draft that would change which Control4 room or
+  device something addresses or which command a custom route or a lighting
+  preset sends, a remote publish while the draft's mapping differs from what is
+  live, and a remote rollback to a version with another mapping; the detail
+  names what was touched (at most 380 bytes) and nothing is stored. Everything
+  else stays remote-editable. smartbuildos.io has not been changed to match.
+  Scenes, rules and schedules gain a "Tune a channel" step (a favourite or a
+  number, to the source's own device through the closed key list; sent, never
+  confirmed; stopped with its run; after a cut-off number the next number for
+  that box waits about 3 s, an assumption never seen on a box; other boxes are
+  not held up). A shade's open and closed levels must be 0 to 100.
+
+- **VenueFlow pages: small screens, stale drafts, the client's reason** (19
+  November 2026; desktop Chromium against the simulator only, not on a T3, a T4
+  or a phone). Every operator control was measured reachable at seven screen
+  sizes from 1024x600 to 1920x1200 and on phones and tablets, the Venue Studio
+  at four, the Installer Studio at four. Long names take two lines; the Venue
+  Studio's header wraps on a phone. On the floor plan a tap near a display
+  selects the nearest one and a tap between two opens "Which display?"; the side
+  panel shows when it scrolls. The Studio sends `baseRevision` with Publish and
+  Discard and reloads, without retrying, when the draft changed. A client is
+  told in plain words whose unfinished changes block publishing, and sees the
+  profiles screens open with read-only. Opening or closing the venue under a
+  restricted licence says how many automations did not run. A new suite scans
+  the pages for features Gecko 96 lacks (static only; none found). The manual
+  gains ten screenshots, all from the simulator.
 
 - **VenueFlow: six defects from the review of its pull request**, each
   reproduced by a test first (simulation and shim; not built, not run on a

@@ -6,80 +6,15 @@
    Every section is a list on the left and an editor for the selected item on
    the right. The selection lives in a module variable, so the re-render that
    follows each change keeps the same item open. Changes go through
-   Studio.update (silently) followed by a re-render that waits for the pointer
-   to be released and puts the keyboard focus back where it was, so a click on
-   the next control right after typing is not lost. */
+   Studio.update (silently) followed by Studio.refreshSoon: a re-render that
+   waits for the pointer to be released and puts the keyboard focus back where
+   it was, so a click on the next control right after typing is not lost. */
 (function () {
   'use strict';
   var h = VF.h, icon = VF.icon, S = Studio;
-  var MINE = { devices: 1, sources: 1, zones: 1, groups: 1, ambient: 1, rooms: 1, profiles: 1 };
 
-  /* ── a re-render that keeps the installer's place ────────────────────── */
-  var wanted = false, timer = null, downAt = 0, downEl = null, changedEl = null;
-  document.addEventListener('pointerdown', function (e) { downAt = Date.now(); downEl = e.target; }, true);
-  ['pointerup', 'pointercancel'].forEach(function (n) { document.addEventListener(n, function () { downAt = 0; if (wanted) later(60); }, true); });
-  document.addEventListener('click', function () { downAt = 0; }, true);
-  document.addEventListener('change', function (e) { changedEl = e.target; downAt = 0; }, true);
-  document.addEventListener('focusin', function (e) { var t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) t._enInit = t.value; }, true);
-  function later(ms) { clearTimeout(timer); timer = setTimeout(run, ms || 0); }
-  function refresh() { wanted = true; later(0); }
-
-  function labelOf(el) {
-    var own = el.getAttribute('aria-label'); if (own) return own;
-    var wrap = el.closest('label, .en-fld');
-    if (wrap) {
-      for (var i = 0; i < wrap.childNodes.length; i++) {
-        var n = wrap.childNodes[i];
-        if (n.nodeType === 3 && n.textContent.trim()) return n.textContent.trim();
-        if (n.nodeType === 1 && n.tagName === 'SPAN') return n.textContent.trim();
-      }
-    }
-    return el.tagName === 'BUTTON' ? el.textContent.trim().slice(0, 40) : '';
-  }
-  function focusKey(el) { var scope = el.closest('[data-fk]'); return (scope ? scope.dataset.fk : '') + '|' + el.tagName + '|' + (el.type || '') + '|' + labelOf(el); }
-  function findByKey(root, key) {
-    var all = root.querySelectorAll('input, select, textarea, button');
-    for (var i = 0; i < all.length; i++) { if (focusKey(all[i]) === key) return all[i]; }
-    return null;
-  }
-  function run() {
-    if (!wanted) return;
-    if (!MINE[S.currentSection()]) { wanted = false; return; }
-    if (downAt && Date.now() - downAt < 700) { later(90); return; }   /* let the click land first */
-    var main = document.getElementById('main'); if (!main) return;
-    var a = document.activeElement, inside = !!(a && a !== document.body && main.contains(a));
-    if (inside && a.tagName === 'SELECT' && a !== changedEl && a === downEl) {   /* a pick list opened by touch or mouse would close */
-      if (!a._enWait) {
-        a._enWait = true;
-        var go = function () { a._enWait = false; a.removeEventListener('blur', go); a.removeEventListener('change', go); later(0); };
-        a.addEventListener('blur', go); a.addEventListener('change', go);
-      }
-      return;
-    }
-    var keep = null;
-    if (inside) {
-      keep = { key: focusKey(a), value: null, s: null, e: null };
-      if ((a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio') || a.tagName === 'TEXTAREA') {
-        if (a !== changedEl && a._enInit !== undefined && a.value !== a._enInit) keep.value = a.value;   /* typed, not committed yet */
-        try { keep.s = a.selectionStart; keep.e = a.selectionEnd; } catch (e) { /* number fields have no selection */ }
-      }
-    }
-    var scrolls = {};
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { scrolls[el.dataset.enScroll] = el.scrollTop; });
-    wanted = false; changedEl = null; downEl = null;
-    S.refresh();
-    main.querySelectorAll('[data-en-scroll]').forEach(function (el) { var v = scrolls[el.dataset.enScroll]; if (v) el.scrollTop = v; });
-    if (!keep) return;
-    var el = findByKey(main, keep.key); if (!el) return;
-    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
-    if (keep.value !== null && el.value !== keep.value) {
-      el.value = keep.value;
-      var fired = false;
-      el.addEventListener('change', function () { fired = true; });
-      el.addEventListener('blur', function () { if (!fired) el.dispatchEvent(new Event('change', { bubbles: true })); });
-    }
-    if (keep.s !== null && keep.s !== undefined) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
-  }
+  /* ── a re-render that keeps the installer's place (Studio.refreshSoon) ── */
+  function refresh() { S.refreshSoon(); }
 
   /* ── small helpers ───────────────────────────────────────────────────── */
   function upd(label, fn) { S.update(label, fn, { silent: true }); refresh(); }
@@ -202,7 +137,7 @@
   }
   function editorHead(kicker, item, onDelete) {
     return h('div.row.between.top', h('div.col.tight.grow', h('h4', kicker), h('h2.ellipsis', item.name || '(no name)'), h('span.tiny.mono.muted', 'id ' + item.id)),
-      h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete'));
+      onDelete ? h('button.btn.sm.danger', { type: 'button', onclick: onDelete }, icon('trash', 'sm'), 'Delete') : null);
   }
   function pickFirst(list, sel) { if (sel && VF.byId(list, sel)) return sel; return list.length ? list[0].id : null; }
   function nothingSelected(text) { return h('div.empty', text); }
@@ -1246,6 +1181,14 @@
     });
   }
   function stationsOf(profileId) { return S.list('stations').filter(function (st) { return st && st.profileId === profileId; }); }
+  /* For a client: the profile a tile opens with and every station's profile are the
+     installer's (the driver refuses a client's change to them, src/venueflow/clientscope.lua). */
+  function screenLocked(profileId) { return S.isClient() && (S.config().defaultProfileId === profileId || stationsOf(profileId).length > 0); }
+  function lockedBox(locked) {
+    var kids = Array.prototype.slice.call(arguments, 1);
+    return locked ? h('fieldset.col.en-locked', { disabled: true }, kids) : kids;
+  }
+  var SCREEN_LOCKED = 'This is the profile screens open with. Only your installer can change it.';
   function setPin(p) {
     var isDefault = S.config().defaultProfileId === p.id, stations = stationsOf(p.id);
     var why = [];
@@ -1285,16 +1228,20 @@
     function ed(label, fn) { edit('profiles', id, label, fn); }
     function perm(key) { return function (v) { ed('Profile permission', function (x) { x.permissions = VF.asMap(x.permissions); x.permissions[key] = v; }); }; }
     var isDefault = S.config().defaultProfileId === id;
+    var locked = screenLocked(id);
+    /* A locked profile is shown as it is: every control inside the fieldset is disabled. */
     return h('div.panel.pad.col.en-editor', { dataset: { fk: 'pro:' + id } },
-      editorHead('Staff profile', p, function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      editorHead('Staff profile', p, locked ? null : function () { S.confirmRemove('profile', id, 'staff profile'); }),
+      locked ? note(SCREEN_LOCKED, 'info', 'lock') : null,
       issueSlot('profile', id),
+      lockedBox(locked,
       h('div.form',
         nameField('Name', p.name, function (v) { ed('Rename staff profile', function (x) { x.name = v; }); }),
         S.select('Role', opts(schema().roles || Object.keys(ROLE_LABEL), ROLE_LABEL), p.role, function (v) { ed('Profile role', function (x) { x.role = v || 'restricted'; }); }, { hint: 'A label for the kind of staff. The switches below decide what the profile can do.' })),
       card('PIN', h('div.row.wrap.between',
         h('div.col.tight.grow', p.hasPin ? h('span.chip.ok', icon('lock', 'sm'), 'PIN set') : h('span.chip.warn', icon('unlock', 'sm'), 'No PIN'),
           h('span.hint', p.hasPin ? 'Staff choose this profile on the sign-in pad and type its PIN. The PIN is never shown and is not part of the configuration.' : (isDefault ? 'A tile opens as this profile without asking.' : 'Without a PIN staff cannot sign in as this profile. It can only be the profile a tile or a station opens with.'))),
-        h('div.row.wrap',
+        locked ? null : h('div.row.wrap',
           h('button.btn.sm', { type: 'button', onclick: function () { setPin(p); } }, icon('key', 'sm'), p.hasPin ? 'Change PIN' : 'Set PIN'),
           p.hasPin ? h('button.btn.sm.danger', { type: 'button', onclick: function () { removePin(p); } }, 'Remove PIN') : null))),
       card('Interfaces', h('div.col',
@@ -1321,7 +1268,7 @@
         S.idPicker('Areas', 'areas', perms.areas, perm('areas'), { items: S.list('areas').map(function (a) { return { id: a.id, name: areaText(a.id) }; }) }),
         S.idPicker('Sources', 'sources', perms.sources, perm('sources')),
         S.idPicker('Audio zones', 'audioZones', perms.zones, perm('zones')),
-        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds')))));
+        S.idPicker('Scenes', 'scenes', perms.sceneIds, perm('sceneIds'))))));
   }
   function renderProfiles(container) {
     var list = S.list('profiles'), c = S.config();
@@ -1337,7 +1284,8 @@
     if (current && current.hasPin) tileOptions.push({ value: current.id, label: current.name + ' (has a PIN: not allowed)' });
     var tile = h('div.panel.pad.col.tight.en-tile',
       S.select('A tile opens as', tileOptions, current ? c.defaultProfileId : '', function (v) { upd('Tile profile', function (x) { if (v) x.defaultProfileId = v; else delete x.defaultProfileId; }); },
-        { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
+        S.isClient() ? { none: 'Ask everyone to sign in', disabled: true, hint: 'Only your installer can choose the profile screens open with.' }
+          : { none: 'Ask everyone to sign in', hint: 'A Navigator tile opens as this profile without a PIN. Only profiles without a PIN can be chosen. Staff with a PIN sign in from the tile.' }));
     VF.mount(container,
       S.sectionHead('Staff Profiles', 'Who uses the screens, which interfaces they get and what they may do.', [h('button.btn.sm.primary', { type: 'button', onclick: addProfile }, icon('plus', 'sm'), 'Add profile')]),
       note('Permissions are enforced by the driver, not by the screens: a screen only hides what the driver would refuse. Changing the configuration is not a profile permission. It always needs the Installer Passcode.', 'info', 'shield'),

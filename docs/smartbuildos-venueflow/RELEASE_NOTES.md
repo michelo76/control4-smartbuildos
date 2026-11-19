@@ -1,5 +1,214 @@
 # VenueFlow release notes
 
+## Source of 18 and 19 November 2026: review and audit fixes, page follow-ups, three browser engines, not imported anywhere
+
+Found by an adversarial review of the driver's code (who may change what,
+whose draft it is, revisions, operations, source controls, scenes, alerts)
+and by a gap audit of the wiring between the driver, Composer programming,
+the SmartBuildOS Agent and smartbuildos.io. Each defect was reproduced by a
+test against the old code and then fixed. **All of it is verified on the
+simulator and the test shim only.** The VenueFlow suites and the whole
+repository pass on this source: 3006 checks in 17 VenueFlow suites, 10063
+in 134 test files (19 November 2026, with no package in the build folder, so the
+package checks were skipped; TEST_RESULTS.md). No package built from
+this exact source exists: the one in the build folder of the working copy
+predates the last commits (the package check reports it as stale), and none
+has been imported on a controller. The bench controller still runs build
+`20261114.191046`, in Simulation.
+
+| Defect | Fix |
+| --- | --- |
+| **A client could widen what an unsigned-in tile or a station may do.** Only the pointers to the default profile and the station profiles were installer-owned; the profile records themselves (permissions, areas, interfaces) were the client's, and anyone on the LAN acts as those profiles | The default profile and every station's profile are the installer's as whole records. A client's change, rename or removal of them, or setting or clearing their PIN, is refused with `VF_FORBIDDEN` and `data.installerOnly` ("the profile a screen or station opens with"). Other staff profiles stay the client's |
+| **A client could publish or discard the installer's half-built work** when it touched only parts a client may also change (a schedule or scene the installer was still building) | Every draft save records who saved it (`installer`, `remote`, `profile:<id>`) until the next publish or discard. A client cannot publish or discard a draft holding a save by the installer or the dealer (`VF_FORBIDDEN`, "the installer has unfinished changes in the draft"; the Studio's standing gives the reason, "changes saved by the installer" or "changes saved remotely by the dealer"). A PIN set and a template applied by the installer count as installer saves |
+| A draft revision number could come back with other content after a discard, a publish or a restore, so a check against a revision could pass on a different draft | The counter is stored on its own (`vf_draft_revision_v1`), never goes back, and travels in a backup (`revision`). `PUBLISH` and `DRAFT_DISCARD` accept an optional `baseRevision` and refuse a stale one with `VF_STALE_DRAFT` |
+| A save made with no draft (the installer's or a remote one) dropped every staff PIN | PINs are taken from what is published when there is no draft |
+| An operation partly outside a profile's access kept its original label ("Sports 2 to 5 displays") and `origin`, which names a profile or a station | The label is counted over what the profile sees, and `origin` is no longer sent to a profile (state document and `OPERATION_GET`; an installer's `OPERATION_GET` is unchanged) |
+| A publish in the middle of a favourite channel cut the number off, leaving a box half-dialled | The channel finishes unless that source's Control4 device or the control mode changed; a stop is logged in Diagnostics (`VF_CANCELLED`) |
+| Stopping a run reported a command it had already sent as "stopped before it was sent" when the run had asked for the same value twice | The sent command keeps its place and its outcome is reported |
+| `SCENE_ACTIVATE` with an area outside the profile's access ran the scene's "not pressed in that area" branch | Refused with `VF_FORBIDDEN` |
+| `ALERT_DISMISS` removed any stored alert by id, also one the profile is not shown, and then set `ALERT_COUNT` to the stored alerts alone | Only an alert the profile is shown as dismissable; any other id answers `VF_NOT_FOUND`. `ALERT_COUNT` is updated at once from the one definition |
+| Every profile with View Alerts saw every stored alert, including an interrupted scene or a missed schedule about displays, zones and scenes outside its access | A stored alert is shown, and may be dismissed, only by a profile that may see every display, zone and scene it concerns (one about something since removed: only a profile whose scope is all of that kind). A notification still reaches every profile with View Alerts. Not filtered: a rule's own name in a title; lighting and shades are not recorded with an alert. Composer's count is unchanged: the whole venue |
+| Under a restricted licence, marking the venue open or closed skipped the rules waiting for it in silence | The status is always set (manual control). Last Error reads `SET_VENUE_STATUS: status set; N rule(s) not run: licence restricted`, Diagnostics log a warning, and the operator page's `VENUE_STATUS` reply carries `data.rulesNotRun` (the page does not show it yet) |
+| The Alerts property, the variable `ALERT_COUNT` and the conditional *VenueFlow has alerts* counted three different things; *Alert Raised* never fired for a display that did not confirm | One definition: every current alert, stored and detected, a muted zone excluded. *Alert Raised* fires for each stored alert and once when a detected one appears |
+| A rollback did not fire *Configuration Published*, and its record and the `venueflow.config.published` event named the version restored rather than the new live one | It fires; `versionId` is the new live version and `restoredFrom` the version whose content came back |
+| The two true-or-false conditionals ignored the choice made in Composer | They read it: "Venue is closed" and "VenueFlow has alerts: clear" work as written. How Composer passes the choice is not yet seen on a controller |
+| *Trigger the VenueFlow event* under a restricted licence reported success while no rule ran | Refused, with Last Error `TRIGGER_EVENT refused: licence restricted: N rule(s) not run`. One that runs some rules and not others is done and writes `TRIGGER_EVENT: N rule(s) run, M not run` to Last Error |
+| A comparison of alerts still pending when the driver stopped could fire *Alert Raised* afterwards | The alert timer stops with the driver |
+| `refresh_status` answered with nothing useful and the module always reported `config_version` "0" | It answers with a one-line summary (at most 200 characters) and sends a status frame at once with that line, counters and `config_version`: the published version the controller runs, or `none` |
+| The Agent's updater and its SKU-to-file list did not name VenueFlow | `smartbuildos-venueflow.c4z` is in both. The store's publish workflow does not name VenueFlow yet, so the updater has nothing to fetch until a package is published to the store |
+
+Also new: a package check that fails when a locally built package is older
+than its sources; and a suite, `test_venueflow_engine_floor.lua`, that scans
+the page sources and both built pages for features Firefox 96 (the touch
+screens' Gecko 96) lacks. None were found. It is a static scan: nothing ran
+in Gecko.
+
+**The pages (19 November 2026)**, first checked in desktop Chromium against
+the simulator, with touch emulation where it says so (then in WebKit and
+Firefox too: "The pages in three browser engines" above); nothing ran on a
+T3, a T4 or a phone:
+
+- *Measured sizes.* Every interactive control of the operator page was
+  measured reachable (not off-screen, not covered) at 1024 x 600, 1280 x
+  800, 1920 x 1200, 390 x 844, 844 x 390, 820 x 1180 and 1180 x 820 for both
+  sample venues; the client's Venue Studio at 390 x 844, 820 x 1180, 1024 x
+  600 and 1280 x 800; the Installer Studio at 1024 x 600, 1024 x 768, 1280 x
+  800 and 1920 x 1200 (`ui/venueflow/README.md`).
+- *Layout.* Long display, source and zone names take two lines instead of
+  being cut to the same first word; the Venue Studio's header wraps on a
+  phone and its Sections drawer closes from the Sections button; switches
+  and icon buttons keep a workable touch size.
+- *Floor plan on small screens.* A tap near a display selects the nearest
+  one (reach at least 12 px beyond its edge); a tap as near two displays as
+  one opens "Which display?". At heights up to 680 px the "No scene active"
+  line is hidden and spacing is tighter, so the plan is drawn larger; the
+  side panel shows a fade with an arrow while it scrolls, and Power On and
+  Power Off fit without scrolling when nothing is selected at 1024 x 600.
+  Smallest effective target measured: 28 px for the sports bar's columns of
+  displays 5 px apart at 1024 x 600 (the chooser covers the gaps), 46 px in
+  the conference centre. Whether a touch screen's browser adjusts taps as
+  Chromium does is unknown.
+- *Publish and Discard name the revision.* The Studio sends `baseRevision`
+  with `PUBLISH` and `DRAFT_DISCARD`; on `VF_STALE_DRAFT` it says nothing
+  was published or discarded because the draft changed since the page loaded
+  it, reloads the draft and does not retry. Seen with two tabs, installer
+  and client.
+- *The client's reason.* The Venue Studio says why a client cannot publish
+  or discard (the installer saved changes; the dealer saved changes
+  remotely; the draft has a change only the installer can make) and who to
+  ask, in the header, on Home and on Publish and Rollback, where the buttons
+  are disabled. The dealer wording was seen only with the page's state set
+  by hand: the simulator has no remote save.
+- *Screen profiles read-only for a client.* The default profile and any
+  station's profile show "This is the profile screens open with. Only your
+  installer can change it.", without Delete or PIN buttons. The station case
+  was not seen (the samples have no stations).
+- *Venue status under a restricted licence.* After opening or closing, the
+  operator page says how many automations set for that moment did not run.
+  Seen on a simulator started in the restricted state.
+- `driver.xml`: the description of event 3, *Alert Raised*, now says when it
+  fires; `schema/protocol.json` was regenerated with `baseRevision`.
+
+The manual now has eleven screenshots, all taken from the simulator in desktop
+Chromium, each captioned so. There is still no Composer screenshot.
+
+**The pages in three browser engines (19 November 2026).** For the first
+time the pages ran in WebKit and Firefox as well as Chromium: Playwright
+1.65 driving Chromium 159, WebKit 27.2 (desktop, and with iPhone and iPad
+descriptors) and Firefox 159, touch enabled, against the simulator, both
+sample venues, at 1024x600, 1280x800 and 390x844. Every operator, Installer
+Studio and Venue Studio flow passed in all three with no page or console
+error. Desktop engines only: nothing ran on a T3, a T4 or a phone. Firefox
+159 is the touch screens' engine family (they run Firefox 96): a pass is
+evidence about Gecko behaviour, not proof for Firefox 96. WebKit with a
+phone descriptor is not iOS Safari. Fixed on the way:
+
+| Defect | Fix |
+| --- | --- |
+| WebKit and Chromium move a touch's click onto a nearby control; the floor plan trusted the moved target, so in WebKit a tap just beside one display selected another (or a whole area through its name) and a tap between two displays never opened "Which display?" | The plan decides from the point the finger went down. Firefox does not move taps; the result is now the same in all three engines. Whether a T3 or T4 moves taps is unknown |
+| Firefox logged a blocked favicon request on every page load | Both pages carry an empty icon |
+| Toasts swallowed touches for seconds (on a phone the "sent" toast sat over the volume slider) | Toasts let taps through |
+| Dialogs used the full viewport height, which on iOS can put a dialog's footer under the browser's toolbars | Dialogs size to their backdrop (the visible area); buttons no longer trigger double-tap zoom or text selection |
+| Taps were lost while a Studio section redrew (a control rebuilt under the finger about 0.9 s after an edit, when the save was acknowledged, or when a tap committed a text field): 38 of 288 timed presses across the three engines | Nothing is rebuilt under a finger: 288 of 288 presses act |
+| On a phone the Floor Plan's volume slider was 84 px wide at 390x844 | It has its own row under the zone picker: 236 px |
+
+Also new: removing a favourite channel that a scene or schedule uses asks
+first and names them ("Used by Scene 'Game Day' and Schedule 'Morning
+news'. Removing it blocks publishing until those steps are changed."), in
+the Installer Studio and in the client's Channels and Names; the driver's
+check at publish stays the authority.
+
+Not exercised in any engine: a touch drag in WebKit and Firefox (mouse
+there; a real touch drag only in Chromium), long press, pinch, double-tap
+zoom, the iOS on-screen keyboard and toolbars, private-mode storage on a
+real device, native time and colour pickers. Floor plan effective target
+after the fix, the same in every engine within 1 px: 27 to 28 px for the
+sports bar's dense columns at 1024x600 (the "Which display?" list covers the
+gaps), 33 px at 390x844, 46 px or more in the conference centre.
+
+**Two owner decisions, built on 19 November 2026** (simulator and test
+shim only):
+
+- *Device mapping and device commands are on site only.* A remote
+  `save_draft` that would change which Control4 room or device a display,
+  source, audio zone, lighting preset, shade or a Control4-variable rule or
+  condition addresses, or which command a custom route or a lighting preset
+  sends, is refused whole with the new code `VF_ONSITE_ONLY`, and nothing is
+  stored. A remote `publish` is refused when the draft's mapping differs
+  from what is live (even a change the installer made on site), and a remote
+  `rollback` when the target version's mapping does. The detail names what
+  was touched, at most 380 bytes ("Remote Management cannot change device
+  mapping or device commands: Display 'TV 03' room; Lighting preset 'Game
+  Day' command. Change these on site in Installer Studio."); the platform
+  receives it as a Failed operation whose detail starts with
+  `VF_ONSITE_ONLY:`. A new entity added remotely must be unmapped; removing
+  one is allowed. While a mapping change sits unpublished in the draft, the
+  dealer can save other edits on top but cannot publish until the installer
+  publishes on site. smartbuildos.io has not been changed to match
+  (SMARTBUILDOS_INTEGRATION.md, platform follow-up). Replaces the open
+  question of earlier notes; the remaining remote risk is in
+  SECURITY_REVIEW.md.
+- *A "Tune a channel" step* for scenes, rules and schedules:
+  `{ type = "tune", sourceId, favoriteId }` or `{ ..., channel }`. It dials
+  through the source controls' closed key list to the source's own device,
+  is "sent", never confirmed, and the program does not wait for the last
+  digit. Stopping the run stops the rest of the number and logs it; a
+  publish lets it finish. After a channel number is cut off, or on a box
+  that dials without Enter, the next number for that box waits about 3 s so
+  the digits do not run together; keys for other boxes are not held up (the
+  3 s are an assumption, never seen on a box). Two runs tuning one source
+  stop the older; a run that only routes the source is not stopped. Staff
+  need permission to run the scene, not "Use source controls". Validation
+  at save and publish names the scene, schedule or rule: a missing,
+  switched-off or keypad-less source, a favourite no longer on the source
+  (removing a favourite a step uses blocks the publish), a bad channel,
+  both a favourite and a channel (an error) or neither (a warning). In the
+  Studio it is "Tune a channel" under Displays in Add step, for the
+  installer and the client. Never seen on a real box: that a command sent
+  by this driver to a source's device reaches the box is still unproven.
+- A shade's `openLevel` and `closedLevel` are optional numbers from 0 to
+  100 (defaults 100 and 0); anything else is an error at save and publish
+  (`RANGE`, "Open level must be between 0 and 100.").
+
+**What an installer will notice.** A client signed in to the Venue Studio
+can no longer touch the tile's profile or a station's profile. Saving a
+change, setting a PIN, applying a template or restoring a backup makes the
+draft yours until you publish or discard it, and the client waits for you.
+A backup now carries the revision counter. A client's rollback signs every
+staff member out, the client included. A Publish or Discard pressed on a page
+whose draft is out of date does nothing and says so.
+
+**What a venue will notice.** On the Manager screen, an alert about a
+stopped scene or a missed schedule appears only for a profile that may see
+everything it concerns. In the Venue Studio, the profiles the screens open
+with are read-only, and when the installer, or the dealer remotely, has
+saved work that is not published, the Studio says so in plain words, says
+who to ask, and disables Publish and Discard. A favourite being dialled is
+no longer cut short by a publish. On a small screen a tap near a display on
+the floor plan selects it, and long names take two lines.
+
+**What a programmer will notice.** *Configuration Published* on a rollback;
+ALERT_COUNT and *VenueFlow has alerts* now include detected alerts (and no
+longer a muted zone); *Alert Raised* fires when a display stops confirming;
+the "closed" and "clear" choices work; a refused or partly run *Trigger the
+VenueFlow event* writes Last Error; *Mark the venue* under a restricted
+licence sets the status and writes Last Error for the rules it did not run;
+dismissing an alert lowers ALERT_COUNT at once.
+
+**Known and not changed.** Two weaknesses of the shared module client
+are recorded in SECURITY_REVIEW.md, residual risks 8 and 9. At 1024x600
+(the 7-inch touch screen) the Floor Plan bar's volume slider is 110 px wide
+and a Command Center zone card's 94 px: about one pixel per volume step, so
+an exact level is hard to set with a finger there (limitation 20). The
+sports bar's dense columns of displays give a 27 to 28 px target at
+1024x600; "Which display?" covers the gaps. The manual has no Composer screenshot (its
+screenshots are of the pages, from the simulator).
+
+**Still not verified.** Everything above on a controller, in Composer
+programming and on a touch screen; the pages on a T3, a T4, a phone or
+iOS Safari (three desktop engines only, Firefox 159 not 96). The new hardware checks are in
+HARDWARE_VALIDATION.md, "Not yet run".
+
 ## Source after build 20261114.233926 (15 November 2026): review fixes, not built
 
 Six defects found by the automated review of the VenueFlow pull request,
@@ -102,7 +311,9 @@ only, in Simulation mode first.
    served in one reply each. If a controller's socket cannot deliver that,
    the pages must be split into several requests (not built).
 6. **Engine floor Gecko 96.** The pages are written for it but were tested
-   only in Chromium.
+   only in Chromium. (Since 19 November 2026 a static scan guards the
+   features, and the pages ran in Chromium 159, WebKit 27.2 and Firefox 159
+   on the desktop: still not Firefox 96, not a touch screen.)
 7. **Schedules use the controller's time zone.** There is no separate venue
    time zone.
 8. **Diagnostics are kept in memory** (the newest 400 entries) and start
@@ -115,17 +326,24 @@ only, in Simulation mode first.
 11. **Composer command parameters are typed, not picked from a list** (scene
     and source names).
 12. **Remote management has never run end to end.** The driver side is
-    tested against the simulator and the smartbuildos.io side is built on the
-    web repository's branch `codex/venueflow-studio` (unit-tested, not
-    merged), but no controller has received an operation from the platform,
-    so nothing can be managed remotely today. Multi-venue overview,
-    remote backup and fleet views are not built either. See
+    tested against the simulator. The smartbuildos.io side (System Studio,
+    Drivers & Licenses, VenueFlow, a status route and the module contract)
+    was merged and deployed on 15 November 2026. No controller has received
+    an operation from the platform: the bench controller runs build
+    `20261114.191046`, which has no Remote Management, and its Agent (built
+    from `main` on 18 November 2026) allows the `venueflow` module, but no
+    VenueFlow registration with it has been watched. Multi-venue overview,
+    remote backup and fleet views are not built. See
     SMARTBUILDOS_INTEGRATION.md.
-13. **The entitlement cannot be issued yet**: the `SBOS_VENUEFLOW` SKU is not
-    in the platform. With enforcement off (the default) the driver works
-    fully.
+13. **The entitlement cannot be issued yet**: the catalogue-row migration
+    for `SBOS_VENUEFLOW` exists on smartbuildos.io but the owner has not
+    applied it, so no licence can be issued for the SKU and there is no
+    store or product page. With enforcement off (the default) the driver
+    works fully.
 14. **The driver manual has no screenshots.** This repository takes them on
-    the bench, which has not been done for VenueFlow.
+    the bench, which has not been done for VenueFlow. (Since 19 November 2026
+    the manual has screenshots of the pages taken from the simulator; still
+    none from Composer or a controller.)
 15. **No video-wall composition.** A video wall is one display with a custom
     route command.
 16. **Floor rulers show canvas units**, not feet or metres.
@@ -141,7 +359,13 @@ only, in Simulation mode first.
     to a source's device reaches the box is not documented and has not been
     seen on a controller. There is no feedback: VenueFlow never knows what
     channel a box is on, and a key changes every screen showing that source.
-    Scenes and schedules cannot change a channel yet.
+    (Since 19 November 2026 scenes, rules and schedules can change a
+    channel with the "Tune a channel" step: top section.)
+20. **The volume slider is narrow on a 7-inch screen** (since 19 November
+    2026, measured in desktop engines): at 1024x600 the Floor Plan bar's
+    slider is 110 px and a Command Center zone card's 94 px, about one pixel
+    per volume step. Volume presets set an exact level; the slider has not
+    been tried with a finger on a T3.
 
 ### Changed since build 20261114.191046
 
@@ -175,12 +399,13 @@ only, in Simulation mode first.
   `venueflow` module, answers `snapshot`, `save_draft`, `publish`, `rollback`
   and `refresh_status`, and reports each new live version. The configuration
   snapshot travels as base64 groups, the one form neither the Agent's nor
-  the platform's redaction rewrites. **Not connected end to end:** the
-  smartbuildos.io side is on an unmerged branch of the web repository, and
-  the bench Agent does not know the module.
+  the platform's redaction rewrites. **Not connected end to end:** when
+  this build was made the smartbuildos.io side was on a branch; it was
+  merged on 15 November 2026, and the two have still never run together
+  with a controller (limitation 12).
 - The Agent driver gains one allowlist entry for these commands and the
-  event envelope one prefix (`venueflow.`). Both are inert until the
-  platform side exists.
+  event envelope one prefix (`venueflow.`). Both are on `main`; neither has
+  been exercised with a controller.
 - The published summary records who published (`installer`, `remote` or
   `profile:<id>`).
 

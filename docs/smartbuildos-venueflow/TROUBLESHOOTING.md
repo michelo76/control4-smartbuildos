@@ -17,9 +17,11 @@ Start with three places:
 | The tile is blank or says it cannot reach the controller | App Data Relay shows which address the driver published. If it says the address is unknown or not confirmed, set **App Relay Address** to the controller's LAN address, wait a minute, reopen the tile |
 | App Data Relay says "Not listening - port 47861 unavailable" | Another driver holds the port. Remove the conflict and restart the driver |
 | `http://<controller>:47861/ping` answers from a laptop but the page stays blank | The page is large; a Navigator on a weak wireless link may time out. Try a wired touch screen. Record it (hardware validation H2) |
-| The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN) |
+| The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN). Remote Management on smartbuildos.io changes the configuration, not the pages, and has not yet been run with a controller |
 | "This venue has not been set up yet" | Nothing is published. Open Installer Studio and publish |
 | The page says the venue is not set up, and Configuration reads "Sample venue - not run in Live mode" | A reference venue is published and Control Mode is Live. Build the real venue, or return to Simulation |
+| On a small touch screen the wrong display is selected on the floor plan | A tap selects the nearest display within reach; a tap as near two displays as one asks "Which display?", judged from where the finger went down. Measured in three desktop engines (Chromium, WebKit, Firefox), the same in each; record what a T3 or T4 does (HARDWARE_VALIDATION.md) |
+| A volume slider will not stop on the level wanted, on a 7-inch screen | At 1024 x 600 the sliders are about one pixel per volume step. Use a volume preset (Audio Zones, or Volume Presets in the Venue Studio) |
 | A screen asks for a PIN when it should open directly | No profile is chosen under Staff Profiles, "A tile opens as", or that profile has a PIN |
 
 ## Installer Studio
@@ -30,10 +32,14 @@ Start with three places:
 | "Too many wrong attempts" | Wait a minute, or run the action **Reset Sign-in Locks** |
 | Signed out while working | A Studio session ends after 30 idle minutes, after 8 hours, when the passcode changes, and when the driver restarts. Changes saved before that are in the draft |
 | "Draft changed elsewhere" | The Studio is open in two windows. Reload the draft in this one |
+| "The draft changed since this page loaded it. Nothing was published." (or discarded) | Someone else saved the draft after this page loaded it: another window, the installer, a client or the dealer. The page has loaded the draft again: look at it, then publish or discard again |
 | Publish is disabled | Errors must be fixed and every warning ticked. Each issue links to its section |
 | "This feature needs a SmartBuildOS licence" on Publish | See Licensing below |
 | A floor plan is refused as too large | The picture is over 600 kB after the Studio reduced it. Use a simpler image |
 | A sample venue cannot be loaded | Samples load only in Simulation |
+| On smartbuildos.io a VenueFlow operation fails with `VF_ONSITE_ONLY: Remote Management cannot change device mapping or device commands: ...` (or "cannot put ... live", "cannot roll back ...") | The remote change touched device mapping or device commands (a room, a device, power, feedback, a route, a lighting preset's command, a Control4-variable rule), which only the installer changes, on site. Nothing was stored. Make that change in Installer Studio; save the other edits remotely without it. A remote publish is also refused while the draft holds an on-site mapping change that is not live: the installer publishes it on site first |
+| A Venue Studio client is told "only the installer can change ..." | That part is the installer's. "The profile a screen or station opens with" means the profile a tile opens as, or a station's profile: only the installer can change those, PINs included |
+| A Venue Studio client cannot publish or discard: "Your installer has unfinished changes" | The installer saved something in the draft (a change, a PIN, a template, a restored backup), or the dealer sent a draft through Remote Management. The installer publishes or discards it first |
 
 ## Devices and routing
 
@@ -71,13 +77,17 @@ Things that surprise people:
 | --- | --- |
 | "The scene's condition is not met right now" | The scene's IF is false (often: the venue is marked closed) |
 | A scene ends "partial" | A device did not confirm. The run names the step and the display (Visual Programming, Execution log; Diagnostics, category "scene") |
+| A scene or schedule cannot be published: "... tunes ... to a favourite channel that no longer exists" | A favourite that a "Tune a channel" step uses was removed (Sources, or Channels and Names in the Venue Studio). Choose another favourite or type the number in the step |
+| "... which has no number keypad, so the step can never dial a channel" | Give the source the number keypad (Sources > Basic controls), or remove the step |
+| A "Tune a channel" step ran but the box is on another channel | The step is sent, never confirmed. Check the box, the source's Control4 device, and "Press Enter after the digits". Diagnostics (debug level) list each key sent. The scene does not wait for the last digit: put a Wait before a step that needs the channel |
 | A step says "Not set up yet" | A template step with no source, zone or display chosen, or one whose subject was deleted |
 | "This scene runs itself in a loop" | Scenes that run each other in a circle; also a rule triggered by a scene that runs that scene |
 | A scene stopped half way, with an alert "... was interrupted" | Another scene or rule that changes the same devices started. That is deliberate |
 | A schedule did not run | It was missed while the controller or driver was off (an alert says so: missed schedules are never run late); or the rule is disabled; or the licence is restricted; or the day is not ticked |
 | A schedule ran at the wrong hour | Schedules use the controller's clock. Check the project's time zone in Composer |
-| Dry Run says "Publish the draft first" | A dry run uses the published configuration, and the program names something that is only in the draft |
-| A Composer command did nothing | The **Last Error** property says why |
+| Dry run says "Publish the draft first" | A dry run uses the published configuration, and the program names something that is only in the draft |
+| A Composer command did nothing | The **Last Error** property says why. Under a restricted licence, *Trigger the VenueFlow event* runs no rule, and *Mark the venue* sets the status but runs no waiting rule: Last Error says how many did not run |
+| *Alert Raised* or ALERT_COUNT does not match what a staff member sees | Composer counts every alert of the venue except a muted zone; the Manager screen shows a profile only the alerts about what it may see, and shows a muted zone too |
 
 ## Licensing
 
@@ -97,7 +107,7 @@ Licensing, Check again.
 | --- | --- |
 | "That PIN is not right" after a publish | The profile's PIN was changed in that version |
 | Locked for a minute | Five wrong PINs from that device. Wait, or the action **Reset Sign-in Locks** |
-| Everyone was signed out | The driver restarted, or someone ran **End Staff Sessions**, or the version was rolled back |
+| Everyone was signed out | The driver restarted, or someone ran **End Staff Sessions**, or the version was rolled back (by the installer or a client in the Venue Studio) |
 
 ## Starting again
 

@@ -7,6 +7,8 @@ return [==[
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>VenueFlow</title>
+<!-- An empty icon: without it Firefox asks for /favicon.ico, which the relay's Content Security Policy (img-src data: blob:) refuses with a console error. -->
+<link rel="icon" href="data:,">
 <style>
 /* VenueFlow design system. Midnight navy, teal accent, large touch targets.
    One file shared by the operator page and Installer Studio.
@@ -41,6 +43,8 @@ h3 { font-size: 16px; font-weight: 650; }
 h4 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 a { color: var(--teal); }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Every button is a touch control: no double-tap zoom, no text selection when held. */
+button { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .muted { color: var(--muted); } .small { font-size: 13px; } .tiny { font-size: 11.5px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .grow { flex: 1 1 auto; min-width: 0; } .nowrap { white-space: nowrap; } .hidden { display: none !important; }
@@ -84,7 +88,7 @@ svg.ic.lg { width: 28px; height: 28px; } svg.ic.xl { width: 44px; height: 44px; 
 .btn.on, .btn[aria-pressed="true"] { background: var(--teal-soft); border-color: var(--teal-line); color: var(--teal); }
 .btn.sm { min-height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13.5px; }
 .btn.lg { min-height: 58px; padding: 0 24px; font-size: 17px; border-radius: 14px; }
-.btn.icon { padding: 0; width: var(--touch); } .btn.icon.sm { width: 36px; }
+.btn.icon { padding: 0; width: var(--touch); flex-shrink: 0; } .btn.icon.sm { width: 36px; }
 .btn.block { width: 100%; }
 .btn:disabled, .btn[disabled] { opacity: .42; cursor: default; box-shadow: none; transform: none; }
 
@@ -123,6 +127,8 @@ label.lbl > .hint, .hint { font-size: 12px; color: var(--muted); font-weight: 40
 /* toggle */
 .toggle { position: relative; width: 50px; height: 28px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel-3); cursor: pointer; flex: none; padding: 0; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c9d6ea; transition: transform .14s; }
+/* The switch is drawn 28 px high; its touch area reaches 44 px without changing the look. */
+.toggle::before { content: ""; position: absolute; left: -2px; right: -2px; top: -8px; bottom: -8px; }
 .toggle.on, .toggle[aria-checked="true"] { background: var(--teal); border-color: transparent; }
 .toggle.on::after, .toggle[aria-checked="true"]::after { transform: translateX(22px); background: #fff; }
 
@@ -157,15 +163,18 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .banner.ok { border-color: rgba(52, 211, 153, .4); background: var(--ok-soft); color: #c6f6e3; }
 .simbar { background: repeating-linear-gradient(135deg, rgba(245, 165, 36, .2) 0 12px, rgba(245, 165, 36, .1) 12px 24px); color: #ffd58a; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-align: center; padding: 3px 8px; text-transform: uppercase; }
 
-/* modal + toast */
+/* modal + toast. The modal is as tall as the backdrop at most (100%, not 100vh: in iOS Safari
+   100vh is taller than what shows while the toolbars are out, and the footer would go under them).
+   A toast holds no control and lets taps through: on a phone it sits over the
+   bottom bar (volume, scenes) for a few seconds after every command. */
 .vf-backdrop { position: fixed; inset: 0; background: rgba(3, 7, 14, .72); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-.vf-modal { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.vf-modal { width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
 .vf-modal.wide { width: min(860px, 100%); }
 .vf-modal > header { padding: 18px 20px 6px; display: flex; align-items: center; gap: 10px; }
 .vf-modal > .body { padding: 8px 20px 16px; overflow: auto; }
 .vf-modal > footer { padding: 12px 20px 18px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 .vf-toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1100; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(560px, calc(100vw - 24px)); }
-.vf-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
+.vf-toast { pointer-events: none; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
 .vf-toast.ok { border-color: rgba(52, 211, 153, .5); } .vf-toast.warn { border-color: var(--warn-line); } .vf-toast.bad { border-color: rgba(248, 113, 113, .6); }
 
 /* PIN pad */
@@ -358,8 +367,11 @@ svg.op-plan.compact { height: auto; }
 .op-tile { min-width: 0; min-height: 68px; padding: 9px 10px; display: flex; flex-direction: column; justify-content: center; gap: 7px; text-align: left; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; touch-action: manipulation; }
 .op-tile-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .op-tile-name { font-weight: 650; }
+/* A long display or source name ("Boardroom A Main", "Laptop HDMI (A)") takes a second line
+   instead of being cut to the part every name shares. -webkit-line-clamp is in Gecko since 68. */
+.op-tile-name, .op-src .grow > .ellipsis { white-space: normal; overflow-wrap: break-word; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .op-tile .chip { padding: 2px 8px; font-size: 11.5px; }
-.op-tile-area { flex: 0 1 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); }
+.op-tile-area { flex: 0 4 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); }
 .op-tile-note { display: none; flex: none; color: var(--warn); font-weight: 650; font-size: 11.5px; }
 .op-tile.blocked .op-tile-note { display: inline; }
 .op-tile-now { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
@@ -383,6 +395,9 @@ svg.op-plan.compact { height: auto; }
 .op-cc-maphost svg.op-plan { max-height: 200px; }
 .op-cc-zones { flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(232px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 2px; }
 .op-cc-zones > .op-zc { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: linear-gradient(180deg, var(--panel), var(--bg-2)); }
+/* Zone names that share their start ("Boardroom A", "Boardroom B") take a second line rather
+   than being cut to the same text. */
+.op-cc-zones .op-zc-name { white-space: normal; overflow-wrap: break-word; line-height: 1.2; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 @media (min-width: 1180px) and (min-height: 700px) { .op-cc-map { display: flex; } }
 
 /* ── A: Floor Plan ─────────────────────────────────────────────────────── */
@@ -398,6 +413,11 @@ svg.op-plan.compact { height: auto; }
 .op-fp-side > .op-fp-block:first-child { flex: 1 1 auto; min-height: 96px; }
 .op-fp-sel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .op-fp-side > .btn, .op-fp-side > .op-fp-listen, .op-fp-side > .op-fp-power { flex: none; }
+/* The cue that the side panel scrolls: a fade over the cut edge, sticky at the bottom of the
+   panel, taking no room of its own (Gecko 96: sticky, gradients). */
+.op-fp-more { position: sticky; bottom: -12px; flex: none; height: 0; margin-top: -12px; pointer-events: none; }
+.op-fp-more > span { position: absolute; left: -12px; right: -12px; bottom: 0; height: 34px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px; opacity: 0; color: var(--ink-2); background: linear-gradient(180deg, rgba(11, 20, 36, 0), var(--bg-2) 80%); border-radius: 0 0 var(--radius) var(--radius); }
+.op-fp-side.more .op-fp-more > span { opacity: 1; }
 .op-fp-srcbtn { justify-content: flex-start; text-align: left; }
 .op-fp-selrow { min-height: 48px; padding: 6px 6px 6px 12px; gap: 8px; }
 .op-fp-selrow .chip { padding: 2px 8px; font-size: 11.5px; }
@@ -508,6 +528,17 @@ svg.op-plan.compact { height: auto; }
   .op-big { min-height: 140px; }
 }
 
+/* ── short landscape screens (T3 7", 1024x600): height goes to the floor plan ── */
+@media (max-height: 680px) and (min-width: 901px) {
+  .op-activity.quiet { display: none; }
+  .op-view { padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+  .op-fp-body { gap: 8px; }
+  .op-fp-planwrap { padding: 4px; }
+  .op-fp-side { gap: 10px; }
+  .op-fp-sel > .empty { padding: 16px 12px; }
+  .op-fp-bottom { padding-top: 6px; padding-bottom: 6px; }
+}
+
 /* ── phones and narrow portrait screens: one scrolling column ──────────── */
 @media (max-width: 900px) {
   .op-head { flex-wrap: wrap; gap: 8px 10px; padding: 8px 10px; }
@@ -547,6 +578,16 @@ svg.op-plan.compact { height: auto; }
   .op-mgr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .op-mgr-stats > .op-stat:last-child { grid-column: span 2; }
   .op-mgr-cols { grid-template-columns: minmax(0, 1fr); }
+}
+/* Phones: the volume slider gets a row of its own in the floor plan's bottom bar (the zone picker
+   above it), and a little room from the gaps in every zone control, so a finger can set a level
+   (about 240 px in the bar and 200 px or more everywhere at 390 px wide; the bar's was 84 px). */
+@media (max-width: 600px) {
+  .op-fp-audio { flex-wrap: wrap; }
+  .op-fp-zonepick { flex: 1 1 100%; }
+  .op-fp-zone { flex: 1 1 100%; }
+  .op-zc-vol { gap: 8px; }
+  .op-zc-pct { min-width: 44px; }
 }
 @media (max-width: 560px) {
   .op-nav button { flex-direction: column; gap: 2px; padding: 5px 4px; min-height: 52px; font-size: 11.5px; line-height: 1.15; white-space: normal; text-align: center; }
@@ -640,6 +681,40 @@ var VF = (function () {
   };
   VF.clear = function (el) { while (el.firstChild) el.removeChild(el.firstChild); return el; };
   VF.mount = function (el) { VF.clear(el); for (var i = 1; i < arguments.length; i++) VF.append(el, arguments[i]); return el; };
+  /* Makes `el` look like `next` (a detached element painted from scratch) while keeping every node of
+     `el` that did not change: a button whose own attributes (and checked/value/disabled state) are the
+     same stays the SAME element, so a tap that has begun on it still lands; only what differs is
+     replaced. A kept element keeps its own listeners, so use this only where a listener's behaviour
+     follows from what the element shows (its attributes and text), as in a repaint of the same data.
+     The children of `next` that are used are moved into `el`. */
+  function sameShell(a, b) {
+    if (a.nodeType !== 1 || b.nodeType !== 1 || a.tagName !== b.tagName) return false;
+    var aa = a.attributes, i;
+    if (aa.length !== b.attributes.length) return false;
+    for (i = 0; i < aa.length; i++) { if (b.getAttribute(aa[i].name) !== aa[i].value) return false; }
+    if (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA') {
+      if (a.value !== b.value || a.checked !== b.checked || a.disabled !== b.disabled) return false;
+    }
+    return true;
+  }
+  function patchChildren(el, next) {
+    var have = Array.prototype.slice.call(el.childNodes), want = Array.prototype.slice.call(next.childNodes), i, a, b;
+    for (i = 0; i < Math.max(have.length, want.length); i++) {
+      a = have[i]; b = want[i];
+      if (!b) el.removeChild(a);
+      else if (!a) el.appendChild(b);
+      else if (a.nodeType === 3 && b.nodeType === 3) { if (a.data !== b.data) a.data = b.data; }
+      else if (sameShell(a, b)) patchChildren(a, b);
+      else el.replaceChild(b, a);
+    }
+  }
+  VF.patch = function (el, next) {
+    var i, at = el.attributes;
+    for (i = at.length - 1; i >= 0; i--) { if (!next.hasAttribute(at[i].name)) el.removeAttribute(at[i].name); }
+    for (i = 0; i < next.attributes.length; i++) { if (el.getAttribute(next.attributes[i].name) !== next.attributes[i].value) el.setAttribute(next.attributes[i].name, next.attributes[i].value); }
+    patchChildren(el, next);
+    return el;
+  };
 
   /* ── icons (24x24, stroke) ───────────────────────────────────────────── */
   var IC = {
@@ -1227,10 +1302,19 @@ var Operator = (function () {
   O.setVenueStatus = function (status) {
     var open = status === 'open';
     return VF.confirm(open ? 'Mark the venue open?' : 'Mark the venue closed?',
-      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + ' Anything set up to happen at that moment will run. It does not switch anything off by itself.',
+      (open ? 'This marks the venue as open.' : 'This marks the venue as closed.') + (O.doc().license && O.doc().license.restricted
+        ? ' The SmartBuildOS licence is restricted, so automations set for that moment will not run.' : ' Anything set up to happen at that moment will run.') + ' It does not switch anything off by itself.',
       open ? 'Open venue' : 'Close venue').then(function (go) {
       if (!go) return null;
-      return VF.api('VENUE_STATUS', { status: status }).then(function (r) { VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed'); return r; });
+      return VF.api('VENUE_STATUS', { status: status }).then(function (r) {
+        /* Under a restricted licence the status still changes, but automations waiting for it
+           do not run; the driver counts them (rulesNotRun). */
+        var notRun = r && r.ok && r.data ? Number(r.data.rulesNotRun) || 0 : 0;
+        if (notRun > 0) {
+          VF.toast((open ? 'Venue marked open. ' : 'Venue marked closed. ') + O.plural(notRun, 'automation') + ' set to run at this moment did not run: the SmartBuildOS licence is restricted.', 'warn', 9000);
+        } else VF.toastReply(r, open ? 'Venue marked open' : 'Venue marked closed');
+        return r;
+      });
     });
   };
 
@@ -1493,6 +1577,40 @@ var Operator = (function () {
     return O.list('displays').filter(function (d) { return (d.floorId === floorId || !O.find('floors', d.floorId)) && !placed(d); });
   };
 
+  /* Distance in CSS px from a point on the screen to a box of the drawing
+     ({ x, y, w, h, cx, cy, rot } in drawing units, turned by rot degrees about its centre). */
+  O.planDistance = function (svg, box, clientX, clientY) {
+    var m = svg.getScreenCTM();
+    if (!m || !m.a) return Infinity;
+    var ux = (clientX - m.e) / m.a - box.cx, uy = (clientY - m.f) / m.d - box.cy;
+    var r = -(box.rot || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    var px = ux * c - uy * s, py = ux * s + uy * c;
+    var dx = Math.max(0, Math.abs(px) - box.w / 2), dy = Math.max(0, Math.abs(py) - box.h / 2);
+    return Math.sqrt(dx * dx + dy * dy) * m.a;
+  };
+  /* The displays within reach of a tap, nearest first: [{ it, dist }]. */
+  O.planNearest = function (svg, items, clientX, clientY) {
+    var m = svg.getScreenCTM(), scale = m && m.a ? m.a : 1;
+    var out = [];
+    items.forEach(function (it) {
+      var dist = O.planDistance(svg, it.box, clientX, clientY);
+      var reach = Math.max(12, (44 - Math.min(it.box.w, it.box.h) * scale) / 2);
+      if (dist <= reach) out.push({ it: it, dist: dist });
+    });
+    return out.sort(function (a, b) { return a.dist - b.dist; });
+  };
+  /* A tap that falls as near two displays as one: ask which. */
+  O.planChoose = function (near, onDisplay) {
+    var closer = null;
+    var list = h('div.list.op-fp-choose', near.slice(0, 6).map(function (n) {
+      var d = n.it.d, info = O.displayInfo(d);
+      return h('button.op-mini' + (O.selection.has(d.id) ? '.sel' : ''), { type: 'button', onclick: function () { if (closer) closer(d); } },
+        h('span.op-check', VF.icon('check', 'sm')), h('span.grow.ellipsis', d.name), h('span.small', info.line));
+    }));
+    VF.modal({ title: 'Which display?', icon: 'tv', body: list, actions: [{ label: 'Cancel', kind: 'ghost', value: null }], onOpen: function (close) { closer = close; } })
+      .then(function (d) { if (d && typeof d === 'object') onDisplay(d); });
+  };
+
   /* opts: { compact, onDisplay(d), onArea(area), zones, extras, selection } -> { el, update(), count } */
   O.plan = function (floor, opts) {
     opts = opts || {};
@@ -1535,6 +1653,7 @@ var Operator = (function () {
       var g = O.svg('g', { 'class': 'op-parea-tag' + (opts.onArea ? ' tap' : ''), role: opts.onArea ? 'button' : null, 'aria-label': opts.onArea ? 'Select every display in ' + a.name : null,
         onclick: opts.onArea ? function () { opts.onArea(a); } : null });
       if (opts.onArea) g.appendChild(O.svg('rect', { 'class': 'op-hit', x: L.x + 4, y: L.y - th / 2 - 10, width: tw + 20, height: th + 20 }));
+      g._pill = { x: L.x + 14, y: L.y - th / 2, w: tw, h: th, cx: L.x + 14 + tw / 2, cy: L.y, rot: 0 };
       g.appendChild(O.svg('rect', { x: L.x + 14, y: L.y - th / 2, width: tw, height: th, rx: th / 2, stroke: color }));
       g.appendChild(O.svg('text', { x: L.x + 14 + tw / 2, y: L.y, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: color }, name));
       svg.appendChild(g);
@@ -1613,8 +1732,49 @@ var Operator = (function () {
         g.appendChild(src);
       }
       svg.appendChild(g);
-      items.push({ g: g, d: d, src: src, cls: '' });
+      items.push({ g: g, d: d, src: src, cls: '', box: { x: L.x, y: L.y, w: w, h: hh, cx: cx, cy: cy, rot: rot } });
     });
+
+    /* Finger-sized targets. On a small screen a display is drawn smaller than a fingertip
+       (about 20 px on a 7-inch touch screen), and the drawing keeps the venue's real
+       proportions, so the TARGET grows instead: a tap that lands near a display, not on it,
+       goes to the nearest display within reach (each display reaches at least 12 px beyond
+       its edge, more when it is drawn small, so a target is about 44 px across). When two
+       displays are as near as each other, the tap asks which one was meant. Zone, scene and
+       area-name buttons keep their own taps. */
+    if (opts.onDisplay && items.length) {
+      /* Where the finger went down. WebKit and Chromium move the click of a touch onto a
+         control NEAR the finger by themselves (seen 19 November 2026: a tap beside one display
+         selected another, or the whole area through its name), Gecko does not. So for a touch
+         the plan decides from the point the finger touched, the same in every engine. */
+      var down = null;
+      svg.addEventListener('pointerdown', function (ev) { down = ev.pointerType === 'touch' ? { x: ev.clientX, y: ev.clientY, at: Date.now() } : null; }, true);
+      var control = function (el) { return el && el.closest ? el.closest('g.op-pd, .op-pzone, .op-pscene, .op-parea-tag') : null; };
+      svg.addEventListener('click', function (ev) {
+        var t = ev.target, x = ev.clientX, y = ev.clientY;
+        if (down && Date.now() - down.at < 1500) {
+          x = down.x; y = down.y;
+          var under = document.elementFromPoint(x, y);
+          if (under && under !== t && svg.contains(under) && control(under) !== control(t)) {
+            /* The engine moved this click: send it again where the finger was. */
+            ev.stopPropagation(); ev.preventDefault();
+            under.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+            return;
+          }
+        }
+        if (t && t.closest && t.closest('g.op-pd, .op-pzone, .op-pscene')) return;
+        var tag = t && t.closest ? t.closest('.op-parea-tag') : null;
+        if (tag && !(t.classList && t.classList.contains('op-hit'))) return;
+        var near = O.planNearest(svg, items, x, y);
+        if (!near.length) return;
+        /* An area name's invisible margin gives way to a display that is nearer than the name. */
+        if (tag && tag._pill && O.planDistance(svg, tag._pill, x, y) <= near[0].dist) return;
+        ev.stopPropagation();
+        if (tag) ev.preventDefault();
+        if (near.length > 1 && near[1].dist - near[0].dist < 4) { O.planChoose(near, opts.onDisplay); return; }
+        opts.onDisplay(near[0].it.d);
+      }, true);
+    }
 
     function update() {
       items.forEach(function (it) {
@@ -1962,6 +2122,8 @@ var Operator = (function () {
     Object.keys(opSeen).forEach(function (id) { if (!present[id]) delete opSeen[id]; });
     var active = doc.activeScene && doc.activeScene.name ? doc.activeScene : null;
     sig = (active ? 'a' + active.id + active.at : '') + '|' + sig;
+    /* Only "No scene active" to say: a short screen gives the line to the floor plan. */
+    O.setClass(ui.activity, 'quiet', !active && !shown.length);
     O.patch(ui.activity, sig, function () {
       var lead = active ? h('div.op-act.idle', VF.icon('zap', 'sm'), h('span.op-act-text', 'Active scene: ', h('b', active.name), active.at ? ' since ' + VF.fmtTime(active.at) : ''))
         : (O.list('scenes').length && !shown.length ? h('div.op-act.idle.none', h('span.op-act-text', 'No scene active')) : null);
@@ -2414,12 +2576,19 @@ var Operator = (function () {
     }
     var pOn = canPower ? powerBtn('on') : null, pOff = canPower ? powerBtn('off') : null;
 
-    var side = h('aside.panel.op-fp-side.scroll',
+    /* On a short screen the panel scrolls to reach Power On / Power Off: a fade at the cut
+       edge says there is more below. */
+    var more = h('div.op-fp-more', { 'aria-hidden': 'true' }, h('span', VF.icon('chevron-down', 'sm')));
+    var side = h('aside.panel.op-fp-side.scroll', { onscroll: function () { paintMore(); } },
       h('div.op-fp-block', selTitle, selList),
       unplacedBox,
       canRoute ? srcBtn : null,
       routeBtn, listenRow,
-      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null);
+      (pOn || pOff) ? h('div.row.op-fp-power', pOn, pOff) : null,
+      more);
+    function paintMore() { O.setClass(side, 'more', side.scrollHeight - side.scrollTop - side.clientHeight > 4); }
+    var onResize = VF.debounce(paintMore, 150);
+    window.addEventListener('resize', onResize);
 
     /* bottom bar: scene shortcuts and one audio zone */
     var scenes = O.sceneBar();
@@ -2513,10 +2682,11 @@ var Operator = (function () {
       if (pOff) pOff.disabled = !n || pOff._busy === true;
       if (scenes) scenes.update();
       if (zoneCtl) zoneCtl.update();
+      paintMore();
     }
 
     setFloor(S.floorId);
-    return { update: update };
+    return { update: update, destroy: function () { window.removeEventListener('resize', onResize); } };
   });
 })();
 </script>

@@ -38,6 +38,10 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    web views. `?.`, `??`, arrow functions, `async`/`await`, template strings,
    `Object.entries`, CSS grid and flex `gap` are fine. No `structuredClone`
    dependence without a fallback (use `VF.clone`).
+   `test/test_venueflow_engine_floor.lua` scans the sources and the built
+   pages for features Gecko 96 lacks (and for secure-context-only APIs: the
+   pages are served over plain HTTP) and names the file, line and feature.
+   It is a static scan, not a run on a touch screen.
 2. **No external resource of any kind.** The relay sends a Content Security
    Policy of `default-src 'none'` with inline script and style, `data:` and
    `blob:` images, and `connect-src 'self'`. No CDN, web font, remote image,
@@ -59,9 +63,103 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
 8. **Hide what a profile cannot do, and still handle `VF_FORBIDDEN`.**
    Permissions are enforced in the driver; the page only avoids offering what
    will be refused.
-9. **Touch first.** Targets at least 44 px (`--touch` is 48 px). Works at
-   1280x800 and 1024x768 landscape; the operator page also degrades to a
-   phone in portrait (single column). No hover-only affordance.
+9. **Touch first.** Targets at least 44 px (`--touch` is 48 px; `.btn.sm` is
+   36 px and is kept for secondary actions). No hover-only affordance.
+   Screen sizes measured (November 2026, against the simulator, both
+   sample venues, with touch emulation; desktop engines, NOT a T3, a T4 or
+   a phone): every control of the operator page can be reached, by
+   scrolling where needed, and is not covered by another element, at
+   1024x600 (T3 7"), 1280x800 (T3 10", T4 8"), 1920x1200 (T4 10"),
+   1180x820 and 820x1180 (tablets), 390x844 and 844x390 (phones), in all
+   four interfaces and with a display selected, all displays selected, the
+   source picker, a remote, a zone sheet, the All Off preview, the profile
+   menu, the offline banner and the sign-in PIN pad open. The Venue Studio
+   (a client session) passes the same check at 390x844, 820x1180, 1024x600
+   and 1280x800; the Installer Studio at 1024x600, 1024x768, 1280x800 and
+   1920x1200 (it is not meant for phones). First measured in desktop
+   Chromium; on 19 November 2026 the same measurement ran in Chromium 159,
+   WebKit 27.2 and Firefox 159 (Playwright 1.65) with the same result in
+   all three: nothing unreachable or covered, no sideways scroll, the same
+   clipped-text findings, touch-target sizes within 1 px of each other.
+   Firefox 159 is the engine family of the touch screens, not their
+   version: a pass there is evidence about Gecko layout and events, not
+   proof for Firefox 96 (the static guard above covers the features).
+   WebKit with the iPhone 15 and iPad (gen 7) descriptors is the nearest
+   thing here to the iOS app; it does not show Safari's toolbars, so the
+   pages size the shell with `height: 100%` and the dialogs from their
+   backdrop, never from `100vh`. Re-check any layout change at 1024x600
+   first.
+   **Engines.** On 19 November 2026 every operator flow (sign-in on the PIN
+   pad, the four interfaces, selecting on the plan, routing, power, volume,
+   mute, scenes, open and close, the source remote, "Which display?", the
+   profile menu, the offline banner with the simulator paused and stopped),
+   every Installer Studio section and flow (source edit and autosave, a
+   Layout Designer drag with pointer capture, a floor picture through the
+   file input, a scene step, dry run, publish, rollback, the two-tab stale
+   draft) and the Venue Studio flows ran in Chromium 159, WebKit 27.2
+   (desktop, iPhone and iPad descriptors) and Firefox 159, with no page
+   error and no console error. What a desktop engine cannot show: a real
+   finger. Playwright drives touch TAPS in all three engines but a touch
+   DRAG only in Chromium, so the volume slider and the Layout Designer were
+   dragged with the mouse in WebKit and Firefox; native colour and time
+   pickers were not opened (their values were set and saved);
+   double-tap zoom and long-press selection cannot be produced (every
+   button has `touch-action: manipulation` and `user-select: none` so
+   that neither gets in the way).
+   **Floor plan targets.** The plan keeps the venue's real proportions, so on
+   a 7-inch screen a display is drawn smaller than a fingertip (about 26 px
+   at 1024x600 for the 24-display sample). The target is larger than the
+   drawing: a tap near a display, not on it, goes to the nearest display
+   within reach (at least 12 px beyond its edge, more for a small shape, so a
+   lone display is about 44 px across); a tap as near two displays as one
+   (within 4 px) opens "Which display?" with both. At short heights (680 px
+   or less) the "No scene active" line is hidden and paddings are smaller so
+   the plan is drawn larger, and the Floor Plan side panel shows a fade at
+   its bottom edge whenever it scrolls. WebKit and Chromium move the click
+   of a touch onto a control near the finger by themselves; Firefox does
+   not. Before 19 November that made WebKit select a display other than
+   the nearest, or a whole area through its name, for a tap beside a
+   display. The plan now decides from where the finger went down (the
+   touch's pointerdown), so the rule above is the same in every engine.
+   Measured 19 November 2026 after that change (Chromium 159, WebKit 27.2,
+   Firefox 159, touch emulation, simulator; NOT on a T3, a T4 or a phone):
+   a touch tap at the centre of every display selects exactly that display
+   at 1024x600, 390x844, 844x390 and 1280x800 in both samples, in all three
+   engines; a touch tap in the gap between two close displays opens "Which
+   display?" in all three; the smallest effective target for a touch tap,
+   swept 1 px at a time, is 46 px or more in the conference centre at every
+   size, but 27 to 28 px (1024x600) and 33 px (390x844) high for the sports
+   bar's columns of displays 5 px apart, where a tap in the gap asks which
+   display was meant. Whether a T3 or T4 adjusts taps itself is not known;
+   with this change it does not matter for the plan.
+   **The volume slider on phones.** At 600 px wide or less the slider has a
+   row of its own in the Floor Plan's bottom bar (the zone picker above it)
+   and the gaps beside it are smaller. Measured 19 November 2026 (Chromium
+   159, WebKit 27.2, Firefox 159, touch emulation, simulator), slider width
+   at 390x844: Floor Plan bar 236 px (was 84), Room Control 224 (was 210),
+   Command Center zone cards 236 (was 222), the zone dialog 208 (was 194);
+   at 844x390 538, 664, 676 and 396 px, unchanged; 1024x600 and 1280x800
+   unchanged (Floor Plan bar 110 and 170 px, Command Center cards 94 and
+   158 px, the narrowest at those sizes). Each was dragged to a set value in
+   every view at both phone sizes: by touch in Chromium, by mouse in WebKit
+   and Firefox, reaching the value and sending it.
+   **Taps while the Studio saves.** No Studio control is taken down and
+   rebuilt under a finger after an edit. A text field is saved silently and
+   the section is redrawn only once the finger or mouse is up
+   (`Studio.refreshSoon`), so a tap on another control that itself commits
+   the field still lands; the Scenes, Visual Programming and Scheduling
+   panels that repaint on each save acknowledgement patch what changed
+   (`VF.patch`) and leave unchanged tabs and buttons standing. Measured 19
+   November 2026 in the three engines (Chromium by real touch events, WebKit
+   and Firefox by mouse, each press held 150 ms), a press right after typing
+   and at 0, 100, 350, 700, 860 (across the save acknowledgement), 1300 and
+   1600 ms after an edit, on the scene's Dry run, Execute test and Log tab,
+   a rule's Validate, a Scheduling "Edit", Add source, Add audio zone, Add
+   profile and, as a client, Dry run, Add a preset, Add a favourite channel
+   and Add profile: every press acted. Before: 38 of the 288 presses were
+   lost (Chromium 6, WebKit 16, Firefox 16), all right after typing or
+   across the save acknowledgement (a 39th, in Firefox, was the measurement
+   pressing a field Firefox had scrolled back into view).
 10. **Look.** Dark midnight navy, teal primary accent, amber for attention,
     green for confirmed. Use the tokens and components in
     `shared/base.css` (`.panel`, `.card`, `.btn`, `.seg`, `.chip`, `.field`,

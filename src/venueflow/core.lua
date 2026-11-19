@@ -25,6 +25,7 @@ local Rules = require("venueflow.rules")
 local Scheduler = require("venueflow.scheduler")
 local Access = require("venueflow.access")
 local ClientScope = require("venueflow.clientscope")
+local RemoteScope = require("venueflow.remotescope")
 local Auth = require("venueflow.auth")
 local Diag = require("venueflow.diag")
 local Discovery = require("venueflow.discovery")
@@ -41,6 +42,9 @@ M.ONLINE_EVERY = 60
 M.TRIGGER_COOLDOWN = 2
 M.MAX_ALERTS = 30
 M.MAX_DRAFT_BYTES = 600 * 1024
+--- Who stops every run when a new configuration is loaded (Core:load). A
+--- run stopped for this reason lets a channel it was dialling finish.
+M.STOPPED_BY_RELOAD = "configuration changed"
 
 local Core = {}
 Core.__index = Core
@@ -156,6 +160,15 @@ function M.new(deps)
       self:_executionUpdated(exec)
     end,
     cancelPending = function(exec, reason, by)
+      -- The rest of a channel number the run was dialling stops too, except
+      -- when a publish stops every run: then the number finishes, as a
+      -- channel typed by hand does (SourceControl reconfigure).
+      if by ~= M.STOPPED_BY_RELOAD then
+        self.sourceKeys:cancelExecution(
+          exec.id,
+          string.format("'%s' was stopped (%s)", tostring(exec.name), tostring(by or reason))
+        )
+      end
       local stopped = self.tracker:cancelExecution(exec.id, reason, "stopped before it was sent")
       if stopped > 0 then
         self.diag:add(
@@ -247,7 +260,9 @@ function Core:_alert(alert)
     table.remove(self.runtime.alerts)
   end
   self.state:touch()
-  self:_hook("setVariable", "ALERT_COUNT", #self.runtime.alerts)
+  -- A stored alert is always new: Alert Raised fires for each one. The count
+  -- is every alert of the venue (Core:venueAlerts), derived ones included.
+  self:_publishAlertCount()
   self:_hook("fireEvent", "alert")
   return alert
 end
@@ -277,8 +292,8 @@ function Core:load(reason)
   local previousSim = self.sim -- its device state is carried into the next one
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:clear()
-  self.sourceKeys:clear()
-  self.runner:cancelAll("VF_CANCELLED", "configuration changed")
+  self.sourceKeys:reconfigure(deps.mode())
+  self.runner:cancelAll("VF_CANCELLED", M.STOPPED_BY_RELOAD)
   if self.adapter and self.adapter.unwatchVariables then
     pcall(self.adapter.unwatchVariables)
   end
@@ -409,6 +424,9 @@ function Core:load(reason)
         level = "warning",
         title = "Missed schedule: " .. tostring(rule.name),
         detail = "Was due " .. stamp .. "; not run late.",
+        refs = self:_alertRefs(
+          Rules.touches(type(rule.program) == "table" and rule.program.steps or {}, self.config, self.ix)
+        ),
       })
     end,
     save = function()
@@ -440,6 +458,7 @@ end
 function Core:_paintSurface()
   self:_hook("setVariable", "VENUE_STATUS", self.runtime.venueStatus)
   self:_hook("setVariable", "ACTIVE_SCENE", self.runtime.activeScene and self.runtime.activeScene.name or "")
+  self:_alertsChanged() -- a (re)load can add or remove derived alerts
 end
 
 function Core:start()
@@ -468,6 +487,10 @@ end
 function Core:stop()
   self.deps.timers.cancel(M.TICK_TIMER)
   self.deps.timers.cancel(M.SAVE_TIMER)
+  -- A pending alert comparison would fire Alert Raised and write ALERT_COUNT
+  -- after the driver stopped. Disarmed too, so a later start can arm it again.
+  self.deps.timers.cancel(M.ALERT_TIMER)
+  self.alertSyncArmed = false
   self.runner:cancelAll("VF_CANCELLED", "driver stopping")
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:stop()
@@ -498,6 +521,7 @@ function Core:modeChanged()
   self.state:clear()
   self.online = {}
   self:load("mode changed")
+  self:_alertsChanged() -- also when the load stops early (a sample venue in Live)
 end
 
 -- ─── Feedback from Control4 ─────────────────────────────────────────────────
@@ -591,10 +615,12 @@ function Core:_checkOnline()
   end
   if changed then
     self.state:touch()
+    self:_alertsChanged()
   end
 end
 
 function Core:_stateChanged(kind, id, field, cell, previous)
+  self:_alertsChanged() -- a cell's status is what "not confirmed" alerts are derived from
   if self.config == nil or (cell.status ~= "confirmed" and cell.status ~= "commanded") then
     return
   end
@@ -678,6 +704,25 @@ function Core:_ops()
   end
   function ops.routeVideo(sourceId, ids, opts)
     return core.routing:routeVideo(sourceId, ids, sys(opts))
+  end
+  --- Dials a channel on a source's box (SourceControl). No feedback: the
+  --- step is "sent" once the keys are accepted, and the run does not wait
+  --- for the last one to leave.
+  function ops.tune(sourceId, target, opts)
+    local o = sys(opts)
+    local r = core.sourceKeys:tune(sourceId, target, o)
+    local source = core.ix.sources[sourceId or ""]
+    local name = source and source.name or sourceId
+    if r.ok then
+      local d = r.data or {}
+      r.results = { { kind = "source", id = sourceId, name = name, status = o.dry and "planned" or "commanded" } }
+      r.message = (o.dry and "Would send " or "Sending ")
+        .. tostring(d.keys)
+        .. " to "
+        .. tostring(name)
+        .. (o.dry and "." or "; a box gives no feedback.")
+    end
+    return r
   end
   function ops.routeAudio(zoneId, sourceId, opts)
     return core.audio:setSource(zoneId, sourceId, sys(opts))
@@ -784,8 +829,24 @@ function Core:_env(context)
 end
 
 --- A newer run that changes the same devices stops the older one, and says so.
-function Core:_stopOverlapping(touches, name)
+--- `spec` is the newer run (its kind and scene, when it is one).
+function Core:_stopOverlapping(touches, name, spec)
   for _, exec in ipairs(self.runner:overlapping(touches)) do
+    -- What the alert is about: the devices both runs change, and each scene
+    -- it names (a rule or a test program has no scene to name).
+    local shared = {}
+    for key in pairs(type(exec.touches) == "table" and exec.touches or {}) do
+      if touches[key] then
+        shared[key] = true
+      end
+    end
+    local scenes = {}
+    if exec.kind == "scene" and exec.refId ~= nil then
+      scenes[#scenes + 1] = exec.refId
+    end
+    if spec ~= nil and spec.kind == "scene" and spec.refId ~= nil then
+      scenes[#scenes + 1] = spec.refId
+    end
     self.diag:add(
       "warning",
       "scene",
@@ -797,6 +858,7 @@ function Core:_stopOverlapping(touches, name)
       level = "warning",
       title = tostring(exec.name) .. " was interrupted",
       detail = "Stopped because " .. tostring(name) .. " started and changes the same devices.",
+      refs = self:_alertRefs(shared, scenes),
     })
     self.runner:cancel(exec.id, "VF_SUPERSEDED", name)
   end
@@ -805,7 +867,7 @@ end
 function Core:_start(spec)
   if not spec.dryRun then
     spec.touches = Rules.touches(spec.program.steps, self.config, self.ix)
-    self:_stopOverlapping(spec.touches, spec.name)
+    self:_stopOverlapping(spec.touches, spec.name, spec)
   end
   return self.runner:start(spec)
 end
@@ -860,19 +922,25 @@ end
 
 --- Runs every enabled rule the predicate accepts. `cooled` applies a short
 --- per-rule cooldown (state and variable triggers can chatter).
+--- Returns how many rules were STARTED, and how many matched but were not
+--- (refused by a restricted licence, or failed to start).
 function Core:_fireRules(predicate, origin, context, cooled)
   if self.config == nil then
-    return 0
+    return 0, 0
   end
-  local n = 0
+  local n, notRun = 0, 0
   for _, rule in ipairs(self.config.rules) do
     if rule.enabled ~= false and type(rule.trigger) == "table" and predicate(rule) then
       local last = self.runtime.ruleLast[rule.id]
       if not cooled or last == nil or self.deps.now() - last >= M.TRIGGER_COOLDOWN then
-        n = n + 1
         local ok, err = pcall(function()
-          self:_runRule(rule, origin, context)
+          return self:_runRule(rule, origin, context)
         end)
+        if ok and err ~= nil then
+          n = n + 1
+        else
+          notRun = notRun + 1
+        end
         if not ok then
           self.diag:add(
             "error",
@@ -884,7 +952,7 @@ function Core:_fireRules(predicate, origin, context, cooled)
       end
     end
   end
-  return n
+  return n, notRun
 end
 
 local function execCode(exec)
@@ -933,24 +1001,43 @@ function Core:_executionUpdated(exec)
   self.state:touch()
 end
 
+--- Sets the venue status (manual control: works under any licence).
+--- Returns ok, and how many rules waiting for this change were NOT run (a
+--- restricted licence, or a rule that failed to start), so a caller can say
+--- so instead of skipping them in silence.
 function Core:setVenueStatus(status, origin)
   if status ~= "open" and status ~= "closed" then
-    return false
+    return false, 0
   end
   if self.runtime.venueStatus == status then
-    return true
+    return true, 0
   end
   self.runtime.venueStatus = status
   self:_saveRuntimeSoon()
   self.state:touch()
-  self.diag:add("info", "driver", nil, "Venue marked " .. status .. " (" .. tostring(origin) .. ")")
   self:_hook("setVariable", "VENUE_STATUS", status)
   self:_hook("fireEvent", status == "open" and "venue_open" or "venue_closed")
   self:_hook("record", "venue " .. status, tostring(origin))
-  self:_fireRules(function(rule)
+  local _, notRun = self:_fireRules(function(rule)
     return rule.trigger.type == "venue_status" and rule.trigger.status == status
   end, "venue_status")
-  return true
+  local text = "Venue marked " .. status .. " (" .. tostring(origin) .. ")"
+  if notRun > 0 then
+    self.diag:add(
+      "warning",
+      self.restricted and "license" or "driver",
+      self.restricted and "VF_LICENSE_RESTRICTED" or nil,
+      text .. "; " .. M.notRunText(notRun, self.restricted)
+    )
+  else
+    self.diag:add("info", "driver", nil, text)
+  end
+  return true, notRun
+end
+
+--- "N rule(s) not run" and why, as Composer and diagnostics say it.
+function M.notRunText(notRun, restricted)
+  return notRun .. " rule(s) not run" .. (restricted and ": licence restricted" or "")
 end
 
 --- Everything off: displays, audio zones, running scenes. System access; the
@@ -1046,6 +1133,7 @@ function Core:licenseChanged()
       self:_hook("fireEvent", "license_restored")
     end
     self.state:touch()
+    self:_alertsChanged()
   end
 end
 
@@ -1079,7 +1167,8 @@ function Core:_derivedAlerts(access)
       detail = "Scenes and schedules are paused. Manual control keeps working.",
     }
   end
-  for _, d in ipairs(self.config.displays) do
+  local config = self.config or { displays = {}, audioZones = {} }
+  for _, d in ipairs(config.displays) do
     if access:display(d) then
       local e = self.state.display[d.id]
       if self.online[d.id] == false then
@@ -1113,7 +1202,7 @@ function Core:_derivedAlerts(access)
       end
     end
   end
-  for _, z in ipairs(self.config.audioZones) do
+  for _, z in ipairs(config.audioZones) do
     if access:zone(z) then
       local e = self.state.zone[z.id]
       if e.mute.value == true and e.mute.status ~= "failed" then
@@ -1142,17 +1231,190 @@ function Core:_derivedAlerts(access)
     end
   end
   for _, a in ipairs(self.runtime.alerts) do
-    out[#out + 1] = { id = a.id, level = a.level, title = a.title, detail = a.detail, at = a.at, dismissable = true }
+    if self:_storedAlertVisible(a, access) then
+      out[#out + 1] = { id = a.id, level = a.level, title = a.title, detail = a.detail, at = a.at, dismissable = true }
+    end
   end
   return out
 end
 
+--- What a stored alert is about, kept with it (never sent to a page): the
+--- displays and zones (`touches`, "d:<id>" / "z:<id>" as Rules.touches gives
+--- them) and the scenes it names. nil when it names none of these: a
+--- venue-wide alert (a notification's text is the installer's message to
+--- whoever looks after the venue, so it is one).
+function Core:_alertRefs(touches, scenes)
+  local refs = { displays = {}, zones = {}, scenes = {} }
+  for key in pairs(touches or {}) do
+    local kind, id = tostring(key):match("^([dz]):(.+)$")
+    if kind == "d" then
+      refs.displays[#refs.displays + 1] = id
+    elseif kind == "z" then
+      refs.zones[#refs.zones + 1] = id
+    end
+  end
+  for _, id in ipairs(scenes or {}) do
+    refs.scenes[#refs.scenes + 1] = id
+  end
+  if #refs.displays + #refs.zones + #refs.scenes == 0 then
+    return nil
+  end
+  table.sort(refs.displays)
+  table.sort(refs.zones)
+  return refs
+end
+
+--- A stored alert is shown to (and dismissable by) a profile only when the
+--- profile may see every display, zone and scene the alert is about. Something
+--- a later publish removed is seen only by a profile that may see every
+--- display (zone, scene): whether a narrower one could see it is unknown. The
+--- installer and Composer see every alert.
+function Core:_storedAlertVisible(alert, access)
+  local refs = alert.refs
+  if access.system or refs == nil then
+    return true
+  end
+  local ix = self.ix or {}
+  local perms = access.permissions or {}
+  local everyArea = perms.areas == "all"
+  for _, id in ipairs(refs.displays or {}) do
+    local d = ix.displays and ix.displays[id]
+    if d == nil then
+      if not (everyArea and perms.floors == "all") then
+        return false
+      end
+    elseif not access:display(d) then
+      return false
+    end
+  end
+  for _, id in ipairs(refs.zones or {}) do
+    local z = ix.zones and ix.zones[id]
+    if z == nil then
+      if not (everyArea and perms.zones == "all") then
+        return false
+      end
+    elseif not access:zone(z) then
+      return false
+    end
+  end
+  for _, id in ipairs(refs.scenes or {}) do
+    local scene = ix.scenes and ix.scenes[id]
+    if scene == nil then
+      if not (perms.scenes == true and perms.sceneIds == "all") then
+        return false
+      end
+    elseif not access:scene(scene) then
+      return false
+    end
+  end
+  return true
+end
+
+local NEUTRAL_LABEL = {
+  route_video = "Video change",
+  display_power = "Display power",
+}
+
+--- An operation's label for a profile that sees only `targets` of it. The
+--- engines write labels such as "Sports 2 to 5 displays" or "Power on 5
+--- displays": the count is rebuilt from what is visible; any other label is
+--- replaced by a neutral one, since it was written for the whole operation.
+local function visibleLabel(op, targets)
+  local displays = 0
+  for _, t in ipairs(targets) do
+    if t.kind == "display" then
+      displays = displays + 1
+    end
+  end
+  local prefix = type(op.label) == "string" and op.label:match("^(.-)%d+ displays?$") or nil
+  if prefix ~= nil and displays > 0 then
+    return string.format("%s%d display%s", prefix, displays, displays == 1 and "" or "s")
+  end
+  return NEUTRAL_LABEL[op.kind] or "Change"
+end
+
+-- ─── The alerts of this venue (Composer and the property page) ─────────────
+--
+-- ONE definition behind the Alerts property, the ALERT_COUNT variable and the
+-- HAS_ALERTS conditional: every derived alert (a restricted licence, an
+-- offline display, a display or zone change not confirmed) and every stored
+-- alert, as the whole venue sees it. A muted zone is left out: the page shows
+-- it as information, but muting is something staff do on purpose, not a
+-- fault to push to a phone.
+--
+-- Alert Raised fires once when a derived alert APPEARS (not again while it
+-- persists; again after it cleared and came back) and once per stored alert
+-- (Core:_alert). The derived set is compared only after state that can change
+-- it has changed (a cell, a display's online state, the licence, a load), at
+-- most once per ALERT_SYNC_MS, never on the scheduler's tick.
+
+M.ALERT_TIMER = "VfAlertSync"
+M.ALERT_SYNC_MS = 250
+
+function Core:venueAlerts()
+  local out = {}
+  for _, a in ipairs(self:_derivedAlerts(Access.system("alerts"))) do
+    if not tostring(a.id):find("^muted:") then
+      out[#out + 1] = a
+    end
+  end
+  return out
+end
+
+function Core:alertCount()
+  return #self:venueAlerts()
+end
+
+function Core:_publishAlertCount(count)
+  count = count or self:alertCount()
+  if count ~= self.alertCountSent then
+    self.alertCountSent = count
+    self:_hook("setVariable", "ALERT_COUNT", count)
+  end
+  return count
+end
+
+--- Something an alert is derived from changed: compare soon (coalesced).
+function Core:_alertsChanged()
+  if self.alertSyncArmed then
+    return
+  end
+  self.alertSyncArmed = true
+  self.deps.timers.set(M.ALERT_TIMER, M.ALERT_SYNC_MS, function()
+    self:_syncAlerts()
+  end)
+end
+
+function Core:_syncAlerts()
+  self.alertSyncArmed = false
+  local alerts = self:venueAlerts()
+  local seen, appeared = {}, false
+  local before = self.derivedSeen or {}
+  for _, a in ipairs(alerts) do
+    if not a.dismissable then -- derived (stored alerts fired when they were raised)
+      seen[a.id] = true
+      if not before[a.id] then
+        appeared = true
+      end
+    end
+  end
+  self.derivedSeen = seen
+  self:_publishAlertCount(#alerts)
+  if appeared then
+    self:_hook("fireEvent", "alert")
+  end
+end
+
 --- An operation as one profile may see it: only the targets in `visible`
---- ("kind:id" -> true), with the counts recomputed over those, so nothing
---- about a display or zone outside the profile's access is told, not even
---- how many there were. nil when the profile can see none of it.
+--- ("kind:id" -> true), with the counts and the label recomputed over those,
+--- so nothing about a display or zone outside the profile's access is told,
+--- not even how many there were. Who asked (`origin`) is left out: it names
+--- a profile or a station. An installer gets the whole operation from
+--- OPERATION_GET (Tracker.publicOp), not from here. nil when the profile can
+--- see none of it.
 local function visibleOperation(op, visible, includeDetail)
   local pub = Tracker.publicOp(op, includeDetail)
+  pub.origin = nil
   local targets = {}
   for _, t in ipairs(pub.targets) do
     if visible[t.kind .. ":" .. t.id] then
@@ -1165,6 +1427,7 @@ local function visibleOperation(op, visible, includeDetail)
   if #targets ~= #pub.targets then
     pub.targets = targets
     pub.summary = Tracker.summarize({ targets = targets })
+    pub.label = visibleLabel(op, targets)
   end
   return pub
 end
@@ -1633,6 +1896,15 @@ function H.SCENE_ACTIVATE(core, p, ctx)
   if scene == nil then
     return failed
   end
+  -- The area a button was pressed in comes from the page, so it is checked
+  -- like everything else a page says: an area outside the profile's access is
+  -- REFUSED, not ignored. Ignoring it would run the scene's "not pressed in
+  -- that area" branch, which is still a choice the page made; a page this
+  -- profile really uses only shows its own areas, so a refusal is only ever
+  -- seen by a tampered request.
+  if p.areaId ~= nil and not ctx.access:area(p.areaId) then
+    return fail("VF_FORBIDDEN", "profile may not act in this area")
+  end
   if core.restricted then
     return fail("VF_LICENSE_RESTRICTED", "scenes need a licence")
   end
@@ -1697,8 +1969,15 @@ function H.VENUE_STATUS(core, p, ctx)
   if not ctx.access:flag("venueStatus") then
     return fail("VF_FORBIDDEN", "profile may not change the venue status")
   end
-  core:setVenueStatus(p.status, ctx.who)
-  return { ok = true, status = "ok", data = { venueStatus = core.runtime.venueStatus } }
+  local _, notRun = core:setVenueStatus(p.status, ctx.who)
+  -- The status is set whatever the licence; a rule waiting for it that did
+  -- not run is counted (the reason is in diagnostics and, for a restricted
+  -- licence, in the licence alert).
+  return {
+    ok = true,
+    status = "ok",
+    data = { venueStatus = core.runtime.venueStatus, rulesNotRun = notRun > 0 and notRun or nil },
+  }
 end
 
 function H.QUERY_STATUS(core, p, ctx)
@@ -1751,11 +2030,25 @@ function H.ALERT_DISMISS(core, p, ctx)
   if not ctx.access:flag("viewAlerts") then
     return fail("VF_FORBIDDEN", "profile may not manage alerts")
   end
+  -- Only an alert this profile is SHOWN, and shown as dismissable, may be
+  -- dismissed: the same list the state document gives it. Any other id
+  -- answers exactly like one that does not exist.
+  local shown = false
+  for _, a in ipairs(core:_derivedAlerts(ctx.access)) do
+    if a.id == p.alertId and a.dismissable == true then
+      shown = true
+    end
+  end
+  if not shown then
+    return fail("VF_NOT_FOUND", "that alert cannot be dismissed (it clears when its cause does)")
+  end
   for i, a in ipairs(core.runtime.alerts) do
     if a.id == p.alertId then
       table.remove(core.runtime.alerts, i)
       core.state:touch()
-      core:_hook("setVariable", "ALERT_COUNT", #core.runtime.alerts)
+      -- The venue's count (Core:alertCount), the one definition behind the
+      -- Alerts property and HAS_ALERTS: derived alerts stay counted.
+      core:_publishAlertCount()
       return { ok = true, status = "ok" }
     end
   end
@@ -1861,12 +2154,27 @@ function Core:_clientBase()
   return published ~= nil and Schema.normalize(published.config) or nil
 end
 
---- nil when the draft differs from what is published only in what a client
---- may change (so a client may publish or discard it); otherwise a phrase
---- for the installer's unfinished change.
+--- nil when the draft holds only a client's work (so a client may publish or
+--- discard it); otherwise a phrase for the installer's unfinished work.
+---
+--- Two things make the draft the installer's:
+---   * someone other than a client (the installer on site, or the dealer
+---     through Remote Management) saved it since the last publish or discard,
+---     whatever part they changed: a half-built schedule or scene is
+---     unfinished work too, though a client could have made the same change;
+---   * it differs from what is published in an installer-owned part (a
+---     change that reached the draft without a recorded save).
 function Core:_installerPending()
   local draft, published = self.store:draft(), self.store:published()
-  if draft == nil or published == nil then
+  if draft == nil then
+    return nil
+  end
+  for _, who in ipairs(draft.savedBy or {}) do
+    if tostring(who):sub(1, 8) ~= "profile:" then
+      return who == "remote" and "changes saved remotely by the dealer" or "changes saved by the installer"
+    end
+  end
+  if published == nil then
     return nil
   end
   local _, what = ClientScope.changed(Schema.normalize(published.config), Schema.normalize(draft.config))
@@ -1932,23 +2240,25 @@ function H.DRAFT_SAVE(core, p, ctx)
   if ok and type(encoded) == "string" and #encoded > M.MAX_DRAFT_BYTES then
     return fail("VF_TOO_LARGE", "the configuration is larger than the controller should store")
   end
+  -- PINs come from the stored draft, or from what is published when there is
+  -- no draft (a page never holds PIN material, so without this fallback every
+  -- staff PIN would be lost from the new draft).
   local stored = core.store:draft()
-  local config = mergePins(U.copy(p.config), stored and stored.config)
+  local published = stored == nil and core.store:published() or nil
+  local config = mergePins(U.copy(p.config), (stored and stored.config) or (published and published.config))
   if not ctx.installer then
     local base = core:_clientBase()
     if base == nil then
       return fail("VF_FORBIDDEN", "the installer sets the venue up first")
-    end
-    if stored == nil then
-      -- No draft yet: PINs come from what is published.
-      config = mergePins(U.copy(p.config), base)
     end
     local _, what = ClientScope.changed(base, Schema.normalize(config))
     if what ~= nil then
       return clientRefusal(what)
     end
   end
-  local revision, why, detail = core.store:saveDraft(config, p.baseRevision)
+  -- Who saved is kept with the draft until the next publish or discard: a
+  -- client may not publish or discard what the installer or the dealer saved.
+  local revision, why, detail = core.store:saveDraft(config, p.baseRevision, { by = ctx.who })
   if revision == nil then
     if why == "stale" then
       return fail("VF_STALE_DRAFT", detail)
@@ -1974,9 +2284,25 @@ function H.DRAFT_VALIDATE(core)
   }
 end
 
+--- A caller may name the draft revision it means (`baseRevision`, optional):
+--- a draft that has moved on since is not published or discarded.
+local function staleBase(p, draft)
+  if p.baseRevision ~= nil and (draft == nil or p.baseRevision ~= draft.revision) then
+    return fail(
+      "VF_STALE_DRAFT",
+      "the draft changed since you loaded it (revision " .. tostring(draft and draft.revision) .. ")"
+    )
+  end
+  return nil
+end
+
 function H.DRAFT_DISCARD(core, p, ctx)
   if not ctx.installer and core:_installerPending() ~= nil then
     return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
+  local stale = staleBase(p, core.store:draft())
+  if stale ~= nil then
+    return stale
   end
   if p.confirm ~= true then
     return fail("VF_CONFIRM_REQUIRED")
@@ -1990,7 +2316,7 @@ function H.DRAFT_DISCARD(core, p, ctx)
   return { ok = true, status = "ok", data = { draft = core:_draftData() } }
 end
 
-function H.TEMPLATE_APPLY(core, p)
+function H.TEMPLATE_APPLY(core, p, ctx)
   if not U.contains(Schema.VENUE_TYPES, p.venueType) then
     return fail("VF_INVALID_PAYLOAD", "unknown venue type")
   end
@@ -2016,7 +2342,10 @@ function H.TEMPLATE_APPLY(core, p)
   else
     config = Templates.venue(p.venueType, p.name)
   end
-  local revision, why, detail = core.store:saveDraft(config, nil, { force = true })
+  -- Installer scope only (protocol.lua; not a Remote Management command), so
+  -- the saver is the installer: a template or sample is installer work even
+  -- where it only touches what a client could also change.
+  local revision, why, detail = core.store:saveDraft(config, nil, { force = true, by = ctx.who or "installer" })
   if revision == nil then
     return fail(why == "invalid" and "VF_VALIDATION_FAILED" or "VF_STORAGE_FAILED", detail)
   end
@@ -2024,13 +2353,20 @@ function H.TEMPLATE_APPLY(core, p)
   return { ok = true, status = "ok", data = { draft = core:_draftData() } }
 end
 
-function H.PROFILE_PIN_SET(core, p)
+function H.PROFILE_PIN_SET(core, p, ctx)
   local draft = core.store:draft()
   if draft == nil then
     return fail("VF_NOT_FOUND", "there is no draft")
   end
-  -- (A client may set any staff PIN: PINs are not in the installer-owned
-  -- part of the configuration. See clientscope.lua.)
+  -- A client may set any staff PIN except on a profile a screen opens with
+  -- (the default profile, a station's profile): those whole records are the
+  -- installer's (clientscope.lua), and a PIN there would lock every tile or
+  -- station out. Refused here and now, as DRAFT_SAVE refuses it, rather than
+  -- accepted into the draft and refused later at publish. Setting and
+  -- clearing are both refused, whether or not the profile has a PIN.
+  if not ctx.installer and ClientScope.screenProfileIds(draft.config)[tostring(p.profileId)] then
+    return clientRefusal("the profile a screen or station opens with")
+  end
   local profile
   for _, candidate in ipairs(draft.config.profiles) do
     if candidate.id == p.profileId then
@@ -2049,7 +2385,10 @@ function H.PROFILE_PIN_SET(core, p)
     profile.pinSalt = core.auth:newSalt()
     profile.pinHash = core.auth:hashPin(p.pin, profile.pinSalt)
   end
-  local revision, why, detail = core.store:saveDraft(draft.config, p.baseRevision, { force = p.baseRevision == nil })
+  -- Attributed like DRAFT_SAVE: a client's PIN keeps the draft the client's;
+  -- the installer's makes it the installer's unfinished work (S2).
+  local revision, why, detail =
+    core.store:saveDraft(draft.config, p.baseRevision, { force = p.baseRevision == nil, by = ctx.who })
   if revision == nil then
     return fail(why == "stale" and "VF_STALE_DRAFT" or "VF_STORAGE_FAILED", detail)
   end
@@ -2092,6 +2431,10 @@ function H.PUBLISH(core, p, ctx)
   if not ctx.installer and core:_installerPending() ~= nil then
     -- Publishing would put the installer's unfinished work live.
     return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
+  local stale = staleBase(p, draft)
+  if stale ~= nil then
+    return stale
   end
   local issues = Schema.validate(draft.config)
   local acknowledged = p.acknowledged
@@ -2176,7 +2519,11 @@ function H.ROLLBACK(core, p, ctx)
   core.auth:revoke("profile")
   core:load("rollback to " .. p.versionId)
   core.diag:add("warning", "config", nil, "Rolled back to " .. p.versionId .. " as " .. versionId)
-  core:_hook("record", "configuration rolled back", p.versionId)
+  -- A rollback publishes: a NEW live version (versionId) with an older
+  -- version's content (p.versionId). Composer hears it as Configuration
+  -- Published, and the record names the new live version first.
+  core:_hook("fireEvent", "published")
+  core:_hook("record", "configuration rolled back", versionId, p.versionId)
   return {
     ok = true,
     status = "ok",
@@ -2618,7 +2965,12 @@ end
 --   level "publish"  the above, plus publish and rollback
 --
 -- A remote change is made as the installer would make it (the dealer is the
--- installer), and is recorded as "remote".
+-- installer), and is recorded as "remote", with one exception: device
+-- mapping and device commands are ON-SITE ONLY (remotescope.lua). A remote
+-- save_draft that would change them is refused whole, before anything is
+-- stored; so are a remote publish and a remote rollback that would make a
+-- different mapping live. The refusal is VF_ONSITE_ONLY, its detail names
+-- what differs.
 
 M.REMOTE_COMMANDS = {
   draft = { "snapshot", "save_draft", "refresh_status" },
@@ -2696,6 +3048,15 @@ function REMOTE.refresh_status(core)
   return { ok = true, data = core:summary() }
 end
 
+--- The refusal of a remote change to device mapping or commands.
+local function onSiteOnly(changes, verb)
+  return fail(
+    "VF_ONSITE_ONLY",
+    RemoteScope.detail(changes, verb),
+    { data = { onSiteOnly = RemoteScope.items(changes, 10) } }
+  )
+end
+
 function REMOTE.save_draft(core, args, ctx)
   -- The configuration arrives as an object, or as JSON text in parts (the
   -- same form a snapshot leaves in).
@@ -2721,10 +3082,21 @@ function REMOTE.save_draft(core, args, ctx)
     return fail("VF_INVALID_PAYLOAD", "save_draft needs a config")
   end
   local base = tonumber(args.baseRevision)
-  if base == nil and core.store:draft() ~= nil then
+  local draft = core.store:draft()
+  if base == nil and draft ~= nil then
     -- A remote editor must say which draft it started from, so it can never
     -- silently overwrite work done on site in the meantime.
     return fail("VF_STALE_DRAFT", "save_draft needs the baseRevision it was edited from")
+  end
+  -- Mapping and commands must stay what the DRAFT holds (it may carry the
+  -- installer's unpublished mapping work), or what is live when there is no
+  -- draft. A stale base is left to DRAFT_SAVE: "refresh" is the useful answer.
+  if draft == nil or base == draft.revision then
+    local current = draft or core.store:published()
+    local changes = RemoteScope.changes(current and current.config, args.config)
+    if #changes > 0 then
+      return onSiteOnly(changes, "save")
+    end
   end
   return H.DRAFT_SAVE(core, { config = args.config, baseRevision = base }, ctx)
 end
@@ -2741,6 +3113,13 @@ function REMOTE.publish(core, args, ctx)
       "the draft changed since it was reviewed (revision " .. tostring(draft.revision) .. ")"
     )
   end
+  -- Putting a mapping live is on-site work, even one the installer saved
+  -- into the draft on site.
+  local live = core.store:published()
+  local changes = RemoteScope.changes(live and live.config, draft.config)
+  if #changes > 0 then
+    return onSiteOnly(changes, "publish")
+  end
   local acknowledged = {}
   for _, id in ipairs(type(args.acknowledged) == "table" and args.acknowledged or {}) do
     acknowledged[#acknowledged + 1] = tostring(id)
@@ -2753,7 +3132,17 @@ function REMOTE.publish(core, args, ctx)
 end
 
 function REMOTE.rollback(core, args, ctx)
-  return H.ROLLBACK(core, { versionId = tostring(args.versionId or ""), confirm = true }, ctx)
+  local versionId = tostring(args.versionId or "")
+  local target = core.store:version(versionId)
+  if target ~= nil then
+    -- Going back to another mapping is putting a mapping live: on site.
+    local live = core.store:published()
+    local changes = RemoteScope.changes(live and live.config, target.config)
+    if #changes > 0 then
+      return onSiteOnly(changes, "rollback")
+    end
+  end
+  return H.ROLLBACK(core, { versionId = versionId, confirm = true }, ctx)
 end
 
 --- Runs one remote command. level = "draft" | "publish" (anything else: off).
@@ -2777,7 +3166,9 @@ function Core:remote(command, args, level)
     "config",
     out.errorCode,
     "Remote " .. tostring(command) .. (out.ok and " done" or " refused"),
-    { detail = out.detail }
+    -- The detail is cut at 200 characters in the log; what was on-site only
+    -- is kept as its own short items.
+    { detail = out.detail, onSiteOnly = not out.ok and out.data and out.data.onSiteOnly or nil }
   )
   if out.ok and command ~= "snapshot" and command ~= "refresh_status" then
     self:_hook("record", "remote " .. command, out.data and (out.data.versionId or out.data.revision) or "")
@@ -2934,7 +3325,9 @@ end
 
 --- Commands a dealer places in Composer programming. They run with system
 --- access: whoever programs the controller already controls it.
---- Returns ok, message.
+--- Returns ok, message, and `true` as a third value when the command did
+--- its job but something it would have started did not run (the driver then
+--- writes the message to Last Error).
 function Core:composer(command, params)
   params = params or {}
   if self.config == nil then
@@ -2952,14 +3345,25 @@ function Core:composer(command, params)
     return exec.status ~= "failed" and exec.status ~= "skipped", exec.status
   elseif command == "TRIGGER_EVENT" then
     local name = U.trim(params.NAME)
-    local n = self:_fireRules(function(rule)
+    local n, notRun = self:_fireRules(function(rule)
       local t = rule.trigger
       return (t.type == "c4_event" or t.type == "external") and tostring(t.name):lower() == name:lower()
     end, "composer event " .. name)
+    if n == 0 and notRun > 0 and self.restricted then
+      return false, "licence restricted: " .. notRun .. " rule(s) not run"
+    elseif notRun > 0 then
+      return n > 0, n .. " rule(s) run, " .. notRun .. " not run", true
+    end
     return n > 0, n .. " rule(s) run"
   elseif command == "SET_VENUE_STATUS" then
     local status = U.trim(params.STATUS):lower()
-    return self:setVenueStatus(status, "composer"), status
+    local done, notRun = self:setVenueStatus(status, "composer")
+    if done and notRun > 0 then
+      -- Manual control: the status IS set. The rules that did not run are
+      -- said (the third value asks the driver to write Last Error).
+      return true, "status set; " .. M.notRunText(notRun, self.restricted), true
+    end
+    return done, status
   elseif command == "ALL_OFF" then
     local r = self:allOff("composer", false)
     return r.ok, r.status
@@ -3009,8 +3413,8 @@ function Core:summary()
       #self.config.audioZones,
       #self.config.scenes
     )
-    s.alerts = #self:_derivedAlerts(Access.system("summary"))
   end
+  s.alerts = self:alertCount()
   local draft = self.store:draft()
   s.draft = draft and ("revision " .. draft.revision) or "none"
   if self.sampleBlocked then
