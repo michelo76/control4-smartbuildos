@@ -20,6 +20,7 @@ M.KEYS = {
   draft = "vf_draft_v1",
   published = "vf_published_v1",
   history = "vf_history_v1",
+  revision = "vf_draft_revision_v1", -- { last = n }: the last draft revision ever given
   images = "vf_images_v1", -- index: key -> { bytes, type }
   imagePrefix = "vf_img_",
 }
@@ -61,18 +62,54 @@ end
 
 -- ─── Draft ──────────────────────────────────────────────────────────────────
 
---- { config, revision, savedAt } or nil.
+--- { config, revision, savedAt, basedOn, savedBy } or nil. `savedBy` lists
+--- who saved the draft since the last publish or discard ("installer",
+--- "remote", "profile:<id>"), sorted.
 function Store:draft()
   local d = self:_read("draft")
   if d == nil then
     return nil
   end
-  return { config = U.copy(d.config), revision = d.revision, savedAt = d.savedAt, basedOn = d.basedOn }
+  local savedBy = {}
+  for _, who in ipairs(type(d.savedBy) == "table" and d.savedBy or {}) do
+    savedBy[#savedBy + 1] = who
+  end
+  return {
+    config = U.copy(d.config),
+    revision = d.revision,
+    savedAt = d.savedAt,
+    basedOn = d.basedOn,
+    savedBy = savedBy,
+  }
+end
+
+--- The last draft revision ever given. Revisions never repeat for the life of
+--- the stored venue (a discard or a publish does not restart them), so a
+--- `baseRevision` someone checked can never come back with other content.
+--- A venue stored before the counter existed starts from its draft's revision.
+function Store:lastRevision()
+  local r = self:_read("revision")
+  local last = r and tonumber(r.last) or 0
+  local d = self:_read("draft")
+  if d ~= nil and (tonumber(d.revision) or 0) > last then
+    last = tonumber(d.revision)
+  end
+  return last
+end
+
+function Store:_noteRevision(n)
+  if n > (tonumber((self:_read("revision") or {}).last) or 0) then
+    return self:_write("revision", { last = n })
+  end
+  return true
 end
 
 --- Saves the draft. `baseRevision` must be the revision the editor loaded
 --- (two Studio tabs cannot silently overwrite each other); pass nil only to
 --- create the first draft or with `force`.
+--- opts = { force?, basedOn?, by? }: `by` is who saves ("installer", "remote",
+--- "profile:<id>"); it is added to the draft's `savedBy` until the next
+--- publish or discard. A save without `by` adds no one.
 --- Returns revision, or nil + "stale" | "invalid" | "storage", detail.
 function Store:saveDraft(config, baseRevision, opts)
   opts = opts or {}
@@ -85,12 +122,30 @@ function Store:saveDraft(config, baseRevision, opts)
     return nil, "invalid", why
   end
   local normalized = Schema.normalize(migrated)
-  local revision = (current and current.revision or 0) + 1
+  local revision = self:lastRevision() + 1
+  -- The counter first: if the draft then fails to store, a number is skipped,
+  -- never given twice.
+  local counted, cerr = self:_noteRevision(revision)
+  if not counted then
+    return nil, "storage", cerr
+  end
+  local savedBy, seen = {}, {}
+  for _, who in ipairs(current and type(current.savedBy) == "table" and current.savedBy or {}) do
+    if not seen[who] then
+      seen[who] = true
+      savedBy[#savedBy + 1] = who
+    end
+  end
+  if type(opts.by) == "string" and opts.by ~= "" and not seen[opts.by] then
+    savedBy[#savedBy + 1] = opts.by
+  end
+  table.sort(savedBy)
   local ok, err = self:_write("draft", {
     config = normalized,
     revision = revision,
     savedAt = self.now(),
     basedOn = opts.basedOn or (current and current.basedOn) or nil,
+    savedBy = savedBy,
   })
   if not ok then
     return nil, "storage", err
@@ -99,6 +154,9 @@ function Store:saveDraft(config, baseRevision, opts)
 end
 
 function Store:discardDraft()
+  -- Keep the revision counter past the discarded draft (a venue stored before
+  -- the counter existed has only the draft to say where it was).
+  self:_noteRevision(self:lastRevision())
   pcall(self.kv.delete, M.KEYS.draft)
   self.cache.draft = false
 end
@@ -186,6 +244,7 @@ function Store:publish(note, by)
     return nil, err
   end
   d.basedOn = versionId
+  d.savedBy = {} -- what is published now is nobody's unfinished work
   self:_write("draft", d)
   self:collectImages()
   return versionId
@@ -326,6 +385,9 @@ function Store:exportBackup()
     version = M.BACKUP_VERSION,
     schema = Schema.SCHEMA_VERSION,
     exportedAt = self.now(),
+    -- The revision counter travels too, so a restore onto another controller
+    -- (or a fresh one) never gives out a revision number already used here.
+    revision = self:lastRevision(),
     draft = d and { config = U.copy(d.config) } or nil,
     published = p
         and { config = U.copy(p.config), versionId = p.versionId, publishedAt = p.publishedAt, note = p.note }
@@ -390,7 +452,16 @@ function Store:restoreBackup(doc, which)
       end
     end
   end
-  return self:saveDraft(config, nil, { force = true })
+  -- A restore continues the revision count (never restarts it), and never
+  -- goes below the count of the controller the backup came from.
+  local carried = tonumber(doc.revision)
+  if carried ~= nil and carried == carried and carried > self:lastRevision() and carried < 2 ^ 52 then
+    local counted, cerr = self:_noteRevision(math.floor(carried))
+    if not counted then
+      return nil, "storage", cerr
+    end
+  end
+  return self:saveDraft(config, nil, { force = true, by = "installer" })
 end
 
 return M

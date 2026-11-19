@@ -8,6 +8,7 @@
 
 local H = require("venueflow_harness")
 local Schema = require("venueflow.schema")
+local Store = require("venueflow.store")
 local T = H.checker()
 local check, eq = T.check, T.eq
 
@@ -362,5 +363,119 @@ for _ = 1, 7 do
   again.send("PUBLISH", { acknowledged = {} }, { session = st3 })
 end
 eq("a picture no version refers to is deleted", again.core.store:getImage(key), nil)
+
+-- ── revisions never repeat ──────────────────────────────────────────────────
+-- A revision number is what an editor (on site, or the dealer's remote
+-- editor) names to say "exactly what I loaded". If numbers restarted after a
+-- discard, a number could come back with other content.
+print("revisions never repeat")
+do
+  local function copyT(t)
+    return H.JSON:decode(H.JSON:encode(t))
+  end
+  local rkv = H.kv()
+  local e = H.new({ kv = rkv })
+  local I = { session = e.publishSample("sports_bar") }
+  local function save(name)
+    local d = e.send("DRAFT_GET", {}, I).data.draft
+    local c = copyT(d.config)
+    c.scenes[1].name = name
+    local r = e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, I)
+    return r.data and r.data.revision
+  end
+  save("A")
+  local reviewed = save("B (what the dealer reviews)")
+  local discarded = e.send("DRAFT_DISCARD", { confirm = true }, I).data.draft.revision
+  check("a discard does not restart the revisions", discarded > reviewed, tostring(discarded))
+  local seen = { [reviewed] = true }
+  for i = 1, 4 do
+    local rv = save("on site " .. i)
+    check("revision " .. tostring(rv) .. " is new", rv ~= nil and not seen[rv])
+    seen[rv] = true
+  end
+  local acks = {}
+  for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, I).data.issues) do
+    acks[#acks + 1] = i.id
+  end
+  local remote = e.core:remote("publish", { baseRevision = reviewed, acknowledged = acks }, "publish")
+  eq("a remote publish naming the reviewed revision is refused after a discard", remote.errorCode, "VF_STALE_DRAFT")
+  local before = e.send("DRAFT_GET", {}, I).data.draft.revision
+  eq("the installer publishes", e.send("PUBLISH", { acknowledged = acks }, I).ok, true)
+  check("a publish does not restart them either", save("after publish") > before)
+
+  -- A venue stored before the counter existed: the draft says where it was.
+  local legacyKv = H.kv()
+  local old = H.new({ kv = legacyKv })
+  local OI = { session = old.publishSample("sports_bar") }
+  local d = old.core.store:draft()
+  local stored = legacyKv.get(Store.KEYS.draft)
+  stored.revision = 7
+  legacyKv.set(Store.KEYS.draft, stored)
+  legacyKv.delete(Store.KEYS.revision or "vf_draft_revision_v1")
+  local reopened = H.new({ kv = legacyKv })
+  eq("an older stored venue keeps its draft revision", reopened.core.store:draft().revision, 7)
+  local c = copyT(reopened.send("DRAFT_GET", {}, { session = reopened.studio() }).data.draft.config)
+  local RS = { session = reopened.studio() }
+  eq("...the next save is 8", reopened.send("DRAFT_SAVE", { config = c, baseRevision = 7 }, RS).data.revision, 8)
+  local afterDiscard = reopened.send("DRAFT_DISCARD", { confirm = true }, RS).data.draft.revision
+  eq("...and after a discard 9, not 1", afterDiscard, 9)
+  check("(the older venue was set up)", d ~= nil and OI.session ~= nil)
+
+  -- Backup and restore: a restore never makes an old number valid again,
+  -- here or on another controller.
+  local backup = e.send("BACKUP_EXPORT", {}, I).data.backup
+  local last = e.send("DRAFT_GET", {}, I).data.draft.revision
+  eq("the backup carries the revision count", backup.revision, last)
+  local restored = e.send("BACKUP_RESTORE", { backup = backup, confirm = true }, I)
+  check("a restore continues the count", restored.data.draft.revision > last, tostring(restored.data.draft.revision))
+  local fresh = H.new()
+  local FS = { session = fresh.studio() }
+  local onFresh = fresh.send("BACKUP_RESTORE", { backup = backup }, FS)
+  check(
+    "a restore onto another controller starts past the backup's count",
+    onFresh.ok and onFresh.data.draft.revision > last,
+    H.JSON:encode(onFresh):sub(1, 300)
+  )
+end
+
+-- ── PINs when there is no draft ─────────────────────────────────────────────
+-- A page never holds PIN material: a save re-attaches it from the stored
+-- draft, or, when there is no draft, from what is published.
+print("PINs when there is no draft")
+do
+  local e = H.new()
+  local I = { session = e.publishSample("sports_bar") }
+  local function pins()
+    local n = 0
+    for _, p in ipairs(e.core.store:draft().config.profiles) do
+      if type(p.pinHash) == "string" and p.pinHash ~= "" then
+        n = n + 1
+      end
+    end
+    return n
+  end
+  local pageCopy = e.send("DRAFT_GET", {}, I).data.draft.config
+  local withPins = pins()
+  check("the sample has staff PINs", withPins >= 1)
+  e.core.store:discardDraft()
+  eq("(no draft now)", e.core.store:draft(), nil)
+  eq("an installer save with no draft", e.send("DRAFT_SAVE", { config = pageCopy }, I).ok, true)
+  eq("...keeps every staff PIN", pins(), withPins)
+  e.core.store:discardDraft()
+  eq("a remote save with no draft", e.core:remote("save_draft", { config = pageCopy }, "draft").ok, true)
+  eq("...keeps every staff PIN", pins(), withPins)
+  eq(
+    "the manager still signs in after a publish",
+    (function()
+      local acks = {}
+      for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, I).data.issues) do
+        acks[#acks + 1] = i.id
+      end
+      e.send("PUBLISH", { acknowledged = acks }, I)
+      return e.login("manager", "2580") ~= nil
+    end)(),
+    true
+  )
+end
 
 T.done()

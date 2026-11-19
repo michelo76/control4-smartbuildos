@@ -338,4 +338,128 @@ eq(
   "VF_FORBIDDEN"
 )
 
+-- ── a channel being dialled when a new configuration is published ───────────
+print("a publish while a channel is being dialled")
+do
+  local e = H.new()
+  local EI = { session = e.publishSample("sports_bar") }
+  local EM = { session = e.login("manager", "2580") }
+  local function acksFor(o)
+    local out = {}
+    for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, o).data.issues) do
+      out[#out + 1] = i.id
+    end
+    return out
+  end
+  local function keysTo(sims, dev)
+    local got = {}
+    for _, sim in ipairs(sims) do
+      for _, c in ipairs(sim.calls) do
+        if c.target == dev then
+          got[#got + 1] = c.command
+        end
+      end
+    end
+    return table.concat(got, " ")
+  end
+  local function stoppedLogged()
+    for _, entry in ipairs(e.send("DIAG_GET", { category = "source" }, EI).data.entries or {}) do
+      if entry.code == "VF_CANCELLED" then
+        return true
+      end
+    end
+    return false
+  end
+  local dev = e.core.ix.sources["sports-1"].c4DeviceId
+  e.core.sim.calls = {}
+  local tune = e.send("SOURCE_TUNE", { sourceId = "sports-1", channel = "206" }, EM)
+  eq("the page is told four keys are sent", tune.data.sent, 4)
+  local oldSim = e.core.sim
+  eq("a client publishes 100 ms later", e.send("PUBLISH", { acknowledged = acksFor(EM) }, EM).ok, true)
+  e.clock.advance(5000)
+  eq("the whole number still reaches the box", keysTo({ oldSim, e.core.sim }, dev), "NUMBER_2 NUMBER_0 NUMBER_6 ENTER")
+  eq("...and nothing was reported stopped", stoppedLogged(), false)
+
+  -- The source's Control4 device changes in the new configuration: the rest
+  -- of the number must not go to another device. It stops, and says so.
+  e.core.sim.calls = {}
+  e.send("SOURCE_TUNE", { sourceId = "sports-1", channel = "206" }, EM)
+  local d = e.send("DRAFT_GET", {}, EI).data.draft
+  local c = copy(d.config)
+  for _, src in ipairs(c.sources) do
+    if src.id == "sports-1" then
+      src.c4DeviceId = e.core.ix.sources["sports-2"].c4DeviceId
+    end
+  end
+  e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, EI)
+  local before = e.core.sim
+  eq("the installer moves the source to another device", e.send("PUBLISH", { acknowledged = acksFor(EI) }, EI).ok, true)
+  e.clock.advance(5000)
+  eq("only the key already sent reached the old device", keysTo({ before, e.core.sim }, dev), "NUMBER_2")
+  local newDev = e.core.ix.sources["sports-1"].c4DeviceId
+  eq("...and nothing of it reached the new one", keysTo({ e.core.sim }, newDev), "")
+  eq("...and the stop is in the diagnostic log", stoppedLogged(), true)
+end
+
+print("the control mode changes while a channel is being dialled")
+do
+  local calls, timers, logged = {}, {}, {}
+  local ix = { sources = { box = { id = "box", name = "Box", c4DeviceId = 55, controls = { "keypad" } } } }
+  local engine = SourceControl.new({
+    index = function()
+      return ix
+    end,
+    adapter = function()
+      return {
+        deviceCommand = function(_, command)
+          calls[#calls + 1] = command
+          return true
+        end,
+      }
+    end,
+    timers = {
+      set = function(id, _, fn)
+        timers[id] = fn
+      end,
+      cancel = function() end,
+    },
+    diag = {
+      add = function(_, level, _, code, text)
+        logged[#logged + 1] = { level = level, code = code, text = text }
+      end,
+    },
+  })
+  local function step()
+    local fn = timers.VfSourceKeys
+    timers.VfSourceKeys = nil
+    if fn then
+      fn()
+    end
+  end
+  local everything = {
+    source = function()
+      return true
+    end,
+    flag = function()
+      return true
+    end,
+  }
+  engine:reconfigure("simulation")
+  eq("a tune is accepted", engine:tune("box", { channel = "42" }, { access = everything }).ok, true)
+  engine:reconfigure("simulation")
+  step()
+  eq("the same mode: the next key still leaves", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
+  engine:reconfigure("live")
+  step()
+  step()
+  eq("a mode change: the rest stops", table.concat(calls, " "), "NUMBER_4 NUMBER_2")
+  local said = false
+  for _, l in ipairs(logged) do
+    if l.code == "VF_CANCELLED" and tostring(l.text):find("control mode", 1, true) then
+      said = true
+    end
+  end
+  check("...and says so", said)
+end
+
 T.done()

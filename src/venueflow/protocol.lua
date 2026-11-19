@@ -78,7 +78,9 @@ M.COMMANDS = {
   DRAFT_GET = { scope = "studio", fields = {} },
   DRAFT_SAVE = { scope = "studio", fields = { config = "t", baseRevision = "n?" } },
   DRAFT_VALIDATE = { scope = "studio", fields = {} },
-  DRAFT_DISCARD = { scope = "studio", fields = { confirm = "b?" } },
+  -- baseRevision (optional): the draft revision the caller means; refused as
+  -- stale when the draft has moved on.
+  DRAFT_DISCARD = { scope = "studio", fields = { confirm = "b?", baseRevision = "n?" } },
   TEMPLATE_APPLY = {
     scope = "installer",
     fields = { venueType = "s", name = "s?", sample = "b?", confirm = "b?" },
@@ -86,7 +88,12 @@ M.COMMANDS = {
   PROFILE_PIN_SET = { scope = "studio", fields = { profileId = "s", pin = "s?", baseRevision = "n?" } },
   IMAGE_PUT = { scope = "installer", fields = { dataUrl = "s" }, large = true },
   -- One id per acknowledged warning: a large unmapped venue has many.
-  PUBLISH = { scope = "studio", fields = { acknowledged = "l?", note = "s?" }, maxList = 4000, maxItem = 200 },
+  PUBLISH = {
+    scope = "studio",
+    fields = { acknowledged = "l?", note = "s?", baseRevision = "n?" },
+    maxList = 4000,
+    maxItem = 200,
+  },
   VERSIONS = { scope = "studio", fields = {} },
   ROLLBACK = { scope = "studio", fields = { versionId = "s", confirm = "b?" } },
   BACKUP_EXPORT = { scope = "installer", fields = {} },

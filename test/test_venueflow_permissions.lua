@@ -464,4 +464,136 @@ do
   eq("the state document counts only what the profile sees", seen and seen.summary.total, 1)
 end
 
+-- ── an operation seen by a profile that sees only part of it ────────────────
+print("operations, partly visible")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local mgr = { session = e.login("manager", "2580") }
+  e.settle(5000)
+  e.send("ROUTE_VIDEO", { sourceId = "sports-2", displayIds = { "tv-01", "tv-09", "tv-17", "tv-10", "tv-18" } }, mgr)
+  local id = e.core.tracker.ops[1].id
+  e.settle(8000)
+  local op = e.send("OPERATION_GET", { operationId = id }, TILE).data.operation
+  eq("the bartender tile sees only its display", #op.targets, 1)
+  eq("...and its count", op.summary.total, 1)
+  eq("the label counts only what it sees", op.label, "Sports 2 to 1 display")
+  check("...never the whole operation's count", not tostring(op.label):find("5", 1, true), op.label)
+  eq("who asked is not told", op.origin, nil)
+  local stateOps = e.send("GET_STATE", {}, TILE).data.state.operations
+  local inState
+  for _, o in ipairs(stateOps) do
+    if o.id == id then
+      inState = o
+    end
+  end
+  eq("the state document says the same: label", inState and inState.label, "Sports 2 to 1 display")
+  eq("...and no origin", inState and inState.origin, nil)
+  local full = e.send("OPERATION_GET", { operationId = id }, inst).data.operation
+  eq("the installer gets the whole operation: label", full.label, "Sports 2 to 5 displays")
+  eq("...origin", full.origin, "profile:manager")
+  eq("...targets", #full.targets, 5)
+  local own = e.send("OPERATION_GET", { operationId = id }, mgr).data.operation
+  eq("a profile that sees all of it keeps the label", own.label, "Sports 2 to 5 displays")
+  eq("...but not the origin", own.origin, nil)
+end
+
+-- ── the area a scene button was pressed in ──────────────────────────────────
+-- A scene step can ask "pressed in area X?". The area comes from the page, so
+-- an area outside the profile's access is refused (not ignored).
+print("a scene's area")
+do
+  local e = H.new()
+  local inst = { session = e.publishSample("sports_bar") }
+  local d = e.send("DRAFT_GET", {}, inst).data.draft
+  local c = H.JSON:decode(H.JSON:encode(d.config))
+  for _, sc in ipairs(c.scenes) do
+    if sc.id == "happy-hour" then
+      sc.confirm = false
+      sc.condition = nil -- (the sample runs Happy Hour only while the venue is open)
+      sc.program = {
+        steps = {
+          {
+            type = "if",
+            condition = { op = "context_area", areaId = "dining" },
+            ["then"] = { { type = "volume", zoneId = "zone-bar", level = 70 } },
+            ["else"] = { { type = "volume", zoneId = "zone-bar", level = 20 } },
+          },
+        },
+      }
+    end
+  end
+  eq(
+    "the installer gives Happy Hour an area branch",
+    e.send("DRAFT_SAVE", { config = c, baseRevision = d.revision }, inst).ok,
+    true
+  )
+  local acks = {}
+  for _, i in ipairs(e.send("DRAFT_VALIDATE", {}, inst).data.issues) do
+    acks[#acks + 1] = i.id
+  end
+  eq("...and publishes", e.send("PUBLISH", { acknowledged = acks }, inst).ok, true)
+  e.settle(3000)
+  local forged = e.send("SCENE_ACTIVATE", { sceneId = "happy-hour", areaId = "dining", confirm = true }, TILE)
+  eq("the bar-only tile claiming the dining area is refused", forged.errorCode, "VF_FORBIDDEN")
+  e.settle(3000)
+  check("...and the dining branch did not run", e.cell("zone", "zone-bar", "volume").value ~= 70)
+  local own = e.send("SCENE_ACTIVATE", { sceneId = "happy-hour", areaId = "bar", confirm = true }, TILE)
+  eq("its own area is allowed", own.ok, true)
+  e.settle(3000)
+  eq("...and takes the other branch", e.cell("zone", "zone-bar", "volume").value, 20)
+  eq("no area at all is allowed", e.send("SCENE_ACTIVATE", { sceneId = "happy-hour", confirm = true }, TILE).ok, true)
+  local mgr = { session = e.login("manager", "2580") }
+  eq(
+    "a profile with every area may name the dining area",
+    e.send("SCENE_ACTIVATE", { sceneId = "happy-hour", areaId = "dining", confirm = true }, mgr).ok,
+    true
+  )
+  e.settle(3000)
+  eq("...and takes the dining branch", e.cell("zone", "zone-bar", "volume").value, 70)
+end
+
+-- ── dismissing alerts ───────────────────────────────────────────────────────
+-- A profile may dismiss only an alert it is shown; any other answers like one
+-- that does not exist.
+print("dismissing alerts")
+do
+  local e = H.new()
+  e.publishSample("sports_bar")
+  local mgr = { session = e.login("manager", "2580") }
+  local a1 = e.core:_alert({ level = "warning", title = "First" })
+  local a2 = e.core:_alert({ level = "warning", title = "Second" })
+  -- Stand in for a listing that hides the second alert from this profile
+  -- (how stored alerts are filtered for a profile is _derivedAlerts' job).
+  local derived = e.core._derivedAlerts
+  e.core._derivedAlerts = function(core, access)
+    local out = {}
+    for _, a in ipairs(derived(core, access)) do
+      if access.system or a.id ~= a2.id then
+        out[#out + 1] = a
+      end
+    end
+    return out
+  end
+  local hidden = e.send("ALERT_DISMISS", { alertId = a2.id }, mgr)
+  local unknown = e.send("ALERT_DISMISS", { alertId = "a999" }, mgr)
+  eq("an alert the profile is not shown cannot be dismissed", hidden.errorCode, "VF_NOT_FOUND")
+  eq("...the same answer as an alert that does not exist", hidden.message, unknown.message)
+  eq("...and it is still stored", #e.core.runtime.alerts, 2)
+  eq("an alert it is shown can be dismissed", e.send("ALERT_DISMISS", { alertId = a1.id }, mgr).ok, true)
+  eq("...and is gone", #e.core.runtime.alerts, 1)
+  e.core._derivedAlerts = derived
+  e.core.online["tv-01"] = false
+  eq(
+    "a derived alert is not dismissable",
+    e.send("ALERT_DISMISS", { alertId = "offline:tv-01" }, mgr).errorCode,
+    "VF_NOT_FOUND"
+  )
+  eq(
+    "installer still dismisses the rest",
+    e.send("ALERT_DISMISS", { alertId = a2.id }, { session = e.studio() }).ok,
+    true
+  )
+end
+
 T.done()

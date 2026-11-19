@@ -277,7 +277,7 @@ function Core:load(reason)
   local previousSim = self.sim -- its device state is carried into the next one
   self.tracker:cancelAll("VF_CANCELLED")
   self.queue:clear()
-  self.sourceKeys:clear()
+  self.sourceKeys:reconfigure(deps.mode())
   self.runner:cancelAll("VF_CANCELLED", "configuration changed")
   if self.adapter and self.adapter.unwatchVariables then
     pcall(self.adapter.unwatchVariables)
@@ -1147,12 +1147,39 @@ function Core:_derivedAlerts(access)
   return out
 end
 
+local NEUTRAL_LABEL = {
+  route_video = "Video change",
+  display_power = "Display power",
+}
+
+--- An operation's label for a profile that sees only `targets` of it. The
+--- engines write labels such as "Sports 2 to 5 displays" or "Power on 5
+--- displays": the count is rebuilt from what is visible; any other label is
+--- replaced by a neutral one, since it was written for the whole operation.
+local function visibleLabel(op, targets)
+  local displays = 0
+  for _, t in ipairs(targets) do
+    if t.kind == "display" then
+      displays = displays + 1
+    end
+  end
+  local prefix = type(op.label) == "string" and op.label:match("^(.-)%d+ displays?$") or nil
+  if prefix ~= nil and displays > 0 then
+    return string.format("%s%d display%s", prefix, displays, displays == 1 and "" or "s")
+  end
+  return NEUTRAL_LABEL[op.kind] or "Change"
+end
+
 --- An operation as one profile may see it: only the targets in `visible`
---- ("kind:id" -> true), with the counts recomputed over those, so nothing
---- about a display or zone outside the profile's access is told, not even
---- how many there were. nil when the profile can see none of it.
+--- ("kind:id" -> true), with the counts and the label recomputed over those,
+--- so nothing about a display or zone outside the profile's access is told,
+--- not even how many there were. Who asked (`origin`) is left out: it names
+--- a profile or a station. An installer gets the whole operation from
+--- OPERATION_GET (Tracker.publicOp), not from here. nil when the profile can
+--- see none of it.
 local function visibleOperation(op, visible, includeDetail)
   local pub = Tracker.publicOp(op, includeDetail)
+  pub.origin = nil
   local targets = {}
   for _, t in ipairs(pub.targets) do
     if visible[t.kind .. ":" .. t.id] then
@@ -1165,6 +1192,7 @@ local function visibleOperation(op, visible, includeDetail)
   if #targets ~= #pub.targets then
     pub.targets = targets
     pub.summary = Tracker.summarize({ targets = targets })
+    pub.label = visibleLabel(op, targets)
   end
   return pub
 end
@@ -1633,6 +1661,15 @@ function H.SCENE_ACTIVATE(core, p, ctx)
   if scene == nil then
     return failed
   end
+  -- The area a button was pressed in comes from the page, so it is checked
+  -- like everything else a page says: an area outside the profile's access is
+  -- REFUSED, not ignored. Ignoring it would run the scene's "not pressed in
+  -- that area" branch, which is still a choice the page made; a page this
+  -- profile really uses only shows its own areas, so a refusal is only ever
+  -- seen by a tampered request.
+  if p.areaId ~= nil and not ctx.access:area(p.areaId) then
+    return fail("VF_FORBIDDEN", "profile may not act in this area")
+  end
   if core.restricted then
     return fail("VF_LICENSE_RESTRICTED", "scenes need a licence")
   end
@@ -1751,6 +1788,18 @@ function H.ALERT_DISMISS(core, p, ctx)
   if not ctx.access:flag("viewAlerts") then
     return fail("VF_FORBIDDEN", "profile may not manage alerts")
   end
+  -- Only an alert this profile is SHOWN, and shown as dismissable, may be
+  -- dismissed: the same list the state document gives it. Any other id
+  -- answers exactly like one that does not exist.
+  local shown = false
+  for _, a in ipairs(core:_derivedAlerts(ctx.access)) do
+    if a.id == p.alertId and a.dismissable == true then
+      shown = true
+    end
+  end
+  if not shown then
+    return fail("VF_NOT_FOUND", "that alert cannot be dismissed (it clears when its cause does)")
+  end
   for i, a in ipairs(core.runtime.alerts) do
     if a.id == p.alertId then
       table.remove(core.runtime.alerts, i)
@@ -1861,12 +1910,27 @@ function Core:_clientBase()
   return published ~= nil and Schema.normalize(published.config) or nil
 end
 
---- nil when the draft differs from what is published only in what a client
---- may change (so a client may publish or discard it); otherwise a phrase
---- for the installer's unfinished change.
+--- nil when the draft holds only a client's work (so a client may publish or
+--- discard it); otherwise a phrase for the installer's unfinished work.
+---
+--- Two things make the draft the installer's:
+---   * someone other than a client (the installer on site, or the dealer
+---     through Remote Management) saved it since the last publish or discard,
+---     whatever part they changed: a half-built schedule or scene is
+---     unfinished work too, though a client could have made the same change;
+---   * it differs from what is published in an installer-owned part (a
+---     change that reached the draft without a recorded save).
 function Core:_installerPending()
   local draft, published = self.store:draft(), self.store:published()
-  if draft == nil or published == nil then
+  if draft == nil then
+    return nil
+  end
+  for _, who in ipairs(draft.savedBy or {}) do
+    if tostring(who):sub(1, 8) ~= "profile:" then
+      return who == "remote" and "changes saved remotely by the dealer" or "changes saved by the installer"
+    end
+  end
+  if published == nil then
     return nil
   end
   local _, what = ClientScope.changed(Schema.normalize(published.config), Schema.normalize(draft.config))
@@ -1932,23 +1996,25 @@ function H.DRAFT_SAVE(core, p, ctx)
   if ok and type(encoded) == "string" and #encoded > M.MAX_DRAFT_BYTES then
     return fail("VF_TOO_LARGE", "the configuration is larger than the controller should store")
   end
+  -- PINs come from the stored draft, or from what is published when there is
+  -- no draft (a page never holds PIN material, so without this fallback every
+  -- staff PIN would be lost from the new draft).
   local stored = core.store:draft()
-  local config = mergePins(U.copy(p.config), stored and stored.config)
+  local published = stored == nil and core.store:published() or nil
+  local config = mergePins(U.copy(p.config), (stored and stored.config) or (published and published.config))
   if not ctx.installer then
     local base = core:_clientBase()
     if base == nil then
       return fail("VF_FORBIDDEN", "the installer sets the venue up first")
-    end
-    if stored == nil then
-      -- No draft yet: PINs come from what is published.
-      config = mergePins(U.copy(p.config), base)
     end
     local _, what = ClientScope.changed(base, Schema.normalize(config))
     if what ~= nil then
       return clientRefusal(what)
     end
   end
-  local revision, why, detail = core.store:saveDraft(config, p.baseRevision)
+  -- Who saved is kept with the draft until the next publish or discard: a
+  -- client may not publish or discard what the installer or the dealer saved.
+  local revision, why, detail = core.store:saveDraft(config, p.baseRevision, { by = ctx.who })
   if revision == nil then
     if why == "stale" then
       return fail("VF_STALE_DRAFT", detail)
@@ -1974,9 +2040,25 @@ function H.DRAFT_VALIDATE(core)
   }
 end
 
+--- A caller may name the draft revision it means (`baseRevision`, optional):
+--- a draft that has moved on since is not published or discarded.
+local function staleBase(p, draft)
+  if p.baseRevision ~= nil and (draft == nil or p.baseRevision ~= draft.revision) then
+    return fail(
+      "VF_STALE_DRAFT",
+      "the draft changed since you loaded it (revision " .. tostring(draft and draft.revision) .. ")"
+    )
+  end
+  return nil
+end
+
 function H.DRAFT_DISCARD(core, p, ctx)
   if not ctx.installer and core:_installerPending() ~= nil then
     return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
+  local stale = staleBase(p, core.store:draft())
+  if stale ~= nil then
+    return stale
   end
   if p.confirm ~= true then
     return fail("VF_CONFIRM_REQUIRED")
@@ -2092,6 +2174,10 @@ function H.PUBLISH(core, p, ctx)
   if not ctx.installer and core:_installerPending() ~= nil then
     -- Publishing would put the installer's unfinished work live.
     return fail("VF_FORBIDDEN", PENDING, { data = { installerPending = true } })
+  end
+  local stale = staleBase(p, draft)
+  if stale ~= nil then
+    return stale
   end
   local issues = Schema.validate(draft.config)
   local acknowledged = p.acknowledged
