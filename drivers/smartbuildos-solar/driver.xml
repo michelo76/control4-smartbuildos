@@ -138,6 +138,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Solar Status</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
       <property><name>Location</name><type>STRING</type><default>unresolved</default><readonly>true</readonly></property>
       <property><name>Sun Now</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
