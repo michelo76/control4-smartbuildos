@@ -513,6 +513,20 @@ do
     end
   end
   check("DC_FILENAME, where set, names the driver's own directory", #wrong == 0, table.concat(wrong, "; "))
+  -- The OSS build has no DC_FILENAME: the default is DRIVER_FILENAMES[1].
+  local wrongOss = {}
+  for name in pairs(dirs) do
+    local f = io.open("drivers/" .. name .. "/driver.lua", "r")
+    if f then
+      local src = f:read("*a")
+      f:close()
+      local first = src:match('\nDRIVER_FILENAMES%s*=%s*{%s*"([^"]+)"')
+      if first ~= nil and first ~= name .. ".c4z" then
+        wrongOss[#wrongOss + 1] = name .. " says " .. first
+      end
+    end
+  end
+  check("DRIVER_FILENAMES[1], where set, names the driver's own directory", #wrongOss == 0, table.concat(wrongOss, "; "))
 end
 
 -- ── [2] the closed value list ───────────────────────────────────────────────
@@ -1539,6 +1553,24 @@ do
     #reportsOfKind("describe") - d1
   )
   ai.accepted, ai.reason, ai.needDescribe = true, nil, nil
+end
+
+print("[13b] the OSS build: no DC_FILENAME (removed by the preprocessor), DRIVER_FILENAMES")
+do
+  fresh()
+  newAgent(2)
+  aiRegister()
+  DC_FILENAME = nil
+  DRIVER_FILENAMES = { "smartbuildos-atmosphere.c4z" }
+  check("the default file is DRIVER_FILENAMES[1]", aireport._defaultFile() == "smartbuildos-atmosphere.c4z")
+  local ok, why = aireport.start({ sku = "SBOS_ATMOSPHERE" })
+  check("start with neither file nor DC_FILENAME works in the OSS build", ok == true, why)
+  check("…registered as atmosphere and reporting", client.isRegistered() and value() == "Found — reporting (v20261118.2)", value())
+  aireport.stop()
+  DRIVER_FILENAMES = nil
+  local okNone, whyNone = aireport.start({})
+  check("no file at all: refused, nothing set up", okNone == false and whyNone == "unknown_driver_file")
+  DC_FILENAME = "smartbuildos-atmosphere.c4z"
 end
 
 print("[14] over the whole run: every closed value was reached, nothing else was painted")

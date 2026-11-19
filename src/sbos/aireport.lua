@@ -1678,12 +1678,28 @@ local function suppressDebug()
   end
 end
 
+--- The driver's own .c4z file name when the driver does not pass `file`:
+--- DC_FILENAME (set only in the DriverCentral variant) or, in the OSS
+--- variant every release is built from, the first DRIVER_FILENAMES entry
+--- (the `--#ifdef DRIVERCENTRAL` block that sets DC_FILENAME is removed by
+--- the OSS preprocessor, so DC_FILENAME alone is nil in a shipped build).
+local function defaultFile()
+  if type(DC_FILENAME) == "string" and DC_FILENAME ~= "" then
+    return DC_FILENAME
+  end
+  if type(DRIVER_FILENAMES) == "table" and type(DRIVER_FILENAMES[1]) == "string" then
+    return DRIVER_FILENAMES[1]
+  end
+  return nil
+end
+M._defaultFile = defaultFile
+
 local function common(mode, opts)
   local keepQ, keepA = S.queries, S.actions
   S = fresh()
   S.queries, S.actions = keepQ, keepA -- declarations made before the mode
   S.mode = mode
-  S.file = opts.file or DC_FILENAME
+  S.file = opts.file or defaultFile()
   S.property = opts.property or M.PROPERTY
   S.sku = tostring(opts.sku or "")
   if opts.summary ~= nil then
@@ -1693,15 +1709,16 @@ local function common(mode, opts)
   end
 end
 
---- Root driver not yet on the bus. opts = { file? (default DC_FILENAME),
---- sku?, property? ("AI Core"), summary?, singleton? (false), status? (fn
---- returning status, detail, counters for the module status frame) }.
+--- Root driver not yet on the bus. opts = { file? (default DC_FILENAME, else
+--- DRIVER_FILENAMES[1]), sku?, property? ("AI Core"), summary?, singleton?
+--- (false), status? (fn returning status, detail, counters for the module
+--- status frame) }.
 --- Sets sbos.moduleclient up (protocol_min 2, claim_driver_config = false,
 --- so EC.SBOS_DRIVER_CONFIG stays the driver's) and registers.
 --- Returns true, or false + reason (unknown file: nothing is set up).
 function M.start(opts)
   opts = opts or {}
-  local file = opts.file or DC_FILENAME
+  local file = opts.file or defaultFile()
   local id = M.MODULE_IDS[file]
   if id == nil then
     return false, "unknown_driver_file"
@@ -1747,7 +1764,7 @@ end
 --- its manifest when it declares queries or actions.
 function M.attach(client, opts)
   opts = opts or {}
-  local file = opts.file or DC_FILENAME
+  local file = opts.file or defaultFile()
   if M.MODULE_IDS[file] == nil then
     return false, "unknown_driver_file"
   end
@@ -1791,10 +1808,10 @@ M._oseHooks = {}
 --- Child driver: no bus registration and no frame of any kind. Looks AI
 --- Core up by file name at start and on OnDriverAdded (13) / OnItemRemoved
 --- (11) (debounced 5 s; whether those system events reach a child driver
---- is unverified). opts = { file? (default DC_FILENAME), property? }.
+--- is unverified). opts = { file? (default as start), property? }.
 function M.passive(opts)
   opts = opts or {}
-  local file = opts.file or DC_FILENAME
+  local file = opts.file or defaultFile()
   local root = M.CHILDREN[file]
   if root == nil or M.LABELS[root] == nil then
     return false, "unknown_driver_file"

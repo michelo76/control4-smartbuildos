@@ -712,7 +712,7 @@ local aireport = require("sbos.aireport") -- module scope (the require guard)
 
 function OnDriverLateInit()
   -- ...
-  aireport.start({ sku = "SBOS_X" }) -- file defaults to DC_FILENAME
+  aireport.start({ sku = "SBOS_X" }) -- file: DC_FILENAME, else DRIVER_FILENAMES[1]
 end
 
 function OnDriverDestroyed()
@@ -720,7 +720,11 @@ function OnDriverDestroyed()
 end
 ```
 
-A driver without `DC_FILENAME` (Mode Composer today) passes
+`DC_FILENAME` exists only in the DriverCentral variant: the OSS build every
+release is made from (`DISTRIBUTIONS := oss`) drops the
+`--#ifdef DRIVERCENTRAL` block, so the default falls back to the first
+`DRIVER_FILENAMES` entry (a test keeps both naming the driver's own
+directory). A driver with neither (Mode Composer today) passes
 `file = "smartbuildos-mode-composer.c4z"`. A file that is not in
 `aireport.MODULE_IDS` is refused (`false, "unknown_driver_file"`) and nothing
 is set up.
@@ -749,7 +753,7 @@ attach mode leaves your client alone.
 ```lua
 local aireport = require("sbos.aireport")
 function OnDriverLateInit()
-  aireport.passive() -- file defaults to DC_FILENAME; must be in aireport.CHILDREN
+  aireport.passive() -- file as start; must be in aireport.CHILDREN
 end
 ```
 
