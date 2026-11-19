@@ -21,6 +21,11 @@ staff profile may see and do.
 > Simulation, and follow the hardware validation list in the repository
 > (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`) before a venue relies
 > on it.
+>
+> **About the pictures.** Every screenshot here was taken in desktop Chromium
+> against the driver's simulator, with its sample venues, on 19 November 2026:
+> none comes from a touch screen, the Control4 apps or a controller. There are
+> no Composer screenshots yet (properties, actions, programming).
 
 ## What it is for
 
@@ -74,19 +79,30 @@ work in Composer.
 
 1. On a laptop or tablet on the venue network, open the Installer Studio address
    and sign in with the passcode.
+
 1. **Setup Wizard, step 1**: pick the business type and name the venue. The
    template brings areas, scenes and staff profiles you can change.
+
 1. **Step 2, Discover Devices**: list the project's devices. The categories are
    a suggestion; you can map anything by hand.
+
 1. **Step 3, Map Control4 Devices**: for each display, choose its Control4 room
    and device; add the sources; add the audio zones with their volume limits.
+
 1. **Step 4, Layout Design**: upload a floor plan or start blank, and drag each
    display to where it hangs.
+
+   ![The Layout Designer with the sample sports bar's floor (simulator)](images/studio-layout.jpg)
+
 1. **Step 5, Staff Profiles**: who may see which areas, use which sources and
    scenes, and which screens they get. Give managers a PIN. Choose the profile a
    tile opens with.
+
 1. **Step 6, Review and Publish**: fix the errors, tick each warning you have
    checked, publish.
+
+   ![Publish and Rollback: one warning to tick before publishing, the versions and the draft (simulator, sample sports bar)](images/studio-publish.jpg)
+
 1. While still in Simulation, open the tile and try everything: the page behaves
    as it will, against a simulated project.
 
@@ -106,16 +122,45 @@ work in Composer.
 
 Each staff profile gets the screens the installer allows.
 
-- **Floor Plan.** The venue from above. Tap displays to select them, pick a
-  source, Route Video. "Listen" sends that source's sound to an audio zone.
-  Scene shortcuts and zone volume sit along the bottom.
-- **Command Center.** A grid of displays with filters by area and group. Select,
-  choose a source, route; or pick the source first and tap displays. Audio zones
-  have a mixer row.
-- **Room Control.** Large buttons that run the room's scenes, with volume,
-  lighting presets and shades when the room has them.
-- **Manager.** Counts, alerts with a way to resolve each, scenes, Open and Close
-  venue, All Off with a preview of what it will switch off.
+**Floor Plan.** The venue from above. Tap displays to select them, pick a
+source, Route Video. "Listen" sends that source's sound to an audio zone. Scene
+shortcuts and zone volume sit along the bottom.
+
+![The Floor Plan with one display selected, signed in as Manager (simulator, sample sports bar)](images/floorplan.jpg)
+
+On a small screen the displays are drawn small, because the plan keeps the
+venue's proportions. A tap near a display, not exactly on it, selects the
+nearest display; a tap as near two displays as one opens a "Which display?"
+list. On a short screen the side panel scrolls, and a fade with an arrow at its
+bottom edge says there is more below (Power On and Power Off).
+
+![The Floor Plan at 1024 x 600, the size of a 7-inch touch screen (simulator, sample sports bar)](images/floorplan-1024x600.jpg)
+
+**Command Center.** A grid of displays with filters by area and group. Select,
+choose a source, route; or pick the source first and tap displays. Audio zones
+have a mixer row. A long display, source or zone name takes two lines.
+
+![The Command Center during the Game Day scene, one display selected (simulator, sample sports bar)](images/command-center.jpg)
+
+**Room Control.** Large buttons that run the room's scenes, with volume,
+lighting presets and shades when the room has them.
+
+![Room Control for a boardroom after Present Laptop (simulator, sample conference centre)](images/room-control.jpg)
+
+**Manager.** Counts, alerts with a way to resolve each, scenes, Open and Close
+venue, All Off with a preview of what it will switch off. Under a restricted
+licence, opening or closing the venue still works, and the screen says how many
+automations set for that moment did not run.
+
+![The Manager screen during the Game Day scene (simulator, sample sports bar)](images/manager.jpg)
+
+On a phone the screens stack into one column.
+
+![The Manager screen on a phone, 390 x 844 (simulator, sample sports bar)](images/phone.jpg)
+
+These sizes were checked in desktop Chromium with touch emulation against the
+simulator: 1024 x 600, 1280 x 800, 1920 x 1200, two tablet and two phone sizes.
+Nothing has been tried on a T3, a T4 or a phone yet.
 
 What the marks mean on every screen:
 
@@ -149,6 +194,8 @@ notification. Nothing you type is run as code.
 **Dry run** shows what a scene would do and sends nothing. **Execute test** runs
 it for real and shows each step and each device. A scene marked "ask first"
 shows operators a preview and waits for confirmation.
+
+![The Game Day scene in the editor: WHEN, IF the venue is open, and the test panel (simulator, sample sports bar)](images/studio-scene-editor.jpg)
 
 A **rule** adds a trigger: a schedule, another scene, the venue opening or
 closing, a display or zone changing state, a Control4 variable, or a Control4
@@ -191,10 +238,22 @@ permission. Two kinds of staff profile stay entirely the installer's: the one a
 tile opens with, and any profile a station opens with (the client cannot change,
 rename or remove them, or set or clear their PIN). While the draft holds changes
 the installer saved, or the dealer sent through Remote Management, the client
-can keep editing but cannot publish or discard: the Studio says the installer
-has unfinished changes. The driver enforces all of this.
+can keep editing but cannot publish or discard: the Studio says why (the
+installer saved changes, the dealer saved changes remotely, or the draft holds a
+change only the installer can make) and who to ask, in its header, on Home and
+on Publish and Rollback, where the buttons are disabled. In Staff Profiles the
+profiles screens open with are shown read-only to the client. The driver
+enforces all of this.
+
+![The Venue Studio as the venue's manager sees it: Home (simulator, sample sports bar)](images/venue-studio-home.jpg)
+
+Publish and Discard act on the draft revision the page last loaded or saved. If
+the draft changed since (another window, the installer, the dealer), nothing is
+published or discarded: the page says so and loads the draft again.
 
 ## Properties
+
+No Composer screenshot of the properties exists yet.
 
 | Property                                                                | Meaning                                                                                                                                                                                  |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

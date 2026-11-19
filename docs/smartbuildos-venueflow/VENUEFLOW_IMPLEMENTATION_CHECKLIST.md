@@ -13,17 +13,18 @@ Rules for this file:
   marked RHV is claimed to work on hardware.
 - The "Evidence" column names the test file or the check.
 
-**State, 18 November 2026: 156 tasks. 133 Completed, 19 Require Hardware
+**State, 19 November 2026: 163 tasks. 139 Completed, 21 Require Hardware
 Verification, 2 Blocked (the `SBOS_VENUEFLOW` catalogue row not applied; an
-owner decision on remote drafts), 1 In Progress, 1 Not Started. Two tasks
-(4.6 and 20.4) are verified on the bench controller, in Simulation, on builds
-of 14 November 2026; every other Completed task is verified on the simulator,
-the test shim or in a desktop browser. Nothing has controlled real
-equipment. Phases 23 and 24 (the second round and the fixes of 18 November
-2026) have not run on a controller at all.**
+owner decision on remote drafts), 1 Not Started. Two tasks (4.6 and 20.4) are
+verified on the bench controller, in Simulation, on builds of 14 November
+2026; every other Completed task is verified on the simulator, the test shim
+or in desktop Chromium. Nothing has controlled real equipment. Phases 23 and
+24 (the second round and the fixes of 18 and 19 November 2026) have not run
+on a controller at all.**
 
-The driver is on `main` (the branches it was built on, `feat/venueflow` and
-`feat/dealer-tools`, were merged and removed from the remote). Driver:
+The driver reached `main` on 15 November 2026 (US Eastern time; merge commit
+`f0952a4`). The branches it was built on, `feat/venueflow` and
+`feat/dealer-tools`, were merged and removed from the remote. Driver:
 `drivers/smartbuildos-venueflow`. Code: `src/venueflow`. Pages:
 `ui/venueflow` (assembled into the driver's `www`).
 
@@ -141,7 +142,7 @@ The driver is on `main` (the branches it was built on, `feat/venueflow` and
 | 10.3 | C: Simplified Room Control | Installer-defined buttons and optional controls | Completed | Browser check (conference centre) |
 | 10.4 | D: Manager Overview | Counts, states, alerts, scenes, opening/closing, confirmations | Completed | Browser check |
 | 10.5 | One engine behind all four | Same commands, same state document | Completed | One protocol, one state document: test_venueflow_core, test_venueflow_relay |
-| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in Chromium only |
+| 10.6 | Touch screen rendering | T3/T4 WebView | Requires Hardware Verification | HARDWARE_VALIDATION.md H2. Pages tested in Chromium only (sizes measured with touch emulation, 24.19); scanned statically for Gecko 96 features (24.17) |
 
 ## Phase 11. Source routing engine
 
@@ -225,9 +226,9 @@ The driver is on `main` (the branches it was built on, `feat/venueflow` and
 | 18.1 | Sports-bar reference venue | 24 displays, 8 sources, 4 zones, groups, scenes, 3 profiles | Completed | test_venueflow_core "reference sports bar" |
 | 18.2 | Conference-centre venue | Present and valid | Completed | test_venueflow_core "reference conference centre" |
 | 18.3 | Simulator with fault injection | Offline device, unsupported route, silent device | Completed | src/venueflow/sim.lua: offline, silent, wrong, slow; used throughout |
-| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 16 suites, 2524 checks, 0 failed (18 Nov 2026) |
+| 18.4 | Unit and integration suites | All 17 cases of brief 18 covered | Completed | TEST_RESULTS.md: 17 suites, 2590 checks, 0 failed (19 Nov 2026; package checks skipped, no package built) |
 | 18.5 | Browser tests | Pages driven against the real Lua core and simulator | Completed | TEST_RESULTS.md "Browser tests" (Chromium) |
-| 18.6 | Whole repository suite still passes | `make test` | Completed | TEST_RESULTS.md: make test exit 0, 133 files (18 Nov 2026) |
+| 18.6 | Whole repository suite still passes | `make test` | Completed | TEST_RESULTS.md: make test exit 0, 134 files (19 Nov 2026) |
 
 ## Phase 19. Hardware integration tests
 
@@ -255,7 +256,7 @@ The driver is on `main` (the branches it was built on, `feat/venueflow` and
 | 21.4 | SmartBuildOS integration | Written | Completed | SMARTBUILDOS_INTEGRATION.md |
 | 21.5 | Troubleshooting | Written | Completed | TROUBLESHOOTING.md |
 | 21.6 | Release notes | Written | Completed | RELEASE_NOTES.md |
-| 21.7 | Driver manual in Composer | `www/documentation/index.md` builds | Completed | Built into the .c4z (www/documentation/index.html). No bench screenshots yet |
+| 21.7 | Driver manual in Composer | `www/documentation/index.md` builds | Completed | Built into the .c4z (www/documentation/index.html). Ten screenshots of the pages from the simulator (19 Nov 2026), checked to render and enlarge in the built manual in desktop Chromium; no Composer or bench screenshot yet |
 | 21.8 | Schemas and sample venues | Published as files | Completed | DATA_MODEL.md, schema/*.json, samples/*.json |
 
 ## Phase 22. Release verification
@@ -280,9 +281,10 @@ The driver is on `main` (the branches it was built on, `feat/venueflow` and
 | 23.7 | Remote Management end to end | A draft, publish and rollback from System Studio reach the bench controller | Requires Hardware Verification | HARDWARE_VALIDATION.md, "Not yet run". Never run |
 | 23.8 | Owner decision: may a remote draft replace device mapping and device commands | Decided and enforced | Blocked | Needs the owner. Today a remote draft can replace the whole configuration (SECURITY_REVIEW.md) |
 
-## Phase 24. Review and audit fixes, 18 November 2026
+## Phase 24. Review and audit fixes and page follow-ups, 18 and 19 November 2026
 
-Simulator and test shim only; nothing here has run on a controller.
+Simulator, test shim and desktop Chromium only; nothing here has run on a
+controller, a touch screen or a phone.
 
 | ID | Task | Acceptance criterion | Status | Evidence |
 | --- | --- | --- | --- | --- |
@@ -302,5 +304,12 @@ Simulator and test shim only; nothing here has run on a controller.
 | 24.14 | `refresh_status` summary and `config_version` | One line of at most 200 characters, a status frame at once, the live version | Requires Hardware Verification | test_venueflow_driver. Needs 23.7 |
 | 24.15 | The Agent's updater and SKU lists name VenueFlow | `DRIVER_FILENAMES` and `SKU_FILENAMES` | Completed | test_sbos_updater [10], [11]. The store's publish workflow does not name VenueFlow yet |
 | 24.16 | Package staleness check | The package check fails when a built package is older than its sources | Completed | test_venueflow_security; seen failing on 18 Nov 2026 against a package built before the last commits of the round |
-| 24.17 | Touch-screen engine floor (Gecko 96) checked statically | The page sources and built pages scanned for features Gecko 96 lacks | In Progress | Written on a separate branch, not merged into this source; Gecko 96 itself remains untested (10.6) |
+| 24.17 | Touch-screen engine floor (Gecko 96) checked statically | The page sources and built pages scanned for features Gecko 96 lacks | Completed | test_venueflow_engine_floor: none found. A static scan against a deny-list, not a run in Gecko; Gecko 96 itself remains untested (10.6) |
 | 24.18 | Shared module client: authenticate the registration reply; leave the Agent when switched Off mid-registration | Fixed for every module driver | Not Started | SECURITY_REVIEW.md, residual risks 8 and 9. Changes the module contract for every module driver |
+| 24.19 | Operator page and Studios reachable at real screen sizes | Every interactive control reachable, not covered, at the measured sizes | Requires Hardware Verification | Browser check, desktop Chromium with touch emulation, simulator, both samples (`ui/venueflow/README.md`). Not on a T3, a T4 or a phone |
+| 24.20 | Floor plan selectable by touch on small screens | A tap near a display selects it; a tap as near two opens "Which display?"; side panel shows it scrolls | Requires Hardware Verification | Browser check (touch emulation): smallest effective target 28 px (sports bar, 1024x600), 46 px (conference centre). On a 7-inch T3: HARDWARE_VALIDATION.md |
+| 24.21 | Long names readable | Display, source and zone names wrap to two lines | Completed | Browser check, desktop Chromium |
+| 24.22 | The Studio names the revision it publishes or discards | `baseRevision` sent; on `VF_STALE_DRAFT` nothing done, draft reloaded, no retry | Completed | Browser check with two tabs, installer and client (simulator); the driver side: test_venueflow_store, test_venueflow_clientstudio |
+| 24.23 | The client is told why publishing waits | Plain-word reason and who to ask, in the header, on Home and on Publish and Rollback; buttons disabled | Completed | Browser check (simulator). The dealer wording seen only with the page's state set by hand |
+| 24.24 | Screen profiles read-only for a client | Default and station profiles shown read-only, no Delete or PIN buttons | Completed | Browser check for the default profile (simulator). The station case not seen: the samples have no stations |
+| 24.25 | Venue status under a restricted licence on the operator page | The page says how many automations did not run | Completed | Browser check on a simulator started restricted; the driver side: test_venueflow_license |

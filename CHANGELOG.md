@@ -259,6 +259,21 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `smartbuildos-venueflow.c4z` for its updater and SKU `SBOS_VENUEFLOW`. See
   `docs/smartbuildos-venueflow/RELEASE_NOTES.md`.
 
+- **VenueFlow pages: small screens, stale drafts, the client's reason** (19
+  November 2026; desktop Chromium against the simulator only, not on a T3, a T4
+  or a phone). Every operator control was measured reachable at seven screen
+  sizes from 1024x600 to 1920x1200 and on phones and tablets, the Venue Studio
+  at four, the Installer Studio at four. Long names take two lines; the Venue
+  Studio's header wraps on a phone. On the floor plan a tap near a display
+  selects the nearest one and a tap between two opens "Which display?"; the side
+  panel shows when it scrolls. The Studio sends `baseRevision` with Publish and
+  Discard and reloads, without retrying, when the draft changed. A client is
+  told in plain words whose unfinished changes block publishing, and sees the
+  profiles screens open with read-only. Opening or closing the venue under a
+  restricted licence says how many automations did not run. A new suite scans
+  the pages for features Gecko 96 lacks (static only; none found). The manual
+  gains ten screenshots, all from the simulator.
+
 - **VenueFlow: six defects from the review of its pull request**, each
   reproduced by a test first (simulation and shim; not built, not run on a
   controller). Mapping tests on a sample venue left in the draft are refused in

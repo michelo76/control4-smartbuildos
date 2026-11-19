@@ -20,6 +20,7 @@ Start with three places:
 | The page loads on a laptop but not in the Control4 app away from the venue | The relay is LAN only. Remote use needs the venue network (VPN). Remote Management on smartbuildos.io changes the configuration, not the pages, and has not yet been run with a controller |
 | "This venue has not been set up yet" | Nothing is published. Open Installer Studio and publish |
 | The page says the venue is not set up, and Configuration reads "Sample venue - not run in Live mode" | A reference venue is published and Control Mode is Live. Build the real venue, or return to Simulation |
+| On a small touch screen the wrong display is selected on the floor plan | A tap selects the nearest display within reach; a tap as near two displays as one asks "Which display?". Measured only in desktop Chromium; record what a T3 or T4 does (HARDWARE_VALIDATION.md) |
 | A screen asks for a PIN when it should open directly | No profile is chosen under Staff Profiles, "A tile opens as", or that profile has a PIN |
 
 ## Installer Studio
@@ -30,6 +31,7 @@ Start with three places:
 | "Too many wrong attempts" | Wait a minute, or run the action **Reset Sign-in Locks** |
 | Signed out while working | A Studio session ends after 30 idle minutes, after 8 hours, when the passcode changes, and when the driver restarts. Changes saved before that are in the draft |
 | "Draft changed elsewhere" | The Studio is open in two windows. Reload the draft in this one |
+| "The draft changed since this page loaded it. Nothing was published." (or discarded) | Someone else saved the draft after this page loaded it: another window, the installer, a client or the dealer. The page has loaded the draft again: look at it, then publish or discard again |
 | Publish is disabled | Errors must be fixed and every warning ticked. Each issue links to its section |
 | "This feature needs a SmartBuildOS licence" on Publish | See Licensing below |
 | A floor plan is refused as too large | The picture is over 600 kB after the Studio reduced it. Use a simpler image |

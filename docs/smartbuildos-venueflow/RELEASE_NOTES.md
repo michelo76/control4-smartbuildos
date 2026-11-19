@@ -1,6 +1,6 @@
 # VenueFlow release notes
 
-## Source of 18 November 2026: review and audit fixes, not imported anywhere
+## Source of 18 and 19 November 2026: review and audit fixes, page follow-ups, not imported anywhere
 
 Found by an adversarial review of the driver's code (who may change what,
 whose draft it is, revisions, operations, source controls, scenes, alerts)
@@ -8,8 +8,9 @@ and by a gap audit of the wiring between the driver, Composer programming,
 the SmartBuildOS Agent and smartbuildos.io. Each defect was reproduced by a
 test against the old code and then fixed. **All of it is verified on the
 simulator and the test shim only.** The VenueFlow suites and the whole
-repository pass on this source: 2524 checks in 16 VenueFlow suites, 9581 in
-133 test files (18 November 2026, TEST_RESULTS.md). No package built from
+repository pass on this source: 2590 checks in 17 VenueFlow suites, 9647 in
+134 test files (19 November 2026, with no package in the build folder, so the
+package checks were skipped; TEST_RESULTS.md). No package built from
 this exact source exists: the one in the build folder of the working copy
 predates the last commits (the package check reports it as stale), and none
 has been imported on a controller. The bench controller still runs build
@@ -37,22 +38,75 @@ has been imported on a controller. The bench controller still runs build
 | The Agent's updater and its SKU-to-file list did not name VenueFlow | `smartbuildos-venueflow.c4z` is in both. The store's publish workflow does not name VenueFlow yet, so the updater has nothing to fetch until a package is published to the store |
 
 Also new: a package check that fails when a locally built package is older
-than its sources.
+than its sources; and a suite, `test_venueflow_engine_floor.lua`, that scans
+the page sources and both built pages for features Firefox 96 (the touch
+screens' Gecko 96) lacks. None were found. It is a static scan: nothing ran
+in Gecko.
+
+**The pages (19 November 2026)**, checked in desktop Chromium against the
+simulator only, with touch emulation where it says so; nothing ran on a T3,
+a T4 or a phone, and WebKit and Gecko were not available:
+
+- *Measured sizes.* Every interactive control of the operator page was
+  measured reachable (not off-screen, not covered) at 1024 x 600, 1280 x
+  800, 1920 x 1200, 390 x 844, 844 x 390, 820 x 1180 and 1180 x 820 for both
+  sample venues; the client's Venue Studio at 390 x 844, 820 x 1180, 1024 x
+  600 and 1280 x 800; the Installer Studio at 1024 x 600, 1024 x 768, 1280 x
+  800 and 1920 x 1200 (`ui/venueflow/README.md`).
+- *Layout.* Long display, source and zone names take two lines instead of
+  being cut to the same first word; the Venue Studio's header wraps on a
+  phone and its Sections drawer closes from the Sections button; switches
+  and icon buttons keep a workable touch size.
+- *Floor plan on small screens.* A tap near a display selects the nearest
+  one (reach at least 12 px beyond its edge); a tap as near two displays as
+  one opens "Which display?". At heights up to 680 px the "No scene active"
+  line is hidden and spacing is tighter, so the plan is drawn larger; the
+  side panel shows a fade with an arrow while it scrolls, and Power On and
+  Power Off fit without scrolling when nothing is selected at 1024 x 600.
+  Smallest effective target measured: 28 px for the sports bar's columns of
+  displays 5 px apart at 1024 x 600 (the chooser covers the gaps), 46 px in
+  the conference centre. Whether a touch screen's browser adjusts taps as
+  Chromium does is unknown.
+- *Publish and Discard name the revision.* The Studio sends `baseRevision`
+  with `PUBLISH` and `DRAFT_DISCARD`; on `VF_STALE_DRAFT` it says nothing
+  was published or discarded because the draft changed since the page loaded
+  it, reloads the draft and does not retry. Seen with two tabs, installer
+  and client.
+- *The client's reason.* The Venue Studio says why a client cannot publish
+  or discard (the installer saved changes; the dealer saved changes
+  remotely; the draft has a change only the installer can make) and who to
+  ask, in the header, on Home and on Publish and Rollback, where the buttons
+  are disabled. The dealer wording was seen only with the page's state set
+  by hand: the simulator has no remote save.
+- *Screen profiles read-only for a client.* The default profile and any
+  station's profile show "This is the profile screens open with. Only your
+  installer can change it.", without Delete or PIN buttons. The station case
+  was not seen (the samples have no stations).
+- *Venue status under a restricted licence.* After opening or closing, the
+  operator page says how many automations set for that moment did not run.
+  Seen on a simulator started in the restricted state.
+- `driver.xml`: the description of event 3, *Alert Raised*, now says when it
+  fires; `schema/protocol.json` was regenerated with `baseRevision`.
+
+The manual now has ten screenshots, all taken from the simulator in desktop
+Chromium, each captioned so. There is still no Composer screenshot.
 
 **What an installer will notice.** A client signed in to the Venue Studio
 can no longer touch the tile's profile or a station's profile. Saving a
 change, setting a PIN, applying a template or restoring a backup makes the
 draft yours until you publish or discard it, and the client waits for you.
 A backup now carries the revision counter. A client's rollback signs every
-staff member out, the client included.
+staff member out, the client included. A Publish or Discard pressed on a page
+whose draft is out of date does nothing and says so.
 
 **What a venue will notice.** On the Manager screen, an alert about a
 stopped scene or a missed schedule appears only for a profile that may see
-everything it concerns. In the Venue Studio, a change to a profile the
-screens open with is refused as installer-only, and "Your installer has
-unfinished changes" appears whenever the installer, or the dealer
-remotely, has saved work that is not published. A favourite being dialled is
-no longer cut short by a publish.
+everything it concerns. In the Venue Studio, the profiles the screens open
+with are read-only, and when the installer, or the dealer remotely, has
+saved work that is not published, the Studio says so in plain words, says
+who to ask, and disables Publish and Discard. A favourite being dialled is
+no longer cut short by a publish. On a small screen a tap near a display on
+the floor plan selects it, and long names take two lines.
 
 **What a programmer will notice.** *Configuration Published* on a rollback;
 ALERT_COUNT and *VenueFlow has alerts* now include detected alerts (and no
@@ -67,10 +121,12 @@ A remote draft can replace the whole configuration, device mapping and
 device commands included, and with "Draft and publish" put it live; whether
 it should be able to is an open owner decision (SECURITY_REVIEW.md). Two weaknesses of the
 shared module client are recorded in SECURITY_REVIEW.md, residual risks 8
-and 9. The manual has no screenshots.
+and 9. The manual has no Composer screenshot (its
+screenshots are of the pages, from the simulator).
 
 **Still not verified.** Everything above on a controller, in Composer
-programming and on a touch screen. The new hardware checks are in
+programming and on a touch screen; the pages in any engine but desktop
+Chromium. The new hardware checks are in
 HARDWARE_VALIDATION.md, "Not yet run".
 
 ## Source after build 20261114.233926 (15 November 2026): review fixes, not built
@@ -203,7 +259,9 @@ only, in Simulation mode first.
     store or product page. With enforcement off (the default) the driver
     works fully.
 14. **The driver manual has no screenshots.** This repository takes them on
-    the bench, which has not been done for VenueFlow.
+    the bench, which has not been done for VenueFlow. (Since 19 November 2026
+    the manual has screenshots of the pages taken from the simulator; still
+    none from Composer or a controller.)
 15. **No video-wall composition.** A video wall is one display with a custom
     route command.
 16. **Floor rulers show canvas units**, not feet or metres.

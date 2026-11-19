@@ -3,11 +3,12 @@
 First run on 14 November 2026 on macOS with LuaJIT, against build
 `20261114.233926` of `smartbuildos-venueflow.c4z`.
 
-**Automated suites and the whole repository: run again on 18 November 2026**
-on the source of that day (branch `vf/docs`, which holds the review and
-audit fixes of 15 and 18 November 2026, RELEASE_NOTES.md). The suites were
-run with no package in the build folder, as in a clean checkout and in CI,
-so the security suite's package checks were skipped. No package built from
+**Automated suites and the whole repository: run again on 19 November 2026**
+on the source of that day (branch `vf/docs-final`, which holds the review
+and audit fixes of 15 and 18 November 2026 and the page follow-ups of 19
+November 2026, RELEASE_NOTES.md). The suites were run with no package in
+the build folder, as in a clean checkout and in CI, so the security suite's
+package checks were skipped. No package built from
 this source exists, so the browser tests and the package section further
 down still describe build `20261114.233926`.
 
@@ -40,8 +41,9 @@ make venueflow-test
 | `test_venueflow_clientstudio.lua` | 217 | 0 | the Venue Studio as a client gets it: who may open it, what a client may change and publish, every installer-owned part refused to a hand-made request, installer-only commands, the installer's unfinished draft, rollback, losing the permission, live warnings not asked again; the profiles a screen or station opens with; whose work is in the draft; PINs and templates refused or attributed |
 | `test_venueflow_remote.lua` | 80 | 0 | Remote Management in the core: off, draft only, draft and publish; a remote draft cannot overwrite on-site work; publish only what was reviewed; no PIN material leaves; nothing remote controls equipment. The Agent and the platform are not in this test |
 | `test_venueflow_sourcecontrol.lua` | 146 | 0 | basic source controls: the closed key vocabulary and the Control4 command each key becomes, a page naming anything else, who may press, groups per source, an unmapped source, favourites dialled digit by digit in order and spaced, a box that does not answer, a flood of keys, the schema, a client editing favourites but not the controls; a publish, and a change of control mode, while a channel is being dialled. "Sent" means the simulator logged the command |
+| `test_venueflow_engine_floor.lua` | 66 | 0 | a static scan of every page source and both built pages for features Firefox 96 (the touch screens' Gecko 96) lacks, from a deny-list with the Firefox version that shipped each; none found. It runs nothing in Gecko: a pass means none of the listed features appears |
 | `test_venueflow_adapter.lua` | 27 | 0 | the Control4 adapter's variable listeners against a scripted Director that keeps one callback per pair: two rules on one variable, a rule on a mapped room's variable, a republish, an unmapped room, the first call on registration, a watcher that fails |
-| **Total (16 suites, 18 November 2026)** | **2524** | **0** | |
+| **Total (17 suites, 19 November 2026)** | **2590** | **0** | |
 
 The brief's seventeen required cases map to these suites:
 
@@ -71,8 +73,8 @@ The brief's seventeen required cases map to these suites:
 make test
 ```
 
-Exit code 0. 133 test files. The suites that print a total add up to 9581
-checks passed, 0 failed (18 November 2026, on the source of that day, with
+Exit code 0. 134 test files. The suites that print a total add up to 9647
+checks passed, 0 failed (19 November 2026, on the source of that day, with
 no package in the build folder). This includes the repository guards the new driver
 must pass: driver XML structure, licensing through the Agent, every
 `require` at module scope, locals declared before use, and embedded pages
@@ -81,7 +83,7 @@ matching their sources.
 ## Static checks
 
 Run on 14 November 2026 for build `20261114.233926`; the rows marked
-"18 Nov" were run again on the source of 18 November 2026.
+"18 Nov" or "19 Nov" were run again on the source of that day.
 
 | Check | Command | Result |
 | --- | --- | --- |
@@ -90,7 +92,7 @@ Run on 14 November 2026 for build `20261114.233926`; the rows marked
 | Page sources parse | `node --check` on each `.js` file under `ui/venueflow` | 18 Nov: all 13 parse |
 | Built pages current | `python3 tools/venueflow-ui.py check` | 18 Nov: current |
 | Embedded pages current | `luajit tools/embed-pages.lua --check` | 18 Nov: current |
-| Generated samples and schema current | `luajit tools/venueflow-samples.lua --check` | 18 Nov: **stale**: `schema/protocol.json` predates the optional `baseRevision` on `PUBLISH` and `DRAFT_DISCARD`; regenerate with `luajit tools/venueflow-samples.lua`. No suite checks this file |
+| Generated samples and schema current | `luajit tools/venueflow-samples.lua --check` | 19 Nov: current (`schema/protocol.json` was stale on 18 Nov, without the optional `baseRevision` on `PUBLISH` and `DRAFT_DISCARD`, and was regenerated on 19 Nov). No suite checks this file |
 | Secrets | `gitleaks dir` over every VenueFlow file (2.93 MB) | no leaks found |
 
 ## Package
@@ -163,8 +165,31 @@ Installer Studio (all 18 sections draw):
   strings: decoding a request holding a 300 kB string measured 2.5 s, and
   600 kB measured 10.4 s, in LuaJIT on this machine.)
 
-Not covered by any browser test: Gecko 96 (the touch screens' engine), a
-real touch screen, the Control4 apps, the Navigator bridge transport, a real
+**Page follow-ups, 19 November 2026** (desktop Chromium against the
+simulator; touch emulation where named; the page workers' checks, recorded
+in `ui/venueflow/README.md` and the commit messages):
+
+- Every interactive control of the operator page reachable and not covered,
+  with touch emulation, at 1024x600, 1280x800, 1920x1200, 390x844, 844x390,
+  820x1180 and 1180x820, both samples; the client's Venue Studio at 390x844,
+  820x1180, 1024x600, 1280x800; the Installer Studio at 1024x600, 1024x768,
+  1280x800, 1920x1200.
+- Floor plan: a touch tap at the centre of every display selects exactly
+  that display at 1024x600, 390x844, 844x390 and 1280x800 in both samples;
+  smallest effective target 28 px (sports bar, 1024x600; 33 px at 390x844)
+  and 46 px or more (conference centre). A tap in the gap opens "Which
+  display?".
+- Publish and Discard with two tabs (save in one, act in the other),
+  installer and client: nothing done, the draft reloaded.
+- The client's reason on the header, Home and Publish and Rollback; the
+  dealer wording only with the page's state set by hand.
+- The default profile read-only for a client (no station in the samples).
+- The venue status toast on a simulator started restricted.
+- The manual's ten screenshots taken on 19 November 2026 from the
+  simulator, and checked to render and enlarge in the built manual.
+
+Not covered by any browser test: Gecko 96 (the touch screens' engine; only
+the static scan above), WebKit, a real touch screen, the Control4 apps, the Navigator bridge transport, a real
 pointer drag on a slider, the native file chooser, a backup file landing on
 disk, and pinch gestures (synthetic events only).
 

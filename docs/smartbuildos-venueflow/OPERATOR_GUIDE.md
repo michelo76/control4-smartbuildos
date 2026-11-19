@@ -53,6 +53,12 @@ The venue from above, with each TV where it hangs.
 the scene shortcuts and the volume for an audio zone. If the venue has more
 than one floor, switch floors at the top.
 
+On a small screen the TVs on the plan are drawn small. You do not have to
+hit one exactly: a tap just beside a TV selects the nearest one, and a tap
+between two TVs asks "Which display?" so you can pick. When the panel on the
+right has more below (Power On and Power Off on a small screen), a fade with
+an arrow shows at its bottom edge: scroll it.
+
 ## Command Center
 
 The fastest way to change several TVs.
@@ -100,7 +106,9 @@ A summary of the whole venue.
 - **Scenes**: what each does, and **Activate**. A scene that switches things
   off shows you what it will do and asks you to confirm.
 - **Open venue / Close venue**: marks the venue open or closed. Some scenes
-  and schedules only run when the venue is open.
+  and schedules only run when the venue is open. If the SmartBuildOS licence
+  is restricted, the venue is still marked open or closed, and the screen
+  tells you how many automations set for that moment did not run.
 - **All Off**: shows what will be switched off (how many displays, how many
   audio zones, which scene is running), then asks you to confirm.
 - **Recent activity**: what was changed, when, and how each device
@@ -146,13 +154,18 @@ There you can change:
 
 Changes are kept as a draft. Nothing changes on the floor until you open
 **Publish** and publish them; from there you can also go back to an earlier
-version of your own changes. **Back to control** returns to the screens.
+version of your own changes. **Back to control** returns to the screens. If
+someone else changed the draft after your page loaded it (another window,
+your installer), nothing is published or discarded: the Studio says so and
+loads the draft again, so you can look before you try again.
 
 Devices, the floor plan and routing are your installer's, and so are the
-profile a screen opens as and any station's profile. If the Studio says your
-installer has unfinished changes (they, or your dealer remotely, saved work
-they have not published), you can keep editing, and publishing waits until
-they finish. Going back to an earlier version signs everyone out, you
+profile a screen opens as and any station's profile: in Staff Profiles they
+show "This is the profile screens open with. Only your installer can change
+it." If your installer or your dealer has saved changes that are not live
+yet, the Studio says so at the top, on Home and on Publish, and says who to
+ask; you can keep editing, and Publish and Discard wait until they publish
+or discard their work. Going back to an earlier version signs everyone out, you
 included.
 
 ## When something is wrong
@@ -160,6 +173,7 @@ included.
 | What you see | What to do |
 | --- | --- |
 | "Cannot reach the controller" | Check the screen is on the venue's wireless network. It reconnects by itself |
+| "Which display?" on the floor plan | You tapped between two TVs. Pick the one you meant |
 | "Your profile is not allowed to do that" | That control belongs to another profile. Ask a manager |
 | "That source cannot be shown here" | That TV is not connected to that source. Pick another TV or source |
 | "Choose a source to turn this display on" | Select the TV, pick a source and route it: that turns it on |
