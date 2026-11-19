@@ -171,6 +171,77 @@ for offset = 0, 3 do
   )
 end
 
+print("[5] read_device_state: closed keys, every value checked")
+do
+  local REF = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+  local function rds(over, drop)
+    local a = { state_ref = REF, device_id = 120, scope = "system" }
+    for k, v in pairs(over or {}) do
+      a[k] = v
+    end
+    if drop then
+      a[drop] = nil
+    end
+    return O.parse("read_device_state", a)
+  end
+  local op = rds()
+  check(
+    "valid: state_ref, device_id, scope; variables absent = every variable",
+    op ~= nil
+      and op.kind == "read_device_state"
+      and op.state_ref == REF
+      and op.device_id == 120
+      and op.scope == "system"
+      and #op.variables == 0
+  )
+  local full = rds({ scope = "full", variables = { "TEMPERATURE_F", "Battery Level", "LQI.raw-1" } })
+  check("scope full with three narrowing names", full ~= nil and full.scope == "full" and #full.variables == 3)
+  check("variables: an empty array is accepted (= every variable)", rds({ variables = {} }) ~= nil)
+  local twelve = {}
+  for i = 1, 12 do
+    twelve[i] = "VAR_" .. i
+  end
+  check("variables: 12 names accepted", rds({ variables = twelve }) ~= nil)
+  check("device_id 2147483647 accepted", rds({ device_id = 2147483647 }) ~= nil)
+  local thirteen = { "X" }
+  for i = 1, 12 do
+    thirteen[#thirteen + 1] = twelve[i]
+  end
+  for _, c in ipairs({
+    { "an unknown key (command)", { command = "UNLOCK" } },
+    { "an unknown key (value)", { value = "1" } },
+    { "an unknown key (variable_id)", { variable_id = 1000 } },
+    { "state_ref missing", nil, "state_ref" },
+    { "state_ref upper-case", { state_ref = REF:upper() } },
+    { "state_ref not a uuid", { state_ref = "abc" } },
+    { "device_id missing", nil, "device_id" },
+    { "device_id 0", { device_id = 0 } },
+    { "device_id negative", { device_id = -4 } },
+    { "device_id 2147483648", { device_id = 2147483648 } },
+    { "device_id fractional", { device_id = 12.5 } },
+    { "device_id a string", { device_id = "120" } },
+    { "scope missing", nil, "scope" },
+    { "scope household", { scope = "household" } },
+    { "scope SYSTEM", { scope = "SYSTEM" } },
+    { "variables not an array (object)", { variables = { a = "TEMPERATURE_F" } } },
+    { "variables a string", { variables = "TEMPERATURE_F" } },
+    { "variables 13 names", { variables = thirteen } },
+    { "variables a name twice", { variables = { "LQI", "LQI" } } },
+    { "variables an empty name", { variables = { "" } } },
+    { "variables a 49-byte name", { variables = { string.rep("A", 49) } } },
+    { "variables a name with a quote", { variables = { 'A"B' } } },
+    { "variables a name with a slash", { variables = { "A/B" } } },
+    { "variables a name with a newline", { variables = { "A\nB" } } },
+    { "variables a number", { variables = { 12 } } },
+  }) do
+    check("refused: " .. c[1], rds(c[2], c[3]) == nil)
+  end
+  check(
+    "argKeys(read_device_state) = device_id, scope, state_ref, variables",
+    table.concat(O.argKeys("read_device_state"), ",") == "device_id,scope,state_ref,variables"
+  )
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)

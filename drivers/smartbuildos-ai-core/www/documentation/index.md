@@ -207,7 +207,7 @@ variables. Nothing is excluded (with nothing collected there is nothing to
 exclude), and the provider, model, key status, permission mode and ids read *Not
 configured* or *Not delivered yet*.
 
-SmartBuildOS can also send eight restricted operations through the Agent:
+SmartBuildOS can also send nine restricted operations through the Agent:
 `apply_config`, `refresh_status`, `deliver_result` (a result: variables and AI
 Response Ready), `raise_event` (one of the events above, from a closed list;
 never Agent Disconnected; it may name what it is about, shown in
@@ -217,6 +217,18 @@ last two pass a read-only question, or an action a person approved, to the
 SmartBuildOS driver that declared it; an action needs the Agent's Remote
 Control property at Comfort or above, goes only to a driver the Agent has
 verified, and is reported as done only when that driver says it succeeded.
+
+The ninth, `read_device_state`, reads ONE device's current variables once,
+when SmartBuildOS asks a live question about it, and changes nothing: it
+writes no variable and sends no command. AI Core filters the answer here,
+before anything leaves the home: names and values that look like codes,
+passwords, keys, people's names, phone numbers, e-mail or network addresses
+are never sent; without the homeowner's permission, presence-revealing
+names are dropped and locks, security panels, doors and gates, motion and
+contact sensors, relays and lights are refused outright; cameras are always
+refused. The answer says when the device was read; Control4 does not say
+when a value last changed. Tested in the emulator only; not yet on a
+controller.
 
 ## Reports from other SmartBuildOS drivers
 

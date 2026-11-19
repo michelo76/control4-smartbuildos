@@ -51,7 +51,9 @@ M.RAISABLE = {
 --- a read-only query / a person-approved action to the driver that DECLARED
 --- it (ai.query / ai.action over the bus, schema-validated by that driver's
 --- own helper); invoke_driver_action needs the Agent's Remote Control tier
---- at Comfort or above (the Agent enforces it).
+--- at Comfort or above (the Agent enforces it). read_device_state reads ONE
+--- device's variables once and answers through device_state_result,
+--- filtered in the home by aicore.devicestate (read-only: no tier).
 M.OPERATIONS = {
   "apply_config",
   "refresh_status",
@@ -61,6 +63,7 @@ M.OPERATIONS = {
   "run_diagnostic",
   "run_driver_query",
   "invoke_driver_action",
+  "read_device_state",
 }
 
 --- Cloud ops (Agent MODULE_CLOUD_OPS.ai_core).
@@ -87,6 +90,8 @@ M.CLOUD_OPS = {
   driver_reports = true,
   driver_query_result = true,
   driver_action_result = true,
+  -- The outcome of read_device_state (src/aicore/devicestate.lua).
+  device_state_result = true,
 }
 
 --- Event categories (AI_RECORD_EVENT, exclusions, collected events).
@@ -175,6 +180,9 @@ M.LIMITS = {
   -- well before: 30 s timeout, two retries).
   household_interval_seconds = 60 * 60,
   household_inflight_seconds = 3 * 60,
+  -- read_device_state: a local bucket above the platform's 6 a minute, so
+  -- platform retries never collide with it.
+  device_reads_per_minute = 12,
 }
 
 return M

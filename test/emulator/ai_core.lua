@@ -1152,6 +1152,83 @@ check(
   aic.Properties["License Status"]
 )
 
+print("[13h] read_device_state: one live read end to end through the real Agent")
+-- Two stand-in devices: driver XML only (no Lua runs), their variables given
+-- here as a scenario gives a proxy's documented variables. SYNTHETIC names
+-- shaped like the Agent's candidates; no controller produced them.
+local function standIn(name, key, vars)
+  local dev = assert(d:addDeviceFromXml(
+    "<devicedata><name>" .. name .. "</name><model>stand-in</model><manufacturer>Scenario</manufacturer>"
+      .. '<config><script file="driver.lua"/></config></devicedata>',
+    { roomId = kitchen, name = name, key = key, filename = key .. ".c4z", inertReason = "scenario stand-in" }
+  ))
+  for i, nv in ipairs(vars) do
+    d:addProxyVariable(dev, 1000 + i, nv[1], nv[2])
+  end
+  return dev
+end
+local probe = standIn("Wine Fridge", "generic-sensor", {
+  { "TEMPERATURE_F", "55" },
+  { "HUMIDITY", "61" },
+  { "OWNER_NAME", "Jane" },
+  { "WIFI_PASSWORD", "hunter2" },
+})
+local doorLock = standIn("Front Door", "generic-lock", {
+  { "LOCK_STATUS", "Locked" },
+  { "USER_CODE_1", "1234" },
+  { "BATTERY_LEVEL", "80" },
+})
+d:advance(1000)
+local function dsr(args)
+  local n0 = #S.rpc.calls
+  local st, det = moduleCommand(S, agent, "read_device_state", args)
+  d:advance(5000)
+  local found = nil
+  for i = n0 + 1, #S.rpc.calls do
+    if S.rpc.calls[i].op == "device_state_result" then
+      found = S.rpc.calls[i]
+    end
+  end
+  return st, det, found
+end
+local READ_REF = "3d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+local rs, rd, rc = dsr({ state_ref = READ_REF, device_id = probe.id, scope = "system" })
+local rb = rc and rc.body or {}
+local got = {}
+for _, e in ipairs(rb.variables or {}) do
+  got[e.name] = e.value
+end
+check("the Agent forwarded read_device_state and AI Core completed it", rs == "Completed", tostring(rs) .. " " .. tostring(rd))
+check(
+  "device_state_result reached the platform: completed, climate_sensor, read_at set",
+  rc ~= nil and rb.status == "completed" and rb.state_ref == READ_REF and rb.device.id == probe.id
+    and rb.device.class == "climate_sensor" and type(rb.read_at) == "number",
+  rc and json.encode(rb)
+)
+check(
+  "the live values as Director holds them; the owner's name and the Wi-Fi password stayed in the home",
+  got.TEMPERATURE_F == "55" and got.HUMIDITY == "61" and got.OWNER_NAME == nil and got.WIFI_PASSWORD == nil
+    and rb.omitted.personal == 1 and rb.omitted.secret == 1
+    and not json.encode(rc):find("hunter2", 1, true) and not json.encode(rc):find("Jane", 1, true),
+  rc and json.encode(rb)
+)
+rs, rd, rc = dsr({ state_ref = READ_REF, device_id = doorLock.id, scope = "system" })
+check(
+  "a lock in scope system: Failed restricted_class, no variable in what reached the platform",
+  rs == "Failed" and rc ~= nil and rc.body.reason == "restricted_class" and rc.body.variables == nil
+    and not json.encode(rc):find('"Locked"', 1, true) and not json.encode(rc):find('"1234"', 1, true),
+  tostring(rs) .. " " .. tostring(rd) .. " " .. (rc and json.encode(rc) or "")
+)
+rs, rd, rc = dsr({ state_ref = READ_REF, device_id = doorLock.id, scope = "full" })
+check(
+  "the same lock in scope full: its lock state and battery only; the user code stayed in the home",
+  rs == "Completed" and rc ~= nil and #rc.body.variables == 2 and rc.body.omitted.secret == 1
+    and not json.encode(rc):find('"1234"', 1, true),
+  tostring(rs) .. " " .. (rc and json.encode(rc.body) or "")
+)
+rs = dsr({ state_ref = READ_REF, device_id = probe.id, scope = "system", command = "SET_VARIABLE" })
+check("an extra argument refuses the whole operation", rs == "Failed", rs)
+
 print("[14] no equipment control reachable")
 local outsiders = {}
 for _, f in ipairs(fromAic) do

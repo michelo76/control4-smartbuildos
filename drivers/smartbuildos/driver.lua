@@ -3817,6 +3817,9 @@ MODULE_COMMANDS = {
     run_diagnostic = true,
     run_driver_query = true,
     invoke_driver_action = 2,
+    -- Reads ONE device's variables once (AI Core filters them in the home);
+    -- read-only, so no Remote Control tier, like run_driver_query.
+    read_device_state = true,
   },
 }
 MODULE_COMMAND_TTL = 10 * 60
