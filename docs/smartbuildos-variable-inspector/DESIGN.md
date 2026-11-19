@@ -53,6 +53,17 @@ controller address is known; otherwise the c4z page with `?relay=`.
    here either way).
 5. Remove the driver: no further `OnWatchedVariableChanged` in the log.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `variable_inspector` (guide §9 `start`) and reports a
+describe (the dealer tool) and a state from `paint()` (watched count and
+limit, read-only, relay listening; never a device, variable name or
+value). No diagnostics (the driver has no fault transition of its own),
+events, queries or actions. Without AI Core nothing is sent. Unit tests
+only (`test/test_varinspector_aicore.lua`); nothing here has run on a
+controller.
+
 ## Not included (v1)
 
 - No upload of history to SmartBuildOS (no module registration).
