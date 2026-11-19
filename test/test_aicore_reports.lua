@@ -688,16 +688,13 @@ end
 nextAnswer = function()
   return "ok", { ok = true, data = { temperature = 71, condition = "Clear" } }
 end
-local states = H.operation(
-  "run_driver_query",
-  {
-    query_ref = QREF,
-    module_id = "atmosphere",
-    instance_id = "321",
-    query_id = "current_conditions",
-    params = { units = "f" },
-  }
-)
+local states = H.operation("run_driver_query", {
+  query_ref = QREF,
+  module_id = "atmosphere",
+  instance_id = "321",
+  query_id = "current_conditions",
+  params = { units = "f" },
+})
 check(
   "Executing, then Completed on the driver's answer",
   #states >= 2 and states[#states - 1].state == "Executing" and H.finalState(states) == "Completed",
