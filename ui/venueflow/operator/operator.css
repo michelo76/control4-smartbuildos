@@ -390,6 +390,16 @@ svg.op-plan.compact { height: auto; }
   .op-mgr-stats > .op-stat:last-child { grid-column: span 2; }
   .op-mgr-cols { grid-template-columns: minmax(0, 1fr); }
 }
+/* Phones: the volume slider gets a row of its own in the floor plan's bottom bar (the zone picker
+   above it), and a little room from the gaps in every zone control, so a finger can set a level
+   (about 240 px in the bar and 200 px or more everywhere at 390 px wide; the bar's was 84 px). */
+@media (max-width: 600px) {
+  .op-fp-audio { flex-wrap: wrap; }
+  .op-fp-zonepick { flex: 1 1 100%; }
+  .op-fp-zone { flex: 1 1 100%; }
+  .op-zc-vol { gap: 8px; }
+  .op-zc-pct { min-width: 44px; }
+}
 @media (max-width: 560px) {
   .op-nav button { flex-direction: column; gap: 2px; padding: 5px 4px; min-height: 52px; font-size: 11.5px; line-height: 1.15; white-space: normal; text-align: center; }
 }
