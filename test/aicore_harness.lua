@@ -182,6 +182,57 @@ for _, name in ipairs({ "SetDeviceVariable", "SendToProxy", "SendUIRequest", "Re
     H.equipment[#H.equipment + 1] = { api = name, args = { ... } }
   end
 end
+-- The one proxy call AI Core makes: its OWN uibutton proxy's web view URL
+-- (binding 5001, URL_CHANGED). Anything else still lands in H.equipment.
+H.urls = {}
+C4.SendToProxy = function(_, binding, command, params)
+  if binding == 5001 and command == "URL_CHANGED" then
+    H.urls[#H.urls + 1] = params and params.url
+    return
+  end
+  H.equipment[#H.equipment + 1] = { api = "SendToProxy", args = { binding, command, params } }
+end
+
+-- ── the touchscreen relay (CreateServer + OnServerDataIn), simulated ───────
+H.servers = {}
+H.serverOut = {}
+H.relayAddress = "192.168.1.20"
+C4.GetControllerNetworkAddress = function()
+  return H.relayAddress
+end
+C4.CreateServer = function(_, port, _, _, identifier)
+  H.servers[port] = identifier or true
+end
+C4.DestroyServer = function(_, port)
+  H.servers[port] = nil
+end
+C4.ServerSend = function(_, handle, data)
+  H.serverOut[handle] = (H.serverOut[handle] or "") .. tostring(data)
+end
+C4.ServerCloseClient = function() end
+require("lib.relayhost").get = function(url, done)
+  -- this relay answers /ping on the controller address
+  done(url:find(":47871/ping", 1, true) ~= nil, '{"ok":true,"service":"ai-core"}')
+end
+local handleSeq = 0
+--- One HTTP request to the AI Core relay, split in two chunks. Returns the
+--- status code, the decoded JSON body (nil when not JSON), the raw body.
+function H.http(method, pathAndQuery, body)
+  handleSeq = handleSeq + 1
+  local raw = type(body) == "table" and JSON:encode(body) or body or ""
+  local req = method .. " " .. pathAndQuery .. " HTTP/1.1\r\nHost: x\r\nContent-Length: " .. #raw .. "\r\n\r\n" .. raw
+  local cut = math.floor(#req / 2)
+  OnServerDataIn(handleSeq, req:sub(1, cut), nil, nil, "aicore-ui-relay")
+  OnServerDataIn(handleSeq, req:sub(cut + 1), nil, nil, "aicore-ui-relay")
+  H.pump()
+  local out = H.serverOut[handleSeq] or ""
+  local code = tonumber(out:match("^HTTP/1%.1 (%d+)"))
+  local payload = out:match("\r\n\r\n(.*)$") or ""
+  local ok, doc = pcall(function()
+    return JSON:decode(payload)
+  end)
+  return code, ok and type(doc) == "table" and doc or nil, payload
+end
 
 -- ── loading ─────────────────────────────────────────────────────────────────
 local function xmlProperties()

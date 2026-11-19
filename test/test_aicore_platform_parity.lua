@@ -573,6 +573,10 @@ for _, e in ipairs(entries(anyLiteral(opsTs, "OP_BODIES"))) do
   for k, v in pairs(common) do
     spec[k] = v
   end
+  -- A field given by a named constant (`verification: VERIFICATION`).
+  for name in e.body:gmatch("([%w_]+):%s*VERIFICATION[,%s}]") do
+    spec[name] = { kind = "object", required = true }
+  end
   bodies[e.name] = spec
 end
 check(
@@ -581,6 +585,9 @@ check(
 )
 local handled = set(strings(literal(opsTs, "AI_CORE_JOB_OPS")))
 for name in opsTs:gmatch("handlers%.([%w_]+) = async") do
+  handled[name] = true
+end
+for name in opsTs:gmatch("handlers%.([%w_]+) = touchscreenOp%(") do
   handled[name] = true
 end
 local routeTs = read(ROOT .. "/src/app/api/integrations/control4/modules/rpc/route.ts") or ""
@@ -712,6 +719,30 @@ do
     enums = { status = set(Reports.ACTION_STATUSES), error_code = errorCodes },
   }
 end
+-- The touchscreen page's ops, built by src/aicore/webui.lua exactly as the
+-- driver sends them: the touchscreen ask (channel + detail on top of the
+-- Composer ask's keys) and the three approval ops (ruling 24).
+local Webui = require("aicore.webui")
+do
+  local proof = { nonce = string.rep("a", 32), verified_at = 1800000000, role = "owner" }
+  local ref = "11111111-2222-4333-8444-555555555555"
+  for k, v in pairs(Webui.askBody("aic-1", "q", "standard")) do
+    driverBodies.ask.full[k] = v
+  end
+  local details = {}
+  for d in pairs(Webui.DETAILS) do
+    details[d] = true
+  end
+  driverBodies.ask.enums = { channel = set({ Webui.CHANNEL }), detail = details }
+  -- The driver sends only `touchscreen` (a Composer ask names no channel).
+  driverBodies.ask.subset = { channel = true }
+  local pending = Webui.pendingBody("aic-1")
+  driverBodies.approvals_pending = { full = pending, minimal = pending, max = {} }
+  local detail = Webui.detailBody("aic-1", ref, proof)
+  driverBodies.approval_detail = { full = detail, minimal = detail, max = {} }
+  local decide = Webui.decideBody("aic-1", ref, "approve", string.rep("b", 64), proof)
+  driverBodies.approval_decide = { full = decide, minimal = decide, max = {}, enums = { decision = set(Webui.DECISIONS) } }
+end
 for _, op in ipairs(keys(V.CLOUD_OPS)) do
   local d = driverBodies[op]
   local spec = bodies[op]
@@ -776,11 +807,19 @@ for _, op in ipairs(keys(V.CLOUD_OPS)) do
         if d.enums and d.enums[field] then
           driverList = keys(d.enums[field])
         end
-        check(
-          op .. "." .. field .. ": the same closed list (" .. f.list .. ")",
-          same(driverList, tsList),
-          show(driverList, tsList)
-        )
+        if d.subset and d.subset[field] then
+          check(
+            op .. "." .. field .. ": every value the driver sends is in " .. f.list,
+            #driverList > 0 and #minus(driverList, tsList) == 0,
+            show(driverList, tsList)
+          )
+        else
+          check(
+            op .. "." .. field .. ": the same closed list (" .. f.list .. ")",
+            same(driverList, tsList),
+            show(driverList, tsList)
+          )
+        end
       elseif f.kind == "text" and d.full[field] ~= nil and field ~= "command" then
         -- A typed parameter's bound (refused over it) and the body's last
         -- guard (commands.lua BODY_TEXT_MAX: Director's names are cut to it)
@@ -944,6 +983,36 @@ do
     "the platform refuses a whole batch for one bad item (validDriverReports: every) — reports.lua validates each item first",
     wireTs:find("v.every(validDriverReportItem)", 1, true) ~= nil
   )
+end
+
+print("[8b] touchscreen approvals: verification and refusal reasons (ruling 24)")
+do
+  local vLit = opsTs:match("const VERIFICATION: Field = (%b{})") or ""
+  local vFields = platformFields(vLit:match("fields:%s*(%b{})") or "{}")
+  local sent = Webui.verification({ nonce = string.rep("a", 32), verified_at = 1800000000, role = "owner" })
+  check("rpc/ops.ts VERIFICATION is readable", next(vFields) ~= nil)
+  check("verification: the driver sends exactly VERIFICATION's fields", same(keys(sent), keys(vFields)), show(keys(sent), keys(vFields)))
+  local roles = set(strings(literal(protocolTs, "AI_CORE_PIN_ROLES")))
+  local methods = set(strings(literal(protocolTs, "AI_CORE_VERIFICATION_METHODS")))
+  check("verification.role owner is in AI_CORE_PIN_ROLES", roles.owner == true)
+  check("verification.method pin_lock is in AI_CORE_VERIFICATION_METHODS", methods[sent.method] == true, sent.method)
+  local touchTs = read(ROOT .. "/src/lib/ai-core/actions/touchscreen.ts") or ""
+  local reasons = strings(touchTs:match("export const TOUCHSCREEN_REFUSAL_REASONS = (%b[])") or "[]")
+  check("TOUCHSCREEN_REFUSAL_REASONS is readable", #reasons >= 10, #reasons)
+  local missing = {}
+  for _, r in ipairs(reasons) do
+    if Webui.TEXT[r] == nil then
+      missing[#missing + 1] = r
+    end
+  end
+  check("every refusal reason the platform can answer has plain words on the page (webui.TEXT)", #missing == 0, table.concat(missing, ","))
+  local noWords = {}
+  for _, st in ipairs({ "queued", "denied", "failed", "expired" }) do
+    if Webui.OUTCOME_TEXT[st] == nil then
+      noWords[#noWords + 1] = st
+    end
+  end
+  check("every approval_decide status (queued, denied, failed, expired) has plain words", #noWords == 0, table.concat(noWords, ","))
 end
 
 print("[9] raise_event detail: platform ≤ RAISE_EVENT_DETAIL_MAX characters, driver keeps ≤ event_detail bytes")

@@ -74,6 +74,10 @@ local Collector = require("aicore.collector")
 local State = require("aicore.state")
 local Diagnostic = require("aicore.diagnostic")
 local Reports = require("aicore.reports")
+local Webui = require("aicore.webui")
+local pagedata = require("aicore.page")
+local RelayHost = require("lib.relayhost")
+local _pinned = { require("atmosphere.uirelay") } -- transitive (webui), pinned for the squish step
 
 gInitialized = false
 
@@ -88,6 +92,18 @@ local REPORTS_TIMER = "AiCoreReports"
 local TICK_SECONDS = 30
 local LIVENESS_SECONDS = 5 * 60
 local FR_SUBSCRIPTION = "fr"
+local WEBVIEW_BINDING = 5001
+local WEB_RELAY_ID = "aicore-ui-relay"
+local WEB_TOKEN_KEY = "aicore_web_token_v1"
+local URL_TIMER = "AiCoreUrlRepublish"
+local C4Z_NAME = "smartbuildos-ai-core"
+--- Touchscreen Detail (dealer property) → the `detail` an ask carries. It
+--- can only lower what the homeowner allowed (the cloud enforces that).
+local DETAIL_OF = {
+  ["Basic (status and approvals only)"] = "basic",
+  ["Standard (no household activity)"] = "standard",
+  ["Household (only if the homeowner allows it)"] = "household",
+}
 
 --- AUTHORIZED statuses carry a feature list the backend issued; only then
 --- is a missing feature a definite "no".
@@ -119,6 +135,10 @@ local gLicenceHalted = false
 --- AI_RUN_HOUSEHOLD_ANALYSIS in flight (request id, sent at); one at a time.
 local gHousehold = { inflight = nil, inflight_at = nil }
 local gPrev = { code = nil, connected = nil }
+--- The touchscreen page (src/aicore/webui.lua): relay socket, install token,
+--- address resolver, PIN Lock's instance. In memory only, like the page's
+--- sessions, unlocks and approval proofs.
+local gWeb = { ui = nil, port = nil, buffers = {}, token = nil, host = nil, pin_instance = nil, seq = 0 }
 local gCounters = {
   commands = 0,
   refused_local = 0,
@@ -203,7 +223,16 @@ local function setError(message, kind)
   end
 end
 
+--- A request id is also the cloud relay's idempotency key, so two ops must
+--- never share one: 32 hex from the C4:HMAC recipe (gWeb.newHex: the
+--- controller's random UUID, the clock, a counter, math.random). Under the
+--- emulator C4:UUID repeats values, and a repeated id made the Agent answer
+--- one op with another's stored answer (KNOWN-ISSUES.md KI-60).
 local function newRequestId()
+  local hex = gWeb.newHex and gWeb.newHex() or nil
+  if hex ~= nil then
+    return "aic-" .. hex
+  end
   local ok, uuid = pcall(function()
     return C4:UUID("RANDOM")
   end)
@@ -487,6 +516,9 @@ refresh = function(reason)
   setVar("LEARNING_ACTIVE", learningActive() and "true" or "false")
   setVar("AI_PENDING_APPROVALS", gLast.pending_approvals)
   setVar("AI_RECOMMENDATION_COUNT", gLast.recommendation_count)
+  if gWeb.paint then
+    gWeb.paint()
+  end
 
   -- Transitions only.
   if gPrev.connected == true and not connected then
@@ -1150,6 +1182,291 @@ local function relayDriverOp(op, request, spec)
   end)
 end
 
+-- ─── Touchscreen page (src/aicore/webui.lua; LAN relay on port 47871) ──────
+--
+-- The same transport as PIN Lock and Atmosphere: a CreateServer listener,
+-- the page served same-origin at /app, its URL (with the install token)
+-- published to the uibutton proxy with URL_CHANGED. Every rule the page is
+-- held to (the chat lock, the approval proofs, the bounds) is webui's; this
+-- section only supplies the socket, the bus, the cloud and the facts.
+-- Nothing here logs a request body, and no route accepts a PIN.
+
+--- 32 lowercase hex from C4:HMAC over the controller's random UUID, the
+--- clock, a counter and math.random (PIN Lock's challenge-id recipe). There
+--- is no weaker fallback: nil refuses whatever needed it.
+function gWeb.newHex()
+  gWeb.seq = gWeb.seq + 1
+  local okU, uuid = pcall(function()
+    return C4:UUID("RANDOM")
+  end)
+  local seed = string.format(
+    "%s|%d|%.9f|%.9f|%s|%s",
+    tostring(now()),
+    gWeb.seq,
+    math.random(),
+    math.random(),
+    tostring(os.clock()),
+    okU and tostring(uuid) or ""
+  )
+  local okH, hex = pcall(function()
+    return C4:HMAC("SHA256", "aicore-webui", seed, { return_encoding = "HEX" })
+  end)
+  if not okH or type(hex) ~= "string" or #hex < 32 then
+    return nil
+  end
+  return hex:sub(1, 32):lower()
+end
+
+--- The install token carried in the web view URL (persisted encrypted, as
+--- PIN Lock's).
+function gWeb.installToken()
+  if gWeb.token ~= nil then
+    return gWeb.token
+  end
+  local stored = persist:get(WEB_TOKEN_KEY, nil, true)
+  if type(stored) == "string" and Webui.hex32(stored) then
+    gWeb.token = stored
+    return stored
+  end
+  local token = gWeb.newHex()
+  if token == nil then
+    return nil
+  end
+  gWeb.token = token
+  persist:set(WEB_TOKEN_KEY, token, true)
+  return token
+end
+
+function gWeb.relayHost()
+  if gWeb.host == nil then
+    return ""
+  end
+  return (gWeb.host:host())
+end
+
+--- The embedded page, its security policy completed for THIS controller:
+--- connections to its own relay ('self') and to PIN Lock's port on the same
+--- host, nothing else.
+function gWeb.appHtml()
+  if type(pagedata) ~= "string" or #pagedata < 512 then
+    return nil
+  end
+  local host = gWeb.relayHost()
+  if host == "" or not host:match("^[%w%.%-]+$") then
+    return pagedata
+  end
+  local origin = string.format("http://%s:%d", host, Webui.PINLOCK_PORT)
+  return (pagedata:gsub("connect%-src 'self';", "connect-src 'self' " .. origin .. ";", 1))
+end
+
+function gWeb.facts()
+  return {
+    licensed = licenceBlocks("BASE") == nil,
+    provider_configured = gConfig.provider.name ~= nil,
+    online = State.code(facts()) == "ready",
+    learning_active = learningActive() and not gLicenceHalted,
+  }
+end
+
+function gWeb.detail()
+  return DETAIL_OF[Properties["Touchscreen Detail"]] or "standard"
+end
+
+--- What PIN Lock can do for this screen, from the Agent's directory and
+--- pinlock.availability. Every doubt is "no" (fail closed).
+function gWeb.pinAvailability(cb)
+  if not client.isRegistered() or gAgentLost or (client.protocol() or 0) < 2 then
+    cb({ available = false, reason = "pin_no_agent" })
+    return
+  end
+  client.discover({ module_id = "pin_lock" }, function(directory, code)
+    if code ~= "ok" then
+      cb({ available = false, reason = "pin_no_agent" })
+      return
+    end
+    local row = nil
+    for _, m in ipairs(type(directory.modules) == "table" and directory.modules or {}) do
+      if type(m) == "table" and m.module_id == "pin_lock" and (row == nil or row.stale == true) then
+        row = m
+      end
+    end
+    gWeb.pin_instance = nil
+    if row == nil then
+      cb({ available = false, reason = "pin_not_installed" })
+      return
+    end
+    if row.stale == true or (tonumber(row.protocol) or 1) < 2 then
+      cb({ available = false, reason = "pin_not_responding" })
+      return
+    end
+    if row.verified ~= true then
+      -- Ruling 9: PIN verification only from a pin_lock the Agent bound to
+      -- its .c4z.
+      cb({ available = false, reason = "pin_unverified" })
+      return
+    end
+    local caps = {}
+    for _, c in ipairs(type(row.capabilities) == "table" and row.capabilities or {}) do
+      if type(c) == "table" and type(c.id) == "string" then
+        caps[c.id] = true
+      end
+    end
+    if not (caps["pinlock.availability"] and caps["pinlock.challenge"] and caps["pinlock.redeem"]) then
+      cb({ available = false, reason = "pin_update_required" })
+      return
+    end
+    local instance = tostring(row.instance_id)
+    client.request(
+      "pin_lock",
+      "pinlock.availability",
+      {},
+      { to_instance = instance, timeout = 8, retries = 0 },
+      function(a)
+        a = type(a) == "table" and a or {}
+        local r = type(a.result) == "table" and a.result or {}
+        if a.status ~= "ok" then
+          cb({ available = false, reason = "pin_not_responding" })
+          return
+        end
+        if r.ready == true and r.reason == "ready" then
+          gWeb.pin_instance = instance
+          cb({ available = true, reason = "ready" })
+          return
+        end
+        local reason = type(r.reason) == "string" and Webui.TEXT[r.reason] and r.reason or "pin_not_responding"
+        cb({ available = false, reason = reason, retry_in = tonumber(r.retry_in) })
+      end
+    )
+  end)
+end
+
+--- pinlock.challenge / pinlock.redeem to the PIN Lock instance the last
+--- availability check found. Never retried: a redeem consumes its
+--- challenge. The args carry no PIN (there is none on this side).
+function gWeb.pinRequest(capability, args, cb)
+  if gWeb.pin_instance == nil then
+    cb({ status = "error", error_code = "unknown_target" })
+    return
+  end
+  client.request("pin_lock", capability, args, { to_instance = gWeb.pin_instance, timeout = 8, retries = 0 }, cb)
+end
+
+function gWeb.cloud(op, body, cb)
+  if licenceBlocks("BASE") ~= nil then
+    cb({ status = "error", error_code = "not_permitted", result = { reason = "not_licensed" } })
+    return
+  end
+  client.cloudRequest(op, body, { idempotency_key = body.request_id }, cb)
+end
+
+function gWeb.paint()
+  if gWeb.ui == nil then
+    return
+  end
+  UpdateProperty("Touchscreen Approvals", gWeb.ui:summary())
+  local host = gWeb.relayHost()
+  local line
+  if gWeb.port == nil then
+    line = "Not listening (port " .. Webui.PORT .. " unavailable)"
+  elseif host == "" then
+    line = "Controller address unknown: set App Relay Address"
+  else
+    line = string.format("http://%s:%d/app (home network only)", host, gWeb.port)
+  end
+  UpdateProperty("Webview Address", line)
+end
+
+function OnServerDataIn(handle, data, _, _, identifier)
+  if identifier ~= nil and identifier ~= WEB_RELAY_ID then
+    return
+  end
+  gWeb.buffers[handle] = (gWeb.buffers[handle] or "") .. tostring(data or "")
+  if #gWeb.buffers[handle] > 8 * 1024 then
+    gWeb.buffers[handle] = nil
+    pcall(function()
+      C4:ServerCloseClient(handle)
+    end)
+    return
+  end
+  local req = Webui.parse(gWeb.buffers[handle])
+  if req == nil then
+    return
+  end
+  gWeb.buffers[handle] = nil
+  local result
+  if gWeb.ui == nil or not gInitialized then
+    result = { status = "503 Service Unavailable", contentType = "application/json", body = '{"ok":false}' }
+  else
+    local ok, routed = pcall(gWeb.ui.route, gWeb.ui, req, gWeb.installToken())
+    result = ok and routed
+      or { status = "500 Internal Server Error", contentType = "application/json", body = '{"ok":false}' }
+  end
+  pcall(function()
+    C4:ServerSend(handle, Webui.render(result))
+  end)
+  pcall(function()
+    C4:ServerCloseClient(handle)
+  end)
+end
+
+function gWeb.start()
+  if gWeb.port ~= nil then
+    return
+  end
+  local ok = pcall(function()
+    C4:CreateServer(Webui.PORT, "", false, WEB_RELAY_ID)
+  end)
+  if ok then
+    gWeb.port = Webui.PORT
+    log:info("Touchscreen relay listening on port %d", Webui.PORT)
+  else
+    log:warn("Touchscreen relay port %d unavailable; the page cannot load", Webui.PORT)
+  end
+end
+
+function gWeb.stop()
+  if gWeb.port ~= nil then
+    pcall(function()
+      C4:DestroyServer(gWeb.port)
+    end)
+    gWeb.port = nil
+  end
+  gWeb.buffers = {}
+end
+
+--- The page's address: the relay when the controller's address is known,
+--- else the c4z copy (which then says it cannot reach anything).
+function gWeb.url()
+  local host = gWeb.port ~= nil and gWeb.relayHost() or ""
+  local token = gWeb.installToken()
+  if host ~= "" and token ~= nil then
+    return string.format("http://%s:%d/app?k=%s", host, gWeb.port, token)
+  end
+  return "controller://driver/" .. C4Z_NAME .. "/app/index.html"
+end
+
+function gWeb.publish(reason)
+  local url = gWeb.url()
+  pcall(function()
+    C4:SendToProxy(WEBVIEW_BINDING, "URL_CHANGED", { url = url })
+  end)
+  log:debug("Touchscreen URL published (%s): %s", tostring(reason), (url:gsub("k=[%w]+", "k=[token]")))
+end
+
+gWeb.host = RelayHost.new({
+  port = Webui.PORT,
+  service = "ai-core",
+  configured = function()
+    return Properties["App Relay Address"]
+  end,
+  onChange = function()
+    if gInitialized then
+      gWeb.publish("address confirmed")
+      gWeb.paint()
+    end
+  end,
+})
+
 -- ─── Restricted operations from the platform ───────────────────────────────
 
 local OPS = {}
@@ -1218,6 +1535,23 @@ function OPS.refresh_status()
 end
 
 function OPS.deliver_result(op)
+  if op.pending_approvals ~= nil and op.pending_approvals ~= gLast.pending_approvals and gWeb.ui then
+    gWeb.ui.approvals.at = nil -- the count changed: the page asks again
+  end
+  if gWeb.ui and gWeb.ui:owns(op.request_id) then
+    -- A touchscreen answer belongs to the page session that asked, behind
+    -- its owner PIN (ruling 17): never AI_LAST_RESPONSE, never persisted,
+    -- no AI Response Ready (Composer programming could show it unlocked).
+    gWeb.ui:deliver(op.request_id, op.text)
+    if op.pending_approvals ~= nil then
+      gLast.pending_approvals = op.pending_approvals
+    end
+    finishJob(op.job_id, op.request_id)
+    gCounters.results_delivered = gCounters.results_delivered + 1
+    saveLast()
+    refresh("result")
+    return "Completed", "touchscreen response " .. op.response_id
+  end
   local bounded, cut = Operations.boundResponse(op.text)
   gLast.response = bounded
   gLast.response_id = op.response_id
@@ -1255,6 +1589,9 @@ function OPS.raise_event(op, request)
     gLast.recommendation_count = op.recommendation_count
   end
   gCounters.events_raised = gCounters.events_raised + 1
+  if gWeb.ui and op.pending_approvals ~= nil then
+    gWeb.ui.approvals.at = nil -- the page asks approvals_pending again
+  end
   saveLast()
   setVar("AI_LAST_EVENT_DETAIL", op.detail)
   setVar("AI_LAST_CORRELATION_ID", gLast.event_correlation_id)
@@ -1546,6 +1883,12 @@ local function tick()
   if client.isRegistered() and not gAgentLost and gBuffer:depth() > 0 then
     flushBuffer()
   end
+  if gWeb.ui then
+    gWeb.ui:sweep()
+    if gWeb.ui:sessionCount() > 0 then
+      gWeb.ui:checkPin(false)
+    end
+  end
   refresh("tick")
 end
 
@@ -1673,6 +2016,23 @@ function OnDriverLateInit(reason)
   end
   EC.suppressDebug.SBOS_MODULE_AGENT_EVENT = true
 
+  gWeb.ui = Webui.new({
+    now = now,
+    newHex = gWeb.newHex,
+    newRequestId = newRequestId,
+    facts = gWeb.facts,
+    detail = gWeb.detail,
+    relayHost = gWeb.relayHost,
+    pinAvailability = gWeb.pinAvailability,
+    pinRequest = gWeb.pinRequest,
+    cloud = gWeb.cloud,
+    take = function()
+      return gBucket.take()
+    end,
+    appHtml = gWeb.appHtml,
+    onChange = gWeb.paint,
+  })
+
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
   pcall(function()
@@ -1680,6 +2040,13 @@ function OnDriverLateInit(reason)
   end)
   applyCollection()
   client.register()
+  gWeb.start()
+  gWeb.host:check()
+  gWeb.publish("late-init")
+  -- A notify sent before the project finished starting is lost: again at 60 s.
+  SetTimer(URL_TIMER, 60 * ONE_SECOND, function()
+    gWeb.publish("late-init+60s")
+  end)
   SetTimer(TICK_TIMER, TICK_SECONDS * ONE_SECOND, tick, true)
   SetTimer(LIVENESS_TIMER, LIVENESS_SECONDS * ONE_SECOND, function()
     discoverFlightRecorder("liveness")
@@ -1704,6 +2071,11 @@ function OnDriverDestroyed()
   CancelTimer(LIVENESS_TIMER)
   CancelTimer(DISCOVER_TIMER)
   CancelTimer(REPORTS_TIMER)
+  CancelTimer(URL_TIMER)
+  if gWeb.ui then
+    gWeb.ui:lockAll()
+  end
+  gWeb.stop()
   saveLast()
 end
 
@@ -1721,6 +2093,20 @@ end
 function OPC.Driver_Status()
   if not gInitialized then
     UpdateProperty("Driver Status", "Initializing", false)
+  end
+end
+
+function OPC.Touchscreen_Detail()
+  if gInitialized then
+    gWeb.paint()
+  end
+end
+
+function OPC.App_Relay_Address()
+  if gInitialized then
+    gWeb.host:check()
+    gWeb.publish("relay address changed")
+    gWeb.paint()
   end
 end
 
@@ -1819,6 +2205,11 @@ function EC.SYNC_NOW()
     end)
   end
   refresh("sync")
+end
+
+function EC.REPUBLISH_URL()
+  gWeb.publish("Composer action")
+  gWeb.paint()
 end
 
 function EC.PRINT_DIAGNOSTICS()

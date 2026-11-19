@@ -10,7 +10,6 @@
   <copyright>Copyright 2026 SmartBuildOS. All rights reserved.</copyright>
   <created>11/18/2026 12:00 PM</created>
   <modified></modified>
-  <combo>true</combo>
   <minimum_os_version>3.3.2</minimum_os_version>
   <composer_categories>
     <category>Utility</category>
@@ -95,6 +94,7 @@
       <action><name>Test AI Connection</name><command>TEST_AI_CONNECTION</command></action>
       <action><name>Sync Now</name><command>SYNC_NOW</command></action>
       <action><name>Print Diagnostics</name><command>PRINT_DIAGNOSTICS</command></action>
+      <action><name>Republish App URL</name><command>REPUBLISH_URL</command></action>
     </actions>
     <commands>
       <command>
@@ -206,14 +206,45 @@
       <property><name>Last Synchronization</name><type>STRING</type><default>never</default><readonly>true</readonly></property>
       <property><name>Last Test Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
       <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property><name>Touchscreen Detail</name><type>LIST</type><items><item>Basic (status and approvals only)</item><item>Standard (no household activity)</item><item>Household (only if the homeowner allows it)</item></items><default>Standard (no household activity)</default><description>What the AI Core touchscreen chat may answer. This can only LOWER what the homeowner allowed in the SmartBuildOS portal: household activity is answered only when the homeowner switched it on there.</description></property>
+      <property><name>Touchscreen Approvals</name><type>STRING</type><default>Starting</default><readonly>true</readonly><description>The touchscreen chat and approvals in plain words: whether PIN Lock can verify an owner PIN here, and whether the homeowner switched approvals on in the portal.</description></property>
+      <property><name>Webview Address</name><type>STRING</type><default>Starting</default><readonly>true</readonly><description>Where the AI Core page is served on the home network (port 47871). The page works only on the home network.</description></property>
+      <property><name>App Relay Address</name><type>STRING</type><default>Auto</default><description>The controller's LAN address for the AI Core page. Auto finds it; set it by hand (and the same value on PIN Lock) if Webview Address says it is unknown.</description></property>
       <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
       <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
     </properties>
   </config>
   <proxies>
+    <proxy proxybindingid="5001" name="AI Core" primary="True" image_source="c4z" large_image="www/icons/device_lg.png" small_image="www/icons/device_sm.png">uibutton</proxy>
   </proxies>
   <capabilities>
+    <web_view_url proxybindingid="5001">controller://driver/smartbuildos-ai-core/app/index.html</web_view_url>
+    <mobile_web_view_enabled>true</mobile_web_view_enabled>
+    <navigator_display_option proxybindingid="5001">
+      <display_icons>
+        <Icon height="1024" width="1024">controller://driver/smartbuildos-ai-core/icons/device/experience_1024.png</Icon>
+        <Icon height="512" width="512">controller://driver/smartbuildos-ai-core/icons/device/experience_512.png</Icon>
+        <Icon height="300" width="300">controller://driver/smartbuildos-ai-core/icons/device/experience_300.png</Icon>
+        <Icon height="90" width="90">controller://driver/smartbuildos-ai-core/icons/device/experience_90.png</Icon>
+        <Icon height="70" width="70">controller://driver/smartbuildos-ai-core/icons/device/experience_70.png</Icon>
+      </display_icons>
+    </navigator_display_option>
   </capabilities>
   <connections>
+    <connection>
+      <id>5001</id>
+      <facing>6</facing>
+      <connectionname>UIBUTTON</connectionname>
+      <type>2</type>
+      <consumer>False</consumer>
+      <audiosource>False</audiosource>
+      <videosource>False</videosource>
+      <linelevel>False</linelevel>
+      <classes>
+        <class>
+          <classname>UIBUTTON</classname>
+        </class>
+      </classes>
+    </connection>
   </connections>
 </devicedata>

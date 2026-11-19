@@ -20,7 +20,8 @@ from it, so the names here are exact.
 | Event-type prefix | `ai_core.` |
 | Minimum OS | 3.3.2 (`<minimum_os_version>`) |
 | Variable ids | 4000–4010 |
-| Pure logic | `src/aicore/{vocab,commands,config,operations,buffer,collector,state,diagnostic}.lua` |
+| Pure logic | `src/aicore/{vocab,commands,config,operations,buffer,collector,state,diagnostic,reports,webui}.lua` |
+| Touchscreen page | `www/app/index.html`, embedded as `src/aicore/page.lua`; LAN relay on port 47871 (§7b) |
 | Driver wiring | `drivers/smartbuildos-ai-core/driver.lua` |
 | Dealer manual | `drivers/smartbuildos-ai-core/www/documentation/index.md` |
 
@@ -32,7 +33,8 @@ to programming, collects a minimal set of events, and reports its health.
 
 ## 1. Composer properties
 
-All read-only except **Log Level** and **Log Mode**.
+All read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and
+**App Relay Address**.
 
 | Property | Shows | Source |
 | --- | --- | --- |
@@ -55,6 +57,10 @@ All read-only except **Log Level** and **Log Mode**.
 | `Last Synchronization` | last time the platform was heard (config applied, restricted operation, accepted cloud answer, Sync Now) | driver |
 | `Last Test Result` | result line of Test Agent Link / Test AI Connection | actions |
 | `Last Error` | last error or refusal, ≤ 240 bytes (cut between UTF-8 characters), `none` when clear | driver |
+| `Touchscreen Detail` (editable) | `Basic (status and approvals only)`, `Standard (no household activity)` (default), `Household (only if the homeowner allows it)`: the `detail` a touchscreen ask carries (`basic` also switches the chat off). It can only LOWER what the homeowner allowed: household activity is answered only when the homeowner's portal switch is on (the cloud decides, ruling 8) | dealer |
+| `Touchscreen Approvals` | one line: PIN Lock ready or why not (`unavailable (<reason>): chat and approvals off, use the portal`), the chat's detail and that it needs an owner PIN to view, whether the homeowner switched approvals on in the portal (from the last `approvals_pending`), how many page sessions are open | `webui:summary()` |
+| `Webview Address` | `http://<controller>:47871/app (home network only)`, `Controller address unknown: set App Relay Address`, or `Not listening (port 47871 unavailable)` | relay |
+| `App Relay Address` (editable) | `Auto` or the controller's LAN address (`lib.relayhost`, as PIN Lock and Atmosphere) | dealer |
 | `Log Level` (editable) | `0 - Fatal` … `5 - Trace` | — |
 | `Log Mode` (editable) | `Off`, `Print`, `Log`, `Print and Log` | — |
 
@@ -65,6 +71,7 @@ All read-only except **Log Level** and **Log Mode**.
 | `Test Agent Link` | `TEST_AGENT_LINK` | `SBOS_MODULE_DISCOVER` to the Agent; writes the Agent's version, protocol range, pairing, cloud state and module count to `Last Test Result` (or why it cannot: no Agent, protocol 1, failed with a code) |
 | `Test AI Connection` | `TEST_AI_CONNECTION` | cloud op `test_provider`; `Last Test Result` says accepted (job id; the result arrives as AI Response Ready) or the refusal code |
 | `Sync Now` | `SYNC_NOW` | re-registers if needed, drains the buffer, flushes staged events, re-reads the directory, sends a status frame (which carries `applied_config_version`), and (protocol 2) calls cloud op `status`, whose body is `{request_id}` only — the platform takes no other field (`rpc/ops.ts` `OP_BODIES.status`) and refuses an unknown one |
+| `Republish App URL` | `REPUBLISH_URL` | sends the page's URL (`URL_CHANGED` on binding 5001) again; Navigator applies it the next time the tile opens |
 | `Print Diagnostics` | `PRINT_DIAGNOSTICS` | prints state, Agent link, licence, configuration, learning, Flight Recorder link, collection plan, every counter, pending jobs and bus counters to the Lua output |
 
 ## 3. Composer commands
@@ -403,6 +410,127 @@ driver answers or the deadline passes. Both result ops go once per operation
 (the module client retries a lost one twice); a result that still cannot be
 delivered is logged, not stored (KNOWN-ISSUES KI-44).
 
+## 7b. Touchscreen page: status, PIN-gated chat, PIN approvals (D5)
+
+A Navigator tile with a driver-hosted page, built the way PIN Lock and
+Atmosphere build theirs: a primary `uibutton` proxy on binding 5001 (so the
+driver carries **no `<combo>`**), `web_view_url`
+`controller://driver/smartbuildos-ai-core/app/index.html`,
+`mobile_web_view_enabled` `true` (as Atmosphere; the page says it works only
+on the home network), the shared SmartBuildOS icons, and a LAN relay
+(`C4:CreateServer` on **47871**, `OnServerDataIn`, Atmosphere's
+`uirelay.parse`/`render`). The page is embedded (`make embed-pages` →
+`src/aicore/page.lua`; OS 4.3 refuses a driver its own c4z files) and served
+same-origin at `/app`. Its URL `http://<controller>:47871/app?k=<install
+token>` is published with `URL_CHANGED` at start and again 60 s later; the
+install token is 32 hex from `C4:HMAC`, persisted encrypted. Every rule is in
+`src/aicore/webui.lua` (pure); the driver supplies the socket, the bus, the
+cloud and the facts. **Nothing here has run on a controller or a Navigator.**
+
+**Routes** (all but `/ping`, `/app` and `OPTIONS` need `k`; all but
+`/session` also need the page session token `s`, minted by the driver):
+
+| Route | Body (closed keys) | Answer |
+| --- | --- | --- |
+| `GET /ping` | — | `{ok, service:"ai-core"}` |
+| `GET /app` | — | the page, its CSP completed for this controller |
+| `POST /session` | — | `{ok, s}` (≤ 4 sessions; the least recently seen is evicted) |
+| `GET /state` | — | `{ok, status:{licensed, provider_configured, online, learning_active, text}, approvals:{count, screen_count, portal_only_count, enabled, can_review, text, message?}, pin:{available, reason, message, retry_in?}, chat:{available, locked, message?, …}, prompt?, review?, notice?}`; `chat` carries `conversation`, `suggestions`, `explain`, `locks_in`, `detail` **only for an unlocked session** |
+| `POST /chat/unlock` | `{}` | `{ok, waiting}` — asks PIN Lock for a `chat_view` challenge |
+| `POST /pin/done` | `{challenge_id}` | `{ok}` — redeems the challenge (`pinlock.redeem`) |
+| `POST /pin/cancel` | `{}` | drops the PIN prompt |
+| `POST /chat/lock` | `{}` | locks this session now |
+| `POST /chat/touch` | `{}` | interaction: the unlock stays 5 more minutes |
+| `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` |
+| `POST /approvals/refresh` | `{}` | asks `approvals_pending` (≤ 1 per 30 s) |
+| `POST /approvals/next` | `{}` | `{ok, waiting}` — an `approval` challenge for the first item this screen may review |
+| `POST /approvals/decide` | `{decision: approve\|decline}` | `{ok}` — the outcome follows in `/state` `notice` |
+| `POST /approvals/close` | `{}` | drops the item and its proof |
+| `POST /session/close` | `{}` | ends the session (the page sends it on `pagehide`) |
+
+A body with a `pin` key is refused (400) on every route before anything
+reads it; every other unknown key is refused too. Business refusals are HTTP
+200 `{ok:false, reason, message}` where `message` is plain words from the
+closed table `webui.TEXT` (an unknown reason becomes a generic sentence that
+says to use the portal, never the code).
+
+**The chat lock (ruling 17), enforced in `webui.lua`.** A session is unlocked
+only by a `chat_view` proof: AI Core mints a nonce, asks PIN Lock for a
+challenge (`purpose:"chat_view"`, `subject` = the session's own 32-hex id,
+which is not its token), hands the page `challenge_id` and `verify_url`
+through `/state`, the page posts the PIN to `verify_url`, then `/pin/done`
+makes AI Core redeem the challenge over the bus; only `{verified:true,
+role:"owner", verified_at:<epoch s>}` creates the proof. The unlock ends
+after **5 minutes without interaction** (a poll is not interaction; the page
+sends `/chat/touch` at most every 30 s while the person uses it), on
+`/chat/lock` (the button, and the page when it is hidden), when the page
+closes (`/session/close`, or no request for **75 s**), on a driver restart
+(memory only), and for every session at once when PIN Lock stops being
+available. While locked, `/state` carries no question, answer, suggestion or
+explain action, `/ask` is refused (`chat_locked`), and no other route returns
+conversation content (asserted on response bodies in
+`test_aicore_webui.lua` [7]).
+
+**Conversation bounds.** Per session, in memory only: the last 10
+exchanges; a question ≤ 500 characters; an answer ≤ 2048 bytes; cleared
+after 15 minutes without interaction; a question still unanswered after 5
+minutes is shown as failed. An answer that arrives while the session is
+locked is **held** in that session (within the same 10 / 15-minute bounds)
+and shown at the next unlock; if the session is gone it is dropped
+(counted). A touchscreen answer never reaches `AI_LAST_RESPONSE`, the
+persisted last response or *AI Response Ready*, and a touchscreen question
+is not recorded as an envelope.
+
+**Asking.** The existing cloud op `ask` with `channel:"touchscreen"` and
+`detail` (`Touchscreen Detail`), `command:"TOUCHSCREEN_ASK"`. The answer
+arrives through the existing `deliver_result`, matched by `request_id`.
+Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
+just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
+the shared Composer command bucket (10 a minute) and the page's own bucket
+(4 a minute).
+
+**Approvals (rulings 2, 4, 21, 24).** `approvals_pending` (on session open,
+on refresh at most every 30 s, when older than 60 s while a page is open,
+and after `pending_approvals` changes in `deliver_result`/`raise_event`)
+gives a count and refs; the refs never reach the page. *Review next item*
+picks the first eligible ref not decided in this session and asks PIN Lock for
+an `approval` challenge with `subject` = that ref. After the redeem, AI Core
+holds a proof for **that one ref**, **60 s** from `verified_at`, and calls
+`approval_detail` with `verification:{nonce, verified_at, role, method:
+"pin_lock"}` (the challenge's nonce). The page shows title, description and
+risk (text only). *Approve*/*Decline* call `approval_decide` with the
+detail's `args_hash` and the same verification; the proof is deleted first,
+whatever the answer (single use). A new item always needs a new PIN. A chat
+unlock never approves (decide looks only for an `approval` proof for that
+ref) and an approval PIN never unlocks the chat. `queued`/`denied`/`failed`/
+`expired` and every refusal reason are shown in words; what the screen
+cannot decide says to use the SmartBuildOS portal. Detail, decide and
+refresh take from the shared command bucket.
+
+**Fail closed.** PIN Lock is usable only when the Agent's directory lists a
+`pin_lock` that is live (not stale, protocol 2), **verified** by the Agent,
+advertises `pinlock.availability`/`challenge`/`redeem`, and answers
+`pinlock.availability` with `{ready:true, reason:"ready"}` (checked at most
+every 30 s while a page is open). Otherwise — not installed, not verified,
+stale, needs an update, not answering, or `starting`, `off`, `unlicensed`,
+`no_owner_pin`, `relay_unavailable`, `locked` (with `retry_in`) — the chat
+is unavailable, no approval is offered, every unlock and proof ends, and the
+page says to use the portal. A `verify_url` that is not
+`http://<this relay's host>:47831/verify` is never handed to the page.
+
+**Page security.** The page's CSP is `default-src 'none'; script-src
+'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src
+'self'; base-uri 'none'; form-action 'none'`; when AI Core serves `/app` it
+adds PIN Lock's origin on the same host (`http://<host>:47831`) to
+`connect-src` and nothing else. No third-party resource, no storage, no
+`innerHTML` anywhere: every string is set with `textContent`. The PIN pad
+shows dots; the PIN is serialised once, posted only to a `verify_url` the
+page checked against its own host and port 47831 (as `text/plain`, so the
+browser sends no preflight), and cleared before the request leaves. Relay
+bounds: one request ≤ 8 KB (a body ≤ 4 KB), 90 requests a minute per session,
+6 PIN prompts a minute for all sessions, ≤ 4 sessions. The relay never logs
+a body.
+
 ## 8. Local diagnostics
 
 `AI_START_DIAGNOSTIC` / `run_diagnostic`: when the Flight Recorder is present
@@ -719,7 +847,8 @@ service, or module contract v2. The bench procedures are in
 * SendToDevice ordering, frame sizes near 24–32 KB, timer behaviour under Director load;
 * the platform route `/api/integrations/control4/modules/rpc` (until deployed, the Agent gets 404 → `cloud_refused`);
 * the report hub and driver queries / actions with real drivers on a controller (bus latency, memory with 48 reporting modules, the 20 s batch timer under Director load);
-* persistence across a real power cut (Director's flush timing).
+* persistence across a real power cut (Director's flush timing);
+* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size.
 
 ## 15. Deviations from the brief / architecture
 
@@ -736,4 +865,8 @@ service, or module contract v2. The bench procedures are in
 | `Last Test Result` and `Flight Recorder Link` properties added | the four actions need a place to report; the recorder link is a state the brief requires to be clear |
 | A driver action that its driver refused (`{ok: false}`) is `driver_action_result` `failed` with `error_code: internal_error` and the driver's words in `result_text`; `declaration_changed`, `target_unverified` and the other local reasons also travel in `result_text` | the platform's `error_code` is the closed module error vocabulary, which has no code for "the driver declined" or "the declaration changed" |
 | `driver_reports` is sent without `command` (COMMON's optional key) | the batch is not a Composer command |
+| The touchscreen routes differ from §2.1's `/approvals/begin`, `/approvals/open` and `/approvals/decide {ref}`: `/chat/unlock`, `/pin/done`, `/approvals/next` and `/approvals/decide {decision}` | ruling 17 adds the chat PIN; "Review next item" lets the driver pick the ref, so refs never reach the page; the PIN Lock answer is collected by polling `/state`, the transport's contract (`uirelay`), never by holding a socket |
+| A touchscreen answer is kept out of `AI_LAST_RESPONSE`, its persisted copy and *AI Response Ready*; a touchscreen question is not recorded as an envelope | ruling 17: the chat requires a PIN to view; a Composer variable or a persisted value would show it unlocked |
+| `App Relay Address` added beside the spec's `Webview Address` | `lib.relayhost` needs the dealer override every relay driver has; set the same value on PIN Lock |
+| Cloud request ids (`aic-` + 32 hex) come from the `C4:HMAC` recipe (UUID, clock, counter, `math.random`), no longer from `C4:UUID` alone | the request id is the cloud relay's idempotency key; the emulator's `C4:UUID` repeats, which made an `approval_detail` reuse an `approvals_pending` answer and, once the page drew extra ids, an `AI_ANALYZE_SYSTEM` reuse an earlier answer (KI-60) |
 | Agent liveness is a periodic directory request | DriverWorks gives no delivery acknowledgement; the directory request is the cheapest authenticated round trip the Agent answers |

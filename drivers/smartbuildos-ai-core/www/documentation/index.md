@@ -142,7 +142,8 @@ Wire the events you care about to the Notification Agent for push or email.
 
 ## Properties
 
-Read-only except **Log Level** and **Log Mode**.
+Read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and **App
+Relay Address**.
 
 | Property                       | Shows                                                                                                                                  |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -167,6 +168,10 @@ Read-only except **Log Level** and **Log Mode**.
 | Last Synchronization           | The last time SmartBuildOS was heard from                                                                                              |
 | Last Test Result               | The result of *Test Agent Link* or *Test AI Connection*                                                                                |
 | Last Error                     | The last error or refusal                                                                                                              |
+| Touchscreen Detail (editable)  | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (no household activity) or *Household* (only if the homeowner allows it in the portal). It can only lower what the homeowner allowed |
+| Touchscreen Approvals          | The touchscreen chat and approvals in plain words: whether PIN Lock can check an owner PIN here, and whether the homeowner switched approvals on |
+| Webview Address                | Where the AI Core page is served on the home network (port 47871)                                                                       |
+| App Relay Address (editable)   | *Auto*, or the controller's LAN address when **Webview Address** says it is unknown (set the same value on PIN Lock)                   |
 | Log Level                      | How much the driver logs                                                                                                               |
 | Log Mode                       | Where it logs                                                                                                                          |
 
@@ -178,6 +183,7 @@ Read-only except **Log Level** and **Log Mode**.
 | Test AI Connection | Asks SmartBuildOS to test the AI provider; the result arrives as AI Response Ready        |
 | Sync Now           | Re-registers if needed, sends what is waiting, and asks SmartBuildOS for its status       |
 | Print Diagnostics  | Prints every state and counter to the Lua output                                          |
+| Republish App URL  | Sends the AI Core page's address to Navigator again (close and reopen the tile after it)  |
 
 ## What System Studio controls
 
@@ -223,6 +229,36 @@ driver's description for the next one and waits longer between tries, up to
 ten minutes. Report text is treated as data and never as an instruction.
 Tested in the emulator only; not yet on a controller.
 
+## The AI Core tile (touchscreen and phone app)
+
+AI Core adds an **AI Core** tile to Navigator. The page works **only on the
+home network**: a phone away from home cannot reach it, and there is no
+cloud fallback. Three parts:
+
+* **Status** (no PIN): licensed or not, AI provider set up or not, online or
+  offline, learning on or off, how many items await approval (a number only)
+  and whether PIN Lock can check a PIN on this screen.
+* **Chat** (owner PIN to open it and to ask): locked until someone enters an
+  **owner** PIN from the **SmartBuildOS PIN Lock** driver. It locks again
+  after 5 minutes without use, when the page closes, when the driver
+  restarts, and when someone presses *Lock*. Each question is answered on its
+  own (no follow-ups). Answers stay on that page only: they never go to
+  `AI_LAST_RESPONSE` and never fire *AI Response Ready*.
+* **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
+  then shows the item's title, description and risk; *Approve* or *Decline*
+  within 60 seconds. Only low- and medium-risk action proposals can be
+  decided here, and only after the homeowner switches touchscreen approvals
+  on in the SmartBuildOS portal. Everything else says *use the SmartBuildOS
+  portal*.
+
+The PIN is typed on the AI Core page but sent **only to PIN Lock** (its own
+page address on the same controller), never to AI Core. Guest, vendor and
+staff codes never work here. Wrong PINs count against PIN Lock's own lockout.
+Without PIN Lock (not installed, not licensed, no owner PIN, switched off
+there, locked out or not answering) the chat and approvals are unavailable
+and the page says to use the portal. Tested in the emulator only; the page
+has not been opened on a real touchscreen or phone.
+
 ## What it collects
 
 With the Flight Recorder installed, AI Core reads its device events, variable
@@ -254,6 +290,8 @@ Agent is back.
 | Last request refused (not_permitted)                   | SmartBuildOS refused it (permission mode, licence features, homeowner settings)                                                            |
 | Run Household Analysis: refused locally (rate_limited) | One accepted run an hour, one at a time: **Last Error** says when the next is allowed                                                      |
 | Run Household Analysis: update the SmartBuildOS Agent  | The Agent does not relay this command yet: update it                                                                                       |
+| Tile: Available on the home network only               | The phone is away from home, or **Webview Address** is unknown: set **App Relay Address** (and the same on PIN Lock)                       |
+| Tile: PIN Lock is not installed / unavailable          | Add or license **SmartBuildOS PIN Lock**, give it an owner code with a PIN; **Touchscreen Approvals** says what is missing                 |
 | Learning off / Learning paused                         | Learning is off until switched on in System Studio, or it was turned off there, or the last configuration was refused (see **Last Error**) |
 
 ## What is not claimed
