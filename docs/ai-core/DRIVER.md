@@ -370,8 +370,11 @@ and fewer than **3** went in the last 60 s — inside the Agent's per-module
 cloud bucket (20 a minute, burst 10). An answered batch is delivered; one
 that never arrived (`cloud_unreachable`, `deadline_exceeded`,
 `target_unavailable`, `rate_limited`, `agent_not_paired`) goes again later
-(the module client already retried it twice); any other answer (today the
-platform answers `unsupported`: no handler until P3) is a refusal: its
+(the module client already retried it twice); any other answer is a
+refusal (the platform branch's `driver_reports` handler is built and tested
+in simulation, not deployed; a platform built without the driver-report
+store answers `not_permitted` with `result.reason` `unavailable`, and a
+platform older than this op answers `unsupported`, KI-46): its
 events and diagnostics are dropped, counted. **A describe or a state counts
 as uploaded only when the cloud accepted the batch that carried it**: after
 a refusal, a timeout or an unreachable cloud it waits again for the next

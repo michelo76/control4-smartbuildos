@@ -19,7 +19,7 @@ Property and variable texts are quoted exactly as the driver writes them
 | SmartBuildOS Agent | `smartbuildos.c4z`, installed from Composer's **Agents** panel and **paired** to the property, from a build that speaks **module contract v2** (protocol range 1..2). The first Agent with v2 is built from branch `feat/ai-core` of this repo; **no released Agent carries it yet** (the latest release, `20261116.035552`, is protocol 1 only). With a v1 Agent AI Core registers but shows `SmartBuildOS Agent update required (module contract v2)` and sends no AI request. |
 | SmartBuildOS Flight Recorder | Optional, recommended, same build as AI Core. With it AI Core consumes its events (no double capture) and attaches its local history to diagnostics. An older recorder without the v2 local-history service still works for collection; diagnostics then say so. |
 | SmartBuildOS platform | The property exists in System Studio; the AI Core migrations are applied and the platform is deployed so `/api/integrations/control4/modules/rpc` answers (until then every AI request is refused `cloud_refused`); the AI provider key (OpenAI or Anthropic) is entered **in System Studio** — never in Composer. |
-| Licence | SKU `SBOS_AI_CORE` in the platform's driver catalogue. The draft catalogue row includes it with a Professional subscription (`BASE` only); price and tier are an owner decision not yet taken. `AI_LEARNING` is needed for learning. |
+| Licence | SKU `SBOS_AI_CORE` in the platform's driver catalogue. Price (owner decision of 2026-11-18): **$150 dealer**, one-time, per controller, and **$250 MSRP** (public surfaces show only the MSRP). **No subscription plan includes it** (plan inclusion is still an owner decision). A purchase grants `BASE`, `AI_LEARNING` and `AI_ACTIONS`, never `AI_CONCIERGE`. It **cannot be bought until a release is published**, so today it is licensed only by an **explicit entitlement** for the controller, whose features come from that entitlement. The price is set by the platform's last migration, applied to no database yet. `AI_LEARNING` is needed for learning. |
 | Composer | Composer Pro with the project open, able to add a local driver. |
 
 ## 2. Obtaining the `.c4z`
@@ -129,7 +129,7 @@ account-number flow on the Agent). AI Core follows the Agent:
 | `SmartBuildOS Agent not paired` | The Agent is not paired | Pair the Agent |
 | `SmartBuildOS cloud unreachable` | The Agent has no internet, or the last request could not reach SmartBuildOS after 2 retries | Check the uplink; the next accepted request clears it |
 | `Last Test Result`: `AI connection: refused (cloud_refused)` | The platform route `/api/integrations/control4/modules/rpc` is not deployed (404 → `cloud_refused`) | Owner: deploy the platform |
-| `refused (unsupported)` | The platform has no handler for that op yet | Platform work |
+| `refused (unsupported)` | The platform deployed is older than this driver and does not know that op | Owner: deploy a platform built from the same AI Core release |
 | `refused (not_permitted)` | The platform refused: permission mode, licence features, homeowner settings | Check System Studio |
 | `License Status` stays `SmartBuildOS Agent Found - Checking...` | The Agent has not answered the licence question | Agent → **Refresh Entitlements Now** |
 | `Licensing Not Yet Enforced` | The Agent holds no AI Core assertion (not issued yet, or one failed verification and was dropped) | Refresh entitlements; check the Agent's Lua output for `failed verification` |

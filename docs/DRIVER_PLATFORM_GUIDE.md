@@ -974,7 +974,9 @@ repaired. A query answers `{ ok = true, data }` (scalars and tables, at most
 - **Declared actions never run without a person's approval.** By contract
   the platform only proposes them (no pre-approved rule can match one), the
   homeowner approves, and the Agent's Remote Control tier (Comfort or above)
-  gates the command; the platform side is not built yet (brief P3). The helper additionally runs an
+  gates the command; the platform side (ingest, the three driver tools,
+  proposal, approval and dispatch) is built and tested in simulation on the
+  platform branch, not deployed. The helper additionally runs an
   action only for an `ai_core` the Agent **verified** (identity binding) and
   only when `declaration_hash` equals the current describe hash
   (`aireport.declarationHash()`), so the declaration that was approved is the
