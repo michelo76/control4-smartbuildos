@@ -256,6 +256,11 @@ cloud fallback. Three parts:
   restarts, and when someone presses *Lock*. Each question is answered on its
   own (no follow-ups). Answers stay on that page only: they never go to
   `AI_LAST_RESPONSE` and never fire *AI Response Ready*.
+  Once unlocked, the chat offers the three built-in questions and, before
+  them, up to 6 **preset questions** your integrator set in System Studio
+  (they arrive with the AI Core configuration). A locked chat shows none.
+  Pressing a preset asks exactly that question; after the list changes, an
+  old button is refused rather than answered as another question.
 * **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
   then shows the item's title, description and risk; *Approve* or *Decline*
   within 60 seconds. Only low- and medium-risk action proposals can be

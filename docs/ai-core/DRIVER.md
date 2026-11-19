@@ -569,7 +569,7 @@ cloud and the facts. **Nothing here has run on a controller or a Navigator.**
 | `POST /pin/cancel` | `{}` | drops the PIN prompt |
 | `POST /chat/lock` | `{}` | locks this session now |
 | `POST /chat/touch` | `{}` | interaction: the unlock stays 5 more minutes |
-| `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` |
+| `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` (a built-in id or a current preset id `p<index>-<rev>`) or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` (`unknown_suggestion` for a stale or unknown id) |
 | `POST /approvals/refresh` | `{}` | asks `approvals_pending` (≤ 1 per 30 s) |
 | `POST /approvals/next` | `{}` | `{ok, waiting}` — an `approval` challenge for the first item this screen may review |
 | `POST /approvals/decide` | `{decision: approve\|decline}` | `{ok}` — the outcome follows in `/state` `notice` |
@@ -616,6 +616,24 @@ Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
+
+**The dealer's preset questions (round two, D-R2b).** Staff set up to 6 in
+System Studio; they arrive as `touchscreen.presets` in the configuration
+document (§9). They are shown **in addition to** the three built-in
+questions — first, then the built-ins — and **only to an unlocked chat
+session**: while locked, no route returns any preset text (asserted on
+response bytes, `test_aicore_webui.lua` [15]). In `/state` each is
+`{id:"p<index>-<rev>", label:<the preset's text>}` inside `chat.suggestions`.
+`rev` changes whenever the list changes (and starts from the controller
+clock at driver start), so an id issued for an older list is refused with
+`unknown_suggestion` — it is never mapped to whatever question now sits at
+that index. `POST /ask {suggestion_id}` with a current id sends **exactly
+the preset's text** through the same `ask` (channel `touchscreen`, the same
+buckets). Labels are set with `textContent` only; a suggestion button wraps
+a 120-character label inside the page (`max-width: 100%`, `white-space:
+normal`, `overflow-wrap: anywhere`) — how it wraps on a real Navigator is
+unmeasured (KI-70). Homeowners neither see nor edit presets outside the
+unlocked chat. A document without the key means no presets.
 
 **Approvals (rulings 2, 4, 21, 24).** `approvals_pending` (on session open,
 on refresh at most every 30 s, when older than 60 s while a page is open,
@@ -734,7 +752,8 @@ document can arrive by `apply_config`.
     "max_events_per_minute": 60
   },
   "property_id": "…",
-  "controller_id": "…"
+  "controller_id": "…",
+  "touchscreen": { "presets": ["Is the wine cellar at the right temperature?"] }
 }
 ```
 
@@ -749,7 +768,12 @@ own bound, so every saved list arrives whole);
 `exclusions.categories` from the closed list (`general`, `lighting`,
 `comfort`, `media`, `security`, `access`, `safety`, `energy`, `presence`,
 `system`, `programming`, `maintenance`, `unknown`); `variables` ≤ 32, never a
-code- or credential-named variable; `max_events_per_minute` 1–300. One bad
+code- or credential-named variable; `max_events_per_minute` 1–300;
+`touchscreen` an object with only `presets`: a list of at most **6**
+strings, each **3–120 characters** and ≤ 360 bytes, one line of plain text
+(no control, C1, line-separator or bidi character, no `<` or `>`, no `://`
+or `www.`, no leading or trailing space), refused if it looks like a key
+(the display-string rule), and no two alike ignoring case and spacing. One bad
 field refuses the whole document; the last valid one stays in force and
 `Last Error` says `Configuration vN refused: <path>: <reason> (vM kept)`.
 `learning.active` is the platform's latest word on learning.
@@ -796,7 +820,11 @@ refuses):
 | `credential_status` | the status line; without the last four characters if they would look like a key here |
 | `collection` | system events, Flight Recorder topics and Agent events on, no own variables, 60 a minute — the platform has no per-source setting; learning off stops all of it here regardless |
 
-`property_id` and `controller_id` are not sent. The golden documents
+`property_id` and `controller_id` are not sent. `touchscreen.presets` (round
+two) is sent **only** to a controller whose `ai_core` module row lists
+`read_device_state` among its commands (the round-two driver), so an older
+driver — which refuses an unknown key, and with it the whole document — never
+sees it (platform P-R2b; spec round two §3.2). The golden documents
 (`tests/unit/fixtures/ai-core-driver-config/*.json` in the platform) are
 checked against `driverConfigDocument()` on the platform and fed to this
 validator by `test/test_aicore_platform_parity.lua` [10].
@@ -817,6 +845,7 @@ the most private, the least capable.
 | `permission_mode` | none (`Not delivered yet (System Studio owns it)`) | display only on the controller; the platform's own default is `observe` |
 | `provider.name`, `provider.model`, `credential_status` | none (`Not configured (System Studio)`, `Not configured`) | display only |
 | `property_id`, `controller_id` | none (`Not delivered yet (System Studio)`) | display only |
+| `touchscreen.presets` | `[]` | no preset questions; the page offers the three built-ins only |
 | `schema` | `1` | the only schema |
 
 What learning gates (`aicore.collector.plan`, `admit`): every own observation
@@ -977,7 +1006,7 @@ service, or module contract v2. The bench procedures are in
 * the report hub and driver queries / actions with real drivers on a controller (bus latency, memory with 48 reporting modules, the 20 s batch timer under Director load);
 * `read_device_state` (§7c): whether `C4:GetDeviceVariables` on the id the platform sends (often the protocol driver's) returns the proxy's variables, the real variable names of locks, partitions, batteries and appliance sensors (every signature list is a candidate), the read's wall time on a large project, the controller clock behind `read_at`, queue + doorbell + bus latency against the platform's 15 s wait;
 * persistence across a real power cut (Director's flush timing);
-* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size.
+* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size, and how a preset button wraps a 120-character question (KI-70).
 
 ## 15. Deviations from the brief / architecture
 

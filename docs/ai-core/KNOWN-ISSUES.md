@@ -160,6 +160,17 @@ Unit and emulator tests only; no controller and no Navigator has opened the page
 | KI-59 | Touchscreen state (sessions, unlocks, conversation, held answers, approval proofs) is memory only: a driver restart locks everything and drops the conversation, by design (ruling 17) | by design | `src/aicore/webui.lua` |
 | KI-60 | Under the emulator, `C4:UUID` repeated values, so two cloud ops got the same request id; because the request id is also the idempotency key, the Agent answered the second with the stored answer of the first (seen as `approval_detail` getting `approvals_pending`'s answer, and an `AI_ANALYZE_SYSTEM` never reaching the cloud). Every AI Core request id now comes from the `C4:HMAC` recipe, which also mixes the clock, a counter and `math.random`; `C4:UUID("RANDOM")` and `C4:HMAC` output on a real controller are unmeasured (`DRIVER.md` §14) | mitigated; open (bench) | `drivers/smartbuildos-ai-core/driver.lua` `newRequestId`, `gWeb.newHex` |
 
+## Driver: the dealer's preset questions (round two, D-R2b)
+
+`touchscreen.presets` → the unlocked chat's suggestions (`DRIVER.md` §7b, §9).
+Unit and emulator tests only; no Navigator has shown a preset.
+
+| # | Issue | Status | Where |
+| --- | --- | --- | --- |
+| KI-70 | How a preset button wraps a long (up to 120-character) question on a real touch screen or the phone app is **unmeasured**: the page lets the label wrap inside the button (`max-width: 100%`, `white-space: normal`, `overflow-wrap: anywhere`), checked only by a static test of the CSS and a fake DOM | open (bench) | `www/app/index.html` `#suggestions button`; `test/test_aicore_page.lua` [1] |
+| KI-71 | A preset id carries a revision that moves whenever the list changes, so an old button is refused (`unknown_suggestion`) rather than mapped to another question; after a driver restart the revision restarts from the controller clock, and the page's session is gone anyway (KI-59). A list changed and changed back still refuses the ids issued before the change | by design | `src/aicore/webui.lua` `currentPresets` |
+| KI-72 | One malformed preset refuses the whole configuration document (as every other bad value does), and a refused document switches learning off until a valid one arrives (§9). The platform validates the same rules before it publishes; a disagreement between the two validators would show as `Configuration vN refused: touchscreen.presets[…]` in `Last Error` | by design (whole-document rule) | `src/aicore/config.lua` `presetText`; platform `settings/driver-config.ts` (P-R2b) |
+
 ## Driver: the live device read (round two, D-R2a)
 
 `read_device_state` → `device_state_result` (`DRIVER.md` §7c). Unit and

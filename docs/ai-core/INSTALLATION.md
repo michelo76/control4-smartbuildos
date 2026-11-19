@@ -222,4 +222,16 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    ready for this screen*. Press *Unlock with owner PIN*, enter the owner
    PIN, ask a question; the answer appears on that page only. The chat locks
    again after 5 minutes without use, when the tile is closed, and on *Lock*.
+6. **Preset questions (optional).** In System Studio, the AI Core settings
+   take up to **6** preset questions for the touchscreen chat (3–120
+   characters each, plain text, no links). They reach the controller with
+   the AI Core configuration, and only once the controller runs the AI Core
+   driver of this release (an older driver is not sent them). They appear on
+   the tile **only after an owner PIN unlocks the chat**, as buttons before
+   the three built-in questions; a locked tile shows none. Pressing one asks
+   exactly that question. Changing the list in System Studio replaces the
+   buttons at the next page refresh; a button from the old list is refused
+   (*That suggestion is not available*), never answered as another question.
+   Homeowners cannot edit them. How a long question wraps on a real
+   touchscreen has not been checked.
 
