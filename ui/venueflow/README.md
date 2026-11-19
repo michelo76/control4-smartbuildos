@@ -65,9 +65,9 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    will be refused.
 9. **Touch first.** Targets at least 44 px (`--touch` is 48 px; `.btn.sm` is
    36 px and is kept for secondary actions). No hover-only affordance.
-   Screen sizes measured (November 2026, desktop Chromium with touch
-   emulation against the simulator, both sample venues; NOT on a T3, a T4
-   or a phone): every control of the operator page can be reached, by
+   Screen sizes measured (November 2026, against the simulator, both
+   sample venues, with touch emulation; desktop engines, NOT a T3, a T4 or
+   a phone): every control of the operator page can be reached, by
    scrolling where needed, and is not covered by another element, at
    1024x600 (T3 7"), 1280x800 (T3 10", T4 8"), 1920x1200 (T4 10"),
    1180x820 and 820x1180 (tablets), 390x844 and 844x390 (phones), in all
@@ -76,8 +76,36 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    menu, the offline banner and the sign-in PIN pad open. The Venue Studio
    (a client session) passes the same check at 390x844, 820x1180, 1024x600
    and 1280x800; the Installer Studio at 1024x600, 1024x768, 1280x800 and
-   1920x1200 (it is not meant for phones). Re-check any layout change at
-   1024x600 first.
+   1920x1200 (it is not meant for phones). First measured in desktop
+   Chromium; on 19 November 2026 the same measurement ran in Chromium 159,
+   WebKit 27.2 and Firefox 159 (Playwright 1.65) with the same result in
+   all three: nothing unreachable or covered, no sideways scroll, the same
+   clipped-text findings, touch-target sizes within 1 px of each other.
+   Firefox 159 is the engine family of the touch screens, not their
+   version: a pass there is evidence about Gecko layout and events, not
+   proof for Firefox 96 (the static guard above covers the features).
+   WebKit with the iPhone 15 and iPad (gen 7) descriptors is the nearest
+   thing here to the iOS app; it does not show Safari's toolbars, so the
+   pages size the shell with `height: 100%` and the dialogs from their
+   backdrop, never from `100vh`. Re-check any layout change at 1024x600
+   first.
+   **Engines.** On 19 November 2026 every operator flow (sign-in on the PIN
+   pad, the four interfaces, selecting on the plan, routing, power, volume,
+   mute, scenes, open and close, the source remote, "Which display?", the
+   profile menu, the offline banner with the simulator paused and stopped),
+   every Installer Studio section and flow (source edit and autosave, a
+   Layout Designer drag with pointer capture, a floor picture through the
+   file input, a scene step, dry run, publish, rollback, the two-tab stale
+   draft) and the Venue Studio flows ran in Chromium 159, WebKit 27.2
+   (desktop, iPhone and iPad descriptors) and Firefox 159, with no page
+   error and no console error. What a desktop engine cannot show: a real
+   finger. Playwright drives touch TAPS in all three engines but a touch
+   DRAG only in Chromium, so the volume slider and the Layout Designer were
+   dragged with the mouse in WebKit and Firefox; native colour and time
+   pickers were not opened (their values were set and saved);
+   double-tap zoom and long-press selection cannot be produced (every
+   button has `touch-action: manipulation` and `user-select: none` so
+   that neither gets in the way).
    **Floor plan targets.** The plan keeps the venue's real proportions, so on
    a 7-inch screen a display is drawn smaller than a fingertip (about 26 px
    at 1024x600 for the 24-display sample). The target is larger than the
@@ -87,16 +115,23 @@ It is a simulator. Nothing seen here is evidence of controller behaviour.
    (within 4 px) opens "Which display?" with both. At short heights (680 px
    or less) the "No scene active" line is hidden and paddings are smaller so
    the plan is drawn larger, and the Floor Plan side panel shows a fade at
-   its bottom edge whenever it scrolls. Measured 19 November 2026 (desktop
-   Chromium, touch emulation, simulator; NOT on a T3, a T4 or a phone): a
-   touch tap at the centre of every display selects exactly that display at
-   1024x600, 390x844, 844x390 and 1280x800 in both samples; the smallest
-   effective target is 46 px or more in the conference centre at every size,
-   but 28 px (1024x600) and 33 px (390x844) high for the sports bar's
-   columns of displays 5 px apart, where a tap in the gap asks which
-   display was meant. Chromium's own touch adjustment picked one of the two
-   directly instead; whether Gecko on a touch screen adjusts taps is not
-   known.
+   its bottom edge whenever it scrolls. WebKit and Chromium move the click
+   of a touch onto a control near the finger by themselves; Firefox does
+   not. Before 19 November that made WebKit select a display other than
+   the nearest, or a whole area through its name, for a tap beside a
+   display. The plan now decides from where the finger went down (the
+   touch's pointerdown), so the rule above is the same in every engine.
+   Measured 19 November 2026 after that change (Chromium 159, WebKit 27.2,
+   Firefox 159, touch emulation, simulator; NOT on a T3, a T4 or a phone):
+   a touch tap at the centre of every display selects exactly that display
+   at 1024x600, 390x844, 844x390 and 1280x800 in both samples, in all three
+   engines; a touch tap in the gap between two close displays opens "Which
+   display?" in all three; the smallest effective target for a touch tap,
+   swept 1 px at a time, is 46 px or more in the conference centre at every
+   size, but 27 to 28 px (1024x600) and 33 px (390x844) high for the sports
+   bar's columns of displays 5 px apart, where a tap in the gap asks which
+   display was meant. Whether a T3 or T4 adjusts taps itself is not known;
+   with this change it does not matter for the plan.
 10. **Look.** Dark midnight navy, teal primary accent, amber for attention,
     green for confirmed. Use the tokens and components in
     `shared/base.css` (`.panel`, `.card`, `.btn`, `.seg`, `.chip`, `.field`,

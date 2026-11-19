@@ -21,8 +21,10 @@
 --
 -- What it does NOT do: run anything in Gecko. A pass here means "none of the
 -- listed features appears", not "works on a touch screen". Nothing in this
--- repository has been run on a T3 or a T4 by this suite; the pages have been
--- browser / simulator verified in desktop Chromium only.
+-- repository has been run on a T3 or a T4 by this suite. The pages have been
+-- run against the simulator in desktop Chromium, WebKit and Firefox (see
+-- ui/venueflow/README.md, rule 9): desktop engines, not a touch screen or a
+-- phone, and Firefox 159 is not Firefox 96.
 --
 -- Run from the driver root: make venueflow-test (or make test)
 
@@ -522,6 +524,23 @@ for _, path in ipairs({
     scanFile(path, found)
     check(path .. " is inside the Gecko 96 floor", #found == 0, table.concat(found, "; "))
   end
+end
+
+-- ── the page icon ────────────────────────────────────────────────────────────
+-- Without an icon in the page, Firefox asks for /favicon.ico; the relay's
+-- Content Security Policy (img-src data: blob:) refuses it and Firefox logs a
+-- console error on every page load (seen in Firefox 159, 19 November 2026).
+-- An empty data: icon keeps the console clean.
+print("page icon: both pages name an inline data: icon")
+for _, path in ipairs({
+  "ui/venueflow/operator/index.html",
+  "ui/venueflow/studio/index.html",
+  "drivers/smartbuildos-venueflow/www/app/index.html",
+  "drivers/smartbuildos-venueflow/www/studio/index.html",
+}) do
+  local html = read(path) or ""
+  local head = html:match("<head>(.-)</head>") or ""
+  check(path .. " has <link rel=\"icon\" href=\"data:...\"> in its head", head:find('<link rel="icon" href="data:', 1, true) ~= nil)
 end
 
 T.done()
