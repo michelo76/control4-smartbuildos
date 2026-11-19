@@ -279,7 +279,7 @@ All need an Installer Studio session, except the studio commands above.
 | `TEMPLATE_APPLY` | `venueType`, `name`?, `sample`?, `confirm`? | `{ draft }`; needs `confirm` when a draft exists; `sample` only in Simulation mode |
 | `PROFILE_PIN_SET` | `profileId`, `pin`? (empty removes), `baseRevision`? | `{ revision, hasPin }` |
 | `IMAGE_PUT` | `dataUrl` (PNG, JPEG or WebP, up to 600 kB encoded) | `{ key }` |
-| `PUBLISH` | `acknowledged`: issue ids, `note`?, `baseRevision`? | `{ versionId, published, history }`; `VF_VALIDATION_FAILED` with `data.blocking`. With `baseRevision`, a draft that has moved on answers `VF_STALE_DRAFT` |
+| `PUBLISH` | `acknowledged`: issue ids, `note`?, `baseRevision`? | `{ versionId, published, history }`; `VF_VALIDATION_FAILED` with `data.blocking`. With `baseRevision`, a draft that has moved on answers `VF_STALE_DRAFT`. The Studio page sends `baseRevision` (the revision it last loaded or saved) with `PUBLISH` and `DRAFT_DISCARD`, for the installer and the client; on `VF_STALE_DRAFT` it reloads the draft and does not retry |
 | `VERSIONS` | | `{ published, history }` |
 | `ROLLBACK` | `versionId`, `confirm` | `{ versionId, published, history }` |
 | `BACKUP_EXPORT` | | `{ backup }`; the backup carries `revision`, the draft revision counter, so a restore never gives out a revision already used |

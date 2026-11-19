@@ -293,8 +293,12 @@ of 15 November 2026, the last with the review and audit fixes of 18 November
 | *Venue is open* in Composer programming, both senses (same) | Program two lines: IF *Venue is open* is open, and IF *Venue is open* is closed, each doing something visible. Mark the venue open and closed and run each line. Then the same for *VenueFlow has alerts* (showing alerts, and clear). Each line must run only in its own case | Not run. **The test shim cannot tell how Composer passes the choice**: the driver reads it from `VALUE` as the DriverWorks sample does; that is what this check settles |
 | *Alert Raised* when a display stops confirming (same) | Program *Alert Raised* to do something visible and watch ALERT_COUNT and the Alerts property. In Simulation, give a display the simulator fault "silent" and route to it; in Live, unplug a display's control and route to it. After about 8 seconds the event must fire once, and ALERT_COUNT and Alerts must both go up by one. Resolve once the cause is gone: both go back down. The event fires again only when the alert comes back | Not run |
 | *Trigger the VenueFlow event* under a restricted licence (same) | With the denial of H10 in place, run *Trigger the VenueFlow event* for a name a rule waits for. No rule runs, and Last Error reads `TRIGGER_EVENT refused: licence restricted: 1 rule(s) not run` | Not run. Blocked: see "Blocked today" |
-| *Mark the venue* under a restricted licence (same) | With the denial of H10 in place and a rule waiting for the venue to open, run *Mark the venue* Open from Composer. Venue Status must read open, Venue Opened must fire, the rule must not run, and Last Error must read `SET_VENUE_STATUS: status set; 1 rule(s) not run: licence restricted` | Not run. Blocked: see "Blocked today" |
+| *Mark the venue* under a restricted licence (same) | With the denial of H10 in place and a rule waiting for the venue to open, run *Mark the venue* Open from Composer. Venue Status must read open, Venue Opened must fire, the rule must not run, and Last Error must read `SET_VENUE_STATUS: status set; 1 rule(s) not run: licence restricted`. Then close and open the venue from the Manager screen: the screen must say "Venue marked open. 1 automation set to run at this moment did not run: the SmartBuildOS licence is restricted." | Not run. Blocked: see "Blocked today" |
 | Alerts a profile is shown (same) | In Simulation, let a scene stop another one (two scenes on the same displays), so an "interrupted" alert is stored. Sign in as a profile that cannot see one of those displays: the alert must not be listed, and Dismiss by its id must answer as not found. A manager who sees everything sees it and dismisses it; ALERT_COUNT goes down at once | Not run |
+| Floor plan by touch on a 7-inch T3 (page changes of 19 November) | **T3 7", 1024 x 600.** On the sample sports bar's Floor Plan, tap each of several adjacent small displays in turn (the column of TVs 05 to 08): each tap must select exactly that display. Tap between two of them: "Which display?" must open with both. With nothing selected, Power On and Power Off must be visible; with displays selected, scroll the side panel to reach them (a fade with an arrow marks that there is more). Repeat on a T4 and a phone | Not run. Measured in desktop Chromium with touch emulation only (smallest effective target 28 px for those columns at 1024 x 600); whether the touch screen's browser adjusts taps as Chromium does is unknown |
+| Long names and touch sizes on real screens (same) | On a T3, a T4 and a phone, open each operator screen with a long display or zone name ("Boardroom A Main"), the Venue Studio, and the Installer Studio on a tablet: names take two lines, switches and icon buttons can be pressed, the Studio header and its Sections drawer work on the phone | Not run. Desktop Chromium only, at the sizes in `ui/venueflow/README.md` |
+| Publish and Discard from two windows (same) | On a laptop, open the Studio in two windows. Save a change in one, then press Publish (and, another time, Discard) in the other: nothing is published or discarded, the page says the draft changed since it loaded it and reloads it. Repeat signed in as the client | Not run on a controller |
+| The client's reason and read-only screen profiles (same) | As the client, with the installer's saved change pending: the header, Home and Publish and Rollback say "Your installer saved changes that are not live yet" and Publish and Discard are disabled. In Staff Profiles, the tile's profile (and a station's, if the venue has stations) is read-only. Then with a remote draft from the dealer: the wording names the dealer | Not run. The dealer wording was seen only with the page's state set by hand; the station case not at all |
 | A channel dialled across a publish (same) | **Live, one real box.** Press a favourite with three or four digits and publish a change from the Studio at once: every digit must land and Diagnostics must show no stop. Then press it again and change the source's Control4 device (or Control Mode) at once: the rest of the digits stop, and Diagnostics says so (`VF_CANCELLED`) | Not run |
 
 ## Order of the remaining runs
@@ -308,7 +312,8 @@ Import a build from current source first (`make venueflow`, then import
    refused on the default profile, a client refused while the installer has
    saved work, revisions after a backup restore, *Configuration Published*
    on a rollback, *Venue is open* both senses, *Alert Raised* with the
-   simulator fault, alerts a profile is shown, client limits on the controller, a sample draft in Live
+   simulator fault, alerts a profile is shown, Publish and Discard from two
+   windows, the client's reason and read-only screen profiles, client limits on the controller, a sample draft in Live
    (switching to Live with a sample sends nothing), a schedule right after a
    publish.
 2. **The same, plus the SmartBuildOS Agent in the project and a dealer
@@ -316,7 +321,8 @@ Import a build from current source first (`make venueflow`, then import
    Management registration, then end to end, then a large venue.
 3. **The same, plus a T3 or T4 touch screen and a phone and a tablet with
    the Control4 app.** H2 on Navigators, the Venue Studio on a touch screen
-   and in the app, H8.
+   and in the app, the floor plan by touch on a 7-inch T3, long names and
+   touch sizes on real screens, H8.
 4. **Live, with the AV part of the bench project** (two display rooms with a
    video path from two shared sources through a matrix or AV-over-IP, one
    audio zone room with volume control). H4 to H7, *Alert Raised* with an

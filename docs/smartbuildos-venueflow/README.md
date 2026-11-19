@@ -8,8 +8,9 @@ project: `drivers/smartbuildos-venueflow`, code in `src/venueflow`, pages in
 started on a build of 14 November 2026 (installation, pages, Studio and
 publishing passed in Simulation; see HARDWARE_VALIDATION.md). The Venue
 Studio for the client, source controls, Remote Management and every fix
-since have run only against the simulator and the test shim. The driver is
-on `main`. See RELEASE_NOTES.md.
+since have run only against the simulator and the test shim. The driver
+reached `main` on 15 November 2026 (US Eastern time; merge commit
+`f0952a4`). See RELEASE_NOTES.md.
 
 | If you are | Read |
 | --- | --- |

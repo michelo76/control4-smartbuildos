@@ -276,11 +276,24 @@ Every save is recorded with who made it. Once you have saved anything in
 the draft (a change, a staff PIN, a template), or the dealer has sent a
 draft through Remote Management, the draft is your unfinished work until it
 is published or discarded: the client can keep editing but cannot publish
-or discard, and their Studio says "Your installer has unfinished changes".
-Publish or discard your work first.
+or discard. Their Studio says why, in plain words, in its header, on Home
+and on Publish and Rollback (where the buttons are disabled): "Your
+installer saved changes that are not live yet", "Your dealer saved changes
+remotely that are not live yet", or that the draft has a change only you can
+make; and it says who to ask. Publish or discard your work first. In the
+client's Staff Profiles, the profile a tile opens as and any station's
+profile are shown read-only ("This is the profile screens open with. Only
+your installer can change it."). The station case has not been seen in a
+browser (the samples have no stations).
 
-**Not yet tried on a touch screen or in the Control4 app** (checked in a
-desktop browser against the simulator).
+Publish and Discard, yours and the client's, name the draft revision the
+page last loaded or saved. If someone else saved the draft since, nothing is
+published or discarded: the page says the draft changed since it was
+loaded, reloads it and does not try again.
+
+**Not yet tried on a touch screen or in the Control4 app** (checked in
+desktop Chromium against the simulator, at 390 x 844, 820 x 1180, 1024 x 600
+and 1280 x 800).
 
 ## 11. Remote Management (smartbuildos.io)
 
