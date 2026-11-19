@@ -688,15 +688,32 @@ var Operator = (function () {
        displays are as near as each other, the tap asks which one was meant. Zone, scene and
        area-name buttons keep their own taps. */
     if (opts.onDisplay && items.length) {
+      /* Where the finger went down. WebKit and Chromium move the click of a touch onto a
+         control NEAR the finger by themselves (seen 19 November 2026: a tap beside one display
+         selected another, or the whole area through its name), Gecko does not. So for a touch
+         the plan decides from the point the finger touched, the same in every engine. */
+      var down = null;
+      svg.addEventListener('pointerdown', function (ev) { down = ev.pointerType === 'touch' ? { x: ev.clientX, y: ev.clientY, at: Date.now() } : null; }, true);
+      var control = function (el) { return el && el.closest ? el.closest('g.op-pd, .op-pzone, .op-pscene, .op-parea-tag') : null; };
       svg.addEventListener('click', function (ev) {
-        var t = ev.target;
+        var t = ev.target, x = ev.clientX, y = ev.clientY;
+        if (down && Date.now() - down.at < 1500) {
+          x = down.x; y = down.y;
+          var under = document.elementFromPoint(x, y);
+          if (under && under !== t && svg.contains(under) && control(under) !== control(t)) {
+            /* The engine moved this click: send it again where the finger was. */
+            ev.stopPropagation(); ev.preventDefault();
+            under.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+            return;
+          }
+        }
         if (t && t.closest && t.closest('g.op-pd, .op-pzone, .op-pscene')) return;
         var tag = t && t.closest ? t.closest('.op-parea-tag') : null;
         if (tag && !(t.classList && t.classList.contains('op-hit'))) return;
-        var near = O.planNearest(svg, items, ev.clientX, ev.clientY);
+        var near = O.planNearest(svg, items, x, y);
         if (!near.length) return;
         /* An area name's invisible margin gives way to a display that is nearer than the name. */
-        if (tag && tag._pill && O.planDistance(svg, tag._pill, ev.clientX, ev.clientY) <= near[0].dist) return;
+        if (tag && tag._pill && O.planDistance(svg, tag._pill, x, y) <= near[0].dist) return;
         ev.stopPropagation();
         if (tag) ev.preventDefault();
         if (near.length > 1 && near[1].dist - near[0].dist < 4) { O.planChoose(near, opts.onDisplay); return; }

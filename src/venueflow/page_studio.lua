@@ -7,6 +7,8 @@ return [==[
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>VenueFlow Installer Studio</title>
+<!-- An empty icon: without it Firefox asks for /favicon.ico, which the relay's Content Security Policy (img-src data: blob:) refuses with a console error. -->
+<link rel="icon" href="data:,">
 <style>
 /* VenueFlow design system. Midnight navy, teal accent, large touch targets.
    One file shared by the operator page and Installer Studio.
@@ -41,6 +43,8 @@ h3 { font-size: 16px; font-weight: 650; }
 h4 { font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 a { color: var(--teal); }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Every button is a touch control: no double-tap zoom, no text selection when held. */
+button { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .muted { color: var(--muted); } .small { font-size: 13px; } .tiny { font-size: 11.5px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .grow { flex: 1 1 auto; min-width: 0; } .nowrap { white-space: nowrap; } .hidden { display: none !important; }
@@ -159,15 +163,18 @@ table.tbl tr.clickable { cursor: pointer; } table.tbl tr.clickable:hover td { ba
 .banner.ok { border-color: rgba(52, 211, 153, .4); background: var(--ok-soft); color: #c6f6e3; }
 .simbar { background: repeating-linear-gradient(135deg, rgba(245, 165, 36, .2) 0 12px, rgba(245, 165, 36, .1) 12px 24px); color: #ffd58a; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-align: center; padding: 3px 8px; text-transform: uppercase; }
 
-/* modal + toast */
+/* modal + toast. The modal is as tall as the backdrop at most (100%, not 100vh: in iOS Safari
+   100vh is taller than what shows while the toolbars are out, and the footer would go under them).
+   A toast holds no control and lets taps through: on a phone it sits over the
+   bottom bar (volume, scenes) for a few seconds after every command. */
 .vf-backdrop { position: fixed; inset: 0; background: rgba(3, 7, 14, .72); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-.vf-modal { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.vf-modal { width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
 .vf-modal.wide { width: min(860px, 100%); }
 .vf-modal > header { padding: 18px 20px 6px; display: flex; align-items: center; gap: 10px; }
 .vf-modal > .body { padding: 8px 20px 16px; overflow: auto; }
 .vf-modal > footer { padding: 12px 20px 18px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 .vf-toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1100; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(560px, calc(100vw - 24px)); }
-.vf-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
+.vf-toast { pointer-events: none; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: #16263f; border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, .5); max-width: 100%; font-weight: 550; }
 .vf-toast.ok { border-color: rgba(52, 211, 153, .5); } .vf-toast.warn { border-color: var(--warn-line); } .vf-toast.bad { border-color: rgba(248, 113, 113, .6); }
 
 /* PIN pad */
