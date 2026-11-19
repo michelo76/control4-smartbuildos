@@ -45,6 +45,18 @@ driver file is `smartbuildos-flight-recorder.c4z`, found through
 absent. No private log. Markers: Outage started, Tier N shed, Tier N restored,
 Outage ended, Power back (restore delayed), Grid flapped, Load re-shed, Load restore not confirmed, Manual shed auto-restored.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `load_shedding` (guide §9 `start`) and reports: a describe
+(load shedding and the home battery, class power), a state from `paint()`
+(shed status, read-only, outage active, highest tier shed, loads shed,
+battery percent) and the diagnostics `load.command_failed` (warning) and
+`load.restore_failed` (fault) beside the existing Load Failed event. No
+events, queries or actions. Without AI Core nothing is sent. Unit tests
+only (`test/test_loadshed_aicore.lua`); nothing here has run on a
+controller.
+
 ## Shared-file notes (nothing edited)
 
 - Nothing needed in `src/sbos/*`, `src/lib/*`, the Makefile or the shim. The
