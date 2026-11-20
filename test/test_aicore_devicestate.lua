@@ -329,6 +329,9 @@ local BAD = {
   { "NaN", 0 / 0, "non_scalar" },
   { "infinity", math.huge, "non_scalar" },
   { "65 bytes", string.rep("a", 65), "too_long" },
+  -- review (UTF-8 cut): a multi-byte character across the 64-byte bound is
+  -- never cut into; the value is dropped whole
+  { "65 bytes ending in a 2-byte character", string.rep("a b ", 15) .. "abc" .. "é", "too_long" },
   { "markup <", "<zone id=1/>", "non_scalar" },
   { "structure {", "{a}", "non_scalar" },
   { "structure [", "[1]", "non_scalar" },
@@ -834,6 +837,46 @@ do
   check("a refused class carries no counter at all (not_allowed included)", r.omitted == nil)
   local t = read(FX.thermostat, "full")
   check("scope full, deny-list class: not_allowed is 0", t.omitted.not_allowed == 0)
+end
+
+print("[review] joined allow-lists keep every list, none stops at a missing one")
+do
+  -- joinedList walks its arguments with ipairs({ ... }): a nil argument would
+  -- end the walk there and silently drop every later list. Each class's
+  -- system list must hold every entry of every list it joins.
+  local function has(list, entry)
+    local want = (tostring(entry):upper():gsub("[^%w]", ""))
+    for _, e in ipairs(list) do
+      if e == want then
+        return true
+      end
+    end
+    return false
+  end
+  local joins = {
+    thermostat = { D.THERMOSTAT_READ_NAMES },
+    leak = { D.SIGNATURES.leak },
+    power = { D.SIGNATURES.power },
+    battery = { D.SIGNATURES.battery_level, D.SIGNATURES.battery_status, D.SIGNATURES.low_battery, D.SIGNATURES.link },
+  }
+  local missing = {}
+  for class, lists in pairs(joins) do
+    for i = 1, 4 do
+      if i <= #lists or class == "battery" then
+        local list = lists[i]
+        if type(list) ~= "table" then
+          missing[#missing + 1] = class .. " list " .. i .. " is nil"
+        else
+          for _, entry in ipairs(list) do
+            if not has(D.ALLOW_SYSTEM[class], entry) then
+              missing[#missing + 1] = class .. ":" .. tostring(entry)
+            end
+          end
+        end
+      end
+    end
+  end
+  check("every joined list is present in full (the last one too)", #missing == 0, table.concat(missing, ","))
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

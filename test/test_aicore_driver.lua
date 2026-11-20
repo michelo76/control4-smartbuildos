@@ -500,6 +500,19 @@ check(
   "the same version again is re-applied (idempotent)",
   ack.params.applied == "true" and ack.params.settings_version == "10"
 )
+-- Round two: the dealer's touchscreen presets travel in the same document,
+-- so the same rule keeps an older replay from taking them away.
+local withPresets = JSON:decode(JSON:encode(good))
+withPresets.touchscreen = { presets = { "Is the wine cellar at the right temperature?" } }
+H.config(withPresets, 10)
+H.config(good, 9) -- the cached older copy, without presets
+local storedCfg = H.persisted.aicore_config_v1
+check(
+  "an older replay does not remove v10's touchscreen presets",
+  storedCfg.version == 10 and #storedCfg.cfg.touchscreen.presets == 1,
+  tostring(storedCfg.version)
+)
+H.config(good, 10)
 
 print("[11] exclusions and pause suppress collection")
 local recs = #H.envelopes("ai_core.record")
