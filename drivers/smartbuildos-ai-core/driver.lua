@@ -291,8 +291,19 @@ local function licenceBlocks(feature)
   return nil
 end
 
+--- Why learning, though switched on, is held by the licence right now (nil
+--- when it is not). Asked live, so an entitlement that loses AI_LEARNING
+--- stops collection on its own, and one that regains it resumes what the
+--- configuration asked for, with no new document or manual pause.
+local function learningLicenceBlock()
+  if gLearning.active ~= true then
+    return nil
+  end
+  return licenceBlocks("AI_LEARNING")
+end
+
 local function learningActive()
-  return gLearning.active == true
+  return gLearning.active == true and learningLicenceBlock() == nil
 end
 
 -- ─── Recording (stage → Agent queue; buffer while no Agent answers) ───────
@@ -398,6 +409,10 @@ end
 local function learningText()
   if gLicenceHalted then
     return "Stopped (not licensed)"
+  end
+  local held = learningLicenceBlock()
+  if held ~= nil then
+    return "Paused by the licence: " .. held
   end
   if gLearning.active then
     return "Active"
@@ -1877,7 +1892,9 @@ local function tick()
     -- 5 minutes: recovery should not wait for the liveness timer.
     discoverFlightRecorder("recovery")
   end
-  if license.enforces() ~= gLicenceHalted then
+  -- Re-plan when the licence moved under collection: a definitive denial,
+  -- or a feature list that no longer (or once again) includes AI_LEARNING.
+  if license.enforces() ~= gLicenceHalted or gCollector.policy.active ~= (learningActive() and not gLicenceHalted) then
     applyCollection()
   end
   if client.isRegistered() and not gAgentLost and gBuffer:depth() > 0 then
