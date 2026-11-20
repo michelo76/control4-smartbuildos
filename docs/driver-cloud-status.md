@@ -58,12 +58,14 @@ _Last updated: 2026-08-29._
   never appeared under Agents. It is added from the **Agents** tab in Composer
   Pro (OS 3.1.3+; `minimum_os_version` stays 3.3.1), one per project; an
   instance already under System Design must be removed there and re-added under
-  Agents, and Pairing Backup restores the pairing. Everything else — the
+  Agents, and then paired again: a re-added instance starts with default
+  property values and a new device id, so neither Pairing Backup nor persist
+  carries the pairing across a re-add. Everything else — the
   licensing authority role, pairing, display, account-number auth — is
   unchanged; only the install surface moves. `test_agent_driver_contract.lua`
   section [4] holds the XML to this shape. Hardware confirmation on the bench
-  (appears under Agents, one per project, absent from Navigator, pairing
-  survives the re-add) is still owed.
+  (appears under Agents, one per project, absent from Navigator) is still owed.
+  A re-add always needs a new pairing code.
 
 - **D5 — the Agent carries shared module services (2026-10-22).** Optional
   SmartBuildOS drivers ("modules") register with the Agent over

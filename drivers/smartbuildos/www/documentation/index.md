@@ -58,9 +58,12 @@ On pairing, the Agent redeems the code for a long-lived device token, fires
 *Paired*, sends a full device snapshot and a heartbeat, and fetches the
 licences. The token is what grants access. It is stored encrypted on the
 controller and copied into the masked, read-only **Pairing Backup** property so
-that the pairing survives a driver update. That property is kept with the
-project, so treat a project backup as carrying the pairing. The token, the codes
-and the backup are kept out of the log.
+that the pairing can survive a driver update in place; the Agent rewrites that
+copy at every start while it is paired. Whether Composer keeps a value the
+driver writes into a masked property is not yet confirmed on hardware, so after
+an update check that **Connection Status** is still paired. Removing and
+re-adding the Agent never keeps the pairing. The token, the codes and the backup
+are kept out of the log.
 
 ### Pair by account number
 

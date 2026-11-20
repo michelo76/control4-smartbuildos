@@ -215,7 +215,8 @@ blocks window input while the screen is locked, so the import waited.
    `\\Mac\Home\Documents\Codex\control4-smartbuildos-event-tracer\dist\oss\`
    (never from `~/Documents/Control4/Drivers`: that is Composer's own folder
    and importing from it corrupts the file), one at a time, in this order:
-   `smartbuildos.c4z` (Agent; pairing survives via Pairing Backup),
+   `smartbuildos.c4z` (Agent; an in-place update is meant to keep the pairing via
+   Pairing Backup, unverified on hardware),
    `smartbuildos-event-tracer.c4z`, `smartbuildos-flight-recorder.c4z`,
    then the eight new ones.
 2. In System Design select the room **SmartBuildOS** (create it under the
