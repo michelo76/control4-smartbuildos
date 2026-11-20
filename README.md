@@ -104,10 +104,13 @@ SmartBuildOS issued for this controller, signed with a secret the controller
 received when it paired, and kept encrypted on the controller.
 
 The Agent fetches licences when it pairs, when a driver it has no record for
-registers, and on *Refresh Entitlements Now*. Otherwise it looks once an hour
-and fetches again when the last fetch is more than 24 hours old; SmartBuildOS
-can change that period. After each fetch it tells every registered driver where
-it stands, and each hour it tells any driver whose standing has changed.
+registers, on *Refresh Entitlements Now*, and when SmartBuildOS asks for a
+re-check after it issues or changes a licence (the cloud command
+`REQUEST_ENTITLEMENTS`; the Agent runs at most one a minute and answers a second
+one inside that minute as skipped). Otherwise it looks once an hour and fetches
+again when the last fetch is more than 24 hours old; SmartBuildOS can change
+that period. After each fetch it tells every registered driver where it stands,
+and each hour it tells any driver whose standing has changed.
 
 ### What the Agent shows
 
@@ -299,12 +302,12 @@ home can raise it. Each tier includes the ones above it.
 | `Full control`            | Also: locking and unlocking, garage open and close, arming and disarming security. Disarming needs a user code. SmartBuildOS requires the homeowner to approve each of these on their phone before it is sent |
 
 Requests to report (a full sync, a heartbeat, diagnostics, a capability probe,
-the catalogue, a network scan), notices, and a fixed list of operations on
-SmartBuildOS module drivers (pause, resume, apply settings) are not limited by
-this property: they do not operate equipment. A command the Agent does not know
-is refused by name. Commands arrive on the next check-in, so **Heartbeat
-Interval** is also how long a command can wait. Lowering the tier takes effect
-at once.
+the catalogue, a network scan), a licence re-check, notices, and a fixed list of
+operations on SmartBuildOS module drivers (pause, resume, apply settings) are
+not limited by this property: they do not operate equipment. A command the Agent
+does not know is refused by name. Commands arrive on the next check-in, so
+**Heartbeat Interval** is also how long a command can wait. Lowering the tier
+takes effect at once.
 
 ## Notices, restarts and service mode
 
