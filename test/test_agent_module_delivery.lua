@@ -10,6 +10,8 @@
 --     record exists before the frame leaves, so an early Completed is not
 --     dropped and the command never expires as Unverified
 -- [3] a send that fails ends the record as Failed, with no expiry timer
+-- [4] a cleared status detail (and config_error) reaches the Agent and the
+--     heartbeat; Director drops "" params without allowEmptyValues
 --
 -- Run from the driver root: make test
 
@@ -422,6 +424,80 @@ do
   check("no expiry timer was armed", clock.timers["ModuleCommandExpiry:req-fail"] == nil)
   advance(70000)
   check("it never becomes Unverified", gModuleCommands["req-fail"].state == "Failed")
+end
+
+print("[4] a cleared status detail reaches the Agent and the heartbeat")
+for _, mode in ipairs({ "async", "sync" }) do
+  D.mode = mode
+  lastError = "AI provider error: 503"
+  D.as(MODULE, function()
+    client.sendStatus()
+  end)
+  D.drain()
+  local entry = gModules:find("ai_core", tostring(MODULE))
+  check(mode .. ": the error is shown", entry.detail == "AI provider error: 503", entry.detail)
+  lastError = ""
+  D.as(MODULE, function()
+    client.sendStatus()
+  end)
+  D.drain()
+  entry = gModules:find("ai_core", tostring(MODULE))
+  check(mode .. ": cleared on the Agent", entry.detail == "", entry.detail)
+end
+do
+  local frame = D.framesOf("SBOS_MODULE_STATUS", AGENT)
+  frame = frame[#frame]
+  check("the status frame asked for empty values", frame.allowEmpty == true)
+  check("and still leaves other empty params out", frame.params.applied_config_version == nil)
+  requests = {}
+  D.as(AGENT, function()
+    EC.SEND_HEARTBEAT()
+  end)
+  local hb = requestsTo("heartbeat")
+  local row = nil
+  for _, m in ipairs(hb[#hb] and hb[#hb].data.modules or {}) do
+    if m.module_id == "ai_core" then
+      row = m
+    end
+  end
+  check("the heartbeat carries the cleared detail", row ~= nil and row.detail == "", row and row.detail)
+end
+do
+  -- config_error has the same shape: "" when a later config applied.
+  D.as(MODULE, function()
+    client.sendStatus({ config_error = "v3 refused" })
+  end)
+  D.drain()
+  local entry = gModules:find("ai_core", tostring(MODULE))
+  check("a config error is shown", entry.config_error == "v3 refused", entry.config_error)
+  D.as(MODULE, function()
+    client.sendStatus({ applied_config_version = "4", config_error = "" })
+  end)
+  D.drain()
+  entry = gModules:find("ai_core", tostring(MODULE))
+  check("and cleared by the next applied config", entry.config_error == "", entry.config_error)
+end
+do
+  -- What Director does WITHOUT the flag: the "" never arrives (the old
+  -- client), so the Agent keeps the last text. Kept here as the proof that
+  -- the harness models the drop at all.
+  lastError = "stale"
+  D.as(MODULE, function()
+    client.sendStatus()
+  end)
+  D.drain()
+  D.as(MODULE, function()
+    C4:SendToDevice(AGENT, "SBOS_MODULE_STATUS", {
+      module_id = "ai_core",
+      instance_id = tostring(MODULE),
+      token = client._state().token,
+      status = "ready",
+      detail = "",
+    })
+  end)
+  D.drain()
+  local entry = gModules:find("ai_core", tostring(MODULE))
+  check("without allowEmptyValues the Agent never sees the clear", entry.detail == "stale", entry.detail)
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))
