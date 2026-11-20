@@ -66,6 +66,27 @@ function M.installedVersions(filenames)
   return installed
 end
 
+--- THE per-driver install rule, shared by this updater and the GitHub one.
+---
+--- A build is installed only when it is strictly newer than THAT driver's
+--- installed version (or the same version, when forced). Never older, and
+--- never when either version does not parse. One rule in one place: the GitHub
+--- updater used to compare the release against the OLDEST installed driver, so
+--- one stale sibling pulled every installed driver back to the release —
+--- including a newer, hand-loaded Agent.
+--- @param candidate any The offered build's version (a release tag or package version).
+--- @param installed any The installed driver's version.
+--- @param forceUpdate? boolean Re-install the same version.
+--- @return boolean
+function M.shouldInstall(candidate, installed, forceUpdate)
+  local newVersion, newErr = version(tostring(candidate or ""))
+  local curVersion, curErr = version(tostring(installed or ""))
+  if not IsEmpty(newErr) or not IsEmpty(curErr) or newVersion == nil or curVersion == nil then
+    return false
+  end
+  return newVersion > curVersion or (forceUpdate == true and newVersion == curVersion)
+end
+
 --- Returns the packages that are newer than what is installed. A package for a
 --- driver that is NOT installed in this project is ignored — the updater only
 --- ever refreshes what a project already runs, never adds new drivers.
@@ -84,13 +105,7 @@ function M.outdated(packages, driverFilenames, forceUpdate)
       and not IsEmpty(C4:GetDevicesByC4iName(fn) or {})
       and not IsEmpty(pkg.download_url)
     then
-      local newVersion, newErr = version(tostring(pkg.version or ""))
-      local curVersion, curErr = version(GetDriverVersion(fn))
-      if
-        IsEmpty(newErr)
-        and IsEmpty(curErr)
-        and (newVersion > curVersion or (forceUpdate and newVersion == curVersion))
-      then
+      if M.shouldInstall(pkg.version, GetDriverVersion(fn), forceUpdate) then
         table.insert(out, pkg)
       end
     end
