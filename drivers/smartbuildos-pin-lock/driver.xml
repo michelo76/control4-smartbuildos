@@ -106,6 +106,14 @@
       <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
       <property><name>Flight Recorder</name><type>STRING</type><default>not checked</default><readonly>true</readonly></property>
       <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
+      <property>
+        <name>AI Core</name>
+        <type>STRING</type>
+        <default>Searching…</default>
+        <readonly>true</readonly>
+      </property>
+      <property><name>AI Core Approvals</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
+      <property><name>AI Core PIN Verification</name><type>LIST</type><items><item>On when an owner PIN exists</item><item>Off</item></items><default>On when an owner PIN exists</default></property>
       <property><name>App Relay Address</name><type>STRING</type><default>Auto</default></property>
       <property><name>Max Wrong Attempts</name><type>RANGED_INTEGER</type><minimum>3</minimum><maximum>10</maximum><default>5</default></property>
       <property><name>Lockout Minutes</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>1440</maximum><default>5</default></property>

@@ -39,6 +39,12 @@
     <properties>
       <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
       <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property>
+      <name>AI Core</name>
+      <type>STRING</type>
+      <default>Searching…</default>
+      <readonly>true</readonly>
+      </property>
       <property><name>Broker Link</name><type>STRING</type><default>Not asked yet</default><readonly>true</readonly></property>
       <property><name>Control</name><type>STRING</type><default>view only</default><readonly>true</readonly></property>
       <property><name>Device Availability</name><type>STRING</type><default>not reported</default><readonly>true</readonly></property>

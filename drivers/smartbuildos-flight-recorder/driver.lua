@@ -51,11 +51,15 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local client = require("sbos.moduleclient")
+--- AI Core reporting over THIS driver's module client (sbos.aireport,
+--- attach mode).
+local aireport = require("sbos.aireport")
 local Config = require("flightrecorder.config")
 local Recorder = require("flightrecorder.recorder")
 local Traces = require("flightrecorder.traces")
 local Snapshot = require("flightrecorder.snapshot")
 local History = require("flightrecorder.history")
+local LocalQuery = require("flightrecorder.localquery")
 local Catalog = require("tracer.catalog")
 local Ring = require("tracer.ring")
 local Tracer = require("tracer.tracer")
@@ -75,6 +79,9 @@ local CONFIG_META_KEY = "fr_config_meta_v1"
 local PAUSED_KEY = "fr_paused"
 local LEARNED_KEY = "fr_learned_v1"
 local HISTORY_KEY = "fr_history_v1"
+--- Bumped by Clear Local History, so a v2 cursor handed out before the
+--- clear is refused instead of being read against a new sequence.
+local HISTORY_GEN_KEY = "fr_history_generation"
 local TRACE_TICK_TIMER = "FrTraceTick"
 local STATUS_TIMER = "FrStatusPaint"
 local SNAPSHOT_TIMER = "FrSnapshotRun"
@@ -203,6 +210,15 @@ local function emit(fields)
     return nil
   end
   local eventType = tostring(env.event_type)
+  if eventType == "capture.event" and gTracer ~= nil and type(env.payload) == "table" then
+    -- The capture engine pushed this entry into the history just before it
+    -- asked for the upload; give it the envelope's id so a local reader
+    -- (module contract v2) cites the same id the platform stores.
+    local entry = gTracer.ring:get(env.payload.seq)
+    if entry ~= nil and entry.kind == "event" then
+      entry.envelope_id = env.event_id
+    end
+  end
   if eventType:sub(1, 8) ~= "capture." then
     -- A device event is already in the history: the capture engine put it
     -- there before it asked for the upload. Everything else is offered.
@@ -213,6 +229,15 @@ local function emit(fields)
         gHistoryDirty = true
         if eventType == "trace.end" then
           paintLastTrace(env)
+          local p = type(env.payload) == "table" and env.payload or {}
+          if p.status ~= "completed" then
+            -- A routine the dealer's programming traces did not complete.
+            aireport.event(
+              "routine.not_completed",
+              string.format("The routine %s did not complete (%s)", tostring(p.name or env.label), tostring(p.status)),
+              { routine = tostring(p.name or env.label), status = tostring(p.status), steps = tonumber(p.steps) or 0 }
+            )
+          end
         end
       end
     end
@@ -226,8 +251,15 @@ local function emit(fields)
   client.sendEvents({ env })
   if eventType == "tracer.storm" then
     fire(EVENT_STORM)
+    local p = type(env.payload) == "table" and env.payload or {}
+    aireport.event(
+      "recorder.storm_started",
+      "A device is firing one event over and over; further occurrences are counted, not recorded",
+      { event_name = tostring(p.event_name or ""), threshold = tonumber(p.threshold) or 0 }
+    )
   elseif eventType == "tracer.storm_ended" then
     fire(EVENT_STORM_END)
+    aireport.event("recorder.storm_ended", "An event storm ended; recording is back to normal for that device", {})
   elseif eventType == "tracer.learned" then
     fire(EVENT_LEARNED)
   end
@@ -383,6 +415,130 @@ local function paintRecent()
   setVar("ACTIVE_STORMS", #storms)
 end
 
+-- ─── AI Core (sbos.aireport, attach mode) ───────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise), over this driver's own module client:
+--   describe   what the recorder is and the words people use
+--   state      recording status, coverage, storms, traces, drops (no
+--              device activity: what happened in the home stays in the
+--              history and the events.* capabilities)
+--   event      an event storm started / ended; a traced routine did not
+--              complete
+--   diagnostic recording degraded / restored; the upload backlog warning
+--   queries    history_coverage, capture_coverage (read-only)
+--   actions    none: pause, resume and snapshots stay dealer tools
+
+local function aiReportState(status, agent, dropped)
+  local s = gTracer and gTracer.summary or {}
+  aireport.state({
+    recording_status = tostring(status),
+    paused = (gRecorder ~= nil and gRecorder.paused == true) or (gTracer ~= nil and gTracer.paused == true),
+    event_capture = gPolicy.enabled == true,
+    devices_total = tonumber(s.devices_total) or 0,
+    devices_covered = tonumber(s.devices_covered) or 0,
+    subscriptions = gTracer and gTracer:subscriptionCount() or 0,
+    active_storms = gTracer and #gTracer:activeStorms() or 0,
+    active_traces = gTraces and gTraces:activeCount() or 0,
+    selected_sources = #gConfig.sources,
+    dropped_events = tonumber(dropped) or 0,
+    agent_connection = tostring(agent),
+  })
+end
+
+local function aiHistoryCoverage()
+  if gTracer == nil then
+    return nil, "starting"
+  end
+  local ring = gTracer.ring
+  local oldest, newest = ring:oldest(), ring:latest()
+  local byKind = {}
+  for _, e in ipairs(ring:recent(ring:count())) do
+    local k = tostring(e.kind or "other")
+    byKind[k] = (byKind[k] or 0) + 1
+  end
+  return {
+    entries_held = ring:count(),
+    capacity = ring.capacity,
+    oldest_at = oldest and tonumber(oldest.t) and math.floor(oldest.t) or nil,
+    newest_at = newest and tonumber(newest.t) and math.floor(newest.t) or nil,
+    span_seconds = (oldest and newest and tonumber(oldest.t) and tonumber(newest.t)) and math.floor(
+      newest.t - oldest.t
+    ) or 0,
+    entries_evicted = tonumber(ring.evicted) or 0,
+    by_kind = byKind,
+    recording_status = recordingStatus(),
+    note = "The oldest entries are dropped first once the history is full (Local History Size).",
+  }
+end
+
+local function aiCaptureCoverage()
+  if gTracer == nil then
+    return nil, "starting"
+  end
+  local s = gTracer.summary or {}
+  local storms = {}
+  for i, st in ipairs(gTracer:activeStorms()) do
+    if i > 5 then
+      break
+    end
+    storms[i] = {
+      device = tostring(st.device_label or ""),
+      event_name = tostring(st.event_name or ""),
+      count = tonumber(st.count) or 0,
+    }
+  end
+  return {
+    recording_status = recordingStatus(),
+    event_capture = gPolicy.enabled == true,
+    devices_total = tonumber(s.devices_total) or 0,
+    devices_covered = tonumber(s.devices_covered) or 0,
+    devices_unknown = tonumber(s.devices_unknown) or 0,
+    devices_excluded = tonumber(s.devices_excluded) or 0,
+    subscriptions = gTracer:subscriptionCount(),
+    events_over_limit = tonumber(s.unsubscribed_events) or 0,
+    selected_variable_sources = #gConfig.sources,
+    active_storms = storms,
+  }
+end
+
+--- Declared before the module client's setup so the manifest lists ai.query.
+local function aiDeclare()
+  aireport.declareQuery({
+    id = "history_coverage",
+    description = "How far back the recorder's local history reaches, how full it is and what it holds.",
+    params = {},
+  }, aiHistoryCoverage)
+  aireport.declareQuery({
+    id = "capture_coverage",
+    description = "Which devices the recorder is watching, what it cannot watch, and any event storms now.",
+    params = {},
+  }, aiCaptureCoverage)
+end
+
+local function aiDescribe()
+  aireport.describe({
+    summary = "Records what happens in the home's Control4 system, device events, variable changes and traced routines, in one local history, so a person can ask what happened and why.",
+    controls = {
+      { id = "recorder", label = "Activity recorder", class = "other" },
+      { id = "event_history", label = "Event history", class = "other" },
+    },
+    vocabulary = {
+      "what happened",
+      "history",
+      "recorder",
+      "events",
+      "activity",
+      "timeline",
+      "routine",
+      "why did",
+      "when did",
+      "last night",
+      "storm",
+    },
+  })
+end
+
 local function paintSoon()
   SetTimer(SOON_TIMER, 2 * ONE_SECOND, paintRecent)
 end
@@ -466,13 +622,24 @@ local function paint()
   local healthy = status == "recording" or status == "idle" or status == "disabled"
   if gLastStatus ~= nil and gLastStatus ~= healthy then
     fire(healthy and EVENT_RESTORED or EVENT_DEGRADED)
+    aireport.diagnostic(
+      healthy and "info" or "warning",
+      healthy and "recorder.restored" or "recorder.degraded",
+      "Recording status: " .. status
+    )
   end
   gLastStatus = healthy
+  aiReportState(status, agent, dropped)
 
   local threshold = tointeger(Properties["Buffer Warning Threshold"]) or 200
   if buffered >= threshold and not gBufferWarned then
     gBufferWarned = true
     fire(EVENT_BUFFER)
+    aireport.diagnostic(
+      "warning",
+      "upload.backlog",
+      string.format("%d recorded events are waiting to upload to SmartBuildOS", buffered)
+    )
   elseif buffered < threshold / 2 then
     gBufferWarned = false
   end
@@ -1231,6 +1398,7 @@ function OnDriverLateInit(reason)
     paint()
   end
 
+  aiDeclare()
   client.setup({
     module_id = MODULE_ID,
     driver_version = tostring(C4:GetDriverConfigInfo("version")),
@@ -1247,6 +1415,21 @@ function OnDriverLateInit(reason)
     commands = { "apply_config", "apply_policy", "pause", "resume", "reapply", "capture_snapshot", "refresh_status" },
     event_types = { "observation.", "trace.", "recorder.", "snapshot.", "capture.", "tracer." },
     singleton = true,
+    -- Module contract v2: what this driver can answer LOCALLY, from its ring.
+    -- Correlation, incident analysis and period comparison are cloud-side
+    -- and deliberately not advertised. No require_protocol: against a v1-only
+    -- Agent the manifest is ignored and everything v1 keeps working.
+    manifest = {
+      driver = "sbos.flight_recorder",
+      -- aireport.capabilities adds ai.query (the declared queries).
+      capabilities = aireport.capabilities({
+        { id = "events.query", version = 1, kind = "request" },
+        { id = "events.timeline", version = 1, kind = "request" },
+        { id = "events.device_history", version = 1, kind = "request" },
+        { id = "events.room_activity", version = 1, kind = "request" },
+        { id = "events.subscribe", version = 1, kind = "topic", topics = { "capture.", "observation.", "trace." } },
+      }),
+    },
     status = function()
       return recordingStatus(), gLastError ~= "none" and gLastError or "", counters()
     end,
@@ -1270,13 +1453,18 @@ function OnDriverLateInit(reason)
         gLastError = "Agent refused registration: " .. tostring(reply.reason)
         fire(EVENT_AGENT_OFF)
       end
+      aireport.onRegistered(reply)
       paint()
     end,
     onAgentState = function(agent, why)
       if why == "no_agent" then
         gLastError = "no SmartBuildOS Agent in this project (recording locally)"
       end
+      aireport.onAgentState(agent, why)
       paint()
+    end,
+    onDirectoryChanged = function(version)
+      aireport.onDirectoryChanged(version)
     end,
     onCommand = onCommand,
     onConfig = function(settings, version)
@@ -1317,6 +1505,28 @@ function OnDriverLateInit(reason)
       end
     end,
   })
+  -- The local history over module contract v2 (only ever routed to us by a
+  -- v2 Agent, for requesters its MODULE_REQUEST_POLICY allows). Answered
+  -- whatever the recording state: a paused or unlicensed recorder's history
+  -- stays readable, and the answer says what state recording is in.
+  for _, capability in ipairs(LocalQuery.CAPABILITIES) do
+    client.onRequest(capability, function(req, respond)
+      if gTracer == nil then
+        respond("error", nil, "target_unavailable")
+        return
+      end
+      local status, result, code, cursor = LocalQuery.answer(capability, req.args, {
+        ring = gTracer.ring,
+        generation = tonumber(persist:get(HISTORY_GEN_KEY, 0)) or 0,
+        now = os.time(),
+        recording_status = recordingStatus(),
+      })
+      respond(status, result, code, cursor)
+    end)
+  end
+  -- AI Core: this driver's module client, its declared queries, its describe.
+  aireport.attach(client, { sku = SKU })
+  aiDescribe()
   EC.SBOS_MODULE_AGENT_EVENT = function(tParams)
     tParams = tParams or {}
     local ok, detail = pcall(function()
@@ -1404,6 +1614,7 @@ function OnDriverDestroyed()
   if gCatalog then
     persist:set(LEARNED_KEY, gCatalog:learnedDoc())
   end
+  aireport.stop() -- attach mode: leaves the client to the stop below
   client.flush()
   client.stop()
   CancelTimer(TRACE_TICK_TIMER)
@@ -1786,6 +1997,7 @@ end
 function EC.CLEAR_HISTORY()
   if gTracer then
     gTracer.ring = Ring.new(gPolicy.ring_size)
+    persist:set(HISTORY_GEN_KEY, (tonumber(persist:get(HISTORY_GEN_KEY, 0)) or 0) + 1)
     gHistoryDirty = true
     checkpointHistory(true)
     UpdateProperty("Last Event", "none yet (history cleared)")

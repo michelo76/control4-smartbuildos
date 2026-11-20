@@ -440,7 +440,9 @@ function Tracer:onDeviceEvent(deviceId, eventId)
       },
     })
   end
-  self:_emit({
+  -- Over the upload budget the entry stays in the ring but never becomes an
+  -- envelope; a local reader is told so (flightrecorder.localquery).
+  entry.uploaded = self:_emit({
     event_type = "capture.event",
     evidence_source = "observed",
     quality = sub.known and "confirmed" or "unknown",

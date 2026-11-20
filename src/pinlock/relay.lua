@@ -15,11 +15,21 @@
 ---   POST /admin/enable|disable|revoke?k= {session, id}
 ---   POST /admin/clear?k=  {session}     clear lockouts
 ---   POST /admin/logout?k= {session}
+---   POST /verify      {challenge_id, pin}   AI Core verification (no `k`:
+---                                           authenticated by the challenge)
 ---
 --- A PIN travels only in a POST body, never in the URL, and is never echoed.
 --- Every POST is answered by a provider function `provider[name](body)` that
 --- returns (httpStatus, table); the router adds nothing to a reply and never
 --- logs.
+---
+--- /verify is the one route without the page token: the AI Core touchscreen
+--- page (another driver's page, on another port) posts an owner PIN here
+--- against a 60-second single-use challenge that AI Core obtained over the
+--- module bus. Its body has exactly two keys, and its reply is REBUILT here
+--- from a closed set -- {ok}, {ok:false} or {ok:false, locked, retry_in} --
+--- whatever the provider returned, so no code name, role, reason or echo of
+--- the body can leave through it.
 
 local uirelay = require("atmosphere.uirelay")
 
@@ -54,6 +64,51 @@ local STATUS_TEXT = {
 
 local function json(status, body)
   return { status = status, contentType = "application/json", body = body }
+end
+
+M.VERIFY_PATH = "/verify"
+M.VERIFY_KEYS = { challenge_id = true, pin = true }
+
+--- The only three answers /verify can give (status, body). Built from
+--- constants and one integer: nothing the provider returned is copied.
+local function verifyReply(doc)
+  if type(doc) == "table" and doc.ok == true then
+    return json("200 OK", '{"ok":true}')
+  end
+  if type(doc) == "table" and doc.locked == true then
+    local left = math.max(0, math.floor(tonumber(doc.retry_in) or 0))
+    return json("429 Too Many Requests", string.format('{"ok":false,"locked":true,"retry_in":%d}', left))
+  end
+  return json("401 Unauthorized", '{"ok":false}')
+end
+M.verifyReply = verifyReply
+
+--- POST /verify {challenge_id, pin}: closed keys, both strings; the
+--- provider's `verify(challengeId, pin)` decides.
+function M.verify(req, provider)
+  if req.method ~= "POST" then
+    return json("405 Method Not Allowed", '{"ok":false}')
+  end
+  if type(provider.verify) ~= "function" then
+    return json("404 Not Found", '{"ok":false}')
+  end
+  local okDec, body = pcall(provider.decode, req.body)
+  if not okDec or type(body) ~= "table" then
+    return json("400 Bad Request", '{"ok":false}')
+  end
+  for k, v in pairs(body) do
+    if not M.VERIFY_KEYS[k] or type(v) ~= "string" then
+      return json("400 Bad Request", '{"ok":false}')
+    end
+  end
+  if body.challenge_id == nil or body.pin == nil then
+    return json("400 Bad Request", '{"ok":false}')
+  end
+  local ok, doc = pcall(provider.verify, body.challenge_id, body.pin)
+  if not ok then
+    return json("500 Internal Server Error", '{"ok":false}')
+  end
+  return verifyReply(doc)
 end
 
 --- The 503 for a page that cannot be read says why (paths tried, no secrets),
@@ -92,6 +147,9 @@ function M.route(req, token, provider)
       return appFailure(provider, ok, html)
     end
     return { status = "200 OK", contentType = "text/html; charset=utf-8", body = html }
+  end
+  if req.path == M.VERIFY_PATH then
+    return M.verify(req, provider)
   end
   if token == nil or token == "" or req.query.k ~= token then
     return json("403 Forbidden", '{"ok":false,"error":"bad token"}')

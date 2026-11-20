@@ -28,6 +28,7 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local companion = require("systemlink.companion")
+local aipresence = require("sbos.aipresence")
 
 gInitialized = false
 
@@ -126,6 +127,8 @@ end
 
 EC.SBOS_LINK_EXPORT_RESULT = function(tParams)
   tParams = tParams or {}
+  -- The bridge's answers are the bounded AI Core re-check (KI-42).
+  aipresence.recheck()
   local ok = tostring(tParams.ok) == "true"
   local reason = tostring(tParams.reason or "")
   if ok and reason ~= "removed" then
@@ -195,9 +198,11 @@ function OnDriverLateInit()
     UpdateProperty("Export Status", "Bind the light to this driver's Light connection in Composer Connections")
   end
   gInitialized = true
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
+  aipresence.stop()
   local name = registeredName()
   if name then
     unregister(name)

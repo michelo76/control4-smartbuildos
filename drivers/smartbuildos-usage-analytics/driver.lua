@@ -40,6 +40,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local client = require("sbos.moduleclient")
+--- AI Core reporting over THIS driver's module client (sbos.aireport,
+--- attach mode). Module scope: the build packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 local Catalog = require("tracer.catalog")
 local CatalogData = require("tracer.catalog_data")
 local Sources = require("usage.sources")
@@ -181,6 +184,40 @@ local function todayLine()
   )
 end
 
+-- ─── AI Core (sbos.aireport, attach mode) ───────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise), over this driver's own module client:
+--   describe   what the meter measures and the words people use
+--   state      measuring status, days recorded, rooms / lights / keypads
+--              watched, listeners (what Measuring Status, Days Recorded and
+--              Sources already show). Never the hours or presses themselves:
+--              how the household uses the home stays in the daily rollups
+--              the Agent uploads
+--   diagnostic measuring degraded / restored (the driver's own Measuring
+--              Degraded / Restored transition)
+--   events, queries, actions: none
+
+local function aiReportState(status)
+  local summary = gPlan and gPlan.summary or {}
+  aireport.state({
+    measuring_status = tostring(status),
+    days_recorded = daysRecorded(),
+    rooms_watched = tonumber(summary.rooms) or 0,
+    lights_watched = tonumber(summary.lights) or 0,
+    keypads_watched = tonumber(summary.keypads) or 0,
+    listeners = listenerCount(),
+  })
+end
+
+local function aiDescribe()
+  aireport.describe({
+    summary = "Measures how this home's system is used, which rooms play media and for how long, which lights stay on longest and which keypad buttons are pressed, rolled up per day for the installer's service visits.",
+    controls = { { id = "usage_meter", label = "Usage meter", class = "other" } },
+    vocabulary = { "usage", "how often", "how long", "most used", "keypad presses", "listening hours", "statistics" },
+  })
+end
+
 local function paint()
   local status = measuringStatus()
   local agent = client.displayStatus()
@@ -231,8 +268,14 @@ local function paint()
   local healthy = status == "measuring" or status == "idle" or status == "disabled"
   if gLastStatus ~= nil and gLastStatus ~= healthy then
     fire(healthy and EVENT_RESTORED or EVENT_DEGRADED)
+    aireport.diagnostic(
+      healthy and "info" or "warning",
+      healthy and "meter.restored" or "meter.degraded",
+      "Measuring status: " .. status
+    )
   end
   gLastStatus = healthy
+  aiReportState(status)
 end
 
 -- ─── Director surface ───────────────────────────────────────────────────────
@@ -639,13 +682,18 @@ function OnDriverLateInit(reason)
         gLastError = "Agent refused registration: " .. tostring(reply.reason)
         fire(EVENT_AGENT_OFF)
       end
+      aireport.onRegistered(reply)
       paint()
     end,
     onAgentState = function(agent, why)
       if why == "no_agent" then
         gLastError = "no SmartBuildOS Agent in this project (measuring locally)"
       end
+      aireport.onAgentState(agent, why)
       paint()
+    end,
+    onDirectoryChanged = function(version)
+      aireport.onDirectoryChanged(version)
     end,
     onCommand = onCommand,
     onConfig = function()
@@ -656,6 +704,9 @@ function OnDriverLateInit(reason)
       paint()
     end,
   })
+  -- AI Core: this driver's module client, its describe.
+  aireport.attach(client, { sku = SKU })
+  aiDescribe()
   EC.SBOS_MODULE_AGENT_EVENT = function(tParams)
     tParams = tParams or {}
     local name = tostring(tParams.name or "")
@@ -685,6 +736,7 @@ function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
   releaseAll()
   checkpoint(true)
+  aireport.stop() -- attach mode: leaves the client to the stop below
   client.flush()
   client.stop()
   CancelTimer(TICK_TIMER)

@@ -23,13 +23,26 @@
 --- of the serialised state, so a reboot does not clear it. Every denial
 --- counts, whatever its cause (a valid PIN used outside its hours counts as
 --- a failure), so the answer never tells an attacker that a guess was right.
+---
+--- The "ai_core" entry point (an owner PIN typed on the AI Core touchscreen
+--- page, verified here through a challenge) has no lockout of its own: it
+--- counts in the "page" bucket (M.LOCK_BUCKET), so AI attempts lock the page
+--- and page attempts lock AI verification. A guest cannot get a second set
+--- of guesses by switching screens.
 
 local Pin = require("guestmode.pin")
 
 local M = {}
 
 M.SLOTS = 12
-M.ENTRIES = { page = true, keypad = true, admin = true }
+M.ENTRIES = { page = true, keypad = true, admin = true, ai_core = true }
+--- Entry points that share another entry point's lockout.
+M.LOCK_BUCKET = { ai_core = "page" }
+
+--- The entry point whose lockout counts an attempt made through `entry`.
+function M.bucket(entry)
+  return M.LOCK_BUCKET[entry] or entry
+end
 M.ROLES = { owner = true, staff = true, vendor = true, guest = true }
 M.LIMITS = {
   codes = 60,
@@ -884,6 +897,7 @@ end
 -- ─── lockouts ───────────────────────────────────────────────────────────────
 
 function Engine:_lock(entry)
+  entry = M.bucket(entry)
   local l = self.locks[entry]
   if l == nil then
     l = { fails = 0 }
@@ -894,6 +908,7 @@ end
 
 --- @return boolean locked, number secondsLeft
 function Engine:lockState(entry)
+  entry = M.bucket(entry)
   local l = self.locks[entry]
   if l == nil or l.until_ == nil then
     return false, 0
@@ -910,6 +925,7 @@ end
 
 function Engine:clearLockouts(entry)
   local cleared = false
+  entry = entry ~= nil and M.bucket(entry) or nil
   for name, l in pairs(self.locks) do
     if entry == nil or name == entry then
       if l.until_ ~= nil or l.fails > 0 then
@@ -967,10 +983,10 @@ function Engine:_fail(entry, code, slot, reason)
     l.fails = 0
     result.locked = true
     result.retry_in = self.settings.lockSeconds
-    self:_recordRecent({ t = t, result = "locked", entry = entry, reason = "lockout started" })
-    self:_emit("locked_out", { entry = entry, seconds = self.settings.lockSeconds })
+    self:_recordRecent({ t = t, result = "locked", entry = M.bucket(entry), reason = "lockout started" })
+    self:_emit("locked_out", { entry = M.bucket(entry), seconds = self.settings.lockSeconds })
   end
-  self:_emit("changed", { what = "lock_state", entry = entry })
+  self:_emit("changed", { what = "lock_state", entry = M.bucket(entry) })
   return result
 end
 
@@ -1165,6 +1181,63 @@ function Engine:login(pin)
   return { ok = true, session = self:_newSession(), code = code.name }
 end
 
+--- Whether an enabled, currently valid owner code with a PIN exists (hours
+--- not considered): the precondition for AI Core PIN verification.
+function Engine:hasOwnerPin()
+  for _, c in ipairs(self.codes) do
+    if c.role == "owner" and c.pin ~= nil and self:codeState(c) == "active" then
+      return true
+    end
+  end
+  return false
+end
+
+--- AI Core verification: an owner PIN typed on the AI Core touchscreen page
+--- and posted to this driver's relay against a challenge (pinlock.challenge).
+--- Owner-role codes ONLY: staff, vendor and guest codes are refused whatever
+--- guarded actions they may fire. The attempt counts in the "page" lockout
+--- (entry "ai_core", M.LOCK_BUCKET). Nothing here fires a guarded action.
+---
+--- The code NAME is deliberately kept out of everything this path records
+--- or returns (recent list, events, result): the result carries the role
+--- and the code's slot (its 1-based position in the code list at this
+--- moment; not a stable identity) and nothing else that identifies it.
+--- @return table { ok, role?, slot?, locked?, retry_in? }
+function Engine:verifyOwnerPin(pin)
+  local entry = "ai_core"
+  local locked, left = self:lockState(entry)
+  if locked then
+    return self:_lockedResult(entry, nil, left)
+  end
+  pin = tostring(pin or "")
+  if not pin:match("^%d+$") or #pin < Pin.MIN or #pin > Pin.MAX then
+    return self:_fail(entry, nil, nil, "wrong_pin")
+  end
+  local code = self:_findBySecret("pin", pin)
+  if code == nil then
+    return self:_fail(entry, nil, nil, "wrong_pin")
+  end
+  if code.role ~= "owner" then
+    return self:_fail(entry, nil, nil, "not_owner")
+  end
+  local ok, why = self:_validity(code, nil, self:now())
+  if not ok then
+    return self:_fail(entry, nil, nil, why)
+  end
+  local slot
+  for i, c in ipairs(self.codes) do
+    if c == code then
+      slot = i
+    end
+  end
+  code.uses = (code.uses or 0) + 1
+  -- As on the page: a success does not forgive earlier wrong guesses.
+  self:_recordRecent({ t = self:now(), result = "verified", entry = entry, action = "AI Core verification" })
+  self:_emit("verified", { role = code.role, slot = slot, entry = entry })
+  self:_emit("changed", { what = "use" })
+  return { ok = true, role = code.role, slot = slot }
+end
+
 --- Creates the first owner code. Allowed only while no owner code exists.
 function Engine:setup(name, pin)
   if self:hasOwner() then
@@ -1219,8 +1292,10 @@ end
 function Engine:lockSummary()
   local out = {}
   for entry in pairs(M.ENTRIES) do
-    local locked, left = self:lockState(entry)
-    out[entry] = { locked = locked, seconds = left }
+    if M.bucket(entry) == entry then -- a shared bucket is shown once, under its owner
+      local locked, left = self:lockState(entry)
+      out[entry] = { locked = locked, seconds = left }
+    end
   end
   return out
 end
@@ -1380,7 +1455,7 @@ function Engine:restore(doc)
   self.locks = {}
   local t = self:now()
   for entry, l in pairs(type(doc.locks) == "table" and doc.locks or {}) do
-    if M.ENTRIES[entry] and type(l) == "table" then
+    if M.ENTRIES[entry] and M.bucket(entry) == entry and type(l) == "table" then
       local lock = { fails = toInt(l.fails) or 0, last = tonumber(l.last) }
       local untilAt = tonumber(l.until_)
       if untilAt ~= nil and untilAt > t then

@@ -116,6 +116,14 @@ it: whatever is bound there is told each time the door opens and closes.
 The driver names itself after the sensor while the device still has its install
 name or the name the driver gave it. A name you typed is kept.
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through UniFi Protect Gateway (SBOS)` when SmartBuildOS AI
+Core is in the project and `Not installed` when it is not; this driver never
+talks to AI Core itself (the UniFi Protect Gateway driver is the one that
+reports), and it shows `Searching…` until Director first answers.
+
 ## What is not claimed
 
 - **No tile in Navigator.** The sensor is connections, events and variables.

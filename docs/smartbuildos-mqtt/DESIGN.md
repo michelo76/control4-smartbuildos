@@ -196,6 +196,22 @@ needed elsewhere, none of it done here:
 - `src/mqtt/link.lua` lists the child and Flight Recorder filenames; a new
   child driver must be added there.
 
+## AI Core reporting (`sbos.aireport`, attach mode)
+
+When SmartBuildOS AI Core is installed, the broker reports to it over its
+OWN module client (guide §9 `attach`, module id `mqtt_broker`,
+non-singleton: each broker instance registers under its own device id).
+`onRegistered`, `onAgentState` and `onDirectoryChanged` are forwarded to
+the helper (the first two were empty before). Health and counts only: a
+describe (the MQTT bridge), a state from `paint()` (broker connected,
+read-only, devices, stale, topics seen, messages in / out) and the
+diagnostics `broker.connected` / `broker.disconnected` beside the existing
+events. Never a topic, payload, device name, host or credential. No
+events, queries or actions. `aireport.stop()` leaves the client alone;
+note the driver did not, and still does not, unregister its client in
+`OnDriverDestroyed`. Unit tests only (`test/test_mqtt_broker_aicore.lua`);
+nothing here has run on a controller.
+
 ## Tests
 
 `make test` runs, among the rest of the suite:

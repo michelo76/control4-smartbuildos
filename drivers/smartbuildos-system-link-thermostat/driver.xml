@@ -54,6 +54,7 @@
       <property><name>Last Result</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
       <property><name>Driver Status</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
       <property><name>Driver Version</name><type>STRING</type><default></default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Log Level</name><type>LIST</type><items><item>0 - Fatal</item><item>1 - Error</item><item>2 - Warning</item><item>3 - Info</item><item>4 - Debug</item><item>5 - Trace</item></items><default>2 - Warning</default></property>
       <property><name>Log Mode</name><type>LIST</type><items><item>Off</item><item>Print</item><item>Log</item><item>Print and Log</item></items><default>Off</default></property>
     </properties>

@@ -24,6 +24,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local bindings = require("lib.bindings")
 local license = require("sbos.license")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- finds a driver's modules by loading driver.lua.
+local aireport = require("sbos.aireport")
 local model = require("modes.model")
 local store = require("modes.store")
 local adapters = require("modes.adapters")
@@ -152,6 +155,8 @@ local rebuildGestures
 local registerTriggerListeners
 local pushStateToChildren
 local activateFromSurface
+local aiReportState
+local aiOnEngineEvent
 
 -- ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -430,6 +435,7 @@ local function refreshStateSurface()
   setVar("WARNING_COUNT", gWarningCount)
   UpdateProperty("Presence Mode", presence)
   UpdateProperty("Lifestyle Mode", lifestyle ~= "" and lifestyle or "-")
+  aiReportState()
 end
 
 -- ─── LED engine wiring ───────────────────────────────────────────────────────
@@ -749,6 +755,7 @@ end
 
 local function onEngineEvent(name, detail)
   log:debug("engine event %s", name)
+  aiOnEngineEvent(name, detail)
   if name == "mode_changed" then
     if detail.category == "PRESENCE" then
       pcall(function()
@@ -1012,6 +1019,8 @@ saveConfig = function()
   -- "Devices In Selected Mode" summary honest after Programming-tab edits.
   -- UpdateProperty dedupes, so unchanged paints cost nothing.
   paintSelectedMode()
+  -- AI Core's state carries the mode counts (the helper sends only a change).
+  aiReportState()
   return true
 end
 
@@ -2405,6 +2414,249 @@ end
 TC.PRESENCE_MODE_IS = nameConditional("PRESENCE")
 TC.LIFESTYLE_MODE_IS = nameConditional("LIFESTYLE")
 
+-- ─── AI Core (sbos.aireport, start mode) ─────────────────────────────────────
+--
+-- What this driver tells AI Core when AI Core is installed (nothing at all
+-- when it is not; the helper sends no frame). Mode Composer has no
+-- DC_FILENAME, so the helper is given the file name.
+--   describe   the two mode categories, the words people use
+--   state      the active modes, transition, occupancy, the last activation
+--   event      a mode changed; a departure countdown started
+--   diagnostic an activation failed, was blocked, or finished with failures
+--   queries    current_modes, recent_activations (read-only)
+--   action     activate_mode {mode}, declared HIGH (a mode can drive locks
+--              and security). It never runs on a model's say-so: the
+--              platform only proposes it, a person approves it, and the
+--              helper runs it only for a verified AI Core whose declaration
+--              hash matches. It runs the same activation as Composer's
+--              Activate Mode command (source SMARTBUILDOS). An activation
+--              still sending device commands, or in a departure countdown,
+--              answers in_progress (started, not completed); only a
+--              finished activation answers plain success.
+
+local AI_CATEGORY = { PRESENCE = "presence", LIFESTYLE = "lifestyle" }
+local AI_MAX_MODES = 48
+-- The action outcome for work begun that finishes later (aireport, ruling 23).
+local AI_IN_PROGRESS = { in_progress = true }
+
+aiReportState = function()
+  if gEngine == nil or gConfig == nil then
+    return
+  end
+  local active = gEngine:activeModes()
+  local presence, lifestyle = 0, 0
+  for _, mode in pairs(gConfig.modes) do
+    if mode.category == "PRESENCE" then
+      presence = presence + 1
+    else
+      lifestyle = lifestyle + 1
+    end
+  end
+  local facts = {
+    presence_mode = modeName(active.PRESENCE),
+    lifestyle_mode = modeName(active.LIFESTYLE),
+    transitioning = gEngine:isTransitioning() == true,
+    presence_modes = presence,
+    lifestyle_modes = lifestyle,
+    warning_count = gWarningCount,
+    config_read_only = gConfigReadOnly == true,
+  }
+  if gTriggers ~= nil then
+    facts.occupancy = gTriggers:occupancy(gConfig.modes).state
+  end
+  local last = gLastActivationRecord
+  if last ~= nil then
+    facts.last_activation_mode = modeName(last.mode_id)
+    facts.last_activation_result = tostring(last.result)
+    facts.last_activation_at = tonumber(last.time)
+  end
+  aireport.state(facts)
+end
+
+aiOnEngineEvent = function(name, detail)
+  detail = detail or {}
+  if name == "mode_changed" then
+    local category = AI_CATEGORY[detail.category] or "mode"
+    aireport.event(
+      "mode.changed",
+      string.format("The %s mode is now %s", category, modeName(detail.mode_id)),
+      { category = category, mode = modeName(detail.mode_id), previous = modeName(detail.previous) }
+    )
+  elseif name == "countdown_begin" then
+    aireport.event(
+      "mode.countdown_started",
+      string.format(
+        "%s starts in %d seconds (departure countdown)",
+        modeName(detail.mode_id),
+        tonumber(detail.seconds) or 0
+      ),
+      { mode = modeName(detail.mode_id), seconds = tonumber(detail.seconds) or 0 }
+    )
+  elseif name == "activation_failed" then
+    aireport.diagnostic(
+      "warning",
+      "activation.failed",
+      string.format(
+        "Activating %s failed (%d device command(s) failed)",
+        modeName(detail.mode_id),
+        #(detail.failures or {})
+      )
+    )
+  elseif name == "activation_blocked" then
+    aireport.diagnostic(
+      "warning",
+      "activation.blocked",
+      string.format("Activating %s was blocked by its preflight checks", modeName(detail.mode_id))
+    )
+  elseif name == "activation_warning" then
+    aireport.diagnostic(
+      "warning",
+      "activation.partial",
+      string.format("%s is active, but %d device command(s) failed", modeName(detail.mode_id), #(detail.failures or {}))
+    )
+  end
+end
+
+local function aiCurrentModes()
+  local active = gEngine:activeModes()
+  local list = {}
+  for _, mode in ipairs(model.orderedModes(gConfig)) do
+    if #list >= AI_MAX_MODES then
+      break
+    end
+    list[#list + 1] = {
+      name = mode.name,
+      category = AI_CATEGORY[mode.category] or "mode",
+      enabled = mode.enabled == true,
+      active = active[mode.category] == mode.id,
+    }
+  end
+  return {
+    presence_mode = modeName(active.PRESENCE),
+    lifestyle_mode = modeName(active.LIFESTYLE),
+    transitioning = gEngine:isTransitioning() == true,
+    modes = list,
+  }
+end
+
+local function aiRecentActivations(params)
+  local out = {}
+  for _, r in ipairs(gHistory:list(params.count or 5)) do
+    out[#out + 1] = {
+      mode = modeName(r.mode_id),
+      result = tostring(r.result),
+      source = tostring(r.source or ""):lower(),
+      at = tonumber(r.time),
+      device_commands = tonumber(r.actions) or 0,
+      failed_commands = #(r.failures or {}),
+    }
+  end
+  return { activations = out }
+end
+
+--- The declared action. Same path as Composer's Activate Mode command; the
+--- result text says what really happened, never more.
+local function aiActivateMode(params)
+  if not gInitialized or gEngine == nil then
+    return nil, "Mode Composer is still starting"
+  end
+  local mode = model.findByName(gConfig, params.mode)
+  if mode == nil then
+    return nil, "No mode is named " .. params.mode
+  end
+  if not mode.enabled then
+    return nil, string.format("%s is switched off", mode.name)
+  end
+  local before = gLastActivationRecord
+  local outcome = activateFromSurface(mode.id, "SMARTBUILDOS", { ai_action = true })
+  if type(outcome) ~= "table" then
+    return nil, string.format("%s was not activated", mode.name)
+  end
+  if outcome.status == "REFUSED" then
+    return nil, tostring(outcome.reason or "refused")
+  end
+  if outcome.noop then
+    return string.format("%s is already active", mode.name)
+  end
+  if outcome.status == "COUNTDOWN" then
+    -- Not active yet (the countdown can still be cancelled): started, not
+    -- finished (ruling 23).
+    return string.format("%s starts in %d seconds (departure countdown)", mode.name, tonumber(outcome.seconds) or 0),
+      AI_IN_PROGRESS
+  end
+  if outcome.status == "DONE" and outcome.result == "BLOCKED" then
+    return nil, string.format("%s was blocked by its preflight checks", mode.name)
+  end
+  if outcome.status == "DONE" and outcome.result == "FAILED" then
+    return nil, string.format("%s could not be activated", mode.name)
+  end
+  local rec = gLastActivationRecord
+  if rec ~= nil and rec ~= before and rec.activation_id == outcome.activation_id then
+    -- The activation already finished (no delayed commands).
+    if rec.result == "FAILED" then
+      return nil, string.format("Activating %s failed", mode.name)
+    elseif rec.result == "SUCCESS_WITH_WARNINGS" then
+      return string.format("%s is active; %d device command(s) failed", mode.name, #(rec.failures or {}))
+    end
+    return string.format("%s is active", mode.name)
+  end
+  -- Still sending device commands: started, not finished (ruling 23), so
+  -- it is never recorded as completed.
+  return string.format(
+    "Activating %s: %d device command(s) are being sent; the outcome follows as an event",
+    mode.name,
+    tonumber(outcome.actions) or 0
+  ),
+    AI_IN_PROGRESS
+end
+
+local function startAiCore()
+  aireport.declareQuery({
+    id = "current_modes",
+    description = "Which house modes exist and which presence and lifestyle modes are active.",
+    params = {},
+  }, function()
+    return aiCurrentModes()
+  end)
+  aireport.declareQuery({
+    id = "recent_activations",
+    description = "The most recent mode activations: which mode, when, from where and how it went.",
+    params = { { name = "count", type = "integer", min = 1, max = 10, required = false } },
+  }, aiRecentActivations)
+  aireport.declareAction({
+    id = "activate_mode",
+    title = "Activate a house mode",
+    description = "Activates one of the house modes by name, exactly as the Activate Mode command in Composer does.",
+    params = { { name = "mode", type = "string", max_len = 64, required = true } },
+    risk = "high",
+  }, aiActivateMode)
+  aireport.start({ sku = SKU, file = "smartbuildos-mode-composer.c4z" })
+  aireport.describe({
+    summary = "House modes for the home: one presence mode (Home, Away, Vacation …) and one lifestyle mode (Movie, Sleep …) at a time, each setting a group of devices.",
+    controls = {
+      { id = "presence_mode", label = "Presence mode", class = "mode" },
+      { id = "lifestyle_mode", label = "Lifestyle mode", class = "mode" },
+    },
+    vocabulary = {
+      "mode",
+      "house mode",
+      "scene",
+      "home",
+      "away",
+      "vacation",
+      "sleep",
+      "goodnight",
+      "movie",
+      "party",
+      "morning",
+      "night",
+      "leaving",
+      "arriving",
+    },
+  })
+  aiReportState()
+end
+
 -- ─── Lifecycle ───────────────────────────────────────────────────────────────
 
 function OnDriverInit()
@@ -2469,6 +2721,7 @@ function OnDriverLateInit()
   end
 
   license.setup({ sku = SKU })
+  startAiCore()
 
   SetTimer(SCHEDULE_TIMER, 30 * ONE_SECOND, scheduleTick, true)
 
@@ -2486,6 +2739,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   CancelTimer(SCHEDULE_TIMER)
   CancelTimer(PULSE_TIMER)
   KillAllTimers()

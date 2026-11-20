@@ -107,6 +107,14 @@ current and *Remote Lock Is Locked* is false, announce that the far door is
 unlocked. If it is not current, say that the far door's state is not known. Do
 not use the `Locked` variable alone for this: it reads 0 when there is no value.
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core
+is in the project and `Not installed` when it is not; this driver never talks to
+AI Core itself (the System Link driver is the one that reports), and it shows
+`Searching…` until Director first answers.
+
 ## Limits
 
 - Programming cannot lock or unlock. The Test actions on the Actions tab are the

@@ -99,6 +99,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Manager PIN</name><type>STRING</type><password>true</password><default></default><description>The PIN staff type on the schedule page before a change is saved. Empty means the page is read-only. Five wrong PINs lock edits for a minute.</description></property>
       <property><name>Volume Ramp Seconds</name><type>RANGED_INTEGER</type><minimum>0</minimum><maximum>600</maximum><default>20</default><description>How long the volume takes to move to a block's level when the block starts. 0 sets it at once.</description></property>
       <property><name>End Behaviour</name><type>LIST</type><items><item>Hold</item><item>Fade Out</item><item>Off</item></items><default>Hold</default><description>What happens when a block ends and no other block follows: Hold leaves everything as it is, Fade Out lowers the volume to nothing and turns the room off, Off turns the room and the zone displays off at once.</description></property>

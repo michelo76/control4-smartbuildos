@@ -316,6 +316,10 @@ print("\n[11] Module drivers receive their forwarded settings")
 local KNOWN_UNFORWARDED = {
   SBOS_MQTT_BROKER = true,
   SBOS_USAGE_ANALYTICS = true,
+  -- PIN Lock joins the bus (feat/ai-core) but registers with
+  -- claim_driver_config = false and takes no platform settings, so there is
+  -- nothing to forward to it yet.
+  SBOS_PIN_LOCK = true,
 }
 local skuBlock = src:match("local%s+SKU_FILENAMES%s*=%s*(%b{})")
 check("SKU_FILENAMES was found in the source", skuBlock ~= nil)

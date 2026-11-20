@@ -935,6 +935,85 @@ check(
   deviceSent[#deviceSent] ~= nil and deviceSent[#deviceSent].command == "SBOS_ENTITLEMENT"
 )
 
+print("\n[27] Two instances of one SKU: removing one keeps the SKU for the other")
+-- The inventory used to keep ONE device id per SKU (the last to register):
+-- removing that instance dropped the SKU although another was installed,
+-- and the instance that remained never heard a licence push.
+reset()
+paired()
+local project = { [301] = { deviceName = "AI Core" }, [302] = { deviceName = "AI Core (2)" } }
+local realGetDevices = C4.GetDevices
+function C4:GetDevices()
+  return project
+end
+seedCache({ SBOS_AI_CORE = signedAssertion({ driver_sku = "SBOS_AI_CORE" }) })
+EC.SBOS_REGISTER_DRIVER({ sku = "SBOS_AI_CORE", requester = "301", version = "20261118.1" })
+EC.SBOS_REGISTER_DRIVER({ sku = "SBOS_AI_CORE", requester = "302", version = "20261118.1" })
+local function refreshWith(sku)
+  nextResponse = {
+    ok = true,
+    code = 200,
+    body = JSON:encode({
+      assertions = { signedAssertion({ driver_sku = sku }) },
+      support_id = "SBOS-A1B2C3",
+      checked_at = isoNow(),
+      revalidate_after_hours = 24,
+      offline_cache_days = 7,
+    }),
+  }
+  deviceSent = {}
+  requests = {}
+  EC.REFRESH_ENTITLEMENTS()
+  local installed = {}
+  for _, item in ipairs((lastRequestTo("/api/driver-cloud/entitlements/refresh") or { data = {} }).data.installed or {}) do
+    if item.sku == sku then
+      installed[#installed + 1] = item.device_id
+    end
+  end
+  local pushedTo = {}
+  for _, sent in ipairs(deviceSent) do
+    if sent.command == "SBOS_ENTITLEMENT" and (sent.params or {}).sku == sku then
+      pushedTo[sent.device] = true
+    end
+  end
+  return installed, pushedTo
+end
+local installed2, pushed2 = refreshWith("SBOS_AI_CORE")
+check("both instances installed: the SKU is in the refresh", #installed2 == 1, #installed2)
+check("both instances are pushed the licence", pushed2[301] == true and pushed2[302] == true)
+project[302] = nil -- the second instance is removed from the project
+local installed1, pushed1 = refreshWith("SBOS_AI_CORE")
+check(
+  "the second instance removed: SBOS_AI_CORE stays in the inventory",
+  store["sbos_driver_inventory"].SBOS_AI_CORE ~= nil
+)
+check(
+  "…and rides along in the refresh, under the instance that remains",
+  #installed1 == 1 and tonumber(installed1[1]) == 301,
+  installed1[1]
+)
+check("the remaining instance is still pushed its licence", pushed1[301] == true and pushed1[302] == nil)
+local counted = Properties["Licensed Drivers"] or ""
+check("Licensed Drivers still counts it", counted:find("1", 1, true) ~= nil, counted)
+project[301] = nil
+project[999] = { deviceName = "something else" }
+local installed0 = refreshWith("SBOS_AI_CORE")
+check(
+  "the last instance removed: the SKU leaves the inventory",
+  store["sbos_driver_inventory"].SBOS_AI_CORE == nil and #installed0 == 0
+)
+-- An inventory persisted before instances were tracked (device_id only).
+store["sbos_driver_inventory"] = {
+  SBOS_AI_CORE = { version = "20261118.1", device_id = 301, registered_at = "x", last_seen = "x" },
+}
+project[301] = { deviceName = "AI Core" }
+local installedOld = refreshWith("SBOS_AI_CORE")
+check(
+  "an inventory saved before instances were tracked still works (device_id)",
+  #installedOld == 1 and tonumber(installedOld[1]) == 301
+)
+C4.GetDevices = realGetDevices
+
 -- ─── Summary ──────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", pass, fail))

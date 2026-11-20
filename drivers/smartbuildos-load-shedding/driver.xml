@@ -150,6 +150,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Summary</name><type>STRING</type><default>nothing shed</default><readonly>true</readonly></property>
       <property><name>Last Event</name><type>STRING</type><default>none yet</default><readonly>true</readonly></property>
       <property><name>Last Refusal</name><type>STRING</type><default>none</default><readonly>true</readonly></property>

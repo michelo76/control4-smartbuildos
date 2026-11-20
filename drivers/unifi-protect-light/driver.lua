@@ -25,6 +25,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+local aipresence = require("sbos.aipresence")
 
 local GATEWAY_BINDING = 1
 local IDENTITY_PERSIST = "light_identity"
@@ -189,10 +190,12 @@ function OnDriverLateInit()
   updateStatusProperties()
   requestIdentity()
   armIdentityRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   CancelTimer(IDENTITY_RETRY_TIMER)
+  aipresence.stop()
 end
 
 OBC[GATEWAY_BINDING] = function(_, _, bIsBound)
@@ -217,6 +220,8 @@ end
 
 function RFP.PROTECT_STATE(_, _, tParams)
   tParams = tParams or {}
+  -- The gateway's pushes are the bounded AI Core re-check (KI-42).
+  aipresence.recheck()
   if gIdentity == nil then
     requestIdentity()
   end

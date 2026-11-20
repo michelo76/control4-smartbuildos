@@ -69,6 +69,17 @@ dealer edits from a Navigator tile behind a PIN.
 - Whether Navigator honours `URL_CHANGED` for a tile that is open: known not
   to (Atmosphere); documented as "close and reopen".
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `dealer_panel` (guide §9 `start`) and reports: a describe
+(the dealer settings behind a PIN), a state from `paint()` (settings
+configured, writable, read-only, locked; never names, values or the PIN)
+and the diagnostic `panel.locked` beside the existing Panel Locked event.
+No events, queries or actions. Without AI Core nothing is sent. Unit tests
+only (`test/test_dealerpanel_aicore.lua`); nothing here has run on a
+controller.
+
 ## Not included (v1)
 
 - No history of changes beyond *Last Change* and the event.

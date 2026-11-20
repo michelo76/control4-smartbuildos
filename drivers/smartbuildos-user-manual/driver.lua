@@ -42,6 +42,9 @@ local RelayHost = require("lib.relayhost")
 local gHost = nil -- the relay address resolver, built once publishWebViewUrl exists
 local Manual = require("usermanual.manual")
 local Relay = require("usermanual.relay")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -323,6 +326,45 @@ local function manualStatus()
   return "serving"
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   the Home Guide tile and the words people use for it
+--   state      guide status and how many rooms and devices it covers
+--              (counts only: never the home name, the dealer's contact
+--              block, room notes or device names)
+--   diagnostic the guide stopped serving / serves again (the driver's own
+--              Guide Unavailable / Guide Restored transition)
+--   events, queries, actions: none
+
+local function aiReportState(status)
+  local facts = { manual_status = status }
+  if gManual ~= nil then
+    facts.rooms = tonumber(gManual.counts.rooms) or 0
+    facts.devices = tonumber(gManual.counts.devices) or 0
+  end
+  aireport.state(facts)
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "The Home Guide on the touchscreens: a manual of this home built from the project, room by room, with how each kind of device is used, the dealer's notes and who to call for help.",
+    controls = { { id = "home_guide", label = "Home Guide", class = "other" } },
+    vocabulary = {
+      "home guide",
+      "manual",
+      "user guide",
+      "help",
+      "instructions",
+      "how do I",
+      "who do I call",
+      "support",
+    },
+  })
+end
+
 local function paint()
   local status = manualStatus()
   UpdateProperty("Manual Status", status)
@@ -348,8 +390,14 @@ local function paint()
   local serving = status == "serving"
   if gLastServing ~= nil and gLastServing ~= serving then
     fire(serving and EVENT_RESTORED or EVENT_UNAVAILABLE)
+    aireport.diagnostic(
+      serving and "info" or "warning",
+      serving and "guide.restored" or "guide.unavailable",
+      serving and "The Home Guide is serving again" or ("The Home Guide stopped serving: " .. status)
+    )
   end
   gLastServing = serving
+  aiReportState(status)
 end
 
 -- ─── Licence ────────────────────────────────────────────────────────────────
@@ -425,6 +473,7 @@ function OnDriverLateInit(reason)
     reconcileLicence()
     paint()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -455,6 +504,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   stopRelay()
   CancelTimer(REBUILD_TIMER)
   CancelTimer(STATUS_TIMER)

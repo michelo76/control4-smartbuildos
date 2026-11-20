@@ -38,6 +38,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local Engine = require("loadshed.engine")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -246,6 +249,52 @@ local function summaryLine()
   )
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   load shedding in three tiers on a grid outage or a low
+--              battery, restored in order
+--   state      shed status, outage active, highest tier shed, loads shed,
+--              battery percent (what Shed Status / Summary already show)
+--   diagnostic a load command could not be sent; a load did not come back
+--              after its restore retries (the driver's own Load Failed)
+--   events, queries, actions: none. Shedding and restoring switch real
+--              loads and stay with the driver's own rules and the dealer.
+
+local function aiReportState(status)
+  local b = gEngine.st.battery
+  aireport.state({
+    shed_status = status,
+    read_only = gHalted == true,
+    outage_active = gEngine:outageActive() == true,
+    highest_tier_shed = tonumber(gEngine:highestShedTier()) or 0,
+    loads_shed = tonumber(gEngine:shedCount()) or 0,
+    battery_percent = b and math.floor(b + 0.5) or -1,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Turns heavy electrical loads off in three priority tiers when the grid goes down or the home battery runs low, and turns them back on in order once power has held.",
+    controls = {
+      { id = "load_shedding", label = "Load shedding", class = "power" },
+      { id = "battery", label = "Home battery level", class = "power" },
+    },
+    vocabulary = {
+      "power outage",
+      "power cut",
+      "blackout",
+      "battery",
+      "backup power",
+      "generator",
+      "load shedding",
+      "grid",
+    },
+  })
+end
+
 local function paint()
   if gEngine == nil then
     return
@@ -261,6 +310,7 @@ local function paint()
   setVar("LOADS_SHED", gEngine:shedCount())
   local b = gEngine.st.battery
   setVar("BATTERY_PERCENT", b and math.floor(b + 0.5) or -1)
+  aiReportState(status)
 end
 
 local function stamp(text)
@@ -318,6 +368,11 @@ local function onEngineEvent(kind, f)
     stamp(string.format("load %s: %s failed", tostring(f.slot), tostring(f.action)))
     log:warn("load %s %s (%s) could not be sent", tostring(f.slot), tostring(f.action), tostring(f.command))
     fire(EVENT_FAILED)
+    aireport.diagnostic(
+      "warning",
+      "load.command_failed",
+      string.format("Load %s: the %s command could not be sent", tostring(f.slot), tostring(f.action))
+    )
   elseif kind == "restore_failed" then
     stamp(string.format("load %s did not come back after %s retries", tostring(f.slot), tostring(f.tries)))
     record(
@@ -331,6 +386,15 @@ local function onEngineEvent(kind, f)
     )
     log:error("load %s restore not confirmed after %s retries", tostring(f.slot), tostring(f.tries))
     fire(EVENT_FAILED)
+    aireport.diagnostic(
+      "fault",
+      "load.restore_failed",
+      string.format(
+        "Load %s did not come back after %s restore tries; check it by hand",
+        tostring(f.slot),
+        tostring(f.tries)
+      )
+    )
   elseif kind == "restore_unverified" then
     log:info(
       "load %s restore sent %s more time(s); its state cannot be read, so it is unconfirmed",
@@ -648,6 +712,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -668,6 +733,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop)
+  aireport.stop()
   if gEngine then
     save()
     gEngine:stop()

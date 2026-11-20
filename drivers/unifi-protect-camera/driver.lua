@@ -57,6 +57,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+local aipresence = require("sbos.aipresence")
 
 -- ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -513,10 +514,12 @@ function OnDriverLateInit()
   updateStatusProperties()
   requestIdentity()
   armIdentityRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   CancelTimer(IDENTITY_RETRY_TIMER)
+  aipresence.stop()
 end
 
 -- ─── Gateway binding ──────────────────────────────────────────────────────────
@@ -558,6 +561,8 @@ end
 
 function RFP.PROTECT_STATE(_, _, tParams)
   tParams = tParams or {}
+  -- The gateway's pushes are the bounded AI Core re-check (KI-42).
+  aipresence.recheck()
   local newState = tostring(tParams.state or "UNKNOWN")
   if gIdentity ~= nil and tParams.snapshot_url ~= nil and tostring(tParams.snapshot_url) ~= gIdentity.snapshot_url then
     gIdentity.snapshot_url = tostring(tParams.snapshot_url)

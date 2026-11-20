@@ -131,6 +131,45 @@ function Ring:count()
   return self.size
 end
 
+--- The entry with sequence `seq`, or nil when it is no longer (or never
+--- was) held. O(1) on the contiguous sequence a ring keeps; falls back to a
+--- scan if a restored history ever breaks that.
+function Ring:get(seq)
+  seq = tonumber(seq)
+  if seq == nil or self.size == 0 then
+    return nil
+  end
+  local offset = self.seq - seq
+  if offset >= 0 and offset < self.size then
+    local idx = self.head - offset
+    if idx < 1 then
+      idx = idx + self.capacity
+    end
+    local e = self.items[idx]
+    if e ~= nil and e.seq == seq then
+      return e
+    end
+  end
+  for e in newestFirst(self) do
+    if e.seq == seq then
+      return e
+    end
+  end
+  return nil
+end
+
+--- The oldest entry still held, or nil when empty.
+function Ring:oldest()
+  if self.size == 0 then
+    return nil
+  end
+  local idx = self.head - (self.size - 1)
+  if idx < 1 then
+    idx = idx + self.capacity
+  end
+  return self.items[idx]
+end
+
 function Ring:latest()
   if self.size == 0 then
     return nil

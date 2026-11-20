@@ -45,6 +45,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local moduleclient = require("sbos.moduleclient")
+-- AI Core: reports only while Remote Management is on (see "AI Core" below).
+local aireport = require("sbos.aireport")
+local aipresence = require("sbos.aipresence")
 local RelayHost = require("lib.relayhost")
 local Core = require("venueflow.core")
 local Relay = require("venueflow.relay")
@@ -195,6 +198,8 @@ local function relayHost()
   return (gHost:host())
 end
 
+local aiState -- the AI Core facts (defined in the AI Core section below)
+
 local function paint()
   if gCore == nil then
     return
@@ -221,6 +226,7 @@ local function paint()
     studio = string.format("http://%s:%d/studio", relayHost(), gRelayPort)
   end
   UpdateProperty("Installer Studio", studio)
+  aiState()
 end
 
 -- ─── Relay (the pattern of Daypart, PIN Lock and Commissioning) ─────────────
@@ -298,6 +304,8 @@ function OnServerDataIn(handle, data, address, _, identifier)
     else
       gLastError = "relay: " .. tostring(routed):sub(1, 120)
       log:error("VenueFlow relay failed: %s", tostring(routed))
+      -- Fixed text: the error itself stays in Last Error and the log.
+      aireport.diagnostic("fault", "relay.request_failed", "A VenueFlow page request failed inside the driver")
       result = { status = "500 Internal Server Error", contentType = "application/json", body = '{"ok":false}' }
     end
   end
@@ -596,15 +604,75 @@ function VenueFlowRemoteCommand(request)
   pcall(paint)
 end
 
+-- ─── AI Core (conductor ruling: Remote Management decides) ─────────────────
+--
+-- The module client exists only while Remote Management is on, so:
+--   on   this driver reports to AI Core over THAT client (sbos.aireport,
+--        attach mode), like the other root drivers:
+--          describe     hand-written below; no controls, no queries, no actions
+--          state        non-personal facts only: control mode, whether a
+--                       configuration is published and its counts of
+--                       displays / sources / audio zones / scenes, the alert
+--                       count, the remote level, whether the page relay
+--                       listens. Never the venue name, scene or staff names,
+--                       passcodes or PINs.
+--          events       none
+--          diagnostics  the fault the driver already detects at run time: a
+--                       page request failed inside the driver. (A relay that
+--                       could not listen fails at start, before any report
+--                       can be sent; it shows as relay_listening = false.)
+--   off  nothing registers and nothing is sent; sbos.aipresence (silent)
+--        shows "Installed — this driver does not report" or "Not installed".
+-- Switching the property moves between the two (startRemote).
+
+local function aiFacts()
+  local facts = {
+    control_mode = controlMode(),
+    remote_management = gRemoteLevel or "off",
+    relay_listening = gRelayPort ~= nil,
+    configuration_published = false,
+  }
+  local config = gCore ~= nil and gCore.config or nil
+  if type(config) == "table" then
+    facts.configuration_published = true
+    facts.displays = #(config.displays or {})
+    facts.sources = #(config.sources or {})
+    facts.audio_zones = #(config.audioZones or {})
+    facts.scenes = #(config.scenes or {})
+  end
+  if gCore ~= nil then
+    local ok, s = pcall(function()
+      return gCore:summary()
+    end)
+    if ok and type(s) == "table" and tonumber(s.alerts) ~= nil then
+      facts.alerts = tonumber(s.alerts)
+    end
+  end
+  return facts
+end
+
+--- Sends the facts while attached (the helper sends only a change, at most
+--- 6 a minute); nothing while Remote Management is off.
+aiState = function()
+  if aireport.mode() == "attach" then
+    aireport.state(aiFacts())
+  end
+end
+
 local function startRemote()
   -- Any earlier registration ends first: its command list may be wider than
-  -- what the property allows now.
+  -- what the property allows now. The AI Core helper lets go of the client
+  -- first (attach mode never stops a client it did not set up).
+  pcall(aireport.stop)
   pcall(moduleclient.stop)
   gRemoteLevel = remoteLevel()
   if gRemoteLevel == nil then
+    -- Off: no module client, so no registration and no frame of any kind.
+    aipresence.start({ silent = true })
     paintRemote()
     return
   end
+  aipresence.stop()
   moduleclient.setup({
     module_id = MODULE_ID,
     driver_version = tostring(C4:GetDriverConfigInfo("version")),
@@ -618,17 +686,28 @@ local function startRemote()
       return "running", statusLine(), venueCounters()
     end,
     configVersion = configVersion,
-    onRegistered = function()
+    onRegistered = function(reply)
       paintRemote()
+      aireport.onRegistered(reply)
     end,
-    onAgentState = function()
+    onAgentState = function(agent, why)
       paintRemote()
+      aireport.onAgentState(agent, why)
+    end,
+    onDirectoryChanged = function(version)
+      aireport.onDirectoryChanged(version)
     end,
     onCommand = VenueFlowRemoteCommand,
     onConfig = function()
       return true, 0
     end,
   })
+  aireport.attach(moduleclient, { sku = SKU })
+  aireport.describe({
+    summary = "Venue audio and video control for bars, restaurants and offices: displays, sources, audio zones and scenes.",
+    vocabulary = { "venue", "displays", "sources", "audio zones", "scenes" },
+  })
+  aiState()
   moduleclient.register()
   paintRemote()
 end
@@ -873,6 +952,8 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop)
+  pcall(aireport.stop) -- attach mode: leaves the client to the stop below
+  pcall(aipresence.stop)
   pcall(moduleclient.stop)
   stopRelay()
   if gCore ~= nil then

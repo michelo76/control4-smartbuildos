@@ -360,7 +360,7 @@ check(
       and type(hb.data.event_pipeline) == "table"
       and hb.data.event_pipeline.depth == 0
       and hb.data.modules == nil
-      and hb.data.module_protocol.max == 1
+      and hb.data.module_protocol.max == 2
   end)()
 )
 check(
@@ -427,7 +427,7 @@ check(
       protocol_max = "5",
       singleton = "false",
     })
-    return r.ok == "false" and r.reason == "incompatible_protocol" and r.agent_protocol_max == "1"
+    return r.ok == "false" and r.reason == "incompatible_protocol" and r.agent_protocol_max == "2"
   end)()
 )
 

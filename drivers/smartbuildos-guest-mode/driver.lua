@@ -33,6 +33,9 @@ local license = require("sbos.license")
 local Ical = require("guestmode.ical")
 local Stays = require("guestmode.stays")
 local Pin = require("guestmode.pin")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -200,6 +203,49 @@ local function calendarsLine()
   return string.format("%d configured, %d loaded%s", #list, ok, bad > 0 and (", " .. bad .. " failing") or "")
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise). HEALTH AND COUNTS ONLY:
+--   describe   guest stays from the host's booking calendars
+--   state      calendars configured / loaded / failing, and whether the
+--              driver is halted by its licence. NEVER the guest status
+--              (it says whether anyone is in the home), a guest's name,
+--              stay dates or counts, the guest PIN or the Wi-Fi password,
+--              or a calendar address (it carries a private token)
+--   diagnostic every calendar failed to load / calendars load again (the
+--              driver's own Calendars Unavailable / Restored events)
+--   events, queries, actions: none
+
+local function aiReportState()
+  local list = urls()
+  local loaded, failing = 0, 0
+  for _, u in ipairs(list) do
+    local f = gFeeds[u]
+    if type(f) == "table" and f.events ~= nil and f.error == nil then
+      loaded = loaded + 1
+    end
+    if type(f) == "table" and f.error ~= nil then
+      failing = failing + 1
+    end
+  end
+  aireport.state({
+    calendars = #list,
+    calendars_loaded = loaded,
+    calendars_failing = failing,
+    halted_by_licence = gLicenceHalted == true,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Guest stays for a short-let home, read from the host's booking calendars (Airbnb, Booking.com, VRBO), so the home's programming can welcome guests, prepare turnover and hand out a per-stay door code.",
+    controls = { { id = "guest_stays", label = "Guest stays", class = "other" } },
+    vocabulary = { "guest", "guests", "booking", "check-in", "check-out", "turnover", "rental", "airbnb", "calendar" },
+  })
+end
+
 local function paint()
   local status = guestStatus()
   local ev = gLastEval
@@ -237,6 +283,7 @@ local function paint()
   end
   setVar("CALENDARS_OK", okCount)
   setVar("LAST_ERROR", gLastError ~= "none" and gLastError or "")
+  aiReportState()
 end
 
 -- ─── The clock tick ────────────────────────────────────────────────────────
@@ -295,12 +342,18 @@ local function finishPoll()
     if not gCalendarsDown then
       gCalendarsDown = true
       fire(EVENT_CAL_DOWN)
+      aireport.diagnostic(
+        "warning",
+        "calendars.unavailable",
+        "Every booking calendar failed to load; the last good data stays in force"
+      )
       log:warn("Every calendar failed to load; the last good data stays in force")
     end
   elseif gCalendarsDown then
     gCalendarsDown = false
     gLastError = "none"
     fire(EVENT_CAL_UP)
+    aireport.diagnostic("info", "calendars.restored", "The booking calendars load again")
   end
   persist:set(FEEDS_KEY, gFeeds)
   rebuildStays()
@@ -471,6 +524,7 @@ function OnDriverLateInit(reason)
     reconcileLicence()
     paint()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -492,6 +546,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   persistState()
   CancelTimer(TICK_TIMER)
   CancelTimer(POLL_TIMER)

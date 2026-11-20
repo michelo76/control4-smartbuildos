@@ -45,6 +45,9 @@ local RelayHost = require("lib.relayhost")
 local Engine = require("commissioning.engine")
 local Actuate = require("commissioning.actuate")
 local Relay = require("commissioning.relay")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -260,6 +263,41 @@ local function runStatus()
   return gEngine:status()
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   the pre-handoff test run of the installation, room by room
+--   state      run status, test list size, and the run's passed / failed /
+--              skipped / open counts (never item or room names, notes or
+--              who signed off)
+--   diagnostics, events, queries, actions: none. A failed test item is a
+--              result of the run, not a fault of this driver, and every
+--              test acts on real devices, so nothing is offered to run
+--   (the run counts are what the Run Summary property already shows)
+
+local function aiReportState(status, c)
+  aireport.state({
+    run_status = status,
+    read_only = gHalted == true,
+    items = #gEngine.items,
+    rooms = #gEngine:rooms(),
+    passed = c.passed,
+    failed = c.failed,
+    skipped = c.skipped,
+    open = c.pending,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "The installer's commissioning test run before handover: every light, shade, audio-video zone and sensor in the home tested room by room, with the results kept as the as-built record.",
+    controls = { { id = "commissioning_run", label = "Commissioning run", class = "other" } },
+    vocabulary = { "commissioning", "handover", "test run", "punch list", "as-built", "installation check", "sign off" },
+  })
+end
+
 local function paint()
   if gEngine == nil then
     return
@@ -281,6 +319,7 @@ local function paint()
   setVar("FAILED_COUNT", c.failed)
   setVar("SKIPPED_COUNT", c.skipped)
   setVar("OPEN_COUNT", c.pending)
+  aiReportState(status, c)
 end
 
 local function refused(what, why)
@@ -827,6 +866,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+  startAiCore()
 
   rebuildList()
   refreshPickers()
@@ -852,6 +892,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop)
+  aireport.stop()
   if gEngine then
     save()
   end

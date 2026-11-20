@@ -40,6 +40,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-temperature.c4z",
   "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-insights.c4z",
+  "smartbuildos-ai-core.c4z",
   "smartbuildos-venueflow.c4z",
   "bond-bridge.c4z",
   "bond-color-light.c4z",
@@ -88,6 +89,12 @@ Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
 SeqBlock = require("sbos.seqblock")
 Envelope = require("sbos.envelope")
+-- Module contract v2 (discovery, pub/sub, request/response, cloud relay):
+-- docs/protocol/MODULE-CONTRACT-V2.md. Global for the same reason.
+ModuleBus = require("sbos.modulebus")
+-- The Agent's own "AI Core" property, painted from this registry (ruling 20).
+-- Global for the same reason.
+AgentAiCore = require("sbos.agentaicore")
 SlProtocol = require("systemlink.protocol")
 -- Send Push Notification: the message variables are the Notification
 -- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
@@ -358,6 +365,11 @@ local gStart = { count = 0, at = nil, kind = nil, restart = nil, today = 0, day 
 --- Every Director system event seen since this start, by name. Shipped on
 --- the heartbeat so the fleet tells us which events each OS actually fires.
 gSystemEventCounts = {}
+--- Director system-event ids this load has registered for (id -> true). A
+--- global, not a local: this chunk is at Lua's 200-local ceiling. Lets
+--- RegisterSystemEvents run at start AND on the pairing transition without
+--- registering an id twice; reset by a Director reload with everything else.
+gSystemEventRegistrations = {}
 --- Project edits (Composer adds/removes/renames/rebinds): a per-day count,
 --- the last one, and the names pending the next debounced flush.
 gProjectChanges = { day = nil, count = 0, last_at = nil, last_name = nil, pending = {} }
@@ -1122,7 +1134,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
     end
 
     if onDelivered then
-      pcall(onDelivered)
+      pcall(onDelivered, response)
     end
 
     if onOk then
@@ -1147,7 +1159,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       -- connection it was reporting on no longer exists.
       log:info("%s failed after unpairing; ignored: %s", description, tostring(err and (err.error or err.code) or err))
       if onFailed then
-        pcall(onFailed, "unpaired")
+        pcall(onFailed, "unpaired", httpStatus(err))
       end
       return
     end
@@ -1190,7 +1202,7 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       }, "sync failure report")
     end
     if onFailed then
-      pcall(onFailed, reason)
+      pcall(onFailed, reason, code)
     end
   end)
 end
@@ -2458,6 +2470,9 @@ function driverCapabilities()
     -- module commands (MODULE_COMMAND) and on-request variable discovery.
     "modules_v1",
     "flight_recorder_v1",
+    -- Module contract v2: discovery, local pub/sub, module requests and the
+    -- closed-vocabulary cloud relay (POST modules/rpc).
+    "modules_v2",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -2466,6 +2481,8 @@ function driverCapabilities()
   if rank >= 2 then
     caps[#caps + 1] = "comfort_v1" -- lights, scenes, thermostat setpoints
     caps[#caps + 1] = "camera_v1" -- live snapshot, never persisted
+    -- MODULE_COMMAND ai_core.invoke_driver_action (a driver-declared action)
+    caps[#caps + 1] = "driver_actions_v1"
   end
   if rank >= 3 then
     caps[#caps + 1] = "control_v1"
@@ -2760,6 +2777,9 @@ end
 --- that predates a driver must never guess at filenames.
 local SKU_FILENAMES = {
   SBOS_ATMOSPHERE = { "smartbuildos-atmosphere.c4z" },
+  -- SmartBuildOS AI Core: configuration (learning, exclusions, provider
+  -- display names, credential STATUS text) reaches it by this SKU.
+  SBOS_AI_CORE = { "smartbuildos-ai-core.c4z" },
   SBOS_FLIGHT_RECORDER = { "smartbuildos-flight-recorder.c4z" },
   SBOS_MODE_COMPOSER = { "smartbuildos-mode-composer.c4z", "smartbuildos-mode-button.c4z" },
   SBOS_SYSTEM_LINK = {
@@ -3160,6 +3180,8 @@ local function sendHeartbeat()
       -- drops with sequence ranges, upload failures, last ack, limits).
       modules = ModulesHeartbeatBlock(),
       event_pipeline = gEvents and gEvents:health() or nil,
+      -- Contract v2 bus totals (requests, refused, timeouts, published, dropped, cloud calls).
+      module_bus = gBus and gBus:health() or nil,
       module_protocol = { min = Modules.PROTOCOL_MIN, max = Modules.PROTOCOL_MAX },
       -- The server may ignore this additive object until its status reader is
       -- deployed. That is intentional forward compatibility: absence is an
@@ -3780,17 +3802,41 @@ MODULE_COMMANDS = {
   -- "Remote Management" property allows them, so the instance check above
   -- refuses them otherwise. None of these routes video or runs a scene.
   venueflow = { snapshot = true, save_draft = true, publish = true, rollback = true, refresh_status = true },
+  -- SmartBuildOS AI Core (ARCHITECTURE §5). Configuration, results and a
+  -- closed list of Composer events; none of these controls equipment itself
+  -- (AI-originated device actions use the ordinary command queue), except
+  -- invoke_driver_action, which hands a homeowner-approved, driver-DECLARED
+  -- action to AI Core to relay to the declaring driver.
+  -- A NUMBER instead of true is the minimum Remote Control rank the verb
+  -- needs (ModuleCommandDispatch enforces it): a driver-declared action is
+  -- a house action, so it needs Comfort (2) or above.
+  ai_core = {
+    apply_config = true,
+    refresh_status = true,
+    deliver_result = true,
+    raise_event = true,
+    set_learning = true,
+    run_diagnostic = true,
+    run_driver_query = true,
+    invoke_driver_action = 2,
+  },
 }
 MODULE_COMMAND_TTL = 10 * 60
 MODULE_COMMAND_LEDGER = 100
 MODULE_SNAPSHOT_MAX_BYTES = 256 * 1024
 
-function ModuleToken()
+--- The v1 generator, kept as the fallback when Director has no UUID API.
+function ModuleTokenV1()
   local parts = {}
   for i = 1, 4 do
     parts[i] = string.format("%08x", math.random(0, 0x7fffffff))
   end
   return table.concat(parts)
+end
+
+--- Registration tokens: C4:UUID("RANDOM") (122 random bits) when available.
+function ModuleToken()
+  return Modules.token(C4, ModuleTokenV1)
 end
 
 function ModulesInit()
@@ -3800,7 +3846,22 @@ function ModulesInit()
   pcall(function()
     math.randomseed((os.time() + (tonumber(C4:GetTickCount()) or 0)) % 2147483647)
   end)
-  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), { now = os.time, newToken = ModuleToken })
+  gModules = Modules.Registry.restore(persist:get(MODULES_KEY, false), {
+    now = os.time,
+    newToken = ModuleToken,
+    -- Identity binding: a reserved module id (pin_lock, ai_core, …) must be
+    -- claimed from a device running that id's .c4z (sbos.modules). nil when
+    -- Director gives no table, which registers the module unverified.
+    devicesForFile = function(filename)
+      local okD, devices = pcall(function()
+        return C4:GetDevicesByC4iName(filename)
+      end)
+      if okD and type(devices) == "table" then
+        return devices
+      end
+      return nil
+    end,
+  })
   gEvents = EventQueue.restore(persist:get(EVENT_JOURNAL_KEY, false), {
     now = os.time,
     saveJournal = function(journal)
@@ -3811,7 +3872,108 @@ function ModulesInit()
     log:warn("Event journal was unreadable or partly unreadable; the queue started with what could be recovered")
   end
   gAgentEventSeq = SeqBlock.new(persist, AGENT_EVENT_SEQ_KEY)
+  gBus = ModuleBus.new({
+    registry = gModules,
+    now = os.time,
+    send = ModuleSend,
+    cloudPost = ModuleBusCloudPost,
+    setTimer = SetTimer,
+    cancelTimer = CancelTimer,
+    agent = function()
+      return { version = tostring(AgentVersion() or ""), paired = isPaired(), connected = gConnected == true }
+    end,
+    -- Register, remove and stale transitions repaint the AI Core property.
+    onDirectoryChanged = function()
+      AgentAiCore.refresh(gModules)
+    end,
+  })
+  AgentAiCore.refresh(gModules)
   log:info("Module services ready: %d registration(s), %d queued event(s)", gModules:count(), gEvents:depth())
+end
+
+--- The cloud relay's one road out: POST /api/integrations/control4/modules/rpc
+--- through this Agent's own authenticated send() (pairing token, system
+--- identity, clock note, failure reporting). The body is the bus's fixed
+--- shape; the op vocabulary was checked against MODULE_CLOUD_OPS already.
+function ModuleBusCloudPost(body, done)
+  local finished = false
+  local function finish(res)
+    if not finished then
+      finished = true
+      done(res)
+    end
+  end
+  send(
+    ModuleBus.Policy.CLOUD_PATH,
+    body,
+    string.format("module rpc %s.%s", tostring(body.module_id), tostring(body.op)),
+    nil,
+    function(response)
+      local decoded = response and response.body
+      if type(decoded) == "string" then
+        local okD, value = pcall(function()
+          return JSON:decode(decoded)
+        end)
+        decoded = okD and value or nil
+      end
+      finish({ ok = true, http_status = tonumber(response and response.code) or 200, body = decoded })
+    end,
+    function(reason, code)
+      finish({ ok = false, http_status = tonumber(code), reason = reason })
+    end
+  )
+end
+
+--- Authenticates a contract v2 frame and hands it to the bus. Frames
+--- without the sender's registration token are ignored (no answer at all).
+function ModuleBusDispatch(method, tParams)
+  ModulesInit()
+  tParams = tParams or {}
+  local entry, why = gModules:authenticate(tParams)
+  if entry == nil then
+    gBus.totals.ignored = gBus.totals.ignored + 1
+    log:debug("module v2 frame ignored: %s", tostring(why))
+    return
+  end
+  gModules:touch(entry, {})
+  local ok, err = pcall(gBus[method], gBus, entry, tParams)
+  if not ok then
+    log:error("module bus %s failed: %s", method, tostring(err))
+  end
+end
+
+function EC.SBOS_MODULE_DISCOVER(tParams)
+  ModuleBusDispatch("discover", tParams)
+end
+
+function EC.SBOS_MODULE_SUBSCRIBE(tParams)
+  ModuleBusDispatch("subscribe", tParams)
+end
+
+function EC.SBOS_MODULE_UNSUBSCRIBE(tParams)
+  ModuleBusDispatch("unsubscribe", tParams)
+end
+
+-- Module frames that carry args, results or cloud bodies are kept out of
+-- ExecuteCommand's debug print (vendor handlers.lua prints every param when
+-- debug printing is on). CLOUD_RESPONSE is only ever sent by the Agent; it is
+-- listed so a future handler cannot start printing results.
+EC.suppressDebug = EC.suppressDebug or {}
+EC.suppressDebug.SBOS_MODULE_REQUEST = true
+EC.suppressDebug.SBOS_MODULE_RESPONSE = true
+EC.suppressDebug.SBOS_MODULE_CLOUD_REQUEST = true
+EC.suppressDebug.SBOS_MODULE_CLOUD_RESPONSE = true
+
+function EC.SBOS_MODULE_REQUEST(tParams)
+  ModuleBusDispatch("request", tParams)
+end
+
+function EC.SBOS_MODULE_RESPONSE(tParams)
+  ModuleBusDispatch("response", tParams)
+end
+
+function EC.SBOS_MODULE_CLOUD_REQUEST(tParams)
+  ModuleBusDispatch("cloudRequest", tParams)
 end
 
 --- Monotonic sequence for the Agent's own pipeline events (sbos.seqblock: a
@@ -3879,6 +4041,13 @@ function ModulesHeartbeatBlock()
   if #block == 0 then
     return nil
   end
+  if gBus ~= nil then
+    -- What the Agent measured on the bus for each instance (requests,
+    -- refusals, answers served, events published / dropped to it).
+    for _, row in ipairs(block) do
+      row.bus = gBus:moduleCounters(row.module_id, row.instance_id)
+    end
+  end
   return block
 end
 
@@ -3941,9 +4110,14 @@ end
 function EC.SBOS_MODULE_REGISTER(tParams)
   ModulesInit()
   tParams = tParams or {}
-  local ok, reply, entry = gModules:register(tParams)
+  local ok, reply, entry, removed = gModules:register(tParams)
   for k, v in pairs(ModuleAgentState()) do
-    reply[k] = v
+    -- `protocol` in the agent state is the Agent's MAXIMUM; the reply's is
+    -- the NEGOTIATED version, which must survive the merge (a v1 module told
+    -- "2" would believe it may speak v2).
+    if k ~= "protocol" then
+      reply[k] = v
+    end
   end
   reply.agent_protocol_min = tostring(Modules.PROTOCOL_MIN)
   reply.agent_protocol_max = tostring(Modules.PROTOCOL_MAX)
@@ -3961,13 +4135,20 @@ function EC.SBOS_MODULE_REGISTER(tParams)
     for _, sku in ipairs(entry.entitlements or {}) do
       pcall(ResendDriverConfig, sku, entry.instance_id)
     end
+    pcall(gBus.onRegistered, gBus, entry)
   else
     log:warn(
-      "module registration refused: %s@%s (%s)",
+      "module registration refused: %s@%s (%s)%s",
       tostring(reply.module_id),
       tostring(reply.instance_id),
-      tostring(reply.reason)
+      tostring(reply.reason),
+      reply.reason == "not_permitted" and "; a reserved module id from a device not running its driver file" or ""
     )
+    if removed ~= nil then
+      -- The earlier entry for that exact claim is dropped with the refusal.
+      ModulesPersist()
+      pcall(gBus.onRemoved, gBus, removed)
+    end
   end
 end
 
@@ -3997,6 +4178,8 @@ function EC.SBOS_MODULE_STATUS(tParams)
     counters = counters,
   })
   ModulesPersist()
+  -- AI Core's own status (e.g. unlicensed) changes no directory row.
+  AgentAiCore.refresh(gModules)
 end
 
 function EC.SBOS_MODULE_UNREGISTER(tParams)
@@ -4007,6 +4190,7 @@ function EC.SBOS_MODULE_UNREGISTER(tParams)
   end
   gModules:remove(entry.module_id, entry.instance_id)
   ModulesPersist()
+  pcall(gBus.onRemoved, gBus, entry)
   log:info("module unregistered: %s@%s", entry.module_id, tostring(entry.instance_id))
 end
 
@@ -4087,6 +4271,8 @@ function EC.SBOS_MODULE_EVENTS(tParams)
         local okP, whyP = gEvents:push(env)
         if okP then
           accepted = accepted + 1
+          -- Contract v2 fan-out: only what the Agent accepted.
+          pcall(gBus.offer, gBus, env, entry)
         else
           rejected = rejected + 1
           reason = whyP
@@ -4215,6 +4401,11 @@ function ModuleCommandDispatch(payload)
     error(
       string.format("%s is not a restricted operation of %s", command, moduleId ~= "" and moduleId or "(no module)")
     )
+  end
+  -- A numeric entry is the minimum Remote Control tier (invoke_driver_action
+  -- needs Comfort): the homeowner's Composer setting is the last word here.
+  if type(allowed[command]) == "number" then
+    requireTier(allowed[command], moduleId .. "." .. command)
   end
   if not gCommandDedup:accept(requestId) then
     error("duplicate request id " .. requestId)
@@ -5891,6 +6082,13 @@ local function applyPairResponse(response)
     body.property_id and tostring(body.property_id) or "none"
   )
 
+  -- LateInit registered for Director system events only if it found the
+  -- Agent already paired; an Agent paired while running registers here
+  -- (idempotent per id, guarded so pairing never fails on it).
+  local okEvents, errEvents = pcall(RegisterSystemEvents)
+  if not okEvents then
+    log:error("Registering for system events after pairing failed: %s", tostring(errEvents))
+  end
   scheduleTimers()
   sendFullSync()
   sendHeartbeat()
@@ -6381,7 +6579,13 @@ local SYSTEM_EVENTS = AgentTelemetry.SYSTEM_EVENT_NAMES
 
 --- Registers for every event in SYSTEM_EVENTS, system-wide. Global so that
 --- OnDriverLateInit (above) reaches it and the tests can call it.
---- @return integer registered How many registrations Director accepted.
+---
+--- Called at start when the Agent is already paired AND from applyPairResponse
+--- when it becomes paired while running: LateInit returns early for an
+--- unpaired Agent, so an Agent paired at run time used to hear no system
+--- event until its next reload. Idempotent per id (gSystemEventRegistrations):
+--- a second call registers only what Director refused before.
+--- @return integer registered How many registrations Director accepted on THIS call.
 function RegisterSystemEvents()
   local registered = 0
   if C4.RegisterSystemEvent == nil then
@@ -6389,16 +6593,19 @@ function RegisterSystemEvents()
     return registered
   end
   for id, name in pairs(SYSTEM_EVENTS) do
-    local ok, err = pcall(function()
-      -- Device id 0 registers for the event system-wide rather than for one
-      -- device, which is the whole point here.
-      C4:RegisterSystemEvent(id, 0)
-    end)
-    if ok then
-      registered = registered + 1
-      log:debug("Registered for system event %d (%s)", id, name)
-    else
-      log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
+    if not gSystemEventRegistrations[id] then
+      local ok, err = pcall(function()
+        -- Device id 0 registers for the event system-wide rather than for one
+        -- device, which is the whole point here.
+        C4:RegisterSystemEvent(id, 0)
+      end)
+      if ok then
+        gSystemEventRegistrations[id] = true
+        registered = registered + 1
+        log:debug("Registered for system event %d (%s)", id, name)
+      else
+        log:warn("Could not register for system event %d (%s): %s", id, name, tostring(err))
+      end
     end
   end
   return registered
@@ -6570,6 +6777,9 @@ function OnDriverDestroyed()
   end
   CancelTimer(EVENTS_TIMER)
   CancelTimer(EVENTS_FAST_TIMER)
+  if gBus ~= nil then
+    pcall(gBus.stop, gBus)
+  end
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -8868,6 +9078,29 @@ local function statusForSku(sku)
   return answer
 end
 
+--- Every installed instance of one inventoried SKU: device ids, ascending.
+--- The inventory keeps the SET of instances per SKU (`devices`, string keys
+--- for persistence) so that removing one instance of a driver never drops
+--- the SKU for an instance that remains. An entry saved before instances
+--- were tracked has only `device_id`, which is read as its one instance.
+--- A global, not a local: this chunk is at Lua's 200-local limit.
+function SbosInventoryInstances(entry)
+  local ids, seen = {}, {}
+  local function add(raw)
+    local id = tonumber(raw)
+    if id ~= nil and not seen[id] then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+  for raw in pairs(type(entry) == "table" and type(entry.devices) == "table" and entry.devices or {}) do
+    add(raw)
+  end
+  add(type(entry) == "table" and entry.device_id or nil)
+  table.sort(ids)
+  return ids
+end
+
 --- #4: installed vs licensed SmartBuildOS drivers in this project. "Installed"
 --- is every driver registered with this Agent; "licensed" is those whose
 --- current entitlement answer is an authorized status. Best-effort display,
@@ -8942,8 +9175,7 @@ end
 local function pushEntitlements()
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   for sku, entry in pairs(inventory) do
-    local device = tonumber(entry.device_id)
-    if device ~= nil then
+    for _, device in ipairs(SbosInventoryInstances(entry)) do
       answerEntitlement(device, sku)
     end
   end
@@ -8974,12 +9206,30 @@ function refreshEntitlements(reason)
   end
   local changed = false
   for sku, entry in pairs(inventory) do
-    local id = tonumber(entry.device_id)
-    if next(known) and not known[id] then
+    -- Prune instances no longer in the project; the SKU stays while ANY
+    -- instance remains (it used to keep one device id, the last to
+    -- register, so removing that one dropped the SKU for the others).
+    local all = SbosInventoryInstances(entry)
+    local remaining, devices, current = {}, {}, nil
+    for _, id in ipairs(all) do
+      if not next(known) or known[id] then
+        remaining[#remaining + 1] = id
+        devices[tostring(id)] = true
+        if id == tonumber(entry.device_id) then
+          current = id
+        end
+      end
+    end
+    if #remaining == 0 then
       inventory[sku] = nil
       changed = true
     else
-      installed[#installed + 1] = { sku = sku, version = tostring(entry.version or ""), device_id = id }
+      if #remaining ~= #all or type(entry.devices) ~= "table" then
+        changed = true
+      end
+      entry.devices = devices
+      entry.device_id = current or remaining[#remaining]
+      installed[#installed + 1] = { sku = sku, version = tostring(entry.version or ""), device_id = entry.device_id }
     end
   end
   if changed then
@@ -9104,17 +9354,14 @@ end
 local function pushChangedEntitlements()
   local inventory = persist:get(SBOS_DRIVERS_PERSIST, {}) or {}
   for sku, entry in pairs(inventory) do
-    local device = tonumber(entry.device_id)
     local status = statusForSku(sku).status
-    if device ~= nil and status ~= gAnswered[sku] then
-      log:info(
-        "Licence status for %s is %s, last told %s; telling device %s",
-        sku,
-        status,
-        tostring(gAnswered[sku]),
-        device
-      )
-      answerEntitlement(device, sku)
+    if status ~= gAnswered[sku] then
+      -- answerEntitlement records gAnswered[sku]: decide once, tell every instance.
+      local told = tostring(gAnswered[sku])
+      for _, device in ipairs(SbosInventoryInstances(entry)) do
+        log:info("Licence status for %s is %s, last told %s; telling device %s", sku, status, told, device)
+        answerEntitlement(device, sku)
+      end
     end
   end
 end
@@ -9150,6 +9397,13 @@ function EC.SBOS_REGISTER_DRIVER(tParams)
   local newInstallation = inventory[sku] == nil
   local entry = inventory[sku] or { registered_at = now }
   entry.version = tostring(tParams.version or "")
+  -- One SKU, possibly several instances: keep them all (see SbosInventoryInstances).
+  local devices = {}
+  for _, id in ipairs(SbosInventoryInstances(entry)) do
+    devices[tostring(id)] = true
+  end
+  devices[tostring(requester)] = true
+  entry.devices = devices
   entry.device_id = requester
   entry.last_seen = now
   inventory[sku] = entry
@@ -9447,7 +9701,13 @@ function EC.PRINT_SBOS_DRIVERS()
   local count = 0
   for sku, entry in pairs(inventory) do
     count = count + 1
-    log:print("  %s v%s (device %s, last seen %s)", sku, entry.version, tostring(entry.device_id), entry.last_seen)
+    log:print(
+      "  %s v%s (device(s) %s, last seen %s)",
+      sku,
+      entry.version,
+      table.concat(SbosInventoryInstances(entry), ", "),
+      entry.last_seen
+    )
   end
   log:print("%d SmartBuildOS driver(s) registered with this Agent", count)
 end

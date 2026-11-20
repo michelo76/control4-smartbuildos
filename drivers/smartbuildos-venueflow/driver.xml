@@ -110,6 +110,7 @@
       <property><name>Alerts</name><type>STRING</type><default>0</default><readonly>true</readonly></property>
       <property><name>Installer Studio</name><type>STRING</type><default>Off - set an Installer Passcode</default><readonly>true</readonly></property>
       <property><name>Remote Management Status</name><type>STRING</type><default>Off</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>App Data Relay</name><type>STRING</type><default>Starting</default><readonly>true</readonly></property>
       <property><name>Last Error</name><type>STRING</type><default>none</default><readonly>true</readonly></property>
       <property><name>License Status</name><type>STRING</type><default>No SmartBuildOS Agent Found</default><readonly>true</readonly></property>

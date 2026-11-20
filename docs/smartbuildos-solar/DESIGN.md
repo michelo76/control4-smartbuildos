@@ -59,6 +59,18 @@ driver (bench finding of 2026-11-09). Licence enforcement (definitive denial
 AND enforcement on) halts the minute tick and paints `unlicensed`;
 uncertainty keeps tracking.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `solar` (guide §9 `start`) and reports: a describe (sun
+position, part of the day, sun on the facades), a state from `paint()`
+(solar status, day phase, daylight, facades configured / in sun; never
+coordinates, city or sunrise/sunset times) and the diagnostics
+`location.unresolved` / `location.resolved` on the driver's own
+`no_location` transitions. No events, queries or actions. Without AI Core
+nothing is sent. Unit tests only (`test/test_solar_aicore.lua`); nothing
+here has run on a controller.
+
 ## Not included (v1)
 
 - Terrain or obstruction modelling beyond a per-facade minimum and maximum

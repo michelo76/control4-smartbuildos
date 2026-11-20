@@ -36,6 +36,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local Engine = require("solarpos.engine")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -67,6 +70,7 @@ local gLast = nil
 local gLastError = "none"
 local gLicenceHalted = false
 local gFacadeRefusals = {}
+local gAiStatus = nil -- the solar status last seen by the AI Core report
 
 --- UTC epoch now. A test may pin the clock by defining SOLAR_NOW first.
 local function now()
@@ -186,6 +190,77 @@ local function solarStatus()
   return "tracking"
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   where the sun is for the home: day phase, sunrise / sunset,
+--              sun on the building's facades
+--   state      solar status, day phase, daylight, facades configured and in
+--              sun (counts). Never the location: no coordinates, no city,
+--              no sunrise / sunset times (they would place the home)
+--   diagnostic the location became unresolved / resolved again (the
+--              driver's own no_location status)
+--   events, queries, actions: none
+
+local function aiReport(status)
+  local facts = { solar_status = status }
+  local r = gLast
+  if status == "tracking" and r ~= nil then
+    local configured, lit = 0, 0
+    for i = 1, Engine.LIMITS.facades do
+      local f = r.facades[i]
+      if f ~= nil then
+        configured = configured + 1
+        if f.lit then
+          lit = lit + 1
+        end
+      end
+    end
+    facts.day_phase = tostring(r.phase)
+    facts.is_daylight = r.is_daylight == true
+    facts.facades = configured
+    facts.facades_in_sun = lit
+  end
+  aireport.state(facts)
+  if gAiStatus ~= nil and gAiStatus ~= status then
+    if status == "no_location" then
+      aireport.diagnostic(
+        "warning",
+        "location.unresolved",
+        "The sun position is not computed: the project has no usable location"
+      )
+    elseif gAiStatus == "no_location" and status == "tracking" then
+      aireport.diagnostic("info", "location.resolved", "The sun position is computed again")
+    end
+  end
+  gAiStatus = status
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Tracks where the sun is for this home: the part of the day (dawn, golden hour, daylight, dusk, night), sunrise and sunset, and which sides of the building the sun is shining on.",
+    controls = {
+      { id = "sun_position", label = "Sun position", class = "weather" },
+      { id = "day_phase", label = "Part of the day", class = "weather" },
+      { id = "facades", label = "Sun on the building", class = "sensor" },
+    },
+    vocabulary = {
+      "sun",
+      "sunrise",
+      "sunset",
+      "daylight",
+      "dusk",
+      "dawn",
+      "golden hour",
+      "night",
+      "glare",
+      "west windows",
+    },
+  })
+end
+
 local function paint()
   local status = solarStatus()
   UpdateProperty("Solar Status", status)
@@ -244,6 +319,7 @@ local function paint()
       setVar("SUN_ON_FACADE_" .. i, r.facades[i] ~= nil and r.facades[i].lit == true)
     end
   end
+  aiReport(status)
 end
 
 -- ─── Tick ───────────────────────────────────────────────────────────────────
@@ -444,6 +520,7 @@ function OnDriverLateInit(reason)
     reconcileLicence()
     paint()
   end
+  startAiCore()
 
   registerSystemEvents()
   UpdateProperty("Driver Status", "Online")
@@ -470,6 +547,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   CancelTimer(TICK_TIMER)
   CancelTimer(STATUS_TIMER)
 end

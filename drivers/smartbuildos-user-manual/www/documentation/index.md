@@ -404,6 +404,7 @@ once a minute.
 | **Devices In Manual**                                                                      | `N device(s) in M room(s); K not shown`                                                                                                  |
 | **Last Rebuilt**                                                                           | The time of the last rebuild, in the controller's local time. It does not move between rebuilds                                          |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company**    | The licence as the Agent reports it                                                                                                      |
+| **AI Core**                                                                                | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                             |
 | **Home Name**                                                                              | The page's title. Empty gives "Your home"                                                                                                |
 | **Dealer Name**, **Dealer Phone**, **Dealer Email**, **Support Hours**, **Emergency Note** | The dealer block on the page. Each is optional; spaces at the ends are removed                                                           |
 | **Room Note 1** to **Room Note 6**                                                         | `Room name: text`, one per property                                                                                                      |
@@ -469,6 +470,47 @@ licence, the relay starts again by itself.
 | Two devices show as one line                                  | They have the same name in the same room                                                                  | Give them different names                                                                                                                                                                                                                                     |
 | A room note does not appear                                   | No colon, or the room name does not match, or the room is not in the guide                                | Correct the line; the outline marks rooms that have a note                                                                                                                                                                                                    |
 | The page shows an old name                                    | The guide is rebuilt hourly, not when the project changes                                                 | *Refresh Manual*, or Refresh on the page                                                                                                                                                                                                                      |
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what the Home Guide is and whether it is
+serving. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: the Home Guide tile and the words people use for it (manual,
+  help, who do I call…).
+- **State**: the guide status and how many rooms and devices it covers. Counts
+  only: never the home name, the dealer's contact block, room notes or device
+  names.
+- **Faults**: the guide stopped serving (Guide Unavailable) and serves again
+  (Guide Restored).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

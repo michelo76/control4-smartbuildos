@@ -42,6 +42,9 @@ local Ring = require("tracer.ring")
 local Config = require("flightrecorder.config")
 local Model = require("varinspector.model")
 local relay = require("varinspector.relay")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 local _unused = { Ring, Config } -- transitive dependencies of the model, pinned for the squish step
 
 gInitialized = false
@@ -140,6 +143,40 @@ local function relayLine()
   return gHost ~= nil and gHost:statusLine() or string.format("Listening :%d", gRelayPort)
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   a dealer tool: Control4 variables on a phone, a watch list,
+--              a PIN-guarded Set
+--   state      watched variables (count), read-only, the page relay
+--              listening. Never a device, variable name or value: what the
+--              variables say is household activity
+--   diagnostics, events, queries, actions: none (the driver has no fault
+--              transition of its own beyond the relay line it paints)
+
+local function aiReportState()
+  if gInspector == nil then
+    return
+  end
+  local st = gInspector:status()
+  aireport.state({
+    watched = tonumber(st.watched) or 0,
+    watch_limit = tonumber(st.max_watches) or 0,
+    read_only = gLicenceHalted == true or not dealerPinConfigured(),
+    relay_listening = gRelayPort ~= nil,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "A dealer tool for this home's Control4 system: shows any device's variables on a phone, keeps a watch list with a short history, and lets the installer change a value behind a dealer PIN.",
+    controls = { { id = "variable_inspector", label = "Variable inspector", class = "other" } },
+    vocabulary = { "variables", "inspector", "watch list", "programming", "installer", "dealer tool" },
+  })
+end
+
 local function paint()
   reconcileMode()
   UpdateProperty("Inspector Mode", modeLine())
@@ -147,6 +184,7 @@ local function paint()
   UpdateProperty("Last Error", gLastError)
   setVar("RELAY_STATUS", gRelayPort and "listening" or "not_listening")
   paintRecent()
+  aiReportState()
 end
 
 local function paintSoon()
@@ -481,6 +519,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     paint()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -506,6 +545,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   if gInspector then
     persistWatches()
     gInspector:stop()

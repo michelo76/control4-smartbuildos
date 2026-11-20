@@ -70,6 +70,17 @@ Sub-second `socket.gettime()` where the controller offers it (debounce and
 throttle windows are in milliseconds), `os.time()` otherwise; the test pins
 it through `LOGIC_PACK_NOW`.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `logic_pack` (guide §9 `start`) and reports: a describe
+(the four primitives, homeowner words), a state from `paint()` (pack
+status, read-only, counts of counters, flags and running timers; never key
+names or values), and the diagnostics `pack.read_only` / `pack.restored`
+beside the existing Read-only / Restored events. No events, queries or
+actions. Without AI Core nothing is sent. Unit tests only
+(`test/test_logic_aicore.lua`); nothing here has run on a controller.
+
 ## Not included (v1)
 
 - Per-room keys (keys are project-wide; prefix them by hand, e.g. `kitchen_motion`).

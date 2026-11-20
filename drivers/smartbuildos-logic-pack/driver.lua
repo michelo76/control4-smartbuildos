@@ -35,6 +35,9 @@ local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
 local Engine = require("logic.engine")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load.
+local aireport = require("sbos.aireport")
 
 gInitialized = false
 
@@ -141,6 +144,47 @@ local function summaryLine()
   )
 end
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise):
+--   describe   what the pack is: named counters, flags, a state machine and
+--              timers for Composer programming
+--   state      pack status and how many counters, flags and running timers
+--              it holds (counts only: the key names are free text typed by
+--              the programmer, and the values are household activity)
+--   diagnostic the pack went read-only (licence) / was restored
+--   events, queries, actions: none. Every command is Composer programming;
+--              nothing here is safe to run on a model's say-so.
+
+local function aiReportState(status)
+  if gEngine == nil then
+    return
+  end
+  local snap = gEngine:snapshot()
+  aireport.state({
+    pack_status = status,
+    read_only = gHalted == true,
+    counters = #snap.counters,
+    flags = #snap.flags,
+    timers_running = #snap.timers,
+  })
+end
+
+local function startAiCore()
+  aireport.start({ sku = SKU })
+  aireport.describe({
+    summary = "Programming building blocks for this home's Control4 system: named counters, on/off flags, a house state and countdown timers that the installer's programming uses.",
+    controls = {
+      { id = "counters", label = "Counters", class = "other" },
+      { id = "flags", label = "Flags", class = "other" },
+      { id = "house_state", label = "House state", class = "other" },
+      { id = "timers", label = "Timers", class = "other" },
+    },
+    vocabulary = { "programming", "counter", "flag", "timer", "countdown", "state", "logic", "automation" },
+  })
+end
+
 local function paint()
   local status = packStatus()
   UpdateProperty("Pack Status", status)
@@ -148,6 +192,7 @@ local function paint()
   UpdateProperty("Last Trigger", gLastTrigger)
   setVar("PACK_STATUS", status)
   paintSlots()
+  aiReportState(status)
 end
 
 -- ─── Engine events → Composer ──────────────────────────────────────────────
@@ -224,10 +269,16 @@ local function reconcileLicence()
     gEngine:setReadOnly(true)
     log:warn("SmartBuildOS licence: %s — Logic Pack is read-only", tostring(license.statusLabel()))
     fire(EVENT_READONLY)
+    aireport.diagnostic(
+      "warning",
+      "pack.read_only",
+      "Logic Pack is read-only: the SmartBuildOS licence does not cover it"
+    )
   elseif not halt and gHalted then
     gHalted = false
     gEngine:setReadOnly(false)
     fire(EVENT_RESTORED)
+    aireport.diagnostic("info", "pack.restored", "Logic Pack accepts commands again")
   end
   paint()
 end
@@ -324,6 +375,7 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+  startAiCore()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -341,6 +393,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   if gEngine then
     save()
     gEngine:stop()

@@ -14,7 +14,8 @@ with enforcement on makes the driver read-only, and **before it does, it
 restores every load it had shed**. A licence problem can never leave a house
 with its loads off. Only a definitive denial does this. A missing Agent, an
 Agent that has not answered yet or a cloud that cannot be reached leave the
-driver fully active.
+driver fully active. **AI Core** says whether this driver reports to
+SmartBuildOS AI Core; see [AI Core](#ai-core).
 
 ## What it does
 
@@ -161,6 +162,49 @@ the battery needs a breaker or a hardware contactor.
   fresh.
 - Up to 12 loads, three tiers. Vendor integrations (battery or panel makes) are
   not part of this release.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what it does and where the home's power
+stands. Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: load shedding in three tiers on a grid outage or a low
+  battery, and the words people use (power outage, blackout, battery,
+  generator…).
+- **State**: the shed status, whether an outage is active, the highest tier
+  shed, how many loads are shed, the battery percent, and whether the driver is
+  read-only. The load names stay in the driver.
+- **Faults**: a load command could not be sent, and a load did not come back
+  after its restore tries (both the driver's own Load Failed event).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing. Shedding and restoring switch real loads
+and stay with the driver's own rules and the dealer's programming.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## Unverified on a controller
 

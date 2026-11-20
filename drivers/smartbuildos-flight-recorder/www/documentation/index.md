@@ -162,6 +162,18 @@ entries, and that is not the same as "nothing happened". Occurrences an event
 storm suppressed and changes dropped by the per-minute budget are counted, not
 listed.
 
+### Read by other SmartBuildOS drivers
+
+With a SmartBuildOS Agent that speaks module contract v2, the history can also
+be read by SmartBuildOS AI Core (the only reader the Agent allows) for its
+diagnostics: by time, by device or by room, a page at a time. Each entry it
+returns carries the id it was uploaded under, so what AI Core cites is what
+System Studio stores; a device event held here but over the upload budget says
+so instead. Every answer says how far back the history reaches and whether older
+entries were already evicted. Nothing outside the history is ever answered, and
+correlation or comparisons are done in the cloud, not here. With an older Agent
+nothing changes.
+
 ## Events: what is captured
 
 Director fires a device event to a driver only after the driver subscribes to
@@ -707,6 +719,7 @@ Status:
 | **Recording Status**, **Agent Connection**                                              | See [Reading the status](#reading-the-status)                                                                      |
 | **Agent Link**                                                                          | The Agent's device id and whether this driver is registered with it                                                |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | This driver's licence standing, as the Agent reports it                                                            |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                       |
 | **Configuration**                                                                       | The version in force and where it came from (`default`, `studio` or `composer`); a refused revision and the reason |
 | **Selected Sources**                                                                    | For example `4 selected, 2 listening, 1 stale`                                                                     |
 | **Event Coverage**, **Event Catalogue**                                                 | See [Reading the status](#reading-the-status)                                                                      |
@@ -892,6 +905,57 @@ recorded as typed, in the history and in the upload. Programmer text (trace
 messages, marker names and details, the reason given to `PAUSE_RECORDING`) is a
 service record and is flagged as unreviewed text. Do not put codes or personal
 details into it.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it how recording is going, over the same Agent connection it already uses.
+Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: the activity recorder and its history, and the words people
+  use (what happened, history, timeline, routine…).
+- **State**: the recording status, whether it is paused, how many devices are
+  covered, subscriptions, storms and traces in progress, dropped events and the
+  Agent connection. Never what happened in the home: device activity stays in
+  the history, which other SmartBuildOS drivers read through the Agent as
+  described in [The history](#the-history).
+- **Events**: an event storm started or ended; a traced routine did not complete
+  (its name and how it ended).
+- **Faults**: recording degraded (paused, unlicensed, no Agent) and restored;
+  the upload backlog warning.
+
+What it will answer when asked (read-only):
+
+- *How far back does the recorder hold events?* (entries held, the capacity, the
+  oldest and newest times)
+- *What is the recorder watching?* (devices covered, unknown or excluded
+  drivers, storms now)
+
+What it can be asked to do: nothing. Pausing, resuming and snapshots stay dealer
+tools.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in the emulator and in unit tests only: nothing here has run
+on a physical controller.
 
 ## What is not claimed
 

@@ -76,6 +76,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Broker Host</name><type>STRING</type><default></default><description>Name or address of the MQTT broker on the local network. Plain TCP only: there is no TLS.</description></property>
       <property><name>Broker Port</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>65535</maximum><default>1883</default></property>
       <property><name>Username</name><type>STRING</type><default></default><description>Leave empty when the broker allows anonymous clients.</description></property>

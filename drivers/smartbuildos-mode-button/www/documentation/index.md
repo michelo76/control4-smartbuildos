@@ -115,6 +115,14 @@ The mode's state is in Mode Composer's variables.
 | **Driver Status** the name and `(active)`                                    | The mode is active                                   |                                                                                                   |
 | The icon never lights                                                        | The mode is not becoming active                      | Mode Composer's *Print History* shows what happened to the request; then *Print Diagnostics* here |
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS Mode Composer` when SmartBuildOS AI
+Core is in the project and `Not installed` when it is not; this button never
+talks to AI Core itself (Mode Composer is the driver that reports), and it shows
+`Searching…` until Director first answers.
+
 ## Limits
 
 - One button is one mode. It cannot activate anything by itself.

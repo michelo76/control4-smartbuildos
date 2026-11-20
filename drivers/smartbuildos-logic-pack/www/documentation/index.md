@@ -426,6 +426,7 @@ All are read-only.
 | **Driver Status**, **Driver Version**                                                   | `Online` once the driver runs, and its build                                                                                 |
 | **Pack Status**                                                                         | `starting`, `active` or `read-only (licence)`                                                                                |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the Agent answered for this driver                                                                                      |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                 |
 | **Summary**                                                                             | How many counters, set flags and running timers there are, and the state. Refreshed once a minute                            |
 | **Last Trigger**                                                                        | The last timer, debounce, throttle, once-per-day or state change, with the time. Counter and flag changes are not shown here |
 | **Last Refusal**                                                                        | The last command the driver did not accept, the reason and the time                                                          |
@@ -488,6 +489,47 @@ only while running, debounces only while pending, and once-per-day keys only for
 today. A counter keeps its key after `RESET_COUNTER`; only `RESET_ALL` with
 `Counters` or `Everything` frees counter keys. A throttle key is kept from its
 first use until `RESET_ALL` with `Everything`.
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what the pack is and how it is doing.
+Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: programming building blocks (counters, flags, the house state,
+  timers) and the words people use for them.
+- **State**: the pack status, whether it is read-only, and how many counters,
+  flags and running timers it holds. Counts only: key names are free text typed
+  by the programmer and are never sent, nor are values.
+- **Faults**: the pack went read-only because the licence does not cover it, and
+  when it accepts commands again.
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing. Every command is Composer programming.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

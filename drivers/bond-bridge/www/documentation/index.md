@@ -250,6 +250,7 @@ for each device.
 | **Push Status**                                                                         | See [Reading the status](#reading-the-status).                                        |
 | **Last Sync**                                                                           | When the device list was last read; `Never` before the first.                         |
 | **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the SmartBuildOS Agent reports for this driver.                                  |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)          |
 | **Log Level**, **Log Mode**                                                             | Logging. **Log Mode** is `Off` by default.                                            |
 
 ## Actions
@@ -327,6 +328,49 @@ configured is never pointed somewhere else by the search.
 | Sidekick keys do nothing in Control4                              | Push is not delivering                                                          | Check **Push Updates** is `On` and **Push Status** reads `Delivering`                                               |
 | `Run Bond Scene` prints `no scene`                                | The name does not match, or scenes were not read yet                            | *Sync Devices Now*, then *Print Scenes To Log*                                                                      |
 | Behaviour does not match this manual after an update              | The controller is running an older copy                                         | Compare **Driver Version** with the build you loaded                                                                |
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this gateway
+tells it, over the SmartBuildOS Agent, what it connects and whether the Bond
+answers. Each gateway reports for itself. Without AI Core it sends nothing more
+than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: a Bond Bridge gateway for ceiling fans, shades, fireplaces and
+  fan lights, and the words people use for them.
+- **State**: whether it is configured and connected, and how many devices and
+  scenes the Bond lists. Never the Bond's address, its id, the local token or a
+  device name.
+- **Faults**: the Bond stopped answering (Bond Offline) and answers again (Bond
+  Online).
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing. The fans, shades and fireplaces are
+controlled through their own Control4 devices.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

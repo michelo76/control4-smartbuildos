@@ -111,6 +111,14 @@ and *Remote Gate Is Open* is true, announce that the far gate is open. If it is
 not current, say that the far gate's state is not known rather than treating it
 as closed.
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core
+is in the project and `Not installed` when it is not; this driver never talks to
+AI Core itself (the System Link driver is the one that reports), and it shows
+`Searching…` until Director first answers.
+
 ## Limits
 
 - Programming cannot command the gate. The Test actions on the Actions tab are

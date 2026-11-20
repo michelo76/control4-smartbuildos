@@ -57,6 +57,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Home Name</name><type>STRING</type><default></default></property>
       <property><name>Dealer Name</name><type>STRING</type><default></default></property>
       <property><name>Dealer Phone</name><type>STRING</type><default></default></property>

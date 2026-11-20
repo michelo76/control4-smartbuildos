@@ -134,6 +134,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Calendar URL 1</name><type>STRING</type><default></default></property>
       <property><name>Calendar URL 2</name><type>STRING</type><default></default></property>
       <property><name>Calendar URL 3</name><type>STRING</type><default></default></property>

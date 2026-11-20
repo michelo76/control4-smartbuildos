@@ -86,6 +86,21 @@ end
 --- @param labels table|nil { device = fun(id):string|nil } to name a device the envelope only has an id for
 --- @return table|nil entry for tracer `note`
 function M.entryFor(env, labels)
+  local entry = M.entryFrom(env, labels)
+  if entry ~= nil then
+    -- The envelope this entry was built from: other drivers reading the
+    -- history over module contract v2 (flightrecorder.localquery) cite the
+    -- SAME event id the platform stores, never a second identity.
+    entry.envelope_id = type(env.event_id) == "string" and env.event_id or nil
+    entry.event_type = env.event_type
+    if entry.room_id == nil then
+      entry.room_id = tonumber(env.room_id)
+    end
+  end
+  return entry
+end
+
+function M.entryFrom(env, labels)
   if type(env) ~= "table" or type(env.event_type) ~= "string" then
     return nil
   end

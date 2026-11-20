@@ -61,6 +61,10 @@ local Protect = require("unifi.protect")
 --- normally until the entitlement backend ships (charter D3); child
 --- drivers inherit through this gateway and do not license separately.
 local license = require("sbos.license")
+--- AI Core reporting (sbos.aireport, start mode). Module scope: the build
+--- packs only modules it sees at load. One module id (unifi_protect) for
+--- every gateway instance; each registers under its own device id.
+local aireport = require("sbos.aireport")
 --- The vendored (locally-forked) websocket module — used for the console's
 --- live event stream. The official Protect events socket speaks PLAIN JSON
 --- text frames, unlike the unofficial API's deflate-compressed binary
@@ -179,6 +183,54 @@ end
 --- recoveries after that first success fire the NVR events.
 local gConnectionSeen = false
 
+-- ─── AI Core (sbos.aireport, start mode) ────────────────────────────────────
+--
+-- Reported only when AI Core is installed (the helper sends nothing
+-- otherwise); every gateway instance reports for itself. HEALTH AND COUNTS
+-- ONLY:
+--   describe   a UniFi Protect gateway for cameras, floodlights, sensors and
+--              doorbells
+--   state      configured, connected, and per kind how many devices the
+--              console lists and how many are online. Never camera, motion,
+--              doorbell, door or alarm activity, the alarm state, a device
+--              or person name, the console address, the API key or the
+--              webhook token
+--   diagnostic the console went offline / came back (the driver's own NVR
+--              Offline / NVR Online transition)
+--   events, queries, actions: none
+
+local function aiReportState()
+  local facts = { configured = isConfigured() == true, connected = gConnected == true }
+  for _, kind in ipairs({ "cameras", "lights", "sensors", "chimes" }) do
+    local list = gInventory and gInventory[kind]
+    if type(list) == "table" then
+      local online = 0
+      for _, device in ipairs(list) do
+        if device.state == "CONNECTED" then
+          online = online + 1
+        end
+      end
+      facts[kind] = #list
+      facts[kind .. "_online"] = online
+    end
+  end
+  aireport.state(facts)
+end
+
+local function startAiCore()
+  aireport.start({ sku = "SBOS_UNIFI_PROTECT" })
+  aireport.describe({
+    summary = "A UniFi Protect gateway: connects this home's UniFi cameras, floodlights, sensors and doorbell chimes to Control4, each as its own device.",
+    controls = {
+      { id = "cameras", label = "Cameras", class = "security" },
+      { id = "floodlights", label = "Floodlights", class = "light" },
+      { id = "sensors", label = "Sensors", class = "sensor" },
+      { id = "chimes", label = "Doorbell chimes", class = "security" },
+    },
+    vocabulary = { "camera", "cameras", "doorbell", "floodlight", "motion sensor", "unifi", "protect", "nvr" },
+  })
+end
+
 local function setConnected(connected, reason)
   if connected ~= gConnected then
     gConnected = connected
@@ -186,16 +238,19 @@ local function setConnected(connected, reason)
       log:info("Connected to UniFi Protect: %s", reason)
       if gConnectionSeen and fireGatewayEvent ~= nil then
         fireGatewayEvent("NVR Online")
+        aireport.diagnostic("info", "console.online", "The UniFi Protect console answers again")
       end
       gConnectionSeen = true
     else
       log:warn("Not connected to UniFi Protect: %s", reason)
       if gConnectionSeen and fireGatewayEvent ~= nil then
         fireGatewayEvent("NVR Offline")
+        aireport.diagnostic("warning", "console.offline", "The UniFi Protect console does not answer")
       end
     end
   end
   UpdateProperty("Connection Status", reason)
+  aiReportState()
 end
 
 --- Renders a rejected request into a status line that says WHICH failure this
@@ -383,6 +438,7 @@ local function applyInventory(inventory)
   UpdateProperty("Chimes", countLabel(inventory.chimes))
   UpdateProperty("Viewers", countLabel(inventory.viewers))
   UpdateProperty("Last Sync", inventory.updated_at)
+  aiReportState()
 
   ensureCameraBindings(inventory.cameras)
   ensureKindBindings(inventory)
@@ -590,6 +646,8 @@ function OnDriverLateInit()
   registerGatewayEvents()
 
   license.setup({ sku = "SBOS_UNIFI_PROTECT" })
+  startAiCore()
+  aiReportState()
 
   -- Inbound webhooks need a shared secret; mint one on first start so the
   -- feature works out of the box without the dealer inventing entropy.
@@ -633,6 +691,7 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  aireport.stop()
   CancelTimer(POLL_TIMER)
   CancelTimer("ProtectProvisionRename")
   stopEventsSocket()

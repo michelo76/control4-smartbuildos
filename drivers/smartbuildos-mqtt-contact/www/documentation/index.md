@@ -82,6 +82,14 @@ turned into open or closed.
 - **Actions**: *Refresh From Broker* (say hello again), *Print Diagnostics To
   Log*.
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS MQTT Broker` when SmartBuildOS AI Core
+is in the project and `Not installed` when it is not; this driver never talks to
+AI Core itself (the MQTT Broker driver is the one that reports), and it shows
+`Searching…` until Director first answers.
+
 ## Limits
 
 - One child is one device, and nothing is created for you: add a child for each

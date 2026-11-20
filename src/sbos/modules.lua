@@ -26,13 +26,38 @@
 --- Display status (derived here, shown in Composer and Studio):
 ---   ready | waiting_for_agent | unpaired | degraded | unlicensed | incompatible
 ---
---- Pure: injected clock and token source; the Agent persists serialize().
+--- Contract v2 (docs/protocol/MODULE-CONTRACT-V2.md) adds one optional
+--- registration param, `manifest` (JSON): the module's typed capabilities
+--- (request capabilities and topic offers). It is parsed and bounded here,
+--- stored on the entry only when the negotiated protocol is 2 or more, and
+--- served to other modules by discovery. The v1 csv params are unchanged.
+---
+--- Identity binding (contract v2): a registration under a RESERVED module id
+--- (modulepolicy.RESERVED_MODULES, e.g. pin_lock, ai_core) is checked against
+--- the devices Director reports for that id's .c4z file, through an injected
+--- `devicesForFile(filename)` resolver (the Agent wires
+--- C4:GetDevicesByC4iName). The claimed instance id must be one of them:
+---   listed            -> registered, entry.verified = true
+---   not listed        -> refused `not_permitted` (any earlier entry for that
+---                        exact module + instance is removed)
+---   resolver gave no answer (nil / error) -> registered, verified = false
+--- A non-reserved id is registered as before with verified = false. Without
+--- an injected resolver nothing is bound (pure v1 behaviour, verified=false).
+---
+--- Pure: injected clock, token source and resolver; the Agent persists
+--- serialize().
+
+local Policy = require("sbos.modulepolicy")
+JSON = JSON or require("JSON")
 
 local M = {}
 
-M.PROTOCOL_MIN = 1
-M.PROTOCOL_MAX = 1
-M.LIMITS = { modules = 16, csv_items = 32, detail = 200, stale_seconds = 15 * 60 }
+M.PROTOCOL_MIN = Policy.PROTOCOL_MIN
+M.PROTOCOL_MAX = Policy.PROTOCOL_MAX
+--- `modules`: registrations held at once (root drivers only; child drivers
+--- never register). The 49th live registration is refused `registry_full`.
+--- Persist, heartbeat and directory sizes at 48 are unmeasured on hardware.
+M.LIMITS = { modules = 48, csv_items = 32, detail = 200, stale_seconds = 15 * 60 }
 M.STATUS = {
   ready = "ready",
   waiting_for_agent = "waiting_for_agent",
@@ -67,13 +92,132 @@ function M.validModuleId(id)
   return type(id) == "string" and id:match("^[a-z][a-z0-9_]*$") ~= nil and #id >= 3 and #id <= 48
 end
 
---- @param opts table { now = fun():number, newToken = fun():string }
+--- Registration token source. A v4 UUID from Director (`C4:UUID("RANDOM")`,
+--- OS 3.3.0+; 122 random bits) when it answers with one, else `fallback`
+--- (the v1 math.random generator). Always 32 lowercase hex characters.
+--- @param c4 table|nil the C4 object (nil in pure tests)
+--- @param fallback fun():string
+function M.token(c4, fallback)
+  if c4 ~= nil then
+    local ok, uuid = pcall(function()
+      return c4:UUID("RANDOM")
+    end)
+    if ok and type(uuid) == "string" then
+      local hex = uuid:gsub("%-", ""):lower()
+      if #hex == 32 and hex:match("^[0-9a-f]+$") then
+        return hex
+      end
+    end
+  end
+  return fallback()
+end
+
+--- Parses and bounds a v2 capability manifest (the raw JSON string).
+--- @return table|nil manifest, string|nil reason
+function M.parseManifest(raw)
+  if raw == nil or raw == "" then
+    return nil, nil
+  end
+  if type(raw) ~= "string" then
+    return nil, "invalid_manifest"
+  end
+  if #raw > Policy.LIMITS.manifest_bytes then
+    return nil, "manifest_too_large"
+  end
+  local ok, doc = pcall(function()
+    return JSON:decode(raw)
+  end)
+  if not ok or type(doc) ~= "table" then
+    return nil, "invalid_manifest"
+  end
+  local out = {
+    driver = type(doc.driver) == "string" and doc.driver:sub(1, 64) or "",
+    version = doc.version ~= nil and tostring(doc.version):sub(1, 32) or "",
+    protocol = tonumber(doc.protocol),
+    capabilities = {},
+  }
+  local caps = doc.capabilities
+  if caps ~= nil and type(caps) ~= "table" then
+    return nil, "invalid_manifest"
+  end
+  for _, c in ipairs(caps or {}) do
+    if #out.capabilities >= Policy.LIMITS.manifest_capabilities then
+      return nil, "too_many_capabilities"
+    end
+    if type(c) ~= "table" or not Policy.validCapability(c.id) then
+      return nil, "invalid_capability"
+    end
+    local kind = c.kind == nil and "request" or c.kind
+    if kind ~= "request" and kind ~= "topic" then
+      return nil, "invalid_capability"
+    end
+    local cap = { id = c.id, version = math.floor(tonumber(c.version) or 1), kind = kind }
+    if kind == "topic" then
+      if type(c.topics) ~= "table" or #c.topics == 0 or #c.topics > Policy.LIMITS.capability_topics then
+        return nil, "invalid_capability"
+      end
+      cap.topics = {}
+      for _, t in ipairs(c.topics) do
+        if not Policy.validTopic(t) then
+          return nil, "invalid_capability"
+        end
+        cap.topics[#cap.topics + 1] = t
+      end
+    end
+    out.capabilities[#out.capabilities + 1] = cap
+  end
+  return out
+end
+
+--- The request capability `id` in an entry's manifest, or nil.
+function M.findCapability(entry, id, kind)
+  local manifest = entry and entry.manifest
+  if type(manifest) ~= "table" then
+    return nil
+  end
+  for _, c in ipairs(manifest.capabilities or {}) do
+    if c.id == id and (kind == nil or c.kind == kind) then
+      return c
+    end
+  end
+  return nil
+end
+
+--- @param opts table { now = fun():number, newToken = fun():string,
+---   devicesForFile = optional fun(filename):table|nil (device id -> any),
+---   reserved = optional { module_id = { filename, … } } (tests) }
 function Registry.new(opts)
   local self = setmetatable({}, Registry)
   self.now = opts.now
   self.newToken = opts.newToken
+  self.devicesForFile = opts.devicesForFile
+  self.reserved = opts.reserved or Policy.RESERVED_MODULES
   self.entries = {}
   return self
+end
+
+--- Identity binding for one claim. Returns "bound", "mismatch", "unknown"
+--- (resolver gave no usable answer) or "unbound" (not a reserved id, or no
+--- resolver injected).
+function Registry:identity(moduleId, instanceId)
+  local files = self.reserved[moduleId]
+  if files == nil or type(self.devicesForFile) ~= "function" then
+    return "unbound"
+  end
+  local claimed = tonumber(instanceId)
+  local answered = false
+  for _, file in ipairs(files) do
+    local ok, devices = pcall(self.devicesForFile, file)
+    if ok and type(devices) == "table" then
+      answered = true
+      for id in pairs(devices) do
+        if claimed ~= nil and tonumber(id) == claimed then
+          return "bound"
+        end
+      end
+    end
+  end
+  return answered and "mismatch" or "unknown"
 end
 
 --- Restores from serialize() output; anything unreadable yields an empty
@@ -121,7 +265,8 @@ end
 --- Validates and (re)registers. Re-registration of the same instance
 --- replaces the token and metadata but keeps registered_at and counters —
 --- the server sees one row per instance, not a new one per Director reload.
---- @return boolean ok, table reply (to send back), table|nil entry
+--- @return boolean ok, table reply (to send back), table|nil entry,
+---   table|nil removed (an entry dropped by an identity refusal)
 function Registry:register(params)
   params = type(params) == "table" and params or {}
   local moduleId = tostring(params.module_id or "")
@@ -143,6 +288,18 @@ function Registry:register(params)
     reply.agent_protocol_min = tostring(M.PROTOCOL_MIN)
     reply.agent_protocol_max = tostring(M.PROTOCOL_MAX)
     return false, reply
+  end
+  local identity = self:identity(moduleId, instanceId)
+  if identity == "mismatch" then
+    -- A reserved id claimed from a device that is not that id's driver
+    -- file. Refused, and an earlier entry for this exact claim (registered
+    -- before binding existed) is dropped so it cannot keep the id.
+    reply.reason = "not_permitted"
+    local removed = self:find(moduleId, instanceId)
+    if removed ~= nil then
+      self:remove(moduleId, instanceId)
+    end
+    return false, reply, nil, removed
   end
   local existing, index = self:find(moduleId, instanceId)
   local singleton = tostring(params.singleton or "") == "true"
@@ -181,6 +338,17 @@ function Registry:register(params)
   entry.status = tostring(params.status or "")
   entry.detail = tostring(params.detail or ""):sub(1, M.LIMITS.detail)
   entry.singleton = singleton
+  entry.verified = identity == "bound"
+  entry.manifest = nil
+  entry.manifest_error = nil
+  if hi >= Policy.V2 then
+    local manifest, why = M.parseManifest(params.manifest)
+    entry.manifest = manifest
+    entry.manifest_error = why
+    if why ~= nil then
+      reply.manifest_error = why
+    end
+  end
   entry.token = self.newToken()
   entry.last_seen = now
   entry.registrations = (tonumber(entry.registrations) or 0) + 1
@@ -329,10 +497,13 @@ function Registry:heartbeatBlock(agent)
       detail = e.detail,
       display_status = M.displayStatus(e, agent, stale),
       stale = stale,
+      verified = e.verified == true,
       registered_at = e.registered_at,
       last_seen = e.last_seen,
       registrations = e.registrations,
       counters = e.counters,
+      manifest = e.manifest,
+      manifest_error = e.manifest_error,
     }
   end
   return out

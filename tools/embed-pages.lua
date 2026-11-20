@@ -12,6 +12,7 @@
 ---   --check  exit 1 (and say which) when a module is stale, writing nothing.
 
 local PAGES = {
+  { dir = "drivers/smartbuildos-ai-core", module = "src/aicore/page.lua" },
   { dir = "drivers/smartbuildos-commissioning", module = "src/commissioning/page.lua" },
   { dir = "drivers/smartbuildos-daypart", module = "src/daypart/page.lua" },
   { dir = "drivers/smartbuildos-pin-lock", module = "src/pinlock/page.lua" },

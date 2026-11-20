@@ -178,6 +178,46 @@ which.
   action *Clear Lockouts*, the command `CLEAR_LOCKOUTS`, or (if `admin` is not
   locked) the Codes tab.
 
+## AI Core PIN verification
+
+When the SmartBuildOS AI Core driver is in the same project, it can ask for an
+**owner PIN** on its touchscreen page before it shows an approval or opens its
+chat. PIN Lock is what checks that PIN. AI Core never sees the PIN: its page
+sends the PIN straight to PIN Lock's own page connection for one short-lived
+challenge (60 seconds, one try), and AI Core is told only the outcome.
+
+- **Owner codes only.** Staff, vendor and guest codes are always refused here,
+  whatever guarded actions you gave them, and no setting widens this. A
+  disabled, expired, used-up or out-of-hours owner code is refused too.
+- **One lockout.** A wrong PIN typed on the AI Core page counts against the same
+  `page` lockout as the Actions tab, with the same **Max Wrong Attempts** and
+  **Lockout Minutes**. Wrong PINs on the AI Core page lock the Actions tab, and
+  wrong PINs on the Actions tab pause AI Core verification. *Clear Lockouts*
+  clears both.
+- **What AI Core learns:** that an owner PIN was accepted, when, and the role
+  `owner`. Never the PIN, never the code's name, and nothing that says which
+  owner code was typed. The cloud records "approved at the touchscreen with an
+  owner PIN".
+- **Nothing else happens.** A verification fires no guarded action and no
+  *Access Granted* event (programming on that event unlocks things). A refused
+  PIN fires *Access Denied* like any other refusal. The Flight Recorder marker
+  is `PIN Lock AI Core verification` with `role=owner entry=ai_core`, without a
+  code name.
+
+**The control.** **AI Core PIN Verification** is `On when an owner PIN exists`
+(the default) or `Off`. With `On`, PIN Lock offers verification only while an
+active owner code with a PIN exists, the driver is licensed and its page
+connection is listening. With `Off`, AI Core cannot verify a PIN here at all,
+and any challenge that was open is forgotten. Switching it on here is not the
+homeowner's consent: touchscreen approvals stay off until the homeowner turns
+them on in the SmartBuildOS portal.
+
+**AI Core Approvals** says in plain words whether verification is available now,
+and why not (switched off, licence restricted, no owner code, page connection
+not listening, or paused by a lockout). **AI Core** shows whether this driver
+has found AI Core. PIN Lock answers only the AI Core driver that the
+SmartBuildOS Agent has verified.
+
 ## Licence behaviour
 
 Only a definitive denial from the Agent with enforcement switched on restricts
@@ -254,6 +294,9 @@ No variable ever holds a PIN, a sequence or a digest.
 | App Data Relay                           | Whether the page's data connection is listening, and on which address          |
 | Flight Recorder                          | Whether a Flight Recorder was found to write markers to                        |
 | Last Refusal                             | The last programming command the driver would not do, with the reason          |
+| AI Core                                  | Whether this driver has found the AI Core driver                               |
+| AI Core Approvals                        | Whether AI Core may verify an owner PIN here now, and why not                  |
+| AI Core PIN Verification                 | `On when an owner PIN exists` (default) or `Off`                               |
 | Max Wrong Attempts, Lockout Minutes      | The lockout rule (3 to 10, 1 to 1440)                                          |
 | Sequence Length, Sequence Window Seconds | Keypad sequence rules                                                          |
 | Re-lock After Seconds                    | Send `LOCK` this long after an `Unlock` target action (0 = never)              |
@@ -328,3 +371,6 @@ run on a real controller yet:
 - Behaviour across a real controller reboot (the lockout and codes are stored in
   the encrypted persist store; the store itself is the platform's).
 - The Flight Recorder markers arriving and reading well in its history.
+- AI Core PIN verification: that the AI Core touchscreen page can reach this
+  driver's page connection (a different port) from a touchscreen or phone, and
+  the whole approval and chat unlock flow with the AI Core driver.

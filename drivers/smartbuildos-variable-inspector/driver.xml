@@ -76,6 +76,7 @@
       <property><name>License Source</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>Subscription Tier</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
       <property><name>SmartBuildOS Company</name><type>STRING</type><default>-</default><readonly>true</readonly></property>
+      <property><name>AI Core</name><type>STRING</type><default>Searching…</default><readonly>true</readonly></property>
       <property><name>Inspector Mode</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
       <property><name>App Data Relay</name><type>STRING</type><default>starting</default><readonly>true</readonly></property>
       <property><name>Watched</name><type>STRING</type><default>0</default><readonly>true</readonly></property>

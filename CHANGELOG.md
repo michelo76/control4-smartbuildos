@@ -20,7 +20,87 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Fixed
+
+- **AI Core: the configuration System Studio publishes is now accepted, so
+  learning can be switched on.** The platform's document had a different shape
+  from the driver's schema 1 and was refused whole, which kept learning off.
+  Both sides now build to the same contract; the platform's golden documents are
+  fed to the driver's validator by the cross-repo parity test and delivered
+  through the real Agent in the emulator. Excluded rooms go up to 500 (the
+  platform's own bound). A room is the Director room id on both sides; the
+  platform translates its learning categories to the driver's.
+- **AI Core: a pause takes effect at once.** `set_learning` gains
+  `config_version`: System Studio sends it (and `apply_config` for exclusions)
+  as soon as learning or exclusions change. The configuration document stays the
+  source of truth: an operation for a version already applied is ignored, a
+  preview holds only until that version's document arrives, an older
+  `apply_config` never replaces a newer document, and learning cannot be
+  switched on over a refused document.
+- **AI Core: `AI_RECORD_EVENT` works with learning off or paused** (it is a
+  dealer's marker, not learning); excluded rooms and categories still refuse it.
+- **AI Core: payload text is cut between characters.** A long non-ASCII `DETAIL`
+  or question used to reach the shared envelope, which cut it in the middle of a
+  character; the Agent then refused the whole frame as malformed. AI Core now
+  cuts every payload string and label between characters itself. The shared
+  envelope is unchanged for the other drivers (`docs/ai-core/KNOWN-ISSUES.md`
+  KI-1).
+- **AI Core: Sync Now's `status` request carries only its request id**, the only
+  field the platform accepts.
+
 ### Added
+
+- **AI Core: Run Household Analysis from Control4 programming.** A new
+  programming command, `AI_RUN_HOUSEHOLD_ANALYSIS`, asks SmartBuildOS to run the
+  household analysis (op `analyze_household`; the Agent relays it). It needs the
+  `AI_LEARNING` licence feature and is refused on the controller without it. At
+  most one accepted run an hour and one request at a time, so programming in a
+  loop sends nothing; a refusal or an outage does not use up the hour. The
+  normal answer is *accepted (queued)*: the result appears in System Studio and
+  the driver is never told when the run finishes. Refusals show SmartBuildOS's
+  reason (`learning_not_allowed`, `not_licensed`, `already_running`,
+  `rate_limited` with the wait); an Agent too old to relay it says so.
+  `AI_ANALYZE_SYSTEM` is unchanged.
+
+- **SmartBuildOS module contract v2 (Agent + module client).** A strict superset
+  of v1 (protocol 1..2 negotiated; v1 modules unchanged): capability manifest on
+  registration, discovery with debounced directory-change pushes, local pub/sub
+  of envelopes the Agent accepted (bounded, lossy by design), module-to-module
+  requests routed by the Agent with sender stamping, closed policy tables,
+  idempotency, deadlines and cursor paging, a closed-vocabulary cloud relay to
+  `/api/integrations/control4/modules/rpc`, per-module rate limits, bus counters
+  on the heartbeat, and registration tokens from `C4:UUID("RANDOM")`. Spec:
+  `docs/protocol/MODULE-CONTRACT-V2.md`. Emulator-verified only; bench
+  validation owed.
+
+- **SmartBuildOS AI Core (`smartbuildos-ai-core`, SKU `SBOS_AI_CORE`).** The
+  controller-side half of AI Core on module contract v2: ten Composer commands
+  (validated and bounded; one cloud op each through the Agent, with an
+  idempotency key; refusals shown as they are), ten Composer events, eleven
+  variables and five conditionals, six restricted operations from the platform
+  with closed argument sets (none controls equipment), whole-document
+  configuration (no key ever reaches the controller; the credential property is
+  status text), collection without double capture (Flight Recorder topics
+  consumed; own collector for Director system events, and a minimal set when the
+  recorder is absent), a persisted critical-event buffer with counted drops,
+  local diagnostics from the Flight Recorder's ring. Reference:
+  `docs/ai-core/DRIVER.md`. No physical controller has run it.
+
+- **AI Core: licensing, failure-mode and parity tests; installation and release
+  documentation.** Licensing end to end (activation, controller binding,
+  tampering, grace and validation-required on a virtual clock, renewal and
+  transfer without a reload, feature gating, uncertain states, store update
+  selection) in unit tests and the emulator with the real Agent and real
+  signatures; the product brief's failure modes mapped to named tests in
+  `docs/ai-core/TEST-MATRIX.md` with a 20-procedure hardware validation plan; a
+  cross-repo parity test against the platform's mirrors (`SBOS_PLATFORM_REPO`);
+  `docs/ai-core/INSTALLATION.md` and `docs/ai-core/RELEASE.md`. Simulation only.
+
+- **Flight Recorder: local history over module contract v2.** Manifest
+  `sbos.flight_recorder` with `events.query`, `events.timeline`,
+  `events.device_history`, `events.room_activity` (cursor-paged, under 24 KB,
+  each entry citing its uploaded envelope's `event_id`, retention stated) and
+  the `events.subscribe` topic. Unchanged against a v1-only Agent.
 
 - **VenueFlow (`smartbuildos-venueflow`, SKU `SBOS_VENUEFLOW`): a commercial AV
   control surface on an existing Control4 project.** Four operator screens on
@@ -37,6 +117,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   driver restart, all in Simulation; it has not yet controlled real equipment
   (`docs/smartbuildos-venueflow/HARDWARE_VALIDATION.md`). `make venueflow`
   builds just this driver and does not copy it into Composer's folder.
+
   - **Venue Studio for the client.** A staff profile that holds the new Venue
     Studio permission (the Owner role by default) opens the Studio with its PIN,
     from the tile's profile menu or on the page, and changes scenes, schedules,
@@ -59,6 +140,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
     Licenses, VenueFlow) is merged and deployed, but the two sides have **never
     been run together with a controller**, and the catalogue row for
     `SBOS_VENUEFLOW` is not applied yet, so no licence can be issued for it.
+
 - **Agent: restarts counted per day.** New property **Director Reloads Today**
   and variable `DIRECTOR_RELOADS_TODAY`: Director reloads since the controller's
   local midnight, back to 0 every midnight. The reload report to SmartBuildOS
@@ -66,6 +148,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of only the count since monitoring began. **System Startups Today** and
   **Controller Reboots Observed Today** now also return to 0 at midnight; they
   used to wait for the next restart.
+
 - **Agent: Send Push Notification, with no 4Sight subscription.** A new
   programming command on the SmartBuildOS Agent, `SEND_PUSH_NOTIFICATION`, with
   `TITLE`, `MESSAGE`, `SEVERITY` (Info, Warning, Critical) and four variable
@@ -80,6 +163,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   not be reached. New action *Send Test Push* and read-only property **Last Push
   Notification**. Needs the matching push service on SmartBuildOS; not yet run
   on a controller.
+
 - **A full manual for every driver.** The other 40 drivers now have the same
   kind of manual as the Notification Router and Solar Position: what the driver
   is for and a table of use cases, where the stock way is still the right tool,
@@ -92,6 +176,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   not a project driver, commands by their real names, limits and defaults), and
   behaviour that surprised us is written down as it is, under the section it
   affects.
+
 - **Solar Position: a ceiling per facade.** `Facade N Max Elevation` (90 = no
   limit) is the highest sun that still counts, for glass under an overhang or a
   balcony and for the midsummer sun that stands in front of south glass without
@@ -99,6 +184,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reason, a ceiling at or under the floor is reported (`facade 2 not used: …`)
   instead of leaving a facade that can never light, and a facade with a ceiling
   can be in the sun twice a day, with two pairs of events.
+
 - **Solar Position: an event at every boundary of the day.** *Sunrise*,
   *Sunset*, *Night Began* (evening twilight over), *Evening Golden Hour Started*
   and *Morning Golden Hour Ended* join *Civil Dawn*, so first light, sunrise,
@@ -106,6 +192,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   conditional *It is night*. *Golden Hour Started* and *Civil Dusk* keep firing
   as before for programming that uses them. The horizon is judged on its own, so
   a late tick still reports the crossing.
+
 - **Solar Position: the manual.** Why a sunrise or sunset schedule cannot do
   this (the driver's own figures for a west and a south facade through the
   year), a table of use cases, walkthroughs for setup and for describing a
@@ -113,6 +200,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   day boundary by boundary, and a calculator in the page that answers "when is
   the sun on this glass" for any site, date and facade with the driver's own
   rules (checked against the engine on fourteen cases).
+
 - **Interactive manuals for every driver.** A driver's documentation is now one
   self-contained interactive page: a contents list that follows the page,
   search, walkthroughs whose steps you tick (your place is kept), screenshots
@@ -126,6 +214,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   with walkthroughs and worked examples for a Slack or Discord channel and for
   the Generic Webhook (the request as sent, each field, what to answer, a `curl`
   line).
+
 - **Notification Router: a message is written in pieces.** Notify, Notify All
   and Reply now read MESSAGE, VARIABLE 1, MESSAGE 2, VARIABLE 2 … up to VARIABLE
   4 and MESSAGE 5, so words can follow a value: *This system rebooted* + a
@@ -133,6 +222,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   joined with one space, tight against punctuation. Programming written before
   sends what it sent; `${1}`..`${4}` still place a value anywhere and word or
   round it.
+
 - **Notification Router: SEPARATOR.** Notify, Notify All and Reply have a
   SEPARATOR list just above MESSAGE: what goes between one message (a text and
   the variable under it) and the next. **Space** (default) keeps everything one
@@ -141,16 +231,19 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   others. Asked for after "Home is currently Occupied The security is currently
   Armed Away" arrived run together. Programming written before sends what it
   sent.
+
 - **Notification Router: `MESSAGE_RECEIVED`.** A string variable that takes the
   text of each message the router accepts, for programming written as *when
   MESSAGE_RECEIVED changes, if it is equal to …*. It is not read-only, so
   programming can set or clear it. The same text arriving twice is still a
   change. **Message Received As** can lower-case it so a phone's capital letter
   does not break a condition.
+
 - **Notification Router: Find Telegram Chat ID.** An action that lists the chats
   the bot has heard from, with their ids, in **Telegram Chats Seen**: people who
   wrote to it, groups and channels it was added to. It takes nothing, and the
   token no longer has to be pasted into a browser.
+
 - **Message variables in the Notification Router.** A notification can carry the
   current value of any Control4 variable, value only, set up in the programming
   window the way the Push Notification agent does it. Notify and Notify All have
@@ -162,6 +255,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   sent as `?`, raises *Message Variable Missing* and never blocks the send; a
   credential-named variable is sent as `[hidden]`. De-duplication compares the
   filled-in text.
+
 - **Two-way messaging in the Notification Router.** With **Telegram Inbound** or
   **Twilio Inbound** on, a message sent to the bot or a text sent to the Twilio
   number becomes variables (`LAST_MESSAGE`, `TELEGRAM_LAST_MESSAGE`,
@@ -174,6 +268,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   an optional **Inbound PIN** is required and stripped. The router polls
   (default every 5 s); nothing has to be opened on the home router. Not yet
   exercised with a real message on a controller.
+
 - **driver.xml guard**: a `DEVICE_SELECTOR` property with no `<items>` filter,
   and a `PASSWORD` property, are refused in every driver (both make Composer Pro
   2026.10.14 raise "Property Invalid" on import).
@@ -219,6 +314,58 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   are not queued and uploaded first.
 
 ### Fixed
+
+- **AI Core closeout: text bounds, learning default, documentation.** (1) Every
+  text field of every cloud-op body now satisfies the platform's rule for that
+  field (`rpc/ops.ts` `validateOpBody`): C0 controls, DEL, C1 controls and
+  U+2028/U+2029 become spaces, malformed UTF-8 is dropped, the ends are trimmed,
+  and room and device names from Director are cut to 64 / 120 characters on a
+  character boundary — a long or odd name used to make the whole command fail
+  `invalid_args`. Typed text is counted in characters (as the platform counts),
+  not bytes, and still refused over its bound. Envelope labels, `Last Error` and
+  the `raise_event` detail are cut between UTF-8 characters too. (2) **Learning
+  is off by default**: with no configuration, a document that does not mention
+  it, or after an invalid document, learning is off (`LEARNING_ACTIVE` false,
+  `Learning Status` says so) and nothing is collected; every collection source
+  also defaults to off. A valid document that says on turns it on. (3)
+  `DRIVER.md` and the dealer manual mark every required parameter
+  (`AI_GENERATE_REPORT` `TYPE` and `PERIOD` included) and default, and say that
+  `AI_LAST_RESPONSE` holds up to 1024 **bytes**. Tests:
+  `test/test_aicore_learning_default.lua` (new), `test_aicore_commands.lua`
+  [6]–[7], parity [8] (the `room_name`/`device_name` NOTE lines are now
+  assertions). Simulation only.
+
+- **AI Core: four contract mismatches with the platform, found in integration.**
+  (1) `raise_event` accepts an optional `correlation_id` (1–96 characters, no
+  control characters) — the platform's actions service sends one with every
+  approval/action event, and the driver refused the whole operation; it is
+  carried into a new `ai_core.event` envelope and the new variable
+  `AI_LAST_CORRELATION_ID` (4010). Every other unknown key is still refused. (2)
+  A cloud answer `{accepted: true, job_id: null}` (`set_context`,
+  `send_notification`, a recorded `learn_preference`) is a completed request: no
+  pending job, no `working`, no AI Response Ready (counter `cloud_completed`);
+  `rate_limited` is shown as a refusal, not as "no answer"; the `set_context`
+  body names the context key `key`, as the platform validates it. (3) The
+  Agent's licence inventory keeps every instance of a SKU: removing a second
+  instance of a driver no longer drops the SKU for the one that remains, and
+  every instance is told its licence. (4) The cross-repo parity test compares
+  every restricted-operation argument the platform sends with `operations.lua`
+  and every cloud body the driver sends with the platform's `rpc/ops.ts`.
+  Simulation only (unit tests and the emulator).
+
+- **Agent: Director system events after pairing at run time.** The Agent
+  registered for system events only in a start-up that found it already paired,
+  so an Agent paired while running heard none (no Project Changed, Programming
+  Changed, OS Update Started, device online/offline) until it was reloaded. It
+  now also registers when pairing succeeds, once per event id.
+
+- **AI Core: malformed input fails closed.** A malformed directory or Flight
+  Recorder answer no longer throws inside a callback (a diagnostic was lost and
+  `run_diagnostic` stayed `Executing`); a corrupted persisted state no longer
+  stops start-up before the timers; the persisted buffer is bounded on load;
+  module tokens are no longer printed at Log Level 5; platform-chosen text shown
+  in properties is bounded. `raise_event ai_provider_error` now also sets
+  `AI_LAST_ERROR` / `Last Error` until the next result.
 
 - **Dealer tools: five defects from the review of their pull request**, each
   reproduced by a test first (shim only; not built, not run on a controller).

@@ -34,6 +34,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local child = require("bond.child")
+local aipresence = require("sbos.aipresence")
 
 local FAN_PROXY_BINDING = 5001
 --- Keypad button links (Connections view): toggle / speed down / speed up.
@@ -181,10 +182,12 @@ function OnDriverLateInit()
   end
   child.requestIdentity()
   child.armRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   child.cancelRetry()
+  aipresence.stop()
 end
 
 -- ─── Fan proxy commands ───────────────────────────────────────────────────────

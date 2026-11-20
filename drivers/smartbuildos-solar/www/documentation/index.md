@@ -64,6 +64,8 @@ the Scheduler cannot know.
 1. Name the facades you care about and give each its heading. The next section
    shows how.
 1. Read **Facade Status**: it names each facade and says sun or shade.
+1. **AI Core** (read-only) says whether this driver reports to SmartBuildOS AI
+   Core; see [AI Core](#ai-core).
 
 ![Solar Position in Composer: the Properties tab, status at the top and settings below](images/properties.jpg)
 
@@ -352,6 +354,49 @@ right the moment the controller restarts.
 | Recompute Now                            | Runs the minute tick now                                                       |
 | Rediscover Location                      | Re-reads the project (or manual) coordinates                                   |
 | Register With Agent Now / Refresh Status | Licensing and property refresh                                                 |
+
+## AI Core
+
+When the SmartBuildOS AI Core driver is installed in the project, this driver
+tells it, over the SmartBuildOS Agent, what it does and where the day stands.
+Without AI Core it sends nothing more than before.
+
+**AI Core** (read-only property) says where that stands:
+
+| Value                                        | Meaning                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Searching…`                                 | Looking for the SmartBuildOS Agent and AI Core (also briefly after either restarts) |
+| `SmartBuildOS Agent not found`               | No SmartBuildOS Agent in the project                                                |
+| `SmartBuildOS Agent update required`         | The Agent is too old to carry AI Core reports                                       |
+| `Not registered — Agent module list full`    | The Agent already serves 48 SmartBuildOS drivers                                    |
+| `Not installed`                              | No AI Core in the project: this driver sends nothing to it                          |
+| `Found — not responding`                     | AI Core is installed but did not answer                                             |
+| `Found — AI Core update required (v…)`       | AI Core is too old for this driver's reports                                        |
+| `Found — not licensed (v…)`                  | AI Core is installed without a licence                                              |
+| `Found — SmartBuildOS Agent not paired (v…)` | AI Core cannot reach SmartBuildOS until the Agent is paired                         |
+| `Found — reporting, cloud offline (v…)`      | Reports reach AI Core; AI Core cannot reach SmartBuildOS right now                  |
+| `Found — reporting (v…)`                     | Reports reach AI Core, which passes them on                                         |
+
+What it reports:
+
+- **What it is**: the sun's position for the home, the part of the day and the
+  sun on the building's facades, and the words people use (sunrise, sunset,
+  golden hour, glare…).
+- **State**: the solar status, the part of the day, whether it is daylight, how
+  many facades are configured and how many are in sun. Never the location: no
+  coordinates, no city, and no sunrise or sunset times (together they would
+  place the home).
+- **Faults**: the location became unusable (the sun is not computed) and when it
+  is usable again.
+
+What it will answer when asked: nothing beyond the reports.
+
+What it can be asked to do: nothing.
+
+Reports are lossy by design (a few a minute at most); nothing is queued while AI
+Core is absent, and nothing changes in this driver when AI Core is not
+installed. Tested in unit tests only: nothing here has run on a physical
+controller.
 
 ## What is not claimed
 

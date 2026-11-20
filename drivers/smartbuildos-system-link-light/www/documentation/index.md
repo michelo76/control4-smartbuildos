@@ -120,6 +120,14 @@ Refused*, notify: the request was turned down, and **Last Result** says why, for
 example `failed: export is view-only`. `delivered` means the owner passed the
 command to its light; the proof that it went off is *Remote Light Off*.
 
+## AI Core
+
+The read-only **AI Core** property shows
+`Installed — reports through SmartBuildOS System Link` when SmartBuildOS AI Core
+is in the project and `Not installed` when it is not; this driver never talks to
+AI Core itself (the System Link driver is the one that reports), and it shows
+`Searching…` until Director first answers.
+
 ## Limits
 
 - The light shows confirmed state only. If the owner's light does not report

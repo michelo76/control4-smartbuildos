@@ -684,6 +684,439 @@ each; the citation is where the full story lives.
 
 ______________________________________________________________________
 
+## 9. Reporting to AI Core in a few lines (`sbos.aireport`)
+
+`src/sbos/aireport.lua` is one module for a driver's whole relationship with
+AI Core: it sends reports to AI Core over the module bus (capability
+`ai_core.report` v1), serves the read-only queries and the actions the driver
+declares, and paints the read-only **AI Core** Composer property. Contract:
+`docs/protocol/MODULE-CONTRACT-V2.md`; tests: `test/test_sbos_aireport.lua`
+(real Agent registry and bus, a fake AI Core). **Emulator and unit tests only:
+nothing here has run on a physical controller.**
+
+### Pick the mode
+
+| Your driver                                          | Mode      | What it does                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a root driver not on the bus yet                     | `start`   | sets `sbos.moduleclient` up for you (module id from `aireport.MODULE_IDS`, `singleton = false`, protocol 2 only, `claim_driver_config = false` so your `EC.SBOS_DRIVER_CONFIG` stays yours) and registers                                                                                                                                                                                      |
+| a root driver that already runs its own moduleclient | `attach`  | uses your client; you forward three callbacks                                                                                                                                                                                                                                                                                                                                                  |
+| a child driver (Bond, MQTT, System Link, UniFi …)    | —         | does **not** use this helper: it carries the small `sbos.aipresence` instead (below)
+
+The Agent (`smartbuildos.c4z`) does not use the helper (it is the hub, and
+sends no reports): it paints its own `AI Core` property from its module
+registry (`src/sbos/agentaicore.lua`, below). AI Core itself does not use the
+helper and has no `AI Core` property.
+
+**`start`** (module scope + `OnDriverLateInit` + `OnDriverDestroyed`):
+
+```lua
+local aireport = require("sbos.aireport") -- module scope (the require guard)
+
+function OnDriverLateInit()
+  -- ...
+  aireport.start({ sku = "SBOS_X" }) -- file: DC_FILENAME, else DRIVER_FILENAMES[1]
+end
+
+function OnDriverDestroyed()
+  aireport.stop() -- unregisters the helper's client
+end
+```
+
+`DC_FILENAME` exists only in the DriverCentral variant: the OSS build every
+release is made from (`DISTRIBUTIONS := oss`) drops the
+`--#ifdef DRIVERCENTRAL` block, so the default falls back to the first
+`DRIVER_FILENAMES` entry (a test keeps both naming the driver's own
+directory). A driver with neither (Mode Composer today) passes
+`file = "smartbuildos-mode-composer.c4z"`. A file that is not in
+`aireport.MODULE_IDS` is refused (`false, "unknown_driver_file"`) and nothing
+is set up.
+
+**`attach`** (your existing `client.setup`):
+
+```lua
+client.setup({
+  -- ... your options ...
+  manifest = { driver = "sbos.x", capabilities = aireport.capabilities(MY_CAPABILITIES) },
+  onRegistered = function(reply) myOnRegistered(reply); aireport.onRegistered(reply) end,
+  onDirectoryChanged = function(v) myOnDirectoryChanged(v); aireport.onDirectoryChanged(v) end,
+  onAgentState = function(a, why) myOnAgentState(a, why); aireport.onAgentState(a, why) end,
+})
+aireport.attach(client, { sku = "SBOS_X" })
+client.register()
+```
+
+Declare queries and actions **before** your `setup` so
+`aireport.capabilities()` lists `ai.query` / `ai.action` in your manifest; the
+helper never re-registers a client it did not set up. `aireport.stop()` in
+attach mode leaves your client alone.
+
+**Child drivers: `sbos.aipresence`** (conductor ruling 20). The helper used
+to have a `passive` mode; it was moved out (not duplicated) into
+`src/sbos/aipresence.lua`, because a child carrying the helper also carries
+`sbos.moduleclient` and its closure, unused: measured on `bond-fan`, the
+helper adds about 152 KB of source (about 105 KB after squish's comment and
+blank-line stripping, about 24 KB gzipped) where `sbos.aipresence` +
+`sbos.aivalues` add about 14.5 KB (9.9 KB stripped, 2.7 KB gzipped).
+`aireport.passive` no longer exists. `sbos.aipresence` never registers and
+never sends a frame of any kind; it asks Director for
+`smartbuildos-ai-core.c4z` (`C4:GetDevicesByC4iName`) at start, on the system
+events `OnDriverAdded` (13) / `OnItemRemoved` (11) (debounced 5 s, chained
+onto any `OSE` handler the driver has), and on `recheck()`:
+
+```lua
+local aipresence = require("sbos.aipresence") -- module scope (the require guard)
+
+function OnDriverLateInit()
+  -- ...
+  aipresence.start() -- file: DC_FILENAME, else DRIVER_FILENAMES[1]; must be in aipresence.CHILDREN
+end
+
+function OnDriverDestroyed()
+  aipresence.stop()
+end
+
+-- wherever the driver already receives its root's pushes:
+aipresence.recheck() -- at most one lookup per 10 minutes; no timer
+```
+
+- A driver that sets neither `DC_FILENAME` nor `DRIVER_FILENAMES` (Mode
+  Button, Home Insights) passes `file = "<its>.c4z"`.
+- A driver without the vendored handlers (Home Insights): `aipresence`
+  paints through `C4:UpdateProperty`, debounces on `C4:SetTimer`, and the
+  driver forwards Director's events: `function OnSystemEvent(e)
+  aipresence.onSystemEvent(e) end`.
+- Children whose lifecycle a shared base installs get the wiring once in the
+  base: `src/mqtt/childdriver.lua` (MQTT) and
+  `src/systemlink/companiondriver.lua` (System Link companions).
+- `recheck()` is the bounded fallback for KI-42 (whether system events reach
+  a child at all is unverified on hardware): each family calls it from
+  traffic it already receives (gateway / broker / bridge / manager pushes).
+- A root that does not report right now uses it too, with
+  `aipresence.start({ silent = true })` (VenueFlow with Remote Management
+  off).
+
+**The Agent: `sbos.agentaicore`.** The Agent's main chunk is at its
+200-local limit, so the module is a global like its other module services
+(`AgentAiCore = require("sbos.agentaicore")`) and is called from existing
+hooks: once the module registry is loaded, on every directory change (the
+bus's `onDirectoryChanged` hook: register, remove, stale transition) and on
+every module status frame. It reads the registry, never the bus.
+
+**The values live in ONE place: `src/sbos/aivalues.lua`.** All three
+painters (`sbos.aireport`, `sbos.aipresence`, `sbos.agentaicore`) take every
+value from it, and `test/test_sbos_aivalues.lua` fails if any of them holds a
+value text of its own, writes the property outside its one `paint`, or paints
+anything `aivalues.isValue` refuses.
+
+### The property
+
+Add to `driver.xml` `<properties>` (exact text):
+
+```xml
+<property>
+  <name>AI Core</name>
+  <type>STRING</type>
+  <default>Searching…</default>
+  <readonly>true</readonly>
+</property>
+```
+
+Every painter writes it only if the driver declares it, and only ever one of
+these values (`sbos.aivalues`; anything else is refused before it reaches
+Composer). Who paints which:
+
+| Value                                         | When                                                                                                                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Searching…`                                  | before the first registration / directory answer; after an Agent restart; AI Core found but no report answered yet; a registration refused for a reason other than the ones below |
+| `SmartBuildOS Agent not found`                | no `smartbuildos.c4z` in the project                                                                                                          |
+| `SmartBuildOS Agent update required`          | the Agent speaks only protocol 1, or it refuses `ai_core.report` as `not_permitted` (an Agent older than this policy row)                     |
+| `Not registered — Agent module list full`     | registration refused `registry_full` (48 modules)                                                                                             |
+| `Not installed`                               | the directory has no `ai_core`; for `sbos.aipresence`, Director lists no `smartbuildos-ai-core.c4z`; for the Agent, no `ai_core` registration |
+| `Found — not responding`                      | the `ai_core` row is stale, or a report got no answer before its deadline                                                                     |
+| `Found — AI Core update required (v‹ver›)`    | the row's manifest lacks `ai_core.report` v1, or AI Core answered `unsupported_version`                                                       |
+| `Found — not licensed (v‹ver›)`               | row `status = unlicensed`, or a report answer says `unlicensed`                                                                               |
+| `Found — SmartBuildOS Agent not paired (v‹ver›)` | a report answer says `agent_unpaired`                                                                                                      |
+| `Found — reporting, cloud offline (v‹ver›)`   | a report answer says `cloud_unreachable`                                                                                                      |
+| `Found — reporting (v‹ver›)`                  | the last report was accepted                                                                                                                  |
+| `Installed — reports through ‹root›`          | `sbos.aipresence`: a child, AI Core present (‹root› is the root driver's name) |
+| `Installed — this driver does not report`     | `sbos.aipresence`: a child of a root that sends no reports (Home Insights, a child of the Agent), or a root started `silent` (VenueFlow, Remote Management off), AI Core present (ruling 20) |
+| `Found — registered (v‹ver›)`                 | the Agent only: `ai_core` registered, live, and identity-verified (`verified = true`)                                                         |
+| `Found — not verified (v‹ver›)`               | the Agent only: `ai_core` registered and live, but the Agent could not verify its identity (`verified = false`)                               |
+
+**The Agent's own values** (`sbos.agentaicore`; it never says "reporting"):
+`Searching…` before the registry loads; `Not installed`; `Found — not
+responding` (the best `ai_core` row is stale); `Found — AI Core update
+required (v‹ver›)` (registered at protocol 1, or no `ai_core.report` v1);
+`Found — not licensed (v‹ver›)` (its own status); otherwise, for a live
+`ai_core`, `Found — registered (v‹ver›)` when the Agent verified its identity
+and `Found — not verified (v‹ver›)` when it could not. These two values are
+the Agent's only: `sbos.aireport` and `sbos.aipresence` never paint them (a
+test fails if either source names them).
+
+Discovery is continuous with no polling loop: the helper re-discovers
+`ai_core` after registration and on every `SBOS_MODULE_DIRECTORY_CHANGED`,
+which the Agent pushes on register, unregister and stale transitions. A licence
+change inside AI Core does not change the directory; it shows at the next
+report answer. **On a v1-only Agent** there is no directory and no push: in
+`start` mode the registration (protocol 2 only) is refused, nothing is stored
+in the Agent's registry, the property says `SmartBuildOS Agent update
+required`, and the module client re-sends the registration every 300 s (that
+is how an Agent update is noticed); no other frame is sent. In `attach` mode
+the driver's own client keeps its v1 services and the helper sends nothing.
+
+### The four report kinds (one example each)
+
+```lua
+-- describe: sent for you (name/version from the driver config, sku, file,
+-- the summary from aireport.SUMMARIES); richer fields are optional.
+aireport.describe({
+  summary = "Weather conditions and forecast for the home.",
+  controls = { { id = "forecast", label = "Forecast", class = "weather" } },
+  vocabulary = { "forecast", "rain" },
+})
+-- state: the driver's current facts (replaces the previous set). The helper
+-- adds driver_status (Properties["Driver Status"]) and license.
+aireport.state({ temperature_f = 71, condition = "Clear", alerts = 0 })
+-- event: lossy, at most 10 a minute.
+aireport.event("weather.alert", "Wind advisory until 6 PM", { level = "advisory" })
+-- diagnostic: lossy, at most 6 a minute.
+aireport.diagnostic("warning", "feed.stale", "No forecast for 2 hours")
+```
+
+What is sent: `SBOS_MODULE_REQUEST` to `ai_core` (the live instance from the
+directory), capability `ai_core.report`, `args = { v = 1, kind = …, … }`,
+10 s deadline, no retries. Bounds, enforced before sending (a string over its
+bound is cut between UTF-8 characters, in bytes, after control and bidi
+characters are stripped; a bad key, kind or count is refused):
+
+| Kind         | Shape                                                                                                                                                                                                 | Client-side rate                                                            |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `describe`   | `driver{name ≤64, version ≤32, sku ≤40, file ≤64}`, `summary ≤200`, `controls ≤32 {id ≤48, label ≤64, class}`, `vocabulary ≤24 × ≤40`, `queries ≤8`, `actions ≤8`, `hash`; ≤ 8 KB encoded               | on change (hash differs); when AI Core appears, revives or updates; otherwise the same hash at most once per 10 min (a directory change after that re-sends it); at once when an AI Core answer says `need_describe` (AI Core holds none, e.g. it restarted), unless AI Core refused that very describe |
+| `state`      | `facts` ≤ 32 keys (30 yours), key `^[a-z][a-z0-9_]{0,47}$`, value string ≤120 / number / boolean                                                                                                       | 6 a minute, coalesced (latest wins); sent when changed and on every directory change; baseline checked every 60 s while AI Core is reachable |
+| `event`      | `type ^[a-z0-9_.]{1,48}$`, `text ≤240`, `data` ≤ 16 scalar keys, `at` (epoch seconds, a whole number)                                                                                                         | 10 a minute, the rest dropped (counted)                                     |
+| `diagnostic` | `severity info\|warning\|fault`, `code ^[a-z0-9_.]{1,48}$`, `text ≤240`, `at` (epoch s)                                                                                                                        | 6 a minute, the rest dropped (counted)                                      |
+
+Every call returns `true` or `false, reason` (`absent`, `rate_limited`,
+`coalesced`, `unchanged`, `invalid`, `too_large`, or the failed field); none
+raises and none logs.
+
+### Declared queries and actions
+
+```lua
+aireport.declareQuery({
+  id = "current_conditions",
+  description = "Current weather at the home.",
+  params = { { name = "units", type = "enum", values = { "f", "c" }, required = false } },
+}, function(params, req)
+  return { temperature = gNow.temp, condition = gNow.text } -- or nil, "feed_down"
+end)
+
+aireport.declareAction({
+  id = "refresh_now",
+  title = "Refresh the weather now",
+  description = "Fetches fresh data from the provider.",
+  params = {},
+  risk = "low", -- low | medium | high; by contract the platform treats a driver action as at least medium
+}, function(params, req)
+  refreshNow() -- asynchronous: the fetch finishes later
+  return "Refresh started", { in_progress = true } -- or "text" when finished; or nil, reason
+end)
+```
+
+**Finished or only started.** A handler returns `text` when the action has
+finished, `nil, reason` when it did not run, and `text, { in_progress = true }`
+when it has *begun* work that finishes later (a timer, a queue of device
+commands, a countdown). The helper answers the last one
+`{ ok = true, in_progress = true, result_text }`, never plain success, so
+the outcome is recorded as **started**, not completed (conductor ruling 23;
+AI Core relays it as `driver_action_result` status `started`). Report the
+real outcome afterwards as an event. Mode Composer's `activate_mode` does
+this for a departure countdown and for an activation still sending device
+commands; a finished activation is plain success.
+
+**Text is required and must not be empty.** AI Core refuses a describe that
+carries empty text, and a refused describe means the cloud never learns about
+the driver at all, so the helper refuses it first: `declareQuery` and
+`declareAction` return `false, reason` for a missing or empty (or blank) `id`
+(`query_id` / `action_id`), `description` (`query_description` /
+`action_description`) or, for an action, `title` (`action_title`).
+`describe` drops empty vocabulary words, labels a control that has no label
+with its id, and refuses an explicitly empty `summary` (`false, "summary"`;
+the summary in place is kept). Leaving `summary` out is fine: the built-in
+summary for the driver's file is used (else its label), never an empty one.
+
+**Ids are unique.** AI Core refuses a whole describe that carries two
+controls with one id, so `describe` refuses that first
+(`false, "control_duplicate"`, compared after cleaning; the controls in
+place are kept). A second, *different* declaration under an id already
+declared is refused (`query_duplicate` / `action_duplicate`) and the first
+stays; re-declaring the identical declaration only swaps the handler.
+Changing a declaration on purpose passes a third argument
+`{ replace = true }` (which changes the hash and voids pending approvals).
+
+Param types: `enum` (`values` 1–16 × ≤40), `integer` / `number` (`min`,
+`max`), `boolean`, `string` (`max_len` ≤64, default 64); `required` boolean;
+≤ 6 params. A declaration that breaks a bound, or that would push describe
+over 8 KB, is refused. Incoming params are validated against the
+declaration before your handler runs: unknown keys, a missing required param,
+a wrong type, a value outside the enum or range, an over-long string or one
+carrying control or bidi characters are refused `invalid_args`, never
+repaired. A query answers `{ ok = true, data }` (scalars and tables, at most
+3 deep, ≤ 24 KB); an action answers `{ ok, result_text }`, plus
+`in_progress = true` when the handler said so.
+
+### The rules
+
+- **Report text is untrusted data downstream.** AI Core and the cloud bound
+  and strip it again, and it reaches the model only inside `untrusted` tool
+  results — never as instructions or tool definitions. Do not put secrets,
+  tokens or personal data in reports.
+- **Declared actions never run without a person's approval.** By contract
+  the platform only proposes them (no pre-approved rule can match one), the
+  homeowner approves, and the Agent's Remote Control tier (Comfort or above)
+  gates the command; the platform side (ingest, the three driver tools,
+  proposal, approval and dispatch) is built and tested in simulation on the
+  platform branch, not deployed. The helper additionally runs an
+  action only for an `ai_core` the Agent **verified** (identity binding) and
+  only when `declaration_hash` equals the current describe hash
+  (`aireport.declarationHash()`), so the declaration that was approved is the
+  one that runs; any change to the describe changes the hash and voids
+  pending approvals. Queries are read-only and are served to `ai_core` only.
+- **Nothing is sent when AI Core is absent.** No request leaves the driver
+  unless the directory lists a live `ai_core` whose manifest advertises
+  `ai_core.report` v1; events and diagnostics made meanwhile are dropped, not
+  queued. No error is raised and nothing is logged per report.
+- Every root driver's module id is reserved in the Agent
+  (`modulepolicy.RESERVED_MODULES`), bound to its `.c4z` file;
+  `aireport.MODULE_IDS` is the same table and a test keeps them identical.
+  A new root driver adds its id to both (an Agent release).
+- The `declaration_hash` is a 64-bit **non-cryptographic** fingerprint
+  (`aireport.hash`); it detects a changed declaration, it is not a MAC.
+
+### The recipe the reference drivers followed (copy it)
+
+Three drivers were wired by hand (brief D6) and are the pattern for the
+rest: **Atmosphere** (`start`, owns `EC.SBOS_DRIVER_CONFIG` through
+`sbos.mirror`), **Mode Composer** (`start`, no `DC_FILENAME`, the one
+declared action) and **Flight Recorder** (`attach`, its own module client).
+Each has `test/test_<driver>_aicore.lua` on `test/aicore_reporter_harness.lua`
+(the real Agent registry and bus; a fake AI Core that answers through AI
+Core's **real** validator, so a report AI Core would refuse fails the test),
+and all three run together in `test/emulator/ai_core_reference_drivers.lua`.
+
+**Every driver (all three modes):**
+
+1. `driver.xml`: the `AI Core` property (exact XML above), beside the
+   licence properties.
+1. `local aireport = require("sbos.aireport")` at module scope (the require
+   guard; the build only packs modules it sees at load).
+1. Decide the reports *before* writing code, and write them down in the
+   driver's code comment: describe (what it is, 1–5 controls, ≤ 24
+   homeowner words), state (facts that matter and change; **no** location,
+   names of people, codes or device activity), events (transitions a person
+   would want to hear about; never per occurrence), diagnostics (faults the
+   driver **already** detects), 1–2 read-only queries answering a question a
+   person would ask, and an action only when the driver already has a safe,
+   bounded command (most have none: say so in the comment).
+1. Report from the places that already compute the facts (Atmosphere:
+   after `engine.step`; Mode Composer: `refreshStateSurface` and
+   `saveConfig`; Flight Recorder: `paint()` and `emit()`). Call
+   `aireport.state(...)` freely: the helper sends only a change, at most 6
+   a minute. Put the event / diagnostic call next to the existing
+   `FireEvent` / transition it mirrors, so it fires exactly as often.
+1. `OnDriverDestroyed`: `aireport.stop()`.
+1. Docs: an "AI Core" section in `www/documentation/index.md` (the property
+   values, what it reports, what it answers, what it can be asked to do and
+   that a person must approve it) and a row in its Properties table; a
+   short section in the driver's docs folder.
+1. Tests: copy one of the three `test_*_aicore.lua`. Prove, at least: with
+   the Agent present and AI Core absent zero `ai_core.report` frames and
+   `Not installed`; every report accepted by AI Core's validator
+   (`H.allValid()`); the queries through the bus, including a refused
+   param; AI Core removed and re-added; only closed values painted. Then
+   run the driver's existing tests **unchanged**.
+
+**`start` (a root not on the bus; Atmosphere, Mode Composer):**
+
+1. In `OnDriverLateInit`, after `license.setup` (and `license.check`):
+   `declareQuery` / `declareAction` first, then
+   `aireport.start({ sku = "SBOS_X" })`, then `aireport.describe({...})`,
+   then one `aireport.state(...)` with the current facts. `start` resets
+   the describe fields and facts (declarations survive), so describe and
+   state go **after** it.
+1. Put the three steps in one `startAiCore()` and call it again anywhere
+   the driver runs `KillAllTimers()` outside `OnDriverDestroyed`
+   (Atmosphere's `REINITIALIZE`): that kills the module client's timers
+   too. Call `aireport.stop()` first.
+
+**`attach` (a root with its own module client; Flight Recorder):**
+
+1. Declare the queries/actions **before** `client.setup`, and wrap the
+   manifest list: `capabilities = aireport.capabilities({ ...yours... })`.
+   The helper never re-registers your client, so a later declaration does
+   not reach the manifest (the bus then refuses it `capability_not_found`).
+1. Forward `onRegistered`, `onAgentState` and `onDirectoryChanged` (add the
+   last one if the driver did not have it: without it AI Core is never
+   found again after it appears or goes away).
+1. After `client.setup` and before `client.register()`:
+   `aireport.attach(client, { sku = SKU })`, then `aireport.describe(...)`.
+1. A driver test that counts the driver's own v2 frames now sees one more
+   kind: the helper's `DISCOVER {"module_id":"ai_core"}`.
+
+**A driver that owns `EC.SBOS_DRIVER_CONFIG` (Atmosphere, `sbos.mirror`):**
+nothing extra: `start` passes `claim_driver_config = false`. Keep a test
+that sends `SBOS_DRIVER_CONFIG` after the helper started and checks the
+driver's own handler applied it (and `EC.SBOS_DRIVER_CONFIG` is not
+`moduleclient.onConfig`). In `attach` mode the config handler is whatever
+your own `client.setup` chose.
+
+**The rollout and its ratchet (briefs D7a, D7b).** Every root in
+`aireport.MODULE_IDS` except AI Core itself reports, each with
+`test/test_<driver>_aicore.lua` on the shared checks in
+`test/aicore_rollout_checks.lua`; VenueFlow reports only while Remote
+Management is on (conductor ruling) and is otherwise silent
+(`test/test_venueflow_aicore.lua`). All 30 children show the property
+through `sbos.aipresence`, one test per family on the shared checks in
+`test/aicore_child_checks.lua` (zero frames, absent / added / removed, the
+`recheck()` fallback). `test/test_driver_aicore_guard.lua` fails when ANY
+directory in `drivers/` lacks the exact property or the wiring its kind
+needs (roots: the helper; VenueFlow: the helper plus `aipresence` silent;
+children: `aipresence` in `driver.lua` or in a listed child base, and never
+the helper or `sbos.moduleclient`; the Agent: `sbos.agentaicore` as a
+global, hooked to the bus's directory changes), when a child in
+`aipresence.CHILDREN` names no real directory or no real root, and when a
+new directory is neither a root nor a child. The only exemption is AI Core.
+
+**What surprised us:**
+
+- `DC_FILENAME` is set only in the DriverCentral variant; the OSS build
+  every release is made from removes it, so before 427c3be a driver relying
+  on the default never reported once built. The default is now
+  `DC_FILENAME`, else `DRIVER_FILENAMES[1]`; only the emulator (which runs
+  the OSS-assembled driver) caught it, not the unit tests (which load the
+  raw source with both branches).
+- AI Core refuses a describe whose `driver.version` is empty, and source
+  `driver.xml` files carry an empty `<version>` until `make build` stamps
+  it; an emulator run must stamp it (`run-ai-core.sh` does). The property
+  still reads `Found — reporting` in that case, because states are
+  accepted.
+- A fact reported only where the driver repaints its status goes stale:
+  Mode Composer's mode counts change on `CREATE_MODE`, which does not
+  repaint, so the state is also sent from `saveConfig` (the emulator caught
+  it; the unit test did not).
+- A declared action's handler runs synchronously but an activation may not
+  finish synchronously: the result text must say what is true at that
+  moment ("being sent; the outcome follows as an event"), never "done",
+  and the handler returns `{ in_progress = true }` with it so the answer
+  is "started", not "completed" (ruling 23).
+- Simulated or test data must never be reported as real (Atmosphere sends
+  no weather values and no events during a dealer simulation).
+- Harness trap: the Agent's identity resolver answering `{}` for a file
+  means "Director answered, not listed" and the registration is **refused**;
+  `nil` means "no answer" and registers unverified.
+
+______________________________________________________________________
+
 ## Reading order for driver #12
 
 1. `docs/driver-cloud-charter.md` — why the Agent owns credentials.

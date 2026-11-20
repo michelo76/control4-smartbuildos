@@ -135,6 +135,19 @@ endpoint; a relay through the SmartBuildOS Agent is the planned route), a
 "send to the house" box in Studio, and a local HTTP listener for LAN
 callers.
 
+## AI Core reporting (`sbos.aireport`, start mode)
+
+With SmartBuildOS AI Core installed, the driver registers on the Agent's
+module bus as `notification_router` (guide §9 `start`) and reports,
+health and counts only: a describe (the Notify command and its targets),
+a state from `paint()` (router status, targets ready, sent / failed /
+received today, pending) and the diagnostics `router.degraded` /
+`router.restored` on the existing Router Degraded / Restored transition.
+Never a message, title, sender, chat id, number, address or credential.
+No events, queries or actions. Without AI Core nothing is sent. Unit
+tests only (`test/test_notify_aicore.lua`); nothing here has run on a
+controller.
+
 ## PROBE / unconfirmed
 
 - Two-way has not received a real message on the bench. Unconfirmed there:

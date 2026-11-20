@@ -19,8 +19,16 @@
   is never locked out of their own gates), every other code is refused, and
   nothing that adds access can be created. Removing access always works.
 
-  Pure rules: src/pinlock/engine.lua, src/pinlock/relay.lua (tested without
-  a controller).
+  AI Core verification: the driver registers on the SmartBuildOS module bus
+  as `pin_lock` (sbos.moduleclient + sbos.aireport attach) and serves
+  pinlock.availability / pinlock.challenge / pinlock.redeem to `ai_core`
+  only. The AI Core touchscreen page posts an owner PIN to THIS driver's
+  relay (POST /verify) against a 60-second single-use challenge; no bus
+  frame ever carries a PIN, and no code name ever leaves this driver on that
+  path. Owner-role codes only; attempts count in the page lockout.
+
+  Pure rules: src/pinlock/engine.lua, src/pinlock/relay.lua,
+  src/pinlock/challenge.lua (tested without a controller).
 ============================================================================]]
 
 --#ifdef DRIVERCENTRAL
@@ -49,6 +57,9 @@ local pagedata = require("pinlock.page")
 local RelayHost = require("lib.relayhost")
 local Engine = require("pinlock.engine")
 local relay = require("pinlock.relay")
+local Challenge = require("pinlock.challenge")
+local moduleclient = require("sbos.moduleclient")
+local aireport = require("sbos.aireport")
 local _unused = { require("guestmode.pin"), require("atmosphere.uirelay") } -- transitive, pinned for the squish step
 
 gInitialized = false
@@ -67,6 +78,13 @@ local STATUS_TIMER = "PlStatusPaint"
 local PRUNE_TIMER = "PlPrune"
 local URL_TIMER = "PlUrlRepublish"
 local RELOCK_TIMER = "PlRelock"
+local P_AI_SWITCH = "AI Core PIN Verification"
+local AI_SWITCH_OFF = "Off"
+local PINLOCK_CAPS = {
+  { id = "pinlock.availability", version = 1, kind = "request" },
+  { id = "pinlock.challenge", version = 1, kind = "request" },
+  { id = "pinlock.redeem", version = 1, kind = "request" },
+}
 
 local EVENT_GRANTED, EVENT_DENIED, EVENT_LOCKED, EVENT_RESTRICTED, EVENT_RESTORED = 1, 2, 3, 4, 5
 local EVENT_SLOT_BASE = 10
@@ -88,7 +106,10 @@ local gHost = nil
 local gLastAccess = "none yet"
 local gRecorderId = nil
 local gRecorderCheckedAt = nil
+local gChallenges = nil
+local gChallengeSeq = 0
 local publishWebViewUrl -- forward: needs gHost, which needs it back
+local aiApprovalsText -- forward: paint() shows it, the AI Core section defines it
 
 --- Seconds. A test pins the clock by defining PIN_LOCK_NOW first.
 local function now()
@@ -297,6 +318,7 @@ local function paint()
   UpdateProperty("Entry Points", entryLine())
   UpdateProperty("Last Access", gLastAccess)
   UpdateProperty("App Data Relay", relayLine())
+  UpdateProperty("AI Core Approvals", aiApprovalsText())
   setVar("GATE_STATUS", status)
   setVar("ACTIVE_CODES", gEngine:activeCount())
 end
@@ -352,6 +374,12 @@ local function onEngineEvent(kind, f)
     fire(EVENT_LOCKED)
   elseif kind == "granted_admin" then
     record("PIN Lock admin sign-in", "code=" .. tostring(f.code))
+  elseif kind == "verified" then
+    -- AI Core verification: no code name anywhere, and no guarded action
+    -- (Access Granted is NOT fired: programming attached to it unlocks).
+    stamp("AI Core verification: owner PIN accepted")
+    log:info("AI Core verification: owner PIN accepted")
+    record("PIN Lock AI Core verification", "role=" .. tostring(f.role) .. " entry=ai_core")
   end
   paint()
 end
@@ -448,6 +476,168 @@ local function savedOk(ok, why)
     return 200, { ok = true }
   end
   return 422, { ok = false, error = tostring(why) }
+end
+
+-- ─── AI Core verification (module bus + /verify) ────────────────────────────
+
+--- Whether AI Core may use PIN verification right now: ready, reason,
+--- retry_in. Reasons: ready | starting | off | unlicensed | no_owner_pin |
+--- relay_unavailable | locked.
+local function aiAvailability()
+  if gEngine == nil or gChallenges == nil then
+    return false, "starting"
+  end
+  if Properties[P_AI_SWITCH] == AI_SWITCH_OFF then
+    return false, "off"
+  end
+  if gRestricted then
+    return false, "unlicensed"
+  end
+  if not gEngine:hasOwnerPin() then
+    return false, "no_owner_pin"
+  end
+  if gRelayPort == nil or relayHost() == "" then
+    return false, "relay_unavailable"
+  end
+  local locked, left = gEngine:lockState("ai_core")
+  if locked then
+    return false, "locked", left
+  end
+  return true, "ready"
+end
+
+local AI_APPROVALS_TEXT = {
+  ready = "On — owner PINs only (staff, vendor and guest codes are refused); "
+    .. "the homeowner still turns touchscreen approvals on in the portal",
+  starting = "Starting",
+  off = "Off — switched off here (AI Core PIN Verification)",
+  unlicensed = "Unavailable — PIN Lock licence restricted",
+  no_owner_pin = "Unavailable — no active owner code with a PIN",
+  relay_unavailable = "Unavailable — the page relay is not listening",
+}
+
+aiApprovalsText = function()
+  local _, reason, left = aiAvailability()
+  if reason == "locked" then
+    return string.format("Paused — page entry locked out (%ds)", left or 0)
+  end
+  return AI_APPROVALS_TEXT[reason] or "Unavailable"
+end
+
+--- A 32-hex challenge id. The id is the only thing that authenticates a
+--- POST /verify, so it mixes the controller's random UUID (when Director
+--- offers one) with the clock, a counter and math.random through C4:HMAC.
+local function newChallengeId()
+  gChallengeSeq = gChallengeSeq + 1
+  local okU, uuid = pcall(function()
+    return C4:UUID("RANDOM")
+  end)
+  local seed = string.format(
+    "%s|%d|%.9f|%.9f|%s|%s",
+    tostring(now()),
+    gChallengeSeq,
+    math.random(),
+    math.random(),
+    tostring(os.clock()),
+    okU and tostring(uuid) or ""
+  )
+  local okH, hex = pcall(function()
+    return C4:HMAC("SHA256", "pinlock-challenge", seed, { return_encoding = "HEX" })
+  end)
+  if not okH or type(hex) ~= "string" then
+    return nil -- no weaker fallback: the challenge is refused
+  end
+  return hex:sub(1, 32):lower()
+end
+
+--- The requester must be the `ai_core` instance the Agent lists (and
+--- verified) in this driver's own directory view. The bus policy already
+--- confines pinlock.* to ai_core; this is the second wall.
+local function aiRequester(req)
+  if req.from_module_id ~= "ai_core" then
+    return false
+  end
+  local t = aireport.target()
+  return t ~= nil and t.verified == true and tostring(req.from_instance_id or "") == t.instance_id
+end
+
+local function serveAvailability(req, respond)
+  if not aiRequester(req) then
+    return respond("error", { reason = "requester" }, "not_permitted")
+  end
+  if type(req.args) ~= "table" or next(req.args) ~= nil then
+    return respond("error", { reason = "invalid_args" }, "invalid_args")
+  end
+  local ready, reason, left = aiAvailability()
+  respond("ok", { ready = ready, reason = reason, retry_in = left })
+end
+
+local function serveChallenge(req, respond)
+  if not aiRequester(req) then
+    return respond("error", { reason = "requester" }, "not_permitted")
+  end
+  local ready, reason = aiAvailability()
+  if not ready then
+    return respond("error", { reason = reason }, "unsupported")
+  end
+  local c, code, why = gChallenges:issue(req.from_instance_id, req.args)
+  if c == nil then
+    return respond("error", { reason = why }, code)
+  end
+  respond("ok", {
+    challenge_id = c.id,
+    expires_in = Challenge.TTL,
+    verify_url = string.format("http://%s:%d%s", relayHost(), gRelayPort, relay.VERIFY_PATH),
+  })
+end
+
+local function serveRedeem(req, respond)
+  if not aiRequester(req) then
+    return respond("error", { reason = "requester" }, "not_permitted")
+  end
+  local res, code, why = gChallenges:redeem(req.from_instance_id, req.args)
+  if res == nil then
+    return respond("error", { reason = why }, code)
+  end
+  respond("ok", res)
+end
+
+--- POST /verify: the PIN is checked by the engine (owner codes only, page
+--- lockout) and goes nowhere else.
+local function verifyChallenge(challengeId, pin)
+  if gChallenges == nil then
+    return { ok = false }
+  end
+  return gChallenges:verify(challengeId, pin, function(p)
+    return gEngine:verifyOwnerPin(p)
+  end, function()
+    local ready, why = aiAvailability()
+    return ready or why == "locked" -- a lockout is answered as such, not hidden
+  end)
+end
+
+local function startBus()
+  moduleclient.setup({
+    module_id = "pin_lock",
+    driver_version = tostring(C4:GetDriverConfigInfo("version") or ""),
+    entitlements = { SKU },
+    singleton = true,
+    protocol_min = 2,
+    require_protocol = 2,
+    manifest = { driver = "sbos.pin_lock", capabilities = aireport.capabilities(PINLOCK_CAPS) },
+    claim_driver_config = false,
+    status = function()
+      return moduleclient.displayStatus(), "", {}
+    end,
+    onRegistered = aireport.onRegistered,
+    onDirectoryChanged = aireport.onDirectoryChanged,
+    onAgentState = aireport.onAgentState,
+  })
+  moduleclient.onRequest("pinlock.availability", serveAvailability)
+  moduleclient.onRequest("pinlock.challenge", serveChallenge)
+  moduleclient.onRequest("pinlock.redeem", serveRedeem)
+  aireport.attach(moduleclient, { file = C4Z_NAME .. ".c4z", sku = SKU })
+  moduleclient.register()
 end
 
 --- The page's calls. A reply never carries a code name, a reason or any
@@ -552,6 +742,7 @@ local relayProvider = {
     gEngine:endSession(body.session)
     return 200, { ok = true }
   end,
+  verify = verifyChallenge,
   encode = function(t)
     return JSON:encode(t)
   end,
@@ -723,6 +914,7 @@ function OnDriverLateInit(reason)
   end)
 
   gEngine = Engine.new({ now = now, hmac = hmac, emit = onEngineEvent })
+  gChallenges = Challenge.new({ now = now, newId = newChallengeId })
   syncSlots()
   syncSettings()
   local stored = persist:get(STATE_KEY, false, true)
@@ -740,6 +932,8 @@ function OnDriverLateInit(reason)
     license.onEntitlement(tParams)
     reconcileLicence()
   end
+
+  startBus()
 
   gInitialized = true
   UpdateProperty("Driver Status", "Online")
@@ -770,6 +964,11 @@ end
 
 function OnDriverDestroyed()
   pcall(license.stop) -- the licence retry timer
+  pcall(aireport.stop) -- attach mode: leaves the client to us
+  pcall(moduleclient.stop) -- unregisters from the Agent
+  if gChallenges then
+    gChallenges:clear()
+  end
   if gEngine then
     save()
   end
@@ -819,6 +1018,15 @@ OPC.Lockout_Minutes = settingChanged
 OPC.Sequence_Length = settingChanged
 OPC.Sequence_Window_Seconds = settingChanged
 
+function OPC.AI_Core_PIN_Verification(value)
+  if value == AI_SWITCH_OFF and gChallenges ~= nil then
+    gChallenges:clear() -- an open challenge cannot outlive the switch
+  end
+  if gInitialized then
+    paint()
+  end
+end
+
 function OPC.Target_List_Filter()
   if gInitialized then
     refreshTargets()
@@ -865,6 +1073,9 @@ function EC.REMOVE_ALL_CODES()
     return
   end
   gEngine:removeAllCodes()
+  if gChallenges then
+    gChallenges:clear()
+  end
   save()
   log:warn("all codes removed from Composer")
   paint()

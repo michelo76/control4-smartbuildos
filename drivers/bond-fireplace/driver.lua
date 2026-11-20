@@ -34,6 +34,7 @@ JSON = require("JSON")
 
 local log = require("lib.logging")
 local child = require("bond.child")
+local aipresence = require("sbos.aipresence")
 
 local POWER_PROXY = 5001
 local FLAME_PROXY = 5002
@@ -197,10 +198,12 @@ function OnDriverLateInit()
   end
   child.requestIdentity()
   child.armRetry()
+  aipresence.start()
 end
 
 function OnDriverDestroyed()
   child.cancelRetry()
+  aipresence.stop()
 end
 
 -- ─── Tile taps ────────────────────────────────────────────────────────────────
