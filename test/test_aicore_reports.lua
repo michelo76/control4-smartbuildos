@@ -828,7 +828,7 @@ do
   local tail = detail:byte(#detail)
   check(
     "a long multi-byte result_text in the command result is cut between characters",
-    H.finalState(st) == "Completed" and #detail <= 300 and not (tail >= 0xC0) and detail:find("abc$") ~= nil,
+    H.finalState(st) == "Completed" and #detail <= 300 and tail < 0xC0 and detail:find("abc$") ~= nil,
     detail
   )
 end
