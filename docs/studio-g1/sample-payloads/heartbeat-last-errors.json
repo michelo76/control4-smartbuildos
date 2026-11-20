@@ -1,0 +1,127 @@
+{
+    "agent_contract": {
+        "agent_version": "",
+        "cloud_connection_state": "connected",
+        "contract_version": 1,
+        "controller_reboots_observed_lifetime": 0,
+        "controller_reboots_observed_today": 0,
+        "execution_controller_identity": "00:0F:FF:00:00:01",
+        "last_startup_classification": "Driver was added; this is not a system startup.",
+        "last_startup_confidence": "high",
+        "license_state": "OK - 2 assertion(s), checked 2026-09-21 10:13",
+        "monitoring_state": "active",
+        "pairing_state": "paired",
+        "pending_startup_observations": 0,
+        "system_startups_lifetime": 0,
+        "system_startups_today": 0
+    },
+    "agent_health": {
+        "driver_uptime_seconds": 481,
+        "heartbeat_lag_ms": 0,
+        "lua_memory_kb": 4623
+    },
+    "capabilities": [
+        "device_monitoring",
+        "telemetry_v1",
+        "home_insights_v1",
+        "catalogue_v1",
+        "notify_v1",
+        "realtime_v1",
+        "agent_contract_v1",
+        "modules_v1",
+        "flight_recorder_v1",
+        "modules_v2",
+        "identify_v1",
+        "device_poll_v1",
+        "device_online_null_v1",
+        "room_identity_v1",
+        "driver_census_v1",
+        "controller_identity_v1",
+        "last_errors_v1"
+    ],
+    "consecutive_failures": 0,
+    "devices_offline": 0,
+    "devices_total": 5,
+    "director_reloads": 0,
+    "director_reloads_today": 0,
+    "event_pipeline": {
+        "acked": 0,
+        "backoff_seconds": 0,
+        "bytes": 0,
+        "consecutive_failures": 0,
+        "depth": 0,
+        "dropped": 0,
+        "dropped_ranges": [],
+        "inflight": 0,
+        "journal_recovered": true,
+        "journal_saves": 0,
+        "last_error": "journal unreadable; started empty",
+        "limit_status": "ok",
+        "limits": {
+            "max_batch": 100,
+            "max_bytes": 524288,
+            "max_items": 2000
+        },
+        "oldest_age_seconds": 0,
+        "pushed": 0,
+        "ranges_truncated": false,
+        "rejected_permanent": 0,
+        "upload_failures": 0
+    },
+    "heartbeat_seconds": 60,
+    "kind": "heartbeat",
+    "last_errors": {
+        "devices": {
+            "at": "2026-09-21T14:19:26Z",
+            "message": "Payload too large \u2014 request rejected; Authorization: [redacted] [redacted]",
+            "status": 413
+        }
+    },
+    "last_reload_at": "2026-09-21T14:13:20Z",
+    "last_reload_kind": "update",
+    "module_bus": {
+        "buffered": 0,
+        "cloud_failed": 0,
+        "cloud_ok": 0,
+        "cloud_requests": 0,
+        "directory_version": 0,
+        "discovers": 0,
+        "dropped": 0,
+        "ignored": 0,
+        "inflight": 0,
+        "published": 0,
+        "rate_limited": 0,
+        "refused": 0,
+        "replayed": 0,
+        "requests": 0,
+        "responses": 0,
+        "routed": 0,
+        "subscribes": 0,
+        "subscriptions": 0,
+        "timeouts": 0
+    },
+    "module_protocol": {
+        "max": 2,
+        "min": 1
+    },
+    "project_changes_today": 0,
+    "queued_telemetry": 0,
+    "sent_at": 1790000481,
+    "system": {
+        "controller_type": "XDT_CORE1",
+        "device_id": 9,
+        "driver_device_id": 9,
+        "driver_name": "SmartBuildOS Agent",
+        "driver_version": "",
+        "os_version": "4.3.0.763929-res",
+        "property_id": "property-1",
+        "system_id": "system-1"
+    },
+    "technical_metadata": {
+        "composer_project_ref": "Project",
+        "director_ip": "192.168.1.2",
+        "director_mac": "00:0F:FF:00:00:01"
+    },
+    "telemetry_dropped": 0,
+    "update_channel": []
+}

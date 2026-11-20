@@ -718,7 +718,9 @@ check(
 )
 check("Authorization is the bearer token", (req.headers or {})["Authorization"] == "Bearer " .. TOKEN)
 check("property id travels in the header", (req.headers or {})["X-SmartBuildOS-Property"] == PROPERTY)
-check("device total is reported", (req.data or {}).devices_total == 5, (req.data or {}).devices_total)
+-- 7 since G1 (device_online_null_v1): the IR blaster and the control-only
+-- device have no network binding and are now reported as "not monitored".
+check("device total is reported", (req.data or {}).devices_total == 7, (req.data or {}).devices_total)
 
 -- The Composer project name, in the field the platform has parsed and shown
 -- as "Composer project reference" since the technical inventory shipped —
@@ -923,19 +925,25 @@ EC.SEND_FULL_SYNC()
 local sync = lastRequestTo("/devices")
 local devices = ((sync or {}).data or {}).devices or {}
 check("payload is a snapshot", ((sync or {}).data or {}).kind == "snapshot")
-check("every device with a network binding is reported", #devices == 5, #devices)
+-- G1 (device_online_null_v1): every PROJECT device is reported — the five
+-- with a network binding, plus the two without one as "not monitored".
+check("every project device is reported", #devices == 7, #devices)
 local byName = {}
 for _, d in ipairs(devices) do
   byName[d.name] = d
 end
+-- Director has no link state for IR devices, so the row says so with JSON
+-- null — never online (a guess), never offline (an invented outage).
 check(
-  "a device with no network binding is omitted",
-  byName["IR Blaster"] == nil,
-  "Director has no link state for IR devices; reporting one would be a guess"
+  "a device with no network binding is reported as not monitored",
+  byName["IR Blaster"] ~= nil
+    and byName["IR Blaster"].online == AgentStudio.NULL
+    and byName["IR Blaster"].connection_type == AgentStudio.NULL,
+  "online and connection_type must both be the JSON null placeholder"
 )
 check(
   "a control-only device is not reported offline",
-  byName["Control Only Agent"] == nil,
+  byName["Control Only Agent"] ~= nil and byName["Control Only Agent"].online == AgentStudio.NULL,
   "a control binding's unrelated `status` field must not read as a dead link"
 )
 -- Reported, but never as a fault. NOT_SET is a driver placed in the project
@@ -947,7 +955,10 @@ check(
   byName["Unaddressed Dimmer"] ~= nil,
   "a device configured in the project should be visible"
 )
-check("an unaddressed device is not claimed to be online", (byName["Unaddressed Dimmer"] or {}).online == false)
+check(
+  "an unaddressed device is neither online nor offline: JSON null",
+  (byName["Unaddressed Dimmer"] or {}).online == AgentStudio.NULL
+)
 check(
   "its address is passed through as the placeholder",
   (byName["Unaddressed Dimmer"] or {}).address == "NOT_SET",
@@ -1023,7 +1034,7 @@ EC.POLL_DEVICES() -- baseline including pings
 reset()
 EC.SEND_FULL_SYNC()
 local all = ((lastRequestTo("/devices") or {}).data or {}).devices or {}
-check("director devices and ping targets are both present", #all == 8, #all)
+check("director devices and ping targets are both present", #all == 10, #all)
 local pinged = {}
 for _, d in ipairs(all) do
   if d.source == "ping" then
@@ -3698,6 +3709,303 @@ local function registrationChecks()
   C4.RegisterSystemEvent = savedRegister
 end
 registrationChecks()
+
+-- Studio release G1 (docs/studio-g1/AGENT-CONTRACT-G1.md), wired through the
+-- real driver. In a function of its own: this file is at Lua's 200-local limit.
+local function studioG1Checks()
+  -- Every heartbeat key the released (pre-G1) Agent could send. A heartbeat
+  -- with nothing new to say must not carry anything outside this set.
+  local PRE_G1_HEARTBEAT_KEYS = {}
+  for _, k in ipairs({
+    "kind",
+    "consecutive_failures",
+    "devices_total",
+    "devices_offline",
+    "capabilities",
+    "queued_telemetry",
+    "telemetry_dropped",
+    "heartbeat_seconds",
+    "update_channel",
+    "director_reloads",
+    "director_reloads_today",
+    "last_reload_at",
+    "last_reload_kind",
+    "last_reload_restart",
+    "clock_offset_seconds",
+    "system_events",
+    "project_changes_today",
+    "last_project_change_at",
+    "programming",
+    "zigbee",
+    "controller_vitals",
+    "agent_health",
+    "modules",
+    "event_pipeline",
+    "module_bus",
+    "module_protocol",
+    "agent_contract",
+    "system",
+    "technical_metadata",
+    "sent_at",
+  }) do
+    PRE_G1_HEARTBEAT_KEYS[k] = true
+  end
+  local function heartbeat()
+    EC.SEND_HEARTBEAT()
+    return ((lastRequestTo("/heartbeat") or {}).data or {})
+  end
+  local savedHash, savedTz, savedLocale, savedBoot, savedProjectId =
+    C4.Hash, C4.GetTimeZone, C4.GetLocale, C4.GetBootID, C4.GetProjectId
+  local savedHostname, savedLocations = nextHostname, nextLocationsXml
+  local hashed = {}
+  C4.Hash = function(_, algorithm, data, options)
+    hashed[#hashed + 1] = { algorithm = algorithm, data = data, options = options }
+    return string.rep("AB", 32)
+  end
+
+  print("\n[G1-0] Nothing to say: the heartbeat keeps the released shape")
+  Properties["Non Control4 Devices"] = ""
+  pair()
+  C4.Hash, C4.GetTimeZone, C4.GetLocale, C4.GetBootID, C4.GetProjectId = nil, nil, nil, nil, nil
+  nextHostname = nil
+  gStudio.poll, gStudio.controllerSig = nil, nil
+  gStudio.errors = AgentStudio.newLastErrors()
+  reset()
+  local plain = heartbeat()
+  local extra = {}
+  for k in pairs(plain) do
+    if not PRE_G1_HEARTBEAT_KEYS[k] then
+      extra[#extra + 1] = k
+    end
+  end
+  check("no key outside the pre-G1 set", #extra == 0, table.concat(extra, ","))
+  check(
+    "no device_poll / controller / last_errors",
+    plain.device_poll == nil and plain.controller == nil and plain.last_errors == nil
+  )
+  check("devices_total is still a number", type(plain.devices_total) == "number")
+  local caps = plain.capabilities or {}
+  check("existing capabilities keep their order", caps[1] == "device_monitoring" and caps[2] == "telemetry_v1")
+  for _, cap in ipairs(AgentStudio.CAPABILITIES) do
+    local found = false
+    for _, c in ipairs(caps) do
+      found = found or c == cap
+    end
+    check("declares " .. cap, found)
+  end
+  C4.Hash = function(_, algorithm, data, options)
+    hashed[#hashed + 1] = { algorithm = algorithm, data = data, options = options }
+    return string.rep("AB", 32)
+  end
+
+  print("\n[G1-1] device_poll rides the first heartbeat after a poll, once")
+  reset()
+  EC.SEND_FULL_SYNC()
+  reset()
+  hashed = {}
+  EC.POLL_DEVICES()
+  local hb = heartbeat()
+  local poll = hb.device_poll or {}
+  check("block present", hb.device_poll ~= nil)
+  check(
+    "counts: 7 devices, 0 offline, 3 unknown",
+    poll.devices == 7 and poll.offline == 0 and poll.unknown == 3,
+    JSON:encode(poll)
+  )
+  check("interval is the poll interval", poll.interval_s == 300, poll.interval_s)
+  check(
+    "completed_at is ISO UTC",
+    type(poll.completed_at) == "string" and poll.completed_at:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$") ~= nil
+  )
+  check("digest from C4:Hash SHA256 HEX, lower-cased", poll.digest == string.rep("ab", 32), poll.digest)
+  -- The project above, byte-exact: sorted by key, "\n"-joined, no trailing
+  -- newline; the unaddressed dimmer (88) and both unbound devices (77, 99)
+  -- are "u".
+  local expectedInput = "c4:25:1\nc4:43:1\nc4:63:1\nc4:75:1\nc4:77:u\nc4:88:u\nc4:99:u"
+  check(
+    "hashed exactly the canonical input",
+    hashed[1] and hashed[1].algorithm == "SHA256" and hashed[1].data == expectedInput,
+    hashed[1] and (hashed[1].data:gsub("\n", "|"))
+  )
+  check(
+    "asked for HEX of the raw bytes",
+    hashed[1] and hashed[1].options.return_encoding == "HEX" and hashed[1].options.data_encoding == "NONE"
+  )
+  check("not repeated once delivered", heartbeat().device_poll == nil)
+  reset()
+  EC.POLL_DEVICES()
+  nextResponse = { ok = false, code = 503 }
+  EC.SEND_HEARTBEAT()
+  nextResponse = { ok = true, code = 200 }
+  check("an undelivered block is offered again", heartbeat().device_poll ~= nil)
+
+  print("\n[G1-2] offline -> unknown is reported, without an online/offline event")
+  reset()
+  BINDINGS[43].status = "offline"
+  EC.POLL_DEVICES()
+  reset()
+  BINDINGS[43].addr = "NOT_SET"
+  EC.POLL_DEVICES()
+  local delta = ((lastRequestTo("/devices") or {}).data or {}).devices or {}
+  check("a delta carries the relay", #delta == 1 and delta[1].name == "8-Channel Relay", #delta)
+  check("its online is JSON null", (delta[1] or {}).online == AgentStudio.NULL)
+  check("no Composer event fired", #firedEvents == 0, table.concat(firedEvents, ","))
+  check("device_poll after the delta counts it unknown", (heartbeat().device_poll or {}).unknown == 4)
+  BINDINGS[43].addr, BINDINGS[43].status = "192.168.1.40", "online"
+  reset()
+  EC.POLL_DEVICES()
+
+  print("\n[G1-3] full sync: room_id, rooms, driver census, wire nulls")
+  local savedRoom43 = PROJECT[43].roomId
+  PROJECT[43].roomId = 21
+  PROJECT[99].roomId = 22
+  nextLocationsXml = '<item majorversion="4"><id>1</id><name>Miami-Beta</name><type>1</type><subitems>'
+    .. "<item><id>13</id><name>Home</name><type>2</type><subitems>"
+    .. "<item><id>14</id><name>House</name><type>3</type><subitems>"
+    .. "<item><id>15</id><name>Main</name><type>4</type><subitems>"
+    .. "<item><id>21</id><name>Rack</name><type>8</type></item>"
+    .. "<item><id>22</id><name>Media</name><type>8</type></item>"
+    .. "<item><id>23</id><name>Guest Suite</name><type>8</type></item>"
+    .. "</subitems></item></subitems></item></subitems></item></subitems></item>"
+  reset()
+  EC.SEND_FULL_SYNC()
+  local snap = ((lastRequestTo("/devices") or {}).data or {})
+  local byKey = {}
+  for _, d in ipairs(snap.devices or {}) do
+    byKey[d.key] = d
+  end
+  check("room_id beside the room name", (byKey["c4:43"] or {}).room_id == 21 and (byKey["c4:43"] or {}).room == "Rack")
+  check("an unbound device carries its room_id too", (byKey["c4:99"] or {}).room_id == 22)
+  check("rooms: every room, empty ones included", #(snap.rooms or {}) == 3, #(snap.rooms or {}))
+  local guest = (snap.rooms or {})[3] or {}
+  check(
+    "a room's parent, floor and building",
+    guest.id == 23
+      and guest.name == "Guest Suite"
+      and guest.parent_id == 15
+      and guest.floor == "Main"
+      and guest.building == "House",
+    JSON:encode(guest)
+  )
+  check("driver census: one entry per file", #(snap.drivers or {}) == 6, #(snap.drivers or {}))
+  local dimmer = (snap.drivers or {})[1] or {}
+  check("the most-used file first, counted", dimmer.file == "dimmer.c4z" and dimmer.count == 2, JSON:encode(dimmer))
+  check("sbos flag false for third-party drivers", dimmer.sbos == false)
+  check("no devices_truncated under the ceiling", snap.devices_truncated == nil)
+  local wire = JSON:encode(snap)
+  check(
+    "the encoded snapshot carries real nulls",
+    wire:find('"online":null', 1, true) ~= nil and wire:find('"connection_type":null', 1, true) ~= nil
+  )
+  check("the placeholder never reaches the wire", wire:find("sbos:json-null", 1, true) == nil)
+  check("the driver-local marker is not sent", wire:find("unmonitored", 1, true) == nil)
+  nextLocationsXml = "garbage"
+  reset()
+  EC.SEND_FULL_SYNC()
+  check("unreadable locations: no rooms key at all", ((lastRequestTo("/devices") or {}).data or {}).rooms == nil)
+  PROJECT[43].roomId, PROJECT[99].roomId = savedRoom43, nil
+  nextLocationsXml = savedLocations
+
+  print("\n[G1-4] the 2,000-row ceiling (scaled down to 3)")
+  local savedMax = AgentStudio.MAX_DEVICE_ROWS
+  AgentStudio.MAX_DEVICE_ROWS = 3
+  reset()
+  EC.SEND_FULL_SYNC()
+  local capped = ((lastRequestTo("/devices") or {}).data or {})
+  check(
+    "capped and flagged",
+    #(capped.devices or {}) == 3 and capped.devices_truncated == true,
+    #(capped.devices or {})
+  )
+  local unbound = 0
+  for _, d in ipairs(capped.devices or {}) do
+    if d.connection_type == AgentStudio.NULL then
+      unbound = unbound + 1
+    end
+  end
+  check("network-bound devices go first", unbound == 0, unbound)
+  AgentStudio.MAX_DEVICE_ROWS = savedMax
+  reset()
+  EC.SEND_FULL_SYNC()
+
+  print("\n[G1-5] controller block: first beat, then only on change")
+  C4.GetTimeZone = function()
+    return "America/New_York"
+  end
+  C4.GetBootID = function()
+    return "boot-1"
+  end
+  nextHostname = "Beach-House-000FFF9CB2CB"
+  gStudio.controllerSig = nil
+  reset()
+  local c1 = heartbeat().controller or {}
+  check(
+    "sent on the first beat",
+    c1.timezone == "America/New_York" and c1.hostname == "Beach-House-000FFF9CB2CB" and c1.boot_id == "boot-1",
+    JSON:encode(c1)
+  )
+  check("an absent API is omitted (locale, project_id)", c1.locale == nil and c1.project_id == nil)
+  check(
+    "probed names only the PROBE that answered",
+    #(c1.probed or {}) == 1 and c1.probed[1] == "timezone",
+    JSON:encode(c1.probed or {})
+  )
+  check("not repeated when nothing changed", heartbeat().controller == nil)
+  C4.GetBootID = function()
+    return "boot-2"
+  end
+  nextResponse = { ok = false, code = 502 }
+  EC.SEND_HEARTBEAT()
+  nextResponse = { ok = true, code = 200 }
+  check("a change is sent, and re-sent until delivered", (heartbeat().controller or {}).boot_id == "boot-2")
+  check("then quiet again", heartbeat().controller == nil)
+
+  print("\n[G1-6] last_errors: per channel, stripped, cleared on success")
+  gStudio.errors = AgentStudio.newLastErrors()
+  reset()
+  nextResponse = {
+    ok = false,
+    code = 413,
+    body = { error = "Payload too large", detail = "Authorization: Bearer sbc4_leaked_value" },
+  }
+  EC.SEND_FULL_SYNC()
+  nextResponse = { ok = true, code = 200 }
+  local errs = heartbeat().last_errors or {}
+  check("devices entry with its HTTP status", (errs.devices or {}).status == 413, JSON:encode(errs))
+  check("the platform's reason is kept", ((errs.devices or {}).message or ""):find("Payload too large", 1, true) ~= nil)
+  check(
+    "credential values are stripped",
+    JSON:encode(errs):find("sbc4_leaked_value", 1, true) == nil,
+    JSON:encode(errs)
+  )
+  check("messages are at most 200", #((errs.devices or {}).message or "") <= 200)
+  check("at is ISO UTC", ((errs.devices or {}).at or ""):match("Z$") ~= nil)
+  check("heartbeat and event paths are not channels", errs.heartbeat == nil and errs.event == nil)
+  reset()
+  nextResponse = {
+    ok = false,
+    code = 0,
+    error = "HTTP POST request to https://app.smartbuildos.io/api/integrations/control4/devices failed; Timeout was reached",
+  }
+  EC.SEND_FULL_SYNC()
+  nextResponse = { ok = true, code = 200 }
+  local transport = (heartbeat().last_errors or {}).devices or {}
+  check(
+    "a transport failure replaces it: status 0, the short reason",
+    transport.status == 0 and transport.message == "Timeout was reached",
+    JSON:encode(transport)
+  )
+  reset()
+  EC.SEND_FULL_SYNC()
+  local after = heartbeat().last_errors or {}
+  check("devices cleared by the next devices success", after.devices == nil, JSON:encode(after))
+
+  C4.Hash, C4.GetTimeZone, C4.GetLocale, C4.GetBootID, C4.GetProjectId =
+    savedHash, savedTz, savedLocale, savedBoot, savedProjectId
+  nextHostname = savedHostname
+  gStudio.errors = AgentStudio.newLastErrors()
+end
+studioG1Checks()
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

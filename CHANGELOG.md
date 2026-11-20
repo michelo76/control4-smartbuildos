@@ -20,6 +20,26 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- **Agent: Studio release G1 reporting**
+  (`docs/studio-g1/AGENT-CONTRACT-G1.md`). The heartbeat now carries three
+  optional blocks. `device_poll` confirms each 5-minute poll with a digest the
+  platform can check, so devices stop reading "stale". `controller` reports the
+  time zone, locale, host name and boot id. `last_errors` gives the last failure
+  reason for each upload. A full sync now adds the project's rooms (empty ones
+  included) and a census of its driver files. Each device row gains `room_id`.
+  Devices with no network binding (IR, serial, relay) are now reported as "not
+  monitored". Six new capability strings are declared. A platform that ignores
+  the new keys sees no change.
+
+### Changed
+
+- **Agent: `online` is now `null` when there is no state to report.** This
+  covers an unaddressed binding (`NOT_SET`), which used to be sent as `false`,
+  and a device with no network binding. `devices_total` now counts those devices
+  too.
+
 ### Fixed
 
 - **AI Core: the configuration System Studio publishes is now accepted, so
