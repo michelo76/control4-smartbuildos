@@ -50,6 +50,16 @@ payload string to 512 bytes and the label to 120 bytes **between characters**
 them, and marks the envelope `partial` as the envelope would. Test:
 `test/test_aicore_learning_default.lua` [11]. The shared library is unchanged.
 
+Every other byte bound in AI Core cuts between characters too (`cutBytes`): a
+watched variable's value (120), a Director system event's data (200), an Agent
+event name (64), a driver query's or action's command result (200), the Agent's
+words in `Last Test Result`, a refusal naming an unknown operation or argument
+(64) and a job id (128). Before, the watched value was cut with `:sub` below the
+512-byte bound, so `record()` passed it on broken and, under the shim, the
+Agent's decoder refused its whole batch. Tests: `test/test_aicore_driver.lua` [12],
+`test/test_aicore_reports.lua` [6], `test/test_aicore_robustness.lua` [2] and
+[9], `test/test_aicore_commands.lua` [4].
+
 **Proposed fix (not applied: it changes behaviour for every driver above).**
 In `envelope.lua`, one helper and two call sites:
 

@@ -189,7 +189,7 @@ end
 function M.parse(command, args)
   local allowed = ARGS[command]
   if allowed == nil then
-    return nil, "unknown operation " .. tostring(command):sub(1, 64)
+    return nil, "unknown operation " .. Commands.cutBytes(command, 64) -- between characters
   end
   if type(args) ~= "table" then
     return nil, "args must be an object"
@@ -197,7 +197,7 @@ function M.parse(command, args)
   for k in pairs(args) do
     if not allowed[k] then
       -- The key is the platform's choice: bounded before it is shown.
-      return nil, "argument '" .. tostring(k):sub(1, 64) .. "' is not accepted by " .. command
+      return nil, "argument '" .. Commands.cutBytes(k, 64) .. "' is not accepted by " .. command
     end
   end
   local op = { kind = command }

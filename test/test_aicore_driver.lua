@@ -581,6 +581,52 @@ check(
   "the second observed, with no previous value claimed",
   vEnv[vBefore + 2].evidence_source == "observed" and vEnv[vBefore + 2].payload.previous == nil
 )
+-- Bounded in BYTES, cut between characters: a cut through a multi-byte
+-- character leaves malformed UTF-8 the Agent's JSON decoder rejects, and the
+-- whole event batch with it.
+local function validUtf8(s)
+  local i, n = 1, #s
+  while i <= n do
+    local b = s:byte(i)
+    local need = b < 0x80 and 0
+      or (b >= 0xC2 and b < 0xE0) and 1
+      or (b >= 0xE0 and b < 0xF0) and 2
+      or (b >= 0xF0 and b < 0xF5) and 3
+      or nil
+    if need == nil then
+      return false
+    end
+    for k = 1, need do
+      local c = s:byte(i + k)
+      if c == nil or c < 0x80 or c >= 0xC0 then
+        return false
+      end
+    end
+    i = i + need + 1
+  end
+  return true
+end
+-- words, not one opaque run: the envelope redacts a long unbroken blob as key-shaped
+local words119 = string.rep("ab ", 39) .. "ab"
+OnWatchedVariableChanged(12, 1000, words119 .. "é")
+H.advance(3000)
+vEnv = H.envelopes("ai_core.observation.variable")
+local cutValue = vEnv[#vEnv].payload.value
+check(
+  "a watched value cut at 120 bytes never ends in half a character",
+  validUtf8(cutValue) and cutValue == words119,
+  #cutValue
+)
+H.advance(61000)
+local sBefore = #H.envelopes("ai_core.observation.system")
+OnSystemEvent('<event name="OnDeviceOnline" id="48"/>' .. string.rep("b", 160) .. "€€")
+H.advance(3000)
+local sEnv = H.envelopes("ai_core.observation.system")
+check(
+  "a system event's data cut at 200 bytes never ends in half a character",
+  #sEnv == sBefore + 1 and validUtf8(sEnv[#sEnv].payload.data) and #sEnv[#sEnv].payload.data <= 200,
+  #sEnv - sBefore
+)
 local aBefore = #H.envelopes("ai_core.observation.agent")
 EC.SBOS_MODULE_AGENT_EVENT({ name = "device_offline", detail = JSON:encode({ name = "Kitchen Pendants" }) })
 H.advance(3000)
@@ -588,13 +634,21 @@ check(
   "Agent-classified events recorded only when the recorder is absent",
   #H.envelopes("ai_core.observation.agent") == aBefore + 1
 )
+EC.SBOS_MODULE_AGENT_EVENT({ name = string.rep("n", 63) .. "é", detail = "{}" })
+H.advance(3000)
+local aEnv = H.envelopes("ai_core.observation.agent")
+check(
+  "an Agent event name cut at 64 bytes never ends in half a character",
+  #aEnv == aBefore + 2 and validUtf8(aEnv[#aEnv].payload.event) and validUtf8(aEnv[#aEnv].label),
+  #aEnv - aBefore
+)
 A.fr.present = true
 EC.SBOS_MODULE_DIRECTORY_CHANGED(H.auth({ directory_version = "3" }))
 H.advance(3000)
 check("recorder back: own variable listeners released (no double capture)", next(H.listeners) == nil)
 EC.SBOS_MODULE_AGENT_EVENT({ name = "device_offline", detail = "{}" })
 H.advance(3000)
-check("recorder back: Agent events left to it", #H.envelopes("ai_core.observation.agent") == aBefore + 1)
+check("recorder back: Agent events left to it", #H.envelopes("ai_core.observation.agent") == aBefore + 2)
 check("recorder back: subscribed again", A.subscriptions.fr ~= nil)
 
 print("[13] local diagnostics")

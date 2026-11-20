@@ -814,6 +814,24 @@ check(
   "driver_action_result completed with the driver's result_text",
   ab.ai_action_id == AID and ab.status == "completed" and ab.result_text == "Refresh started" and ab.error_code == nil
 )
+do
+  -- The command result's detail is bounded at 200 bytes, after a space and
+  -- the label: a long result_text must be cut between characters there.
+  local saved = nextAnswer
+  nextAnswer = function()
+    return "ok", { ok = true, result_text = string.rep("word ", 39) .. "abcé and more" }
+  end
+  local st = invoke({ ai_action_id = "3e7f9a2e-5b1c-4c8e-9f00-123456789abc" })
+  nextAnswer = saved
+  local _, detail = H.finalState(st)
+  detail = tostring(detail)
+  local tail = detail:byte(#detail)
+  check(
+    "a long multi-byte result_text in the command result is cut between characters",
+    H.finalState(st) == "Completed" and #detail <= 300 and not (tail >= 0xC0) and detail:find("abc$") ~= nil,
+    detail
+  )
+end
 local nOps = #H.cloudOps("driver_action_result")
 states = invoke()
 check(

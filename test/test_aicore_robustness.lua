@@ -155,6 +155,13 @@ check(
   okD and #H.prop("Last Test Result") <= 200,
   #tostring(H.prop("Last Test Result"))
 )
+EC.TEST_AGENT_LINK()
+okD, errD = directoryFrame("[]", JSON:encode({ version = string.rep("v", 39) .. "é", protocol_min = "1" }))
+check(
+  "an Agent version cut at 40 bytes in Last Test Result is cut between characters",
+  okD and H.prop("Last Test Result"):find("Agent " .. string.rep("v", 39) .. ",", 1, true) ~= nil,
+  H.prop("Last Test Result")
+)
 EC.SYNC_NOW()
 okD, errD = directoryFrame('[1, true, {"module_id":"flight_recorder","capabilities":7,"protocol":{}}]', "[]")
 check("the recorder probe with a malformed directory does not throw", okD, errD)
@@ -330,6 +337,15 @@ local states = H.operation("raise_event", { event = "pattern_detected", [hugeKey
 local _, detail = H.finalState(states)
 check("the operation is refused", H.finalState(states) == "Failed")
 check("its detail is bounded (≤ 240)", #tostring(detail) <= 240, #tostring(detail))
+-- A key whose 64th byte starts a two-byte character: cut before it, never
+-- through it (the detail travels to the platform as JSON).
+states = H.operation("raise_event", { event = "pattern_detected", [string.rep("k", 63) .. "é"] = 1 })
+_, detail = H.finalState(states)
+check(
+  "a multi-byte key is cut between characters in the refusal",
+  tostring(detail):find("'" .. string.rep("k", 63) .. "'", 1, true) ~= nil,
+  detail
+)
 
 print("[10] persistence does not grow with use")
 for i = 1, 300 do

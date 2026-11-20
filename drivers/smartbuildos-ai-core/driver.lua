@@ -1152,7 +1152,11 @@ local function relayDriverOp(op, request, spec)
       done and "Completed" or "Failed",
       spec.label
         .. said
-        .. ((body.result_text or localReason) and (" " .. tostring(body.result_text or localReason)):sub(1, 200) or "")
+        .. (
+          (body.result_text or localReason)
+            and Commands.cutBytes(" " .. tostring(body.result_text or localReason), 200)
+          or ""
+        )
     )
     client.cloudRequest(spec.result_op, body, { idempotency_key = newRequestId() }, function(a)
       if a.status ~= "ok" then
@@ -1777,7 +1781,7 @@ function OnSystemEvent(data)
     payload = {
       event = name,
       system_event_id = spec.id,
-      data = tostring(data):sub(1, 200),
+      data = Commands.cutBytes(data, 200), -- between characters
       note = "Director system event; its payload format is not documented and no cause is known",
     },
   })
@@ -1799,7 +1803,7 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
     return
   end
   gCounters.variable_events = gCounters.variable_events + 1
-  local value = tostring(strValue or ""):sub(1, V.LIMITS.value)
+  local value = Commands.cutBytes(strValue, V.LIMITS.value) -- between characters
   record({
     event_type = "ai_core.observation.variable",
     evidence_source = initial and "initial" or "observed",
@@ -2047,9 +2051,9 @@ function OnDriverLateInit(reason)
       event_type = "ai_core.observation.agent",
       evidence_source = "system",
       severity = (tParams.name == "device_offline" or tParams.name == "unexpected_restart") and "warning" or "info",
-      label = tostring(tParams.name or ""):sub(1, 64),
+      label = Commands.cutBytes(tParams.name, 64), -- between characters
       payload = {
-        event = tostring(tParams.name or ""):sub(1, 64),
+        event = Commands.cutBytes(tParams.name, 64),
         detail = ok and type(detail) == "table" and detail or {},
       },
     })
@@ -2177,9 +2181,9 @@ function EC.TEST_AGENT_LINK()
         "Agent link: OK at %s — Agent %s, protocol %s..%s, %s, %s; %d module(s)",
         stamp(now()),
         -- The Agent's own words, bounded: a property is not a log.
-        tostring(a.version or "?"):sub(1, 40),
-        tostring(a.protocol_min or "?"):sub(1, 8),
-        tostring(a.protocol_max or "?"):sub(1, 8),
+        Commands.cutBytes(a.version or "?", 40), -- between characters
+        Commands.cutBytes(a.protocol_min or "?", 8),
+        Commands.cutBytes(a.protocol_max or "?", 8),
         a.paired and "paired" or "not paired",
         a.connected and "cloud connected" or "cloud NOT connected",
         #modules

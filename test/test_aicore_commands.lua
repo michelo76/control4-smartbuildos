@@ -163,6 +163,8 @@ local r = C.interpret({ status = "ok", result = { accepted = true, job_id = "j1"
 check("accepted + job id", r.outcome == "accepted" and r.job_id == "j1")
 r = C.interpret({ status = "ok", result = { accepted = true, job_id = 42 } })
 check("accepted + numeric job id", r.outcome == "accepted" and r.job_id == "42")
+r = C.interpret({ status = "ok", result = { accepted = true, job_id = string.rep("j", 127) .. "é" } })
+check("a job id cut at 128 bytes is cut between characters", r.job_id == string.rep("j", 127), #tostring(r.job_id))
 -- set_context / send_notification: {accepted: true, job_id: null} (JSON null
 -- decodes to nil) — done now, nothing will be delivered later.
 r = C.interpret({ status = "ok", result = { accepted = true, applied = true, key = "vacation" } })
