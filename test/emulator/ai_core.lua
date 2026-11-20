@@ -1180,6 +1180,64 @@ check(
   aic.Properties["License Status"]
 )
 
+print("[13g2] the cloud asks for the re-check (REQUEST_ENTITLEMENTS), no dealer action")
+-- A licence issued in SmartBuildOS used to wait for the dealer's "Refresh
+-- Entitlements Now" or the daily refresh; the platform now sends this
+-- command to an Agent advertising entitlements_refresh_v1.
+local function cloudRequestEntitlements(id)
+  S.pending.commands[#S.pending.commands + 1] = { id = id, command = "REQUEST_ENTITLEMENTS" }
+  local before = #S.cloud.requests
+  d:executeCommand(agent, "SEND_HEARTBEAT", {})
+  local ack, refreshed = nil, 0
+  -- One second at a time until the ack is sent (bounded), then a few more
+  -- for the refreshed licence to reach AI Core: the throttle below is about
+  -- seconds, so the two requests must not drift a minute apart.
+  for _ = 1, 40 do
+    d:advance(1000)
+    ack, refreshed = nil, 0
+    for i = before + 1, #S.cloud.requests do
+      local r = S.cloud.requests[i]
+      if r.path == "/api/integrations/control4/commands" and type(r.body) == "table" then
+        for _, a in ipairs(r.body.acks or {}) do
+          if a.id == id then
+            ack = a
+          end
+        end
+      elseif r.path == "/api/driver-cloud/entitlements/refresh" then
+        refreshed = refreshed + 1
+      end
+    end
+    if ack ~= nil then
+      break
+    end
+  end
+  d:advance(5000)
+  return ack, refreshed
+end
+S.cloud.catalog.SBOS_AI_CORE = { status = "NOT_ENTITLED", license_type = "", features = {} }
+refresh()
+check("revoked again: unlicensed", aiStatus() == "unlicensed", aic.Properties["License Status"])
+S.cloud.catalog.SBOS_AI_CORE = GRANT_ALL
+local ack, refreshed = cloudRequestEntitlements("ent-1")
+check(
+  "the Agent answers the command and refreshes once",
+  ack ~= nil and ack.ok == true and ack.result == "entitlement refresh started" and refreshed == 1,
+  ack and (ack.result or ack.error)
+)
+local licensedAfter = aic.Properties["License Status"]
+-- Before commandGoes(), which spends a minute of virtual time.
+ack, refreshed = cloudRequestEntitlements("ent-2")
+check(
+  "a second request inside the minute is skipped, Driver Cloud not called",
+  ack ~= nil and ack.ok == true and tostring(ack.result):find("skipped", 1, true) ~= nil and refreshed == 0,
+  ack and (ack.result or ack.error)
+)
+check(
+  "AI Core reads Licensed / Permanent without a reload",
+  licensedAfter == "Licensed / Permanent" and commandGoes() and aic.env.EC.AI_ASK == aicAsk,
+  licensedAfter
+)
+
 print("[13h] read_device_state: one live read end to end through the real Agent")
 -- Two stand-in devices: driver XML only (no Lua runs), their variables given
 -- here as a scenario gives a proxy's documented variables. SYNTHETIC names

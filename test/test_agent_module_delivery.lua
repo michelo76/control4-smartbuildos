@@ -12,6 +12,10 @@
 -- [3] a send that fails ends the record as Failed, with no expiry timer
 -- [4] a cleared status detail (and config_error) reaches the Agent and the
 --     heartbeat; Director drops "" params without allowEmptyValues
+-- [5] REQUEST_ENTITLEMENTS: the cloud asks for a licence re-check; the
+--     module's licence moves NOT_ENTITLED -> licensed without a restart;
+--     one per minute, the dealer action unthrottled; capability advertised
+-- [6] unpaired: like REQUEST_HEARTBEAT, the command never arrives
 --
 -- Run from the driver root: make test
 
@@ -265,7 +269,7 @@ agentProps["API URL"] = "https://app.smartbuildos.io"
 agentProps["Heartbeat Interval"] = "1m"
 agentProps["Log Level"] = "1 - Error"
 local agent = D.add(AGENT, { Properties = agentProps })
-D.add(MODULE, {
+local module = D.add(MODULE, {
   Properties = {
     ["License Status"] = "",
     ["License Source"] = "",
@@ -339,6 +343,29 @@ local function commandStates(requestId)
   return table.concat(states, ",")
 end
 
+-- What Driver Cloud issues for AI Core (unsigned; see the pairing note).
+local issued = "NOT_ENTITLED"
+local function assertion()
+  return {
+    driver_sku = "SBOS_AI_CORE",
+    status = issued,
+    license_type = issued == "NOT_ENTITLED" and "" or "SUBSCRIPTION_INCLUDED",
+    features = issued == "NOT_ENTITLED" and {} or { "BASE" },
+    issued_at = "2026-11-20T00:00:00.000Z",
+  }
+end
+responders["entitlements/refresh"] = function()
+  return {
+    ok = true,
+    body = {
+      assertions = { assertion() },
+      support_id = "SBOS-TEST01",
+      checked_at = os.date("!%Y-%m-%dT%H:%M:%S.000Z"),
+      revalidate_after_hours = 24,
+      offline_cache_days = 7,
+    },
+  }
+end
 print("[1] the Agent starts paired; the module registers through the real client")
 D.as(AGENT, function()
   OnDriverInit()
@@ -499,6 +526,80 @@ do
   local entry = gModules:find("ai_core", tostring(MODULE))
   check("without allowEmptyValues the Agent never sees the clear", entry.detail == "stale", entry.detail)
 end
+
+print("[5] REQUEST_ENTITLEMENTS: licensed without a restart, one per minute")
+D.mode = "sync"
+do
+  -- The registration's own refresh (a never-seen SKU, 10 s after [1])
+  -- fetched what was issued then: nothing licensed.
+  check("before: the module is NOT_ENTITLED", license.status() == "NOT_ENTITLED", license.status())
+  local before = module.Properties["License Status"]
+  check(
+    "the capability is advertised",
+    (function()
+      requests = {}
+      D.as(AGENT, function()
+        EC.SEND_HEARTBEAT()
+      end)
+      for _, c in ipairs(requestsTo("heartbeat")[1].data.capabilities) do
+        if c == "entitlements_refresh_v1" then
+          return true
+        end
+      end
+      return false
+    end)()
+  )
+  -- The platform issues the licence, then asks for a re-check.
+  issued = "AUTHORIZED_SUBSCRIPTION"
+  local acks = heartbeatWith({ { id = "e1", command = "REQUEST_ENTITLEMENTS" } })
+  check(
+    "the ack is the short result line",
+    acks[1] ~= nil and acks[1].ok == true and acks[1].result == "entitlement refresh started",
+    acks[1] and (acks[1].result or acks[1].error)
+  )
+  check("Driver Cloud was asked once", #requestsTo("entitlements/refresh") == 1, #requestsTo("entitlements/refresh"))
+  check("after: the module is licensed", license.status() == "AUTHORIZED_SUBSCRIPTION", license.status())
+  check(
+    "and its License Status repainted",
+    module.Properties["License Status"] ~= before and module.Properties["License Status"] ~= "",
+    tostring(before) .. " -> " .. tostring(module.Properties["License Status"])
+  )
+
+  advance(30000)
+  requests = {}
+  acks = heartbeatWith({ { id = "e2", command = "REQUEST_ENTITLEMENTS" } })
+  check(
+    "a second request inside the minute is skipped",
+    acks[1] ~= nil and acks[1].ok == true and acks[1].result:find("skipped") ~= nil,
+    acks[1] and (acks[1].result or acks[1].error)
+  )
+  check("without calling Driver Cloud", #requestsTo("entitlements/refresh") == 0)
+  D.as(AGENT, function()
+    EC.REFRESH_ENTITLEMENTS()
+  end)
+  check("the dealer action is not throttled", #requestsTo("entitlements/refresh") == 1)
+  advance(31000)
+  requests = {}
+  acks = heartbeatWith({ { id = "e3", command = "REQUEST_ENTITLEMENTS" } })
+  check(
+    "after the minute it runs again",
+    acks[1] ~= nil and acks[1].result == "entitlement refresh started" and #requestsTo("entitlements/refresh") == 1,
+    acks[1] and (acks[1].result or acks[1].error)
+  )
+end
+
+print("[6] unpaired: the command never arrives, as for REQUEST_HEARTBEAT")
+D.as(AGENT, function()
+  EC.UNPAIR()
+end)
+D.drain()
+requests = {}
+local acks = heartbeatWith({
+  { id = "u1", command = "REQUEST_HEARTBEAT" },
+  { id = "u2", command = "REQUEST_ENTITLEMENTS" },
+})
+check("no heartbeat, so no command and no ack", #acks == 0 and #requestsTo("commands") == 0, #acks)
+check("and no refresh", #requestsTo("entitlements/refresh") == 0)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then

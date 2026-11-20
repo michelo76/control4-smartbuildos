@@ -2473,6 +2473,9 @@ function driverCapabilities()
     -- Module contract v2: discovery, local pub/sub, module requests and the
     -- closed-vocabulary cloud relay (POST modules/rpc).
     "modules_v2",
+    -- REQUEST_ENTITLEMENTS: the cloud may ask for a licence re-check (after
+    -- it issues or changes one) instead of waiting out the daily refresh.
+    "entitlements_refresh_v1",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -3337,6 +3340,12 @@ local COMMAND_RUNNERS = {
   REQUEST_CATALOGUE = function()
     sendCatalogue()
     return "catalogue sent"
+  end,
+  -- The dealer action "Refresh Entitlements Now", asked by the cloud after a
+  -- licence was issued or changed, so drivers stop reading "Not Licensed"
+  -- before the daily refresh. Throttled on the controller (one a minute).
+  REQUEST_ENTITLEMENTS = function()
+    return EntitlementsCloudRefresh()
   end,
   -- A platform-authored notice, surfaced through Control4's OWN channels.
   --
@@ -9735,6 +9744,27 @@ end
 function EC.REFRESH_ENTITLEMENTS()
   gEntitlements.lastAttempt = 0
   refreshEntitlements("dealer request")
+end
+
+--- The same refresh for the cloud command REQUEST_ENTITLEMENTS
+--- (entitlements_refresh_v1). At most one per minute however often the cloud
+--- asks; a second inside the window answers "skipped" without calling Driver
+--- Cloud. The dealer action above is not throttled. A global, not a local:
+--- the main chunk is at Lua's 200-local ceiling.
+--- @return string result The command ack's result line.
+function EntitlementsCloudRefresh()
+  local last = gEntitlements.cloudRequestedAt
+  local age = last ~= nil and os.time() - last or nil
+  if age ~= nil and age >= 0 and age < 60 then
+    return "entitlement refresh skipped: one was requested less than 60 s ago"
+  end
+  if gEntitlements.inFlight then
+    return "entitlement refresh already in progress"
+  end
+  gEntitlements.cloudRequestedAt = os.time()
+  gEntitlements.lastAttempt = 0
+  refreshEntitlements("cloud request")
+  return "entitlement refresh started"
 end
 
 --- The whole licensing picture in one print, for support calls.
