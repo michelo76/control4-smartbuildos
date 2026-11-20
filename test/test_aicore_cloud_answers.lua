@@ -14,6 +14,10 @@
 --       "working", no AI Response Ready; learn_preference answers either
 --       `unsupported` (no memory library wired) or a synchronous record;
 --       rate_limited is a refusal, not silence; status answers its own shape
+--   [3] an unlicensed controller (the platform's real refusal): Last Test
+--       Result, Last Error and AI Status say "not licensed for this
+--       controller"; the machine code (cloud_refused) and AI_STATUS stay;
+--       license_status is never shown, sent or logged
 --
 -- Run from the driver root: make test
 
@@ -308,9 +312,125 @@ answers.status = { status = "error", http_status = "200", error_code = "not_perm
 EC.SYNC_NOW()
 H.advance(2500)
 check(
-  "status refused → Last Error names it",
+  "status refused → Last Error names it (a reason without words: the code, then the token)",
+  prop("Last Error") == "Sync Now: refused by SmartBuildOS: not_permitted (x)",
+  prop("Last Error")
+)
+answers.status = { status = "error", http_status = "200", error_code = "not_permitted" }
+EC.SYNC_NOW()
+H.advance(2500)
+check(
+  "status refused without a reason → Last Error names the code",
   prop("Last Error") == "Sync Now: refused by SmartBuildOS: not_permitted",
   prop("Last Error")
+)
+
+print("[3] an unlicensed controller: the cloud's reason in words (rpc/handler.ts step 8)")
+-- The platform answers HTTP 200 {ok:false, error_code:"cloud_refused",
+-- result:{reason:"not_entitled", license_status}}; the Agent relays the code
+-- (not in its pass-through list → cloud_refused) and the result unchanged.
+local function unlicensed()
+  return {
+    status = "error",
+    http_status = "200",
+    error_code = "cloud_refused",
+    raw_result = '{"reason":"not_entitled","license_status":"NOT_ENTITLED"}',
+  }
+end
+local logged = {}
+local errorLog, debugLog, print_ = C4.ErrorLog, C4.DebugLog, print
+-- Logging is off in the harness: switch it on (every level, print and the
+-- Director log) so whatever the driver would log is captured here.
+local Log = require("lib.logging")
+local level, toPrint, toC4 = Log:getLogLevel(), Log:isPrintEnabled(), Log:isC4LogEnabled()
+Log:setLogLevel(Log.LogLevel.ULTRA)
+Log:setOutputPrintEnabled(true)
+Log:setOutputC4LogEnabled(true)
+C4.ErrorLog = function(self, m)
+  logged[#logged + 1] = tostring(m)
+end
+C4.DebugLog = C4.ErrorLog
+print = function(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[#parts + 1] = tostring(select(i, ...))
+  end
+  logged[#logged + 1] = table.concat(parts, " ")
+  print_(...)
+end
+answers.test_provider = unlicensed()
+answers.status = unlicensed()
+answers.analyze_system = unlicensed()
+H.advance(61000)
+EC.TEST_AI_CONNECTION()
+H.advance(2500)
+EC.SYNC_NOW()
+H.advance(2500)
+local syncError = prop("Last Error")
+local before = counters()
+run("AI_ANALYZE_SYSTEM", {})
+local after = counters()
+C4.ErrorLog, C4.DebugLog, print = errorLog, debugLog, print_
+Log:setLogLevel(level)
+Log:setOutputPrintEnabled(toPrint)
+Log:setOutputC4LogEnabled(toC4)
+check(
+  "Last Test Result: refused (not licensed for this controller)",
+  prop("Last Test Result") == "AI connection: refused (not licensed for this controller)",
+  prop("Last Test Result")
+)
+check(
+  "Sync Now → Last Error: the words and the reason",
+  syncError == "Sync Now: refused by SmartBuildOS: not licensed for this controller (not_entitled)",
+  syncError
+)
+check(
+  "a command → Last Error and AI_LAST_ERROR: the words and the reason",
+  prop("Last Error") == "AI_ANALYZE_SYSTEM: refused by SmartBuildOS: not licensed for this controller (not_entitled)"
+    and H.vars.AI_LAST_ERROR == prop("Last Error"),
+  prop("Last Error")
+)
+check(
+  "AI Status: last request refused (not licensed for this controller)",
+  prop("AI Status"):find("last request refused (not licensed for this controller)", 1, true) ~= nil,
+  prop("AI Status")
+)
+check("AI_STATUS keeps its documented value (ready)", H.vars.AI_STATUS == "ready", H.vars.AI_STATUS)
+check(
+  "the machine code is unchanged: counted as cloud_refused, last cloud result names cloud_refused",
+  after.cloud_refused == before.cloud_refused + 1
+    and after.last_cloud_result == "AI_ANALYZE_SYSTEM: refused (cloud_refused)",
+  after.last_cloud_result
+)
+local shown = {
+  prop("Last Test Result"),
+  prop("Last Error"),
+  prop("AI Status"),
+  syncError,
+  tostring(H.vars.AI_LAST_ERROR),
+  H.lastSent("SBOS_MODULE_STATUS").params.counters,
+  tostring(H.lastSent("SBOS_MODULE_STATUS").params.detail),
+}
+local leaked = {}
+for _, t in ipairs(shown) do
+  if t:find("NOT_ENTITLED", 1, true) or t:find("license_status", 1, true) then
+    leaked[#leaked + 1] = t
+  end
+end
+for _, t in ipairs(logged) do
+  if t:find("NOT_ENTITLED", 1, true) or t:find("license_status", 1, true) then
+    leaked[#leaked + 1] = t
+  end
+end
+local heard = false
+for _, t in ipairs(logged) do
+  heard = heard or t:find("not licensed for this controller", 1, true) ~= nil
+end
+check("the log was captured (Last Error is logged as a warning)", heard, #logged)
+check("license_status is never shown, sent or logged", #leaked == 0, table.concat(leaked, " | "))
+check(
+  "nothing of the reason reaches the status counters",
+  H.lastSent("SBOS_MODULE_STATUS").params.counters:find("not_entitled", 1, true) == nil
 )
 check("nothing reached equipment", #H.equipment == 0)
 

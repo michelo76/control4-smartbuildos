@@ -211,6 +211,95 @@ check(
   C.interpret({ status = "error", error_code = "incompatible_protocol" }).outcome == "unavailable"
 )
 
+print("[4b] a refusal's reason (result.reason), in words")
+-- The platform's real refusal of an unlicensed controller (rpc/handler.ts
+-- step 8), as the Agent relays it: error_code cloud_refused, result as sent.
+local function refused(code, result)
+  return C.interpret({ status = "error", http_status = 200, error_code = code, result = result })
+end
+r = refused("cloud_refused", { reason = "not_entitled", license_status = "NOT_ENTITLED" })
+check(
+  "not_entitled → the plain words, the reason, and the code unchanged",
+  r.outcome == "refused"
+    and r.code == "cloud_refused"
+    and r.reason == "not_entitled"
+    and r.reason_text == "not licensed for this controller"
+    and r.message == "refused by SmartBuildOS: not licensed for this controller (not_entitled)",
+  r.message
+)
+check("license_status is never part of the answer", not JSON:encode(r):find("NOT_ENTITLED", 1, true), JSON:encode(r))
+r = refused("not_permitted", { reason = "brand_new_reason" })
+check(
+  "an unknown valid token → shown as the token, beside the code",
+  r.code == "not_permitted"
+    and r.reason_text == "brand_new_reason"
+    and r.message == "refused by SmartBuildOS: not_permitted (brand_new_reason)",
+  r.message
+)
+local forty = string.rep("abcdefghi_", 3) .. "abcdefghij"
+r = refused("cloud_refused", { reason = forty })
+check("a 40-byte token is shown", r.reason == forty, r.message)
+for _, bad in ipairs({
+  { "uppercase", "Not_Entitled" },
+  { "spaces", "not entitled" },
+  { "41 bytes", forty .. "c" },
+  { "a table", { "not_entitled" } },
+  { "a number", 42 },
+  { "markup", "<b>not_entitled</b>" },
+  { "key-shaped (dashes)", "xx-yyy-zz03-AbCdEf0123456789" },
+  { "key-shaped (a lowercase run of digits)", "x_0123456789abcdef" },
+  { "key-shaped (a long random part)", "a_qwertyuiopasdfghjklzxcvbnm" },
+  { "a leading digit", "1not_entitled" },
+  { "a trailing newline", "not_entitled\n" },
+  { "empty", "" },
+}) do
+  r = refused("cloud_refused", { reason = bad[2] })
+  check(
+    "a reason that is not a token (" .. bad[1] .. ") → ignored, today's text",
+    r.code == "cloud_refused"
+      and r.reason == nil
+      and r.reason_text == nil
+      and r.message == "refused by SmartBuildOS: cloud_refused",
+    r.message
+  )
+end
+for _, none in ipairs({ { "no result", nil }, { "a string result", "not_entitled" }, { "an empty result", {} } }) do
+  r = refused("cloud_refused", none[2])
+  check(
+    none[1] .. " → today's text",
+    r.reason_text == nil and r.message == "refused by SmartBuildOS: cloud_refused",
+    r.message
+  )
+end
+r = refused("rate_limited", { reason = "rate_limited", retry_after_seconds = 60 })
+check(
+  "rate_limited with its reason: today's message, the words beside it",
+  r.code == "rate_limited"
+    and r.message == "rate limited by SmartBuildOS (rate_limited); try again later"
+    and r.reason_text == V.REFUSAL_REASONS.rate_limited,
+  r.message
+)
+local okWithReason = { accepted = true, job_id = "j9", reason = "not_entitled" }
+r = C.interpret({ status = "ok", error_code = "ok", result = okWithReason })
+check(
+  "a successful answer is unaffected by a reason",
+  r.outcome == "accepted" and r.job_id == "j9" and r.reason == nil and r.reason_text == nil
+)
+r = C.interpret({ status = "error", error_code = "cloud_unreachable", result = { reason = "not_entitled" } })
+check("unreachable is unaffected by a reason", r.outcome == "unreachable" and r.reason_text == nil, r.message)
+local longPart = "a_qwertyuiopasdfghjklzxcvbnm"
+local longAnswer = { status = "error", error_code = "not_permitted", result = { reason = longPart } }
+local household = C.interpretHousehold(longAnswer)
+check("the household reasons keep their own rule (a long part is still shown there)", household.code == longPart)
+local wordy = {}
+for k, words in pairs(V.REFUSAL_REASONS) do
+  local token = k:match("^[a-z][a-z0-9_]*$") and #k <= C.REASON_MAX and not C.keyShaped(k)
+  if not token or words:find("[a-z]+_[a-z]+") or #words > 60 then
+    wordy[#wordy + 1] = k
+  end
+end
+check("every reason in the table is a token interpret() shows, in words", #wordy == 0, table.concat(wordy, ","))
+
 print("[5] the local command budget")
 local t = 0
 local b = C.newBucket(10, function()

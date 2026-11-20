@@ -136,6 +136,7 @@ account-number flow on the Agent). AI Core follows the Agent:
 | `SmartBuildOS Agent not paired` | The Agent is not paired | Pair the Agent |
 | `SmartBuildOS cloud unreachable` | The Agent has no internet, or the last request could not reach SmartBuildOS after 2 retries | Check the uplink; the next accepted request clears it |
 | `Last Test Result`: `AI connection: refused (cloud_refused)` | The platform route `/api/integrations/control4/modules/rpc` is not deployed (404 → `cloud_refused`) | Owner: deploy the platform |
+| `Last Test Result`: `AI connection: refused (not licensed for this controller)`; `Last Error`: `… refused by SmartBuildOS: not licensed for this controller (not_entitled)` | SmartBuildOS has no AI Core licence for this controller. **AI Status** can still read Ready: the driver stops itself only when SmartBuildOS enforces licences for AI Core | Add an AI Core licence for this controller in SmartBuildOS |
 | `refused (unsupported)` | The platform deployed is older than this driver and does not know that op | Owner: deploy a platform built from the same AI Core release |
 | `refused (not_permitted)` | The platform refused: permission mode, licence features, homeowner settings | Check System Studio |
 | `License Status` stays `SmartBuildOS Agent Found - Checking...` | The Agent has not answered the licence question | Agent → **Refresh Entitlements Now** |

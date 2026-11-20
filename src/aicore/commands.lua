@@ -556,6 +556,10 @@ end
 ---               already retried it, and it is an answer, not silence)
 ---   unreachable the cloud or the Agent could not be reached after retries
 ---   unavailable this Agent cannot relay at all (v1 Agent)
+--- A refusal from the cloud keeps its code (counters, AI_STATUS, telemetry)
+--- and, when result.reason is a short token, carries it as `reason` and in
+--- words as `reason_text` (vocab REFUSAL_REASONS, else the token itself);
+--- `message` then says it. No other field of result is ever shown.
 function M.interpret(answer)
   answer = answer or {}
   if answer.status == "ok" then
@@ -583,16 +587,60 @@ function M.interpret(answer)
   if code == "cloud_unreachable" or code == "deadline_exceeded" or code == "target_unavailable" then
     return { outcome = "unreachable", code = code, message = "no answer from SmartBuildOS (" .. code .. ")" }
   end
+  local reason = M.reasonToken(answer.result, M.REASON_MAX)
+  if reason ~= nil and M.keyShaped(reason) then
+    reason = nil
+  end
+  local words = reason ~= nil and (V.REFUSAL_REASONS[reason] or reason) or nil
   if code == "rate_limited" then
     -- The platform's per-system limits (send_notification, test_provider)
     -- and the Agent's own bucket both answer this: an answer, not silence.
     return {
       outcome = "refused",
       code = code,
+      reason = reason,
+      reason_text = words,
       message = "rate limited by SmartBuildOS (rate_limited); try again later",
     }
   end
-  return { outcome = "refused", code = code, message = "refused by SmartBuildOS: " .. code }
+  if reason == nil then
+    return { outcome = "refused", code = code, message = "refused by SmartBuildOS: " .. code }
+  end
+  -- A reason without words keeps the code beside it: the token alone may not
+  -- say which rule refused it.
+  local said = V.REFUSAL_REASONS[reason] ~= nil and words or code
+  return {
+    outcome = "refused",
+    code = code,
+    reason = reason,
+    reason_text = words,
+    message = "refused by SmartBuildOS: " .. said .. " (" .. reason .. ")",
+  }
+end
+
+--- The longest result.reason interpret() shows (bytes).
+M.REASON_MAX = 40
+
+--- result.reason when it is a short token (^[a-z][a-z0-9_]*$, at most max
+--- bytes), else nil: arbitrary cloud text is never shown.
+function M.reasonToken(result, max)
+  local reason = type(result) == "table" and result.reason or nil
+  if type(reason) == "string" and #reason <= max and reason:match("^[a-z][a-z0-9_]*$") then
+    return reason
+  end
+  return nil
+end
+
+--- A token that could be a key or an id rather than a reason: a part
+--- (between underscores) over 20 bytes, or one with four digits in a row.
+--- No reason the platform sends looks like that.
+function M.keyShaped(token)
+  for part in token:gmatch("[^_]+") do
+    if #part > 20 or part:find("%d%d%d%d") then
+      return true
+    end
+  end
+  return false
 end
 
 --- What the cloud's answer to analyze_household (AI_RUN_HOUSEHOLD_ANALYSIS)
@@ -635,8 +683,8 @@ function M.interpretHousehold(answer)
     return base
   end
   local code = tostring(answer.error_code or "internal_error")
-  local reason = r.reason
-  if type(reason) == "string" and #reason <= 48 and reason:match("^[a-z][a-z0-9_]*$") then
+  local reason = M.reasonToken(r, 48)
+  if reason ~= nil then
     local wait = tonumber(r.retry_after_seconds)
     local after = ""
     if wait ~= nil and wait > 0 then

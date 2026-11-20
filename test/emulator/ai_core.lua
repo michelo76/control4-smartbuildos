@@ -442,6 +442,34 @@ check(
   tostring(aic.Properties["AI Status"]):find("refused %(not_permitted%)") ~= nil,
   aic.Properties["AI Status"]
 )
+-- An unlicensed controller: the platform's real refusal (rpc/handler.ts step
+-- 8). The real Agent relays cloud_refused (not in its pass-through list) and
+-- the result as sent; AI Core says why, in words.
+local unlicensedResult = { reason = "not_entitled", license_status = "NOT_ENTITLED" }
+S.rpc.answer = function()
+  return { ok = false, error_code = "cloud_refused", result = unlicensedResult }
+end
+d:advance(61000)
+d:action(aic, "TEST_AI_CONNECTION")
+d:advance(3000)
+check(
+  "unlicensed: Last Test Result says refused (not licensed for this controller)",
+  aic.Properties["Last Test Result"] == "AI connection: refused (not licensed for this controller)",
+  aic.Properties["Last Test Result"]
+)
+d:executeCommand(aic, "AI_ASK", { QUESTION = "Is the garage closed?" })
+d:advance(3000)
+check(
+  "…Last Error: the words and the reason, never the licence status",
+  aic.Properties["Last Error"] == "AI_ASK: refused by SmartBuildOS: not licensed for this controller (not_entitled)",
+  aic.Properties["Last Error"]
+)
+check(
+  "…AI Status: last request refused (not licensed for this controller); AI_STATUS keeps its value",
+  tostring(aic.Properties["AI Status"]):find("refused (not licensed for this controller)", 1, true) ~= nil
+    and var(aic, "AI_STATUS") ~= "unlicensed",
+  aic.Properties["AI Status"]
+)
 S.rpc.answer = nil
 
 print("[4a] Run Household Analysis (AI_RUN_HOUSEHOLD_ANALYSIS → analyze_household) through the real Agent")

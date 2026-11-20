@@ -40,6 +40,9 @@
 --  [12] read_device_state / device_state_result: device classes, omitted
 --       counters, scopes and bounds = protocol.ts (round two); the op and the
 --       cloud op themselves are in [1] and [2], the args in [7], the body in [8]
+--  [13] refusal reasons: vocab.REFUSAL_REASONS (the words Last Error and Last
+--       Test Result show) = every result.reason literal of rpc/handler.ts,
+--       rpc/ops.ts and memory/programming.ts — none missing, none invented
 -- Reported, not asserted (NOTE lines in [7]/[8]/[11]): differences that
 -- break nothing today (a key the driver accepts that nobody sends, an op
 -- the platform answers `unsupported`); each NOTE line names both sides.
@@ -1327,6 +1330,33 @@ do
       lim[pair[1]] == pair[2]
     )
   end
+end
+
+print("[13] refusal reasons in words: vocab.REFUSAL_REASONS = the reasons the platform sends to interpret()")
+do
+  -- Every `reason: "…"` literal of the RPC pipeline (every op), of rpc/ops.ts
+  -- (op bodies, a system without a home, learn_preference's feature) and of
+  -- memory/programming.ts (learn_preference). analyze_household, the
+  -- touchscreen ops and the driver result ops name theirs in closed arrays,
+  -- shown elsewhere (interpretHousehold, webui.TEXT, the result ops).
+  local sent = {}
+  for _, file in ipairs({ "rpc/handler.ts", "rpc/ops.ts", "memory/programming.ts" }) do
+    local src = assert(read(ROOT .. "/src/lib/ai-core/" .. file), file .. " missing")
+    for reason in src:gmatch('reason: "([a-z][a-z0-9_]*)"') do
+      sent[reason] = true
+    end
+  end
+  check("the platform's reasons are readable", sent.not_entitled == true and sent.module_not_registered == true)
+  check(
+    "every reason the platform sends has words, and the table names none it does not send",
+    same(keys(V.REFUSAL_REASONS), keys(sent)),
+    show(keys(V.REFUSAL_REASONS), keys(sent))
+  )
+  local handlerTs = read(ROOT .. "/src/lib/ai-core/rpc/handler.ts")
+  check(
+    "an unlicensed controller: cloud_refused with result.reason not_entitled (rpc/handler.ts step 8)",
+    handlerTs:find('refusal("cloud_refused", { reason: "not_entitled"', 1, true) ~= nil
+  )
 end
 
 print("[11] reported differences (NOTE lines are not failures)")

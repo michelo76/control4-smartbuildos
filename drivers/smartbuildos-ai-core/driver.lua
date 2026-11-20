@@ -952,7 +952,7 @@ local function onCloudAnswer(name, requestId, answer, household)
     setError(name .. ": " .. r.message, "cloud")
   else
     gCounters.cloud_refused = gCounters.cloud_refused + 1
-    gLast.refusal = "refused (" .. r.code .. ")"
+    gLast.refusal = "refused (" .. (r.reason_text or r.code) .. ")"
     setError(name .. ": " .. r.message, "cloud")
   end
   saveLast()
@@ -2276,7 +2276,7 @@ function EC.TEST_AI_CONNECTION()
       gLast.test = "AI connection: answered by SmartBuildOS (no result follows)"
       gLast.sync_at = now()
     else
-      gLast.test = "AI connection: " .. r.outcome .. " (" .. tostring(r.code) .. ")"
+      gLast.test = "AI connection: " .. r.outcome .. " (" .. tostring(r.reason_text or r.code) .. ")"
     end
     saveLast()
     refresh("test")
