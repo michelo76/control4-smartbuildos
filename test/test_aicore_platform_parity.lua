@@ -32,10 +32,14 @@
 --   [9] raise_event detail: the platform's bound (characters) against the
 --       driver's (bytes) — never refused, cut between characters
 --  [10] the configuration document: every golden the platform publishes
+--       (round two: `with-presets`, when the platform has it)
 --       (tests/unit/fixtures/ai-core-driver-config/*.json, written from
 --       settings.ts driverConfigDocument) is accepted WHOLE by config.lua
 --       and lands in the golden's `expect`; deliberately wrong documents
 --       are refused; the platform's mirror of the bounds equals config.lua's
+--  [12] read_device_state / device_state_result: device classes, omitted
+--       counters, scopes and bounds = protocol.ts (round two); the op and the
+--       cloud op themselves are in [1] and [2], the args in [7], the body in [8]
 -- Reported, not asserted (NOTE lines in [7]/[8]/[11]): differences that
 -- break nothing today (a key the driver accepts that nobody sends, an op
 -- the platform answers `unsupported`); each NOTE line names both sides.
@@ -408,8 +412,12 @@ local SAMPLE = {
   action_id = "refresh_now",
   params = {},
   declaration_hash = "0123456789abcdef",
+  state_ref = "2d6f9a2e-5b1c-4c8e-9f00-123456789abc",
+  scope = "system",
+  variables = { "TEMPERATURE_F" },
 }
 local BASE = {
+  read_device_state = { state_ref = SAMPLE.state_ref, device_id = 12, scope = "system" },
   apply_config = { config = {}, version = 1 },
   refresh_status = {},
   deliver_result = { response_id = "r-1", text = "t" },
@@ -553,9 +561,12 @@ local function platformFields(lit)
     else
       max = tonumber(max)
     end
+    -- An object field's own flags, not its nested fields' (device_state_result
+    -- `device` is optional; its `id`/`class`/`restricted` are required inside).
+    local own = f.body:gsub("fields:%s*%b{}", "")
     out[f.name] = {
       kind = f.body:match('kind:%s*"(%w+)"'),
-      required = f.body:find("required:%s*true") ~= nil,
+      required = own:find("required:%s*true") ~= nil,
       max = max,
       list = f.body:match("list:%s*([%w_]+)"),
     }
@@ -720,6 +731,41 @@ do
     "target_unverified"
   )
   driverBodies.driver_reports = { full = keysOf(withDropped), minimal = keysOf(plain or {}), max = {} }
+  -- read_device_state's answer, built by src/aicore/devicestate.lua exactly
+  -- as the driver sends it (OPS.read_device_state): completed, refused after
+  -- a read (restricted class), refused before one (not found).
+  local DeviceState = require("aicore.devicestate")
+  local function dsr(over)
+    local input = {
+      request_id = "aic-1",
+      state_ref = SAMPLE.state_ref,
+      device_id = 12,
+      scope = "full",
+      read_ok = true,
+      vars = { ["1000"] = { name = "TEMPERATURE_F", value = "70" } },
+      read_at = 1800000000,
+    }
+    for k, v in pairs(over) do
+      input[k] = v
+    end
+    return DeviceState.result(input)
+  end
+  local dOk = dsr({})
+  local dRestricted = dsr({ scope = "system", vars = { ["1000"] = { name = "LOCK_STATUS", value = "1" } } })
+  local dNotFound = dsr({ reason = "not_found", read_at = false })
+  dNotFound.read_at = nil
+  local reasons, reasonCodes = {}, {}
+  for r, c in pairs(DeviceState.REASONS) do
+    reasons[r] = true
+    reasonCodes[c] = true
+  end
+  driverBodies.device_state_result = {
+    full = keysOf(dOk, dRestricted, dNotFound),
+    minimal = keysOf(dNotFound),
+    max = {},
+    enums = { status = set({ "completed", "failed" }), reason = reasons, error_code = reasonCodes },
+    subset = { error_code = true },
+  }
   driverBodies.driver_query_result =
     { full = keysOf(qOk, qFail), minimal = keysOf(qFail), max = {}, enums = resultEnums }
   driverBodies.driver_action_result = {
@@ -1090,11 +1136,40 @@ table.sort(goldens)
 if #goldens == 0 then
   print("  SKIP the platform checkout has no " .. goldenDir .. " (older platform); nothing compared here")
 else
+  -- The six round-one goldens, plus (round two, P-R2b) `with-presets`
+  -- once the platform has it; any other name is a golden nobody mapped here.
+  local known = { "learning-on", "learning-paused", "maximum", "minimum", "typical", "with-exclusions" }
+  local present, extra, hasPresets = {}, {}, false
+  for _, g in ipairs(goldens) do
+    present[g] = true
+  end
+  local missing = {}
+  for _, g in ipairs(known) do
+    if not present[g] then
+      missing[#missing + 1] = g
+    end
+  end
+  for _, g in ipairs(goldens) do
+    if g == "with-presets" then
+      hasPresets = true
+    else
+      local ok = false
+      for _, k in ipairs(known) do
+        ok = ok or k == g
+      end
+      if not ok then
+        extra[#extra + 1] = g
+      end
+    end
+  end
   check(
-    "the six goldens are present",
-    same(goldens, { "learning-on", "learning-paused", "maximum", "minimum", "typical", "with-exclusions" }),
-    table.concat(goldens, ",")
+    "the six goldens are present (and nothing unmapped)",
+    #missing == 0 and #extra == 0,
+    "missing " .. table.concat(missing, ",") .. "; unmapped " .. table.concat(extra, ",")
   )
+  if not hasPresets then
+    print("  SKIP with-presets: the platform has no presets golden yet (P-R2b); the driver side is unit-tested")
+  end
   local function list(t)
     local out = {}
     for _, v in ipairs(t or {}) do
@@ -1127,6 +1202,14 @@ else
         want("collection." .. k, cfg.collection[k], e.collection[k])
       end
       want("collection.variables", #cfg.collection.variables, e.collection.variables)
+      -- Presets (round two): what the driver keeps = what the document sent
+      -- (or the golden's `expect.presets` when it states one).
+      local sent = type(g.document.touchscreen) == "table" and g.document.touchscreen.presets or {}
+      local expected = type(e.presets) == "table" and e.presets or sent
+      want("touchscreen.presets", list(cfg.touchscreen.presets), list(expected))
+      if name == "with-presets" then
+        want("with-presets carries at least one preset", #cfg.touchscreen.presets > 0, true)
+      end
       check(name .. ": lands in the expected state", #wrong == 0, table.concat(wrong, "; "))
     end
   end
@@ -1200,6 +1283,50 @@ else
     "AI_CORE_DRIVER_CATEGORIES (driver-config.ts) = vocab.lua CATEGORY_LIST",
     same(strings(literal(settingsTs, "AI_CORE_DRIVER_CATEGORIES")), V.CATEGORY_LIST)
   )
+end
+
+print("[12] read_device_state / device_state_result vocabularies and bounds")
+-- Asserted: the closed lists and bounds the controller's filter
+-- (src/aicore/devicestate.lua) and argument check (operations.lua) use are
+-- the platform's (protocol.ts, round two).
+do
+  local DeviceState = require("aicore.devicestate")
+  local O = require("aicore.operations")
+  local classesTs = sorted(strings(literal(protocolTs, "AI_CORE_DEVICE_CLASSES")))
+  check(
+    "device classes: devicestate.CLASSES = AI_CORE_DEVICE_CLASSES",
+    #classesTs > 0 and same(sorted(DeviceState.CLASSES), classesTs),
+    show(sorted(DeviceState.CLASSES), classesTs)
+  )
+  local omittedTs = sorted(strings(literal(protocolTs, "AI_CORE_DEVICE_STATE_OMITTED_KEYS")))
+  check(
+    "omitted counters: devicestate.OMITTED_KEYS = AI_CORE_DEVICE_STATE_OMITTED_KEYS",
+    #omittedTs > 0 and same(sorted(DeviceState.OMITTED_KEYS), omittedTs),
+    show(sorted(DeviceState.OMITTED_KEYS), omittedTs)
+  )
+  local scopesTs = sorted(strings(literal(protocolTs, "AI_CORE_DEVICE_STATE_SCOPES")))
+  check(
+    "scopes: system, full on both sides",
+    same(keys(DeviceState.SCOPES), scopesTs),
+    show(keys(DeviceState.SCOPES), scopesTs)
+  )
+  local lim = {}
+  for k, v in tostring(literal(protocolTs, "AI_CORE_DEVICE_STATE_LIMITS")):gmatch("([%w_]+): ([%d_]+)") do
+    lim[k] = tonumber((v:gsub("_", "")))
+  end
+  local L = DeviceState.LIMITS
+  for _, pair in ipairs({
+    { "variablesRequested", O.VARIABLES_MAX },
+    { "variableName", L.name_bytes },
+    { "variables", L.variables },
+    { "variablesBytes", L.variables_bytes },
+    { "valueBytes", L.value_bytes },
+  }) do
+    check(
+      "bound " .. pair[1] .. ": platform " .. tostring(lim[pair[1]]) .. " = driver " .. tostring(pair[2]),
+      lim[pair[1]] == pair[2]
+    )
+  end
 end
 
 print("[11] reported differences (NOTE lines are not failures)")

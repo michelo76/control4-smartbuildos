@@ -61,6 +61,11 @@ local ARGS = {
     params = true,
     declaration_hash = true,
   },
+  -- ONE device's current variables, read once on the controller and
+  -- filtered there (src/aicore/devicestate.lua) before anything leaves the
+  -- home. `scope` is the platform's: `system` (no household permission) or
+  -- `full`; `variables` optionally narrows the read to <= 12 names.
+  read_device_state = { state_ref = true, device_id = true, scope = true, variables = true },
 }
 
 --- The argument keys each operation accepts (a copy: the parity test reads
@@ -162,6 +167,46 @@ local function validParams(p)
     end
   end
   return p
+end
+
+--- read_device_state: the largest Director device id the platform sends.
+M.DEVICE_ID_MAX = 2147483647
+--- read_device_state `variables`: at most this many names, each matching
+--- ^[A-Za-z0-9 _.-]{1,48}$, no name twice.
+M.VARIABLES_MAX = 12
+
+--- read_device_state `variables`: nil/absent or an empty array = every
+--- variable that passes the filter; otherwise an array (no other keys) of
+--- distinct names.
+local function validVariableNames(v)
+  if v == nil then
+    return {}
+  end
+  if type(v) ~= "table" then
+    return nil, "variables must be an array of variable names"
+  end
+  local n = 0
+  for _ in pairs(v) do
+    n = n + 1
+  end
+  if n ~= #v then
+    return nil, "variables must be an array of variable names"
+  end
+  if n > M.VARIABLES_MAX then
+    return nil, "variables: at most " .. M.VARIABLES_MAX .. " names"
+  end
+  local seen = {}
+  for i = 1, n do
+    local s = v[i]
+    if type(s) ~= "string" or #s < 1 or #s > 48 or not s:match("^[A-Za-z0-9 _%.%-]+$") then
+      return nil, "variables: each name must match ^[A-Za-z0-9 _.-]{1,48}$"
+    end
+    if seen[s] then
+      return nil, "variables: a name is listed twice"
+    end
+    seen[s] = true
+  end
+  return v
 end
 
 --- The declaring driver both operations address: its module id (never
@@ -306,6 +351,23 @@ function M.parse(command, args)
     if not ok then
       return nil, why
     end
+  elseif command == "read_device_state" then
+    if not validUuid(args.state_ref) then
+      return nil, "read_device_state needs a state_ref (a lower-case uuid)"
+    end
+    local d = args.device_id
+    if type(d) ~= "number" or d ~= math.floor(d) or d < 1 or d > M.DEVICE_ID_MAX then
+      return nil, "device_id must be a Director device id (a whole number 1.." .. M.DEVICE_ID_MAX .. ")"
+    end
+    if args.scope ~= "system" and args.scope ~= "full" then
+      return nil, "scope must be system or full"
+    end
+    op.state_ref, op.device_id, op.scope = args.state_ref, d, args.scope
+    local names, why = validVariableNames(args.variables)
+    if names == nil then
+      return nil, why
+    end
+    op.variables = names
   elseif command == "run_diagnostic" then
     local d = args.device_id ~= nil and tonumber(args.device_id) or nil
     local r = args.room_id ~= nil and tonumber(args.room_id) or nil

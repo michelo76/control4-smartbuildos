@@ -141,8 +141,8 @@ const errorCodes = [
   ["cloud_unreachable", "no usable answer from the platform", "yes"], ["cloud_refused", "the platform refused", "no"],
   ["unsupported", "reserved for a platform answer", "no"], ["internal_error", "a handler failed, or an out-of-vocabulary code was normalised", "no"],
 ].map(([code, meaning, retry]) => ({ code, meaning, retry }));
-const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic", "run_driver_query", "invoke_driver_action"];
-const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider", "analyze_household", "approvals_pending", "approval_detail", "approval_decide", "driver_reports", "driver_query_result", "driver_action_result"];
+const restrictedOps = ["apply_config", "refresh_status", "deliver_result", "raise_event", "set_learning", "run_diagnostic", "run_driver_query", "invoke_driver_action", "read_device_state"];
+const cloudOps = ["ask", "analyze_room", "analyze_system", "learn_preference", "suggest_scene", "generate_report", "start_diagnostic", "send_notification", "set_context", "status", "test_provider", "analyze_household", "approvals_pending", "approval_detail", "approval_decide", "driver_reports", "driver_query_result", "driver_action_result", "device_state_result"];
 const tools = toolsRaw.map((t) => ({
   id: t.id, wire: t.wire, risk: t.risk, household: t.household, feature: t.feature ?? null, verb: t.verb ?? null, audience: t.audience ?? "everyone", description: t.description,
   required: t.schema.required ?? [],

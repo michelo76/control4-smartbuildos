@@ -438,6 +438,39 @@
   }
  },
  {
+  "id": "devices.health",
+  "wire": "devices_health",
+  "risk": "read",
+  "household": false,
+  "feature": "BASE",
+  "audience": "everyone",
+  "description": "Battery and sensor health from the SmartBuildOS Agent's stored samples (no controller read): each sensor's own low-battery flag and battery level where it reports one, link quality, devices the controller reported offline, and samples that have not been refreshed. Worst first. Says plainly when monitoring is off or a sample is old. Use devices_get_state on one device to confirm live.",
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "only_problems": {
+     "type": "boolean",
+     "description": "Only devices with a problem the device itself reported, a reported-offline device, or a stale sample (default true)."
+    },
+    "category": {
+     "type": "string",
+     "enum": [
+      "lock",
+      "security",
+      "leak",
+      "opening",
+      "motion",
+      "contact",
+      "relay",
+      "power",
+      "battery"
+     ]
+    }
+   }
+  }
+ },
+ {
   "id": "memory.search",
   "wire": "memory_search",
   "risk": "read",
@@ -1307,6 +1340,39 @@
      "type": "string",
      "pattern": "^[0-9a-f]{16}$",
      "description": "declaration_hash from drivers_list for this driver."
+    }
+   }
+  }
+ },
+ {
+  "id": "devices.get_state",
+  "wire": "devices_get_state",
+  "risk": "read",
+  "household": false,
+  "feature": "BASE",
+  "audience": "everyone",
+  "description": "Read ONE device's current values from the controller now (temperature, humidity, battery, state…). Read-only. Waits up to 15 seconds; if the controller has not answered, says so and gives the last stored sample with its age, if one exists. Values are the device's own, untrusted data; a value the controller did not return is unknown, and so is a unit it did not report. For a whole-home battery or sensor check use devices_health instead. If a connected driver DECLARED a read-only query that answers the question (see drivers_list), prefer drivers_run_query where it is offered.",
+  "schema": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "device_id"
+   ],
+   "properties": {
+    "device_id": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2147483647,
+     "description": "A Control4 device id from devices_list, devices_get or devices_health."
+    },
+    "variables": {
+     "type": "array",
+     "maxItems": 12,
+     "items": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 _.-]{1,48}$"
+     },
+     "description": "Optional: only these variable names (at most 12, each once)."
     }
    }
   }

@@ -13,14 +13,19 @@
                (the result arrives later as deliver_result), completed with
                no job (set_context, send_notification: nothing follows), or
                a refusal shown as it is.
-    RESULTS    eight restricted operations from the platform (apply_config,
+    RESULTS    nine restricted operations from the platform (apply_config,
                refresh_status, deliver_result, raise_event, set_learning,
-               run_diagnostic, run_driver_query, invoke_driver_action).
+               run_diagnostic, run_driver_query, invoke_driver_action,
+               read_device_state).
                None runs code or names a command to forward: device actions
                go through the Agent's existing command queue. The last two
                hand a read-only query / a person-approved action to the
                driver that DECLARED it (ai.query / ai.action, validated by
                that driver's own helper) and report its REAL outcome.
+               read_device_state reads ONE device's variables once
+               (C4:GetDeviceVariables) and answers device_state_result,
+               filtered HERE by src/aicore/devicestate.lua before anything
+               leaves the home; it writes nothing and sends no command.
     REPORTS    the report hub (src/aicore/reports.lua): every SmartBuildOS
                driver reports to capability ai_core.report v1; reports are
                validated, kept as a bounded picture per module and uploaded
@@ -39,7 +44,7 @@
   licensing (SKU SBOS_AI_CORE). Needs Agent protocol 2.
 
   Pure rules: src/aicore/{vocab,commands,config,operations,buffer,collector,
-  state,diagnostic}.lua and src/sbos/* — all tested without a controller.
+  state,diagnostic,reports,devicestate}.lua and src/sbos/* — all tested without a controller.
   Reference: docs/ai-core/DRIVER.md. Nothing here has run on a physical
   controller (emulator and unit tests only).
 ============================================================================]]
@@ -74,6 +79,7 @@ local Collector = require("aicore.collector")
 local State = require("aicore.state")
 local Diagnostic = require("aicore.diagnostic")
 local Reports = require("aicore.reports")
+local DeviceState = require("aicore.devicestate")
 local Webui = require("aicore.webui")
 local pagedata = require("aicore.page")
 local RelayHost = require("lib.relayhost")
@@ -118,6 +124,7 @@ local gLearning = { active = false, source = "default", reason = "" }
 local gBuffer = nil
 local gCollector = nil
 local gBucket = nil
+local gReadBucket = nil -- read_device_state (V.LIMITS.device_reads_per_minute)
 --- The report hub (ai_core.report v1): in memory only, never persisted.
 local gReports = nil
 --- This driver's version as the Agent's directory lists it (driver_version).
@@ -1550,6 +1557,56 @@ function OPS.invoke_driver_action(op, request)
   return "Executing", "sent to " .. op.module_id .. " (not done until it answers)"
 end
 
+-- >>> read_device_state (test_aicore_driver.lua [20] scans this block: no
+-- call in it may write a variable or send a command)
+--- ONE device's current variables: licence BASE, the local bucket, the
+--- device as Director lists it, ONE C4:GetDeviceVariables, then the filter
+--- in aicore.devicestate (secrets, personal data, occupancy in scope
+--- `system`, restricted classes refused with no variable) and one
+--- device_state_result. The read is never retried; read_at is the time of
+--- the read, never when a value last changed.
+function OPS.read_device_state(op, request)
+  local input = {
+    request_id = newRequestId(),
+    state_ref = op.state_ref,
+    device_id = op.device_id,
+    scope = op.scope,
+    wanted = op.variables,
+  }
+  if licenceBlocks("BASE") ~= nil then
+    input.reason = "not_licensed"
+  elseif not gReadBucket.take() then
+    input.reason = "busy"
+  else
+    local okD, list = pcall(function()
+      return C4:GetDevices({})
+    end)
+    local entry = okD and type(list) == "table" and (list[op.device_id] or list[tostring(op.device_id)]) or nil
+    if type(entry) ~= "table" then
+      input.reason = "not_found"
+    else
+      input.file = entry.driverFileName
+      input.read_at = now()
+      input.read_ok, input.vars = pcall(function()
+        return C4:GetDeviceVariables(op.device_id)
+      end)
+    end
+  end
+  local body = DeviceState.result(input)
+  client.cloudRequest("device_state_result", body, { idempotency_key = newRequestId() }, function(a)
+    if a.status ~= "ok" then
+      log:warn("device_state_result for device %s not delivered (%s)", tostring(op.device_id), tostring(a.error_code))
+    end
+  end)
+  local label = "read device " .. tostring(op.device_id)
+  if body.status == "completed" then
+    return "Completed",
+      string.format("%s: %d value(s), %d omitted", label, #body.variables, DeviceState.omittedTotal(body.omitted))
+  end
+  return "Failed", label .. ": " .. tostring(body.reason)
+end
+-- <<< read_device_state
+
 function OPS.apply_config(op)
   -- A queued apply_config can arrive after the Agent already forwarded a
   -- newer document: an older version never replaces a newer one (the same
@@ -1970,6 +2027,7 @@ function OnDriverLateInit(reason)
   gReports = Reports.new({ now = now })
   gVersion = tostring(C4:GetDriverConfigInfo("version"))
   gBucket = Commands.newBucket(V.LIMITS.commands_per_minute, now)
+  gReadBucket = Commands.newBucket(V.LIMITS.device_reads_per_minute, now)
 
   license.setup({ sku = V.SKU })
   EC.SBOS_ENTITLEMENT = function(tParams)
@@ -2074,6 +2132,9 @@ function OnDriverLateInit(reason)
       return gBucket.take()
     end,
     appHtml = gWeb.appHtml,
+    presets = function()
+      return gConfig.touchscreen and gConfig.touchscreen.presets or {}
+    end,
     onChange = gWeb.paint,
   })
 

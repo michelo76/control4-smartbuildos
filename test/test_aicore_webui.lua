@@ -20,6 +20,8 @@
 --   [12] fail closed for every PIN Lock state
 --   [13] no PIN in any AI Core request, frame, cloud body or log line
 --   [14] detail level, verify_url origin, rate limits
+--   [15] the dealer's preset questions: locked bytes, order, exact text,
+--        stale ids, the bound, a document without the key
 --
 -- Run from the driver root: make test
 
@@ -1234,6 +1236,129 @@ check(
 )
 d = post(rl, "/ask", { question = "   " })
 check("an empty question: refused", d.ok == false and d.reason == "empty")
+
+-- ── [15] ─────────────────────────────────────────────────────────────────────
+print("[15] the dealer's preset questions (round two, D-R2b)")
+local P1 = "Is the wine cellar at the right temperature?"
+local P2 = "Are all the shades closed?"
+local P3 = "Is the pool heater on?"
+local LONG = string.rep("Is every keypad in the guest wing answering ", 3):sub(1, 119) .. "?"
+H.advance(61000)
+local ack15 = H.config(H.learningOn({ touchscreen = { presets = { P1, P2 } } }), 9001)
+check("a configuration with two presets is applied", ack15 and ack15.params.applied == "true")
+local pl = open()
+local pst, praw = state(pl)
+check(
+  "locked: no preset text in the /state bytes",
+  pst.chat.locked == true
+    and pst.chat.suggestions == nil
+    and not praw:find("wine cellar", 1, true)
+    and not praw:find("shades closed", 1, true),
+  praw
+)
+local presetLeaks = {}
+for _, r in ipairs({
+  { "GET", "/state" },
+  { "POST", "/chat/touch" },
+  { "POST", "/pin/cancel" },
+  { "POST", "/ask", { question = "x" } },
+  { "POST", "/ask", { suggestion_id = "p1-1" } },
+  { "POST", "/ask", { explain = true } },
+  { "POST", "/approvals/refresh" },
+  { "POST", "/approvals/next" },
+  { "POST", "/approvals/close" },
+  { "POST", "/chat/lock" },
+  { "GET", "/app" },
+  { "GET", "/ping" },
+  { "POST", "/nope" },
+}) do
+  local _, _, body = H.http(r[1], q(r[2], pl), r[3])
+  body = tostring(body or "")
+  if body:find("wine cellar", 1, true) or body:find("shades closed", 1, true) then
+    presetLeaks[#presetLeaks + 1] = r[1] .. " " .. r[2]
+  end
+end
+check("no route returns preset text to a locked session", #presetLeaks == 0, table.concat(presetLeaks, ", "))
+local asksBefore = #H.cloudOps("ask")
+local lockedAsk = post(pl, "/ask", { suggestion_id = "p1-1" })
+check(
+  "a locked session cannot ask a preset (chat_locked, nothing sent)",
+  lockedAsk.ok == false and lockedAsk.reason == "chat_locked" and #H.cloudOps("ask") == asksBefore
+)
+post(pl, "/pin/cancel")
+H.advance(11000)
+unlock(pl)
+pst, praw = state(pl)
+local sugs = pst.chat.suggestions or {}
+check(
+  "unlocked: the two presets first, then the three built-ins (five)",
+  #sugs == 5
+    and sugs[1].label == P1
+    and sugs[2].label == P2
+    and sugs[3].id == "working"
+    and sugs[4].id == "today"
+    and sugs[5].id == "attention",
+  JSON:encode(sugs)
+)
+check("each preset id is p<index>-<rev>", tostring(sugs[1].id):match("^p1%-%d+$") ~= nil, sugs[1].id)
+local p2id = sugs[2].id
+local okAsk = post(pl, "/ask", { suggestion_id = p2id })
+local presetAsk = lastCloud("ask")
+check(
+  "asking a preset sends EXACTLY its text through the ask path (channel touchscreen)",
+  okAsk.ok == true
+    and presetAsk.body.question == P2
+    and presetAsk.body.channel == "touchscreen"
+    and presetAsk.body.request_id == okAsk.id,
+  presetAsk and JSON:encode(presetAsk.body)
+)
+check("the conversation shows the preset as the question", state(pl).chat.conversation[1].q == P2)
+local p1old = sugs[1].id
+H.advance(61000)
+H.config(H.learningOn({ touchscreen = { presets = { P3, P2 } } }), 9002)
+asksBefore = #H.cloudOps("ask")
+local stale = post(pl, "/ask", { suggestion_id = p1old })
+check(
+  "a stale index after a config change: refused unknown_suggestion, never mapped to the new first question",
+  stale.ok == false
+    and stale.reason == "unknown_suggestion"
+    and stale.message == Webui.TEXT.unknown_suggestion
+    and #H.cloudOps("ask") == asksBefore,
+  JSON:encode(stale)
+)
+sugs = state(pl).chat.suggestions
+check("the new list is offered", sugs[1].label == P3 and sugs[2].label == P2 and sugs[1].id ~= p1old)
+local fresh = post(pl, "/ask", { suggestion_id = sugs[1].id })
+check("the fresh id asks the new question", fresh.ok == true and lastCloud("ask").body.question == P3)
+asksBefore = #H.cloudOps("ask")
+for _, bad in ipairs({ "p9-" .. sugs[1].id:match("%-(%d+)$"), "p0-1", "p1-", "p1", "P1-1", "p1-1-1" }) do
+  local r = post(pl, "/ask", { suggestion_id = bad })
+  check(
+    "a malformed or out-of-range id (" .. bad .. "): unknown_suggestion",
+    r.ok == false and r.reason == "unknown_suggestion"
+  )
+end
+check("…and nothing was sent for any of them", #H.cloudOps("ask") == asksBefore)
+local seven = {}
+for i = 1, 7 do
+  seven[i] = "Preset question number " .. i
+end
+local ack7 = H.config(H.learningOn({ touchscreen = { presets = seven } }), 9003)
+check("a configuration with 7 presets is refused whole", ack7 and ack7.params.applied == "false")
+sugs = state(pl).chat.suggestions
+check("…and the page keeps the last valid list", #sugs == 5 and sugs[1].label == P3, JSON:encode(sugs))
+H.config(H.learningOn({ touchscreen = { presets = { LONG } } }), 9004)
+sugs = state(pl).chat.suggestions
+check("a 120-character preset is offered whole", #LONG == 120 and sugs[1].label == LONG, sugs[1] and sugs[1].label)
+local lastId = sugs[1].id
+H.config(H.learningOn(), 9005)
+sugs = state(pl).chat.suggestions
+check("a document WITHOUT the key: no presets, the three built-ins only", #sugs == 3 and sugs[1].id == "working")
+check(
+  "…and the last preset id no longer resolves",
+  post(pl, "/ask", { suggestion_id = lastId }).reason == "unknown_suggestion"
+)
+
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)
 
 print = realPrint

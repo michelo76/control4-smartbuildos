@@ -12,6 +12,9 @@
 --   [4] the lockout is PIN Lock's own (shared with its page)
 --   [5] review and approve one item end to end; decline one
 --   [6] the cloud refuses an above-ceiling item: plain words
+--  [6b] the dealer's preset questions: a config with two arrives; locked,
+--       none; unlocked, the three built-ins plus the two; asking one sends
+--       its exact text
 --   [7] the PIN never reached AI Core, the bus or the cloud
 -- Run: test/emulator/run-ai-core.sh (exit 1 on any failure).
 
@@ -50,7 +53,7 @@ cloud.catalog.SBOS_PIN_LOCK =
 
 -- ── the scripted cloud ───────────────────────────────────────────────────────
 local rpc = {}
-local pending = { commands = {} }
+local pending = { commands = {}, driver_config = nil }
 local refuseDetail = {} -- ref -> reason
 d.http = function(req, dev)
   local url = tostring(req.url)
@@ -107,10 +110,21 @@ d.http = function(req, dev)
     }
   end
   local resp = cloud:handle(req, dev)
-  if resp and resp.code == 200 and path == "/api/integrations/control4/heartbeat" and #pending.commands > 0 then
+  if
+    resp
+    and resp.code == 200
+    and path == "/api/integrations/control4/heartbeat"
+    and (#pending.commands > 0 or pending.driver_config ~= nil)
+  then
     local hb = json.decode(resp.body)
-    hb.commands = pending.commands
-    pending.commands = {}
+    if #pending.commands > 0 then
+      hb.commands = pending.commands
+      pending.commands = {}
+    end
+    if pending.driver_config ~= nil then
+      hb.driver_config = pending.driver_config
+      pending.driver_config = nil
+    end
     resp.body = json.encode(hb)
   end
   return resp
@@ -426,6 +440,71 @@ check(
   st.review == nil and st.notice == "That item is above what a PIN may approve. Use the SmartBuildOS portal.",
   st.notice
 )
+
+print("[6b] the dealer's preset questions (round two)")
+-- A configuration with two presets arrives the way the platform delivers it
+-- (the heartbeat's driver_config block, forwarded by the real Agent).
+local P1 = "Is the wine cellar at the right temperature?"
+local P2 = "Are all the shades closed?"
+post("/chat/lock")
+pending.driver_config = {
+  {
+    driver_sku = "SBOS_AI_CORE",
+    settings = { schema = 1, touchscreen = { presets = { P1, P2 } } },
+    settings_version = 1,
+  },
+}
+d:executeCommand(agent, "SEND_HEARTBEAT", {})
+d:advance(3000)
+-- PIN Lock may still be settling after [4]-[6] (its availability is
+-- re-read every 30 s): wait, bounded, until this screen may ask for a PIN.
+for _ = 1, 10 do
+  if state().pin.available == true then
+    break
+  end
+  d:advance(31000)
+end
+st, stRaw = state()
+check(
+  "locked: the page shows no preset (no suggestion, no preset text in the bytes)",
+  st.chat.locked == true
+    and st.chat.suggestions == nil
+    and stRaw:find("wine cellar", 1, true) == nil
+    and stRaw:find("shades closed", 1, true) == nil,
+  stRaw
+)
+d:advance(11000)
+post("/chat/unlock")
+d:advance(1000)
+vcode = enterPin(OWNER_PIN)
+st = state()
+local sugs = st.chat.suggestions or {}
+check(
+  "unlocked: the two presets, then the three built-in questions",
+  vcode == 200
+    and st.chat.locked == false
+    and #sugs == 5
+    and sugs[1].label == P1
+    and sugs[2].label == P2
+    and sugs[3].id == "working"
+    and sugs[4].id == "today"
+    and sugs[5].id == "attention",
+  tostring(vcode) .. " " .. json.encode(st.chat) .. " " .. tostring(st.notice)
+)
+local asked = post("/ask", { suggestion_id = sugs[1] and sugs[1].id })
+d:advance(2000)
+askOp = lastOp("ask")
+check(
+  "asking a preset sends its exact text (channel touchscreen)",
+  asked
+    and asked.ok == true
+    and askOp
+    and askOp.body.question == P1
+    and askOp.body.channel == "touchscreen"
+    and askOp.body.request_id == asked.id,
+  askOp and json.encode(askOp.body)
+)
+post("/chat/lock")
 
 print("[7] the PIN never reached AI Core, the bus or the cloud")
 local leaks = {}

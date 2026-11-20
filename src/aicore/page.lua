@@ -38,6 +38,10 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 input[type=text] { width: 100%; min-height: 48px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--soft); }
+/* Suggestions include the dealer's presets (up to 120 characters): a label
+   wraps inside its button, never widens the page. Unmeasured on a real
+   Navigator (KNOWN-ISSUES). */
+#suggestions button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .qa { border-top: 1px solid var(--line); padding: 10px 0; }
 .qa .q { font-weight: 650; }
 .qa .a { white-space: pre-wrap; word-break: break-word; margin-top: 4px; }

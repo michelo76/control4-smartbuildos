@@ -98,6 +98,12 @@ check(
     and html:find("pagehide", 1, true) ~= nil
     and html:find("/session/close", 1, true) ~= nil
 )
+check(
+  "suggestion buttons wrap a long (120-character) preset label inside the page",
+  html:find("#suggestions button {[^}]*white%-space: normal") ~= nil
+    and html:find("#suggestions button {[^}]*max%-width: 100%%") ~= nil
+    and html:find("#suggestions button {[^}]*overflow%-wrap: anywhere") ~= nil
+)
 for _, id in ipairs({
   "status",
   "chatLocked",
@@ -166,6 +172,14 @@ assert.strictEqual(ul.children[1].textContent, evil);
 var sug = new El('div'); var picked = null;
 AIC.renderSuggestions(doc, sug, [{ id: 'today', label: evil }], function (id) { picked = id; });
 assert.strictEqual(sug.children[0].textContent, evil); sug.children[0].on(); assert.strictEqual(picked, 'today');
+// The dealer's presets arrive as suggestions (round two): text verbatim, the
+// id passed back untouched, a 120-character label whole.
+var longLabel = new Array(13).join('Is it warm?') + '<script>x</script>';
+AIC.renderSuggestions(doc, sug, [{ id: 'p1-1800000001', label: longLabel }, { id: 'p2-1800000001', label: evil }, { id: 'working', label: 'Is everything in the house working?' }], function (id) { picked = id; });
+assert.strictEqual(sug.children.length, 3);
+assert.strictEqual(sug.children[0].textContent, longLabel, 'a long preset label is text, whole');
+assert.strictEqual(sug.children[1].textContent, evil, 'a preset label is never markup');
+sug.children[1].on(); assert.strictEqual(picked, 'p2-1800000001');
 assert.strictEqual(htmlWrites, 0);
 assert.deepStrictEqual(AIC.statusLines({ status: { text: { online: 'Online', licensed: 'Licensed', provider: 'P', learning: 'L' } }, pin: { message: 'M' } }), ['Online', 'Licensed', 'P', 'L', 'M']);
 

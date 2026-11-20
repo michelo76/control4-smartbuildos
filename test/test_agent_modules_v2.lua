@@ -668,7 +668,7 @@ do
   )
   local vocab = MODULE_COMMANDS.ai_core
   check(
-    "MODULE_COMMANDS.ai_core is exactly the eight restricted operations (invoke_driver_action at tier 2)",
+    "MODULE_COMMANDS.ai_core is exactly the nine restricted operations (invoke_driver_action at tier 2)",
     vocab.apply_config
       and vocab.refresh_status
       and vocab.deliver_result
@@ -677,12 +677,13 @@ do
       and vocab.run_diagnostic
       and vocab.run_driver_query == true
       and vocab.invoke_driver_action == 2
+      and vocab.read_device_state == true
       and (function()
         local n = 0
         for _ in pairs(vocab) do
           n = n + 1
         end
-        return n == 8
+        return n == 9
       end)()
   )
 end
@@ -756,6 +757,33 @@ do
   Properties["Remote Control"] = "Identify only"
   local okQ, errQ, fwdQ = dispatch("run_driver_query")
   check("run_driver_query (read) needs no tier: forwarded at Identify only", okQ and fwdQ == 1, errQ)
+  -- read_device_state: an AI Core that does not register it (the eight
+  -- above: a round-one driver) is refused by the instance check, nothing
+  -- forwarded; one that registers it gets it forwarded with no tier at all.
+  Properties["Remote Control"] = "Off"
+  local okR, errR, fwdR = dispatch("read_device_state")
+  check(
+    "read_device_state refused to an AI Core that does not register it, nothing forwarded",
+    not okR and fwdR == 0 and errR:find("read_device_state", 1, true) ~= nil,
+    errR
+  )
+  ai = register(AI_ID, "ai_core", {
+    manifest = '{"driver":"sbos.ai_core","capabilities":[]}',
+    commands = "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,"
+      .. "run_driver_query,invoke_driver_action,read_device_state",
+  })
+  okR, errR, fwdR = dispatch("read_device_state")
+  check(
+    "read_device_state (read) needs no tier: forwarded to an AI Core that registers it, Remote Control Off",
+    okR and fwdR == 1,
+    errR
+  )
+  local fwd = sentOf("SBOS_MODULE_COMMAND", AI_ID)[1]
+  check(
+    "forwarded as SBOS_MODULE_COMMAND read_device_state with its args",
+    fwd ~= nil and fwd.params.command == "read_device_state" and fwd.params.args ~= nil,
+    fwd and fwd.params.command
+  )
   for _, setting in ipairs({ "Comfort", "Full control" }) do
     Properties["Remote Control"] = setting
     local ok, err, forwarded = dispatch("invoke_driver_action")

@@ -208,6 +208,9 @@ M.CLOUD_OPS = {
     driver_reports = true,
     driver_query_result = true,
     driver_action_result = true,
+    -- The filtered outcome of the restricted operation read_device_state
+    -- (one device's live variables; AI Core's aicore.devicestate).
+    device_state_result = true,
   },
 }
 

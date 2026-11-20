@@ -21,6 +21,8 @@
 --   [17] licence: enforced denial, grace, missing feature, uncertain states
 --   [18] controller restart: config, learning, results, buffer, sequence
 --   [19] no operation path reaches equipment
+--   [20] read_device_state: one live read, filtered here; licence, bucket,
+--        typed outcomes, never retried, and the read-only ratchet
 --
 -- Run from the driver root: make test
 
@@ -93,9 +95,9 @@ check(
     and reg.params.event_types == "ai_core."
 )
 check(
-  "registers exactly the eight restricted operations",
+  "registers exactly the nine restricted operations",
   reg.params.commands
-    == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,run_driver_query,invoke_driver_action",
+    == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,run_driver_query,invoke_driver_action,read_device_state",
   reg.params.commands
 )
 local manifest = JSON:decode(reg.params.manifest)
@@ -498,6 +500,19 @@ check(
   "the same version again is re-applied (idempotent)",
   ack.params.applied == "true" and ack.params.settings_version == "10"
 )
+-- Round two: the dealer's touchscreen presets travel in the same document,
+-- so the same rule keeps an older replay from taking them away.
+local withPresets = JSON:decode(JSON:encode(good))
+withPresets.touchscreen = { presets = { "Is the wine cellar at the right temperature?" } }
+H.config(withPresets, 10)
+H.config(good, 9) -- the cached older copy, without presets
+local storedCfg = H.persisted.aicore_config_v1
+check(
+  "an older replay does not remove v10's touchscreen presets",
+  storedCfg.version == 10 and #storedCfg.cfg.touchscreen.presets == 1,
+  tostring(storedCfg.version)
+)
+H.config(good, 10)
 
 print("[11] exclusions and pause suppress collection")
 local recs = #H.envelopes("ai_core.record")
@@ -990,6 +1005,337 @@ check(
   #H.equipment == 0,
   #H.equipment
 )
+
+print("[20] read_device_state: one live read, filtered in the home, read-only")
+do
+  local REF = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc"
+  H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "BASE,AI_LEARNING" })
+  H.advance(61000)
+  H.devices[60] =
+    { deviceName = "Wine Fridge", driverFileName = "generic_sensor.c4z", roomId = 3, roomName = "Kitchen" }
+  H.deviceVariables[60] = {
+    ["1000"] = { name = "TEMPERATURE_F", value = "55" },
+    ["1001"] = { name = "HUMIDITY", value = "61" },
+    ["1002"] = { name = "OWNER_NAME", value = "Resident One" },
+    ["1003"] = { name = "WIFI_PASSWORD", value = "hunter2" },
+  }
+  H.devices[70] = { deviceName = "Porch Camera", driverFileName = "uniview_camera.c4z", roomId = 1, roomName = "Entry" }
+  H.deviceVariables[70] = { ["1000"] = { name = "MAIN_STREAM_URL", value = "rtsp://10.0.0.9/live" } }
+  local realRead = C4.GetDeviceVariables
+  local reads = {}
+  local throwFor = nil
+  C4.GetDeviceVariables = function(self, id)
+    reads[#reads + 1] = id
+    if throwFor ~= nil and id == throwFor then
+      error("Director refused")
+    end
+    return realRead(self, id)
+  end
+  local equipmentBefore = #H.equipment
+  local listenersBefore = 0
+  for _ in pairs(H.listeners) do
+    listenersBefore = listenersBefore + 1
+  end
+  local sentBefore = #H.sent
+  local function rds(args)
+    local before = #H.cloudOps("device_state_result")
+    local states = H.operation("read_device_state", args)
+    local ops = H.cloudOps("device_state_result")
+    return states, ops[#ops], #ops - before
+  end
+  local function base(over)
+    local a = { state_ref = REF, device_id = 60, scope = "system" }
+    for k, v in pairs(over or {}) do
+      a[k] = v
+    end
+    return a
+  end
+
+  local st, call, n = rds(base())
+  local b = call and call.body or {}
+  local got = {}
+  for _, e in ipairs(b.variables or {}) do
+    got[e.name] = e.value
+  end
+  check("system read of a climate sensor: Completed", H.finalState(st) == "Completed", H.finalState(st))
+  check(
+    "one device_state_result: completed, climate_sensor, not restricted, read_at = the read's controller time",
+    n == 1
+      and b.status == "completed"
+      and b.state_ref == REF
+      and b.device.id == 60
+      and b.device.class == "climate_sensor"
+      and b.device.restricted == false
+      and b.read_at == os.time(),
+    JSON:encode(b)
+  )
+  check(
+    "values as Director holds them; the owner's name and the Wi-Fi password never left",
+    got.TEMPERATURE_F == "55"
+      and got.HUMIDITY == "61"
+      and got.OWNER_NAME == nil
+      and got.WIFI_PASSWORD == nil
+      and b.omitted.personal == 1
+      and b.omitted.secret == 1
+      and not JSON:encode(b):find("hunter2", 1, true)
+      and not JSON:encode(b):find("Resident One", 1, true),
+    JSON:encode(b)
+  )
+  check(
+    "a new idempotency key, not the body's request id",
+    call.idempotency_key ~= nil and call.idempotency_key ~= b.request_id and b.request_id:find("^aic%-") ~= nil
+  )
+  check("exactly one C4:GetDeviceVariables for that read", #reads == 1 and reads[1] == 60, #reads)
+
+  st, call = rds(base({ device_id = 30 }))
+  b = call.body
+  check(
+    "a lock in scope system: Failed restricted_class, ZERO variables in the body",
+    H.finalState(st) == "Failed"
+      and b.status == "failed"
+      and b.reason == "restricted_class"
+      and b.error_code == "not_permitted"
+      and b.variables == nil
+      and b.omitted == nil
+      and b.device.class == "lock"
+      and not JSON:encode(b):find("locked", 1, true),
+    JSON:encode(b)
+  )
+  st, call = rds(base({ device_id = 30, scope = "full" }))
+  b = call.body
+  check(
+    "the same lock in scope full: Completed, its lock state only; the user code never left",
+    H.finalState(st) == "Completed"
+      and #b.variables == 1
+      and b.variables[1].name == "LockStatus"
+      and b.omitted.secret == 1
+      and not JSON:encode(b):find('"1234"', 1, true),
+    JSON:encode(b)
+  )
+  st, call = rds(base({ device_id = 70, scope = "full" }))
+  check(
+    "a camera: Failed camera_not_supported even in scope full, nothing of it sent",
+    H.finalState(st) == "Failed"
+      and call.body.reason == "camera_not_supported"
+      and not JSON:encode(call.body):find("rtsp", 1, true)
+  )
+  local r0 = #reads
+  st, call = rds(base({ device_id = 999 }))
+  check(
+    "a device Director does not list: Failed not_found, nothing read",
+    H.finalState(st) == "Failed"
+      and call.body.reason == "not_found"
+      and call.body.error_code == "unknown_target"
+      and call.body.read_at == nil
+      and #reads == r0
+  )
+  st, call = rds(base({ device_id = 40 }))
+  check(
+    "a device with no variables: Failed no_variables",
+    H.finalState(st) == "Failed" and call.body.reason == "no_variables" and call.body.read_at ~= nil
+  )
+  throwFor = 60
+  st, call = rds(base())
+  throwFor = nil
+  check(
+    "GetDeviceVariables raised: Failed read_failed, nothing guessed",
+    H.finalState(st) == "Failed" and call.body.reason == "read_failed" and call.body.variables == nil
+  )
+  st = H.operation("read_device_state", base({ device_id = "60" }))
+  check("bad args (device_id as text): Failed, nothing read, nothing sent", H.finalState(st) == "Failed")
+
+  -- the bucket: 12 a minute (7 used above, one refused before the read)
+  H.advance(61000)
+  local ok12 = 0
+  for _ = 1, 12 do
+    local s2, c2 = rds(base())
+    if H.finalState(s2) == "Completed" and c2.body.status == "completed" then
+      ok12 = ok12 + 1
+    end
+  end
+  r0 = #reads
+  st, call = rds(base())
+  check("12 reads a minute answered", ok12 == 12, ok12)
+  check(
+    "the 13th in the same minute: Failed busy (rate_limited), nothing read",
+    H.finalState(st) == "Failed"
+      and call.body.reason == "busy"
+      and call.body.error_code == "rate_limited"
+      and #reads == r0
+  )
+  H.advance(61000)
+  st = rds(base())
+  check("a minute later: answered again", H.finalState(st) == "Completed")
+
+  -- never retried: the cloud never answers device_state_result
+  A.cloud = function(op)
+    if op == "device_state_result" then
+      return false
+    end
+    return nil
+  end
+  r0 = #reads
+  local c0 = #H.cloudOps("device_state_result")
+  st = rds(base())
+  H.advance(120000)
+  local tries = {}
+  for i = c0 + 1, #H.cloudOps("device_state_result") do
+    tries[H.cloudOps("device_state_result")[i].idempotency_key] = true
+  end
+  local keys = 0
+  for _ in pairs(tries) do
+    keys = keys + 1
+  end
+  check(
+    "no answer from the cloud: the device is read ONCE; any re-send is the same result (one key)",
+    #reads == r0 + 1 and keys == 1 and H.finalState(st) == "Completed",
+    (#reads - r0) .. " reads, " .. keys .. " keys"
+  )
+  A.cloud = nil
+
+  -- licence BASE
+  H.entitlement({ status = "ENTITLEMENT_EXPIRED", enforcement = "enforce", features = "" })
+  H.advance(61000)
+  r0 = #reads
+  st, call = rds(base())
+  check(
+    "unlicensed: Failed not_licensed (not_permitted), nothing read",
+    H.finalState(st) == "Failed"
+      and call.body.reason == "not_licensed"
+      and call.body.error_code == "not_permitted"
+      and #reads == r0
+  )
+  H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "BASE,AI_LEARNING" })
+  H.advance(61000)
+
+  -- the read-only ratchet, at run time
+  local outsiders = {}
+  for i = sentBefore + 1, #H.sent do
+    if H.sent[i].device ~= H.AGENT_ID then
+      outsiders[#outsiders + 1] = tostring(H.sent[i].device) .. ":" .. H.sent[i].command
+    end
+  end
+  local listenersAfter = 0
+  for _ in pairs(H.listeners) do
+    listenersAfter = listenersAfter + 1
+  end
+  check(
+    "ratchet (run time): every SendToDevice of these reads went to the Agent",
+    #outsiders == 0,
+    table.concat(outsiders, ",")
+  )
+  check(
+    "ratchet (run time): no SetDeviceVariable / SendToProxy / SendUIRequest / RegisterDeviceEvent / Bind",
+    #H.equipment == equipmentBefore,
+    #H.equipment - equipmentBefore
+  )
+  check("ratchet (run time): no variable listener registered by a read", listenersAfter == listenersBefore)
+  C4.GetDeviceVariables = realRead
+end
+
+print("[20b] read_device_state: the read-only ratchet, in the source")
+do
+  local function strip(src)
+    return (src:gsub("%-%-%[(=*)%[.-%]%1%]", ""):gsub("%-%-[^\n]*", ""))
+  end
+  local fh = assert(io.open("drivers/smartbuildos-ai-core/driver.lua"))
+  local drv = fh:read("*a")
+  fh:close()
+  local block = drv:match("%-%- >>> read_device_state(.-)%-%- <<< read_device_state") or ""
+  local code = strip(block)
+  check(
+    "the operation's block was found (a guard against an empty slice)",
+    #code > 400
+      and code:find("function OPS.read_device_state", 1, true) ~= nil
+      and code:find("C4:GetDeviceVariables", 1, true) ~= nil,
+    #code
+  )
+  -- Every call the operation makes, against a closed list. A new call in
+  -- the block (a write, a command, a listener) fails here first.
+  local ALLOWED = {
+    ["OPS.read_device_state"] = true, -- the definition itself
+    newRequestId = true,
+    licenceBlocks = true,
+    ["gReadBucket.take"] = true,
+    pcall = true,
+    ["function"] = true,
+    ["and"] = true,
+    ["or"] = true,
+    ["not"] = true,
+    ["return"] = true,
+    ["C4:GetDevices"] = true,
+    ["C4:GetDeviceVariables"] = true,
+    tostring = true,
+    type = true,
+    now = true,
+    ["DeviceState.result"] = true,
+    ["client.cloudRequest"] = true,
+    ["log:warn"] = true,
+    ["string.format"] = true,
+    ["DeviceState.omittedTotal"] = true,
+  }
+  local unknown = {}
+  local noStrings = code:gsub('"[^"\n]*"', '""')
+  for callee in noStrings:gmatch("([%a_][%w_%.:]*)%s*%(") do
+    if not ALLOWED[callee] then
+      unknown[#unknown + 1] = callee
+    end
+  end
+  check(
+    "ratchet (source): the operation calls only read / answer functions",
+    #unknown == 0,
+    "not on the read-only list: " .. table.concat(unknown, ",")
+  )
+  local FORBIDDEN = {
+    "SetDeviceVariable",
+    "SendToDevice",
+    "SendToProxy",
+    "SendUIRequest",
+    "RegisterVariableListener",
+    "RegisterDeviceEvent",
+    "Bind",
+    "SetVariable",
+    "setVar",
+    "FireEvent",
+    "ExecuteCommand",
+    "loadstring",
+    "dofile",
+    "os.execute",
+    "io.",
+  }
+  local hits = {}
+  for _, name in ipairs(FORBIDDEN) do
+    if code:find(name, 1, true) then
+      hits[#hits + 1] = name
+    end
+  end
+  check(
+    "ratchet (source): no write, command, listener or code loader in the block",
+    #hits == 0,
+    table.concat(hits, ",")
+  )
+  -- The pure filter has no Director surface at all.
+  for _, path in ipairs({ "src/aicore/devicestate.lua", "src/telemetry/lights.lua" }) do
+    local f2 = assert(io.open(path))
+    local pure = strip(f2:read("*a"))
+    f2:close()
+    local bad = {}
+    for _, name in ipairs({
+      "C4:",
+      "C4.",
+      "SendToDevice",
+      "SetDeviceVariable",
+      "SetVariable",
+      "loadstring",
+      "os.execute",
+    }) do
+      if pure:find(name, 1, true) then
+        bad[#bad + 1] = name
+      end
+    end
+    check("ratchet (source): " .. path .. " has no Director call", #pure > 1000 and #bad == 0, table.concat(bad, ","))
+  end
+end
 
 OnDriverDestroyed()
 check("destroyed: system events released", next(H.sysRegs) == nil)

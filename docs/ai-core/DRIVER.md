@@ -1,6 +1,11 @@
 # SmartBuildOS AI Core — driver reference
 
-Status: built on branch `feat/ai-core`. **No physical controller has run this
+Status: built on branch `feat/ai-core` (frozen at `09d138b` in pull request
+#49 for the owner); **round two** — the live device read (§7c,
+`read_device_state` → `device_state_result`), the dealer's preset questions
+(§7b, §9 `touchscreen.presets`) — exists **only on `feat/ai-core-round2`**,
+which is not pushed; on `feat/ai-core` there are eight restricted operations,
+eighteen cloud ops and no presets. **No physical controller has run this
 driver.** Everything below is verified by unit tests under the C4 shim and by
 a Director-emulator scenario (simulation); see [Verification](#13-verification)
 and [Not verified on hardware](#14-not-verified-on-hardware).
@@ -291,8 +296,10 @@ Delivered by the Agent's `MODULE_COMMAND` runner as `SBOS_MODULE_COMMAND`
 `SBOS_MODULE_COMMAND_RESULT`: `Accepted` (module client), `Executing`, then
 `Completed` / `Failed`. Each operation accepts a **closed set of argument
 keys**; any other key refuses the whole operation (`Failed`). None runs
-code or takes a command name to forward; the last two hand a read-only
-query / a person-approved action to the driver that DECLARED it (§7a).
+code or takes a command name to forward; `run_driver_query` and
+`invoke_driver_action` hand a read-only query / a person-approved action to
+the driver that DECLARED it (§7a); `read_device_state` reads ONE device's
+variables and filters them here (§7c).
 
 | Operation | Arguments | Effect |
 | --- | --- | --- |
@@ -304,6 +311,7 @@ query / a person-approved action to the driver that DECLARED it (§7a).
 | `run_diagnostic` | exactly one of `device_id`, `room_id`; `note` | the local diagnostic (§8; the target's Director name cleaned and bounded as in §3); `Executing` then `Completed` with the envelope id and how many local events |
 | `run_driver_query` | `query_ref` (lower-case uuid), `module_id` (`^[a-z][a-z0-9_]{2,47}$`, never `ai_core`), `instance_id` (digits), `query_id` (`^[a-z][a-z0-9_]{0,47}$`), `params` (object, ≤ 6 keys `^[a-z][a-z0-9_]{0,31}$`, each a string ≤ 64 characters without control characters, a finite number or a boolean; `{}` when absent) | licence `BASE`; `ai.query` to that instance (§7a); `Executing`, then `Completed` / `Failed` on the driver's answer; the answer goes back as cloud op `driver_query_result` |
 | `invoke_driver_action` | `ai_action_id` (lower-case uuid), `module_id`, `instance_id`, `action_id`, `params` (as above), `declaration_hash` (16 lower-case hex: the declaring driver's describe hash) | licence `AI_ACTIONS`; the Agent refuses it below Remote Control *Comfort*; only to a module the Agent **verified**; `ai.action` to that instance (§7a); `Completed` only when the driver answered `ok`; the real outcome goes back as cloud op `driver_action_result` |
+| `read_device_state` | `state_ref` (lower-case uuid), `device_id` (a JSON whole number 1..2147483647; text is refused), `scope` (`system` or `full`), `variables` (optional array of ≤ 12 distinct names, each `^[A-Za-z0-9 _.-]{1,48}$`; absent or `[]` = every variable that passes the filter) | read-only, no Remote Control tier; licence `BASE`; ONE `C4:GetDeviceVariables`, filtered here (§7c); `Completed` with the count of values and of omissions, or `Failed` with the reason; the answer goes back as cloud op `device_state_result` |
 
 Proof that no path reaches equipment: `test/test_aicore_driver.lua` [19] and
 `test/emulator/ai_core.lua` [14] record every `C4:SendToDevice` the driver
@@ -413,6 +421,151 @@ driver answers or the deadline passes. Both result ops go once per operation
 (the module client retries a lost one twice); a result that still cannot be
 delivered is logged, not stored (KNOWN-ISSUES KI-44).
 
+## 7c. Live device read (`read_device_state` → `device_state_result`)
+
+**Round two: on `feat/ai-core-round2` only** (not in pull request #49).
+
+**What a touchscreen can be told, in short.** The touchscreen chat reads at
+scope `system` unless the homeowner's portal switch for household answers is
+on (an owner PIN alone does not widen it). At `system` only temperature,
+humidity, battery, signal quality, online status and the temperature scale
+(`SCALE`) leave the home, through the allow-lists below; locks, security,
+doors (opening), motion, contacts, relays, lights and cameras are refused
+before anything is read out. Cameras are refused in every scope. No energy
+value exists anywhere (the platform holds the AI to saying so). With the
+switch on, or in the portal for a signed-in homeowner, the existing household
+rules decide (scope `full`). The platform's tools over this read are
+`devices.get_state` and `devices.health` (fixed tool set 39 on the
+platform's round-two branch, 37 on the frozen one).
+
+The platform's tool `devices.get_state` asks for ONE device's current
+values. AI Core reads them once and decides, **on the controller, before
+anything leaves the home**, what may be sent. Code:
+`src/aicore/devicestate.lua` (pure: `classify`, `filter`, `bound`,
+`result`) and `drivers/smartbuildos-ai-core/driver.lua`
+(`OPS.read_device_state`). **Emulator and unit tests only: nothing here has
+run on a physical controller.** Read-only: the operation writes no
+variable, sends no command, registers no listener and runs nothing it is
+sent (`test/test_aicore_driver.lua` [20]/[20b] ratchet).
+
+**Steps.** (1) licence `BASE`, else `not_licensed`; (2) a local bucket of
+12 a minute (above the platform's 6, so a platform retry never collides),
+else `busy`; (3) the device in `C4:GetDevices({})` (its driver file name),
+else `not_found`; (4) one `pcall(C4:GetDeviceVariables, id)`: an error is
+`read_failed`, nothing or an empty table `no_variables`; (5) the class from
+the live variable names (D); (6) a camera is refused in every scope; a
+restricted class in scope `system` is refused with **no variable and no
+count** in the body; (7) the filter (A, C, F, B) and the bound; (8) one
+`device_state_result` with a new idempotency key. The read itself is never
+retried (the module client may re-send the same result under the same key).
+
+**The class (D)**, from the variable names, matched in their joined form
+(upper-case, non-alphanumerics removed, so `LockStatus` is `LOCK_STATUS`)
+and present even with an empty value — both only ever make an answer more
+restrictive. First match wins: `camera` (driver file name containing
+`camera`, `doorbell`, `nvr`, `protect-camera`, or a variable whose joined
+name contains `STREAM` or `SNAPSHOT`, or `AVAILABLE_CAMERAS`), `lock`,
+`security`, `opening`, `motion`, `contact`, `relay` (the Agent's
+`sensorReading` lists), `thermostat` (the Agent's `looksLikeThermostat`),
+`light` (`src/telemetry/lights.lua` `signature`), `leak`, `power`,
+`battery` (the Agent's lists), `climate_sensor` (any name starting
+`TEMPERATURE` or `HUMIDITY`), else `unknown`. The device's own name is never
+used. `test/test_aicore_devicestate_parity.lua` fails when the Agent's lists
+and AI Core's copy differ.
+
+**Restricted classes (E):** `lock`, `security`, `opening`, `motion`,
+`contact`, `relay`, `camera`, `light` (conductor ruling: on/off is presence)
+and `unknown`. In scope `system` they are answered `failed` /
+`restricted_class`, except `unknown`, which gets the base allow-list below.
+Every other class answered in scope `system` also goes through an
+allow-list (F).
+
+**What is dropped, and counted (`omitted`):**
+
+| Rule | Scope | Counted as |
+| --- | --- | --- |
+| A — a name containing a secret fragment (the Flight Recorder's 14 `FIXED_EXCLUSIONS` plus `PASSPHRASE`, `PRIVATEKEY`, `AUTH`, `BEARER`, `SESSION`, `COOKIE`, `CERT`) or a secret token (`PIN`, `CODE`, `CODES`, `KEY`, `KEYS`, `PWD`, `PASS`, `OTP`, `NONCE`, `JWT`, `HMAC`) | every | `secret` |
+| A — a personal-data token (`USER`, `USERS`, `USERNAME`, `LOGIN`, `ACCOUNT`, `OWNER`, `GUEST`, `PERSON`, `NAME`, `EMAIL`, `MAIL`, `PHONE`, `MOBILE`, `SMS`, `CONTACT` unless `STATE` follows, `ADDRESS`, `STREET`, `CITY`, `ZIP`, `POSTAL`, `LATITUDE`, `LONGITUDE`, `GPS`, `LOCATION`, `URL`, `URI`, `HOST`, `IP`, `MAC`, `SSID`, `WIFI`, `SERIAL`, `STREAM`, `RTSP`, `SNAPSHOT`, `CAMERA`, `HISTORY`, `LOG`, and the joined `FIRSTNAME`, `LASTNAME`, `FULLNAME`, `USERID`, `TELEPHONE`, `HOSTNAME`, `IPADDRESS`, `MACADDRESS`, `EMAILADDRESS`, `ZIPCODE`, `POSTCODE`, `PHONENUMBER`) | every | `personal` |
+| C — an occupancy token (`OCCUPANCY`, `OCCUPIED`, `PRESENCE`, `AWAY`, `HOME`, `VACATION`, `MOTION`, `LAST`, `ARRIVAL`, `DEPARTURE`, `DOORBELL`, `RING`, `VISITOR`) | `system` | `occupancy` |
+| B — a table, a non-finite number; a string with `<`, `{`, `[`, a control, C1, line-separator or bidi character | every | `non_scalar` |
+| B — a string over 64 bytes (dropped whole, never cut); a name over 48 bytes | every | `too_long` |
+| B — `://`, `www.`, an `@` with a dot after it, IPv4, a MAC, a phone shape (≥ 7 digits once spaces, `+`, `-`, `(`, `)` are removed, when it is not a plain number) | every | `personal` |
+| B — a token shape (20+ characters of `[A-Za-z0-9+/=_-]` with no space) | every | `secret` |
+| F — outside the class's allow-list for the scope (below) | `full` (lock, security); `system` (every class answered) | `not_allowed` |
+| bound — beyond 40 variables or 4,096 bytes of `variables` JSON (a conservative estimate: non-ASCII bytes ×3, `"` and `\` ×2) | every | `over_limit` |
+
+Tokens come from two splits of the name — on non-alphanumerics, and also at
+camelCase and letter/digit boundaries (`OwnerName` → `OWNER NAME`, `Pin1` →
+`PIN 1`); a token rule matches in either.
+
+**Allow-lists (F)**, matched on the joined name: `lock` in scope `full` —
+`LOCKSTATUS`, `LOCKSTATE`, `LOCKED`, `BATTERYLEVEL`, `BATTERYSTATUS`,
+`LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`; `security` in scope `full` —
+`PARTITIONSTATE`, `ARMSTATE`, `ARMEDTYPE`, `ALARMSTATE`, `TROUBLE*`,
+`BATTERY*`, `LOWBATTERY`. In scope `system` **every class that is
+answered** goes through an allow-list (fail closed, KI-68 closed): the base
+list is `unknown`'s — `TEMPERATURE*`, `HUMIDITY*`, `SCALE`, `BATTERY*`,
+`LOWBATTERY`, `LINKQUALITY`, `LQI`, `RSSI`, `ONLINE`, `CONNECTED`,
+`COMM*STATUS` — and `climate_sensor` gets exactly that list. `SCALE`
+(added on `feat/ai-core-round2` after `1a663b1`) is exactly the name the
+Agent's `thermostatReading` reads as its `scale` (`devicestate.SCALE_NAME`;
+the parity test ties the two), so a climate sensor or thermostat carries its
+temperature unit when the device has one; nothing else joined the list; `thermostat`
+adds the 26 names the Agent's `thermostatReading` reads (and already uploads:
+setpoints, `HVAC_MODE` / `HVAC_STATE`, fan and humidity modes, `SCALE`, …;
+`THERMOSTAT_READ_NAMES`, kept equal by the parity test); `leak`, `power` and
+`battery` add their own signature lists (battery: the battery, low-battery
+and link lists). A class without an entry gets the base list. So a name
+nobody reviewed for that class — a wine fridge's `DOOR_AJAR`, a sensor's
+`IN_USE` — never reaches the touchscreen; it is counted `not_allowed`
+(the test fixture's wine fridge sends temperature, humidity and `SCALE`;
+its door flag is withheld and counted)
+(the count only, never the name; KI-67 closed). Scope `full` is unchanged: deny-lists
+for every class except `lock` and `security`. A name that A or C drops is
+counted first.
+
+| Class | Scope `system` before (to `64660fb`) | Scope `system` now |
+| --- | --- | --- |
+| `camera` | refused | refused |
+| `lock`, `security`, `opening`, `motion`, `contact`, `relay`, `light` | refused (`restricted_class`) | refused (`restricted_class`) |
+| `unknown` | base allow-list | base allow-list |
+| `climate_sensor` | deny-lists only: any unreviewed name passed | base allow-list |
+| `thermostat` | deny-lists only | base + `THERMOSTAT_READ_NAMES` |
+| `leak` | deny-lists only | base + leak signature |
+| `power` | deny-lists only | base + power signature |
+| `battery` | deny-lists only | base + battery, low-battery and link signatures |
+
+`variables` in the operation
+narrows further (case-insensitive exact names); a narrowed-to name that a
+rule drops is still dropped and counted.
+
+**Values** are sent as Director holds them (strings), never converted:
+`TEMPERATURE` on a thermostat is deci-Celsius and goes as it is;
+`TEMPERATURE_F` / `TEMPERATURE_C` as named. Nothing is filled in.
+
+**`device_state_result` body:**
+
+| Outcome | Keys |
+| --- | --- |
+| completed | `request_id`, `state_ref`, `status: "completed"`, `read_at` (controller epoch seconds of the read), `device: {id, class, restricted}`, `variables: [{name, value}]` (possibly `[]`), `omitted: {secret, personal, occupancy, non_scalar, too_long, over_limit, not_allowed}` (all seven, always; whole numbers, never a name; the platform takes `not_allowed` as an optional key) |
+| failed after a read (`restricted_class`, `camera_not_supported`) | `request_id`, `state_ref`, `status: "failed"`, `read_at`, `device: {id, class, restricted: true}`, `reason`, `error_code` |
+| failed after a read attempt (`read_failed`, `no_variables`) | `request_id`, `state_ref`, `status: "failed"`, `read_at`, `reason`, `error_code` |
+| failed before a read (`not_licensed`, `busy`, `not_found`) | `request_id`, `state_ref`, `status: "failed"`, `reason`, `error_code` |
+
+`restricted` is true when the class is restricted and was answered only
+because the scope is `full`; `unknown` in scope `system` reports false.
+`reason` → `error_code`: `not_found` → `unknown_target`, `no_variables` →
+`unsupported`, `restricted_class` → `not_permitted`,
+`camera_not_supported` → `unsupported`, `not_licensed` → `not_permitted`,
+`busy` → `rate_limited`, `read_failed` → `internal_error`.
+
+**Honesty.** `read_at` is when the controller read the device. Control4
+does not say when a value last changed, and a battery device's value may
+be one Director cached long ago; nothing in the body implies otherwise.
+Whether a protocol driver's id exposes its proxy's variables, the real
+variable names of batteries and appliance sensors, and the read's wall time
+on a large project are unmeasured (`KNOWN-ISSUES.md` KI-63 – KI-66).
+
 ## 7b. Touchscreen page: status, PIN-gated chat, PIN approvals (D5)
 
 A Navigator tile with a driver-hosted page, built the way PIN Lock and
@@ -444,7 +597,7 @@ cloud and the facts. **Nothing here has run on a controller or a Navigator.**
 | `POST /pin/cancel` | `{}` | drops the PIN prompt |
 | `POST /chat/lock` | `{}` | locks this session now |
 | `POST /chat/touch` | `{}` | interaction: the unlock stays 5 more minutes |
-| `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` |
+| `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` (a built-in id or a current preset id `p<index>-<rev>`) or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` (`unknown_suggestion` for a stale or unknown id) |
 | `POST /approvals/refresh` | `{}` | asks `approvals_pending` (≤ 1 per 30 s) |
 | `POST /approvals/next` | `{}` | `{ok, waiting}` — an `approval` challenge for the first item this screen may review |
 | `POST /approvals/decide` | `{decision: approve\|decline}` | `{ok}` — the outcome follows in `/state` `notice` |
@@ -491,6 +644,25 @@ Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
+
+**The dealer's preset questions (round two, D-R2b; on `feat/ai-core-round2`
+only — on `feat/ai-core` the suggestions are the three built-ins).** Staff set up to 6 in
+System Studio; they arrive as `touchscreen.presets` in the configuration
+document (§9). They are shown **in addition to** the three built-in
+questions — first, then the built-ins — and **only to an unlocked chat
+session**: while locked, no route returns any preset text (asserted on
+response bytes, `test_aicore_webui.lua` [15]). In `/state` each is
+`{id:"p<index>-<rev>", label:<the preset's text>}` inside `chat.suggestions`.
+`rev` changes whenever the list changes (and starts from the controller
+clock at driver start), so an id issued for an older list is refused with
+`unknown_suggestion` — it is never mapped to whatever question now sits at
+that index. `POST /ask {suggestion_id}` with a current id sends **exactly
+the preset's text** through the same `ask` (channel `touchscreen`, the same
+buckets). Labels are set with `textContent` only; a suggestion button wraps
+a 120-character label inside the page (`max-width: 100%`, `white-space:
+normal`, `overflow-wrap: anywhere`) — how it wraps on a real Navigator is
+unmeasured (KI-70). Homeowners neither see nor edit presets outside the
+unlocked chat. A document without the key means no presets.
 
 **Approvals (rulings 2, 4, 21, 24).** `approvals_pending` (on session open,
 on refresh at most every 30 s, when older than 60 s while a page is open,
@@ -616,7 +788,8 @@ version again is re-applied.
     "max_events_per_minute": 60
   },
   "property_id": "…",
-  "controller_id": "…"
+  "controller_id": "…",
+  "touchscreen": { "presets": ["Is the wine cellar at the right temperature?"] }
 }
 ```
 
@@ -631,7 +804,17 @@ own bound, so every saved list arrives whole);
 `exclusions.categories` from the closed list (`general`, `lighting`,
 `comfort`, `media`, `security`, `access`, `safety`, `energy`, `presence`,
 `system`, `programming`, `maintenance`, `unknown`); `variables` ≤ 32, never a
-code- or credential-named variable; `max_events_per_minute` 1–300. One bad
+code- or credential-named variable; `max_events_per_minute` 1–300;
+`touchscreen` an object with only `presets`: a list of at most **6**
+strings, each **3–120 characters** and ≤ 360 bytes, one line of plain text
+(no control, C1, line-separator or bidi character, no `<` or `>`, no `://`
+or `www.`, no leading or trailing space), refused if it looks like a key
+(long opaque blobs, `Bearer …`, and — round two, the rule the platform
+applies identically — an `sk-` at the start or after a character that is not
+an ASCII letter or digit, followed by at least 8 of `[A-Za-z0-9_-]`, i.e.
+`(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}`; so "Is the desk-lamp on?" is
+accepted and "key: sk-proj-12345678" is refused; the three display strings
+above keep the stricter `sk-` rule), and no two alike ignoring case and spacing. One bad
 field refuses the whole document; the last valid one stays in force and
 `Last Error` says `Configuration vN refused: <path>: <reason> (vM kept)`.
 `learning.active` is the platform's latest word on learning.
@@ -678,7 +861,11 @@ refuses):
 | `credential_status` | the status line; without the last four characters if they would look like a key here |
 | `collection` | system events, Flight Recorder topics and Agent events on, no own variables, 60 a minute — the platform has no per-source setting; learning off stops all of it here regardless |
 
-`property_id` and `controller_id` are not sent. The golden documents
+`property_id` and `controller_id` are not sent. `touchscreen.presets` (round
+two) is sent **only** to a controller whose `ai_core` module row lists
+`read_device_state` among its commands (the round-two driver), so an older
+driver — which refuses an unknown key, and with it the whole document — never
+sees it (platform P-R2b; spec round two §3.2). The golden documents
 (`tests/unit/fixtures/ai-core-driver-config/*.json` in the platform) are
 checked against `driverConfigDocument()` on the platform and fed to this
 validator by `test/test_aicore_platform_parity.lua` [10].
@@ -699,6 +886,7 @@ the most private, the least capable.
 | `permission_mode` | none (`Not delivered yet (System Studio owns it)`) | display only on the controller; the platform's own default is `observe` |
 | `provider.name`, `provider.model`, `credential_status` | none (`Not configured (System Studio)`, `Not configured`) | display only |
 | `property_id`, `controller_id` | none (`Not delivered yet (System Studio)`) | display only |
+| `touchscreen.presets` | `[]` | no preset questions; the page offers the three built-ins only |
 | `schema` | `1` | the only schema |
 
 What learning gates (`aicore.collector.plan`, `admit`): every own observation
@@ -857,8 +1045,9 @@ service, or module contract v2. The bench procedures are in
 * SendToDevice ordering, frame sizes near 24–32 KB, timer behaviour under Director load;
 * the platform route `/api/integrations/control4/modules/rpc` (until deployed, the Agent gets 404 → `cloud_refused`);
 * the report hub and driver queries / actions with real drivers on a controller (bus latency, memory with 48 reporting modules, the 20 s batch timer under Director load);
+* `read_device_state` (§7c): whether `C4:GetDeviceVariables` on the id the platform sends (often the protocol driver's) returns the proxy's variables, the real variable names of locks, partitions, batteries and appliance sensors (every signature list is a candidate), the read's wall time on a large project, the controller clock behind `read_at`, queue + doorbell + bus latency against the platform's 15 s wait;
 * persistence across a real power cut (Director's flush timing);
-* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size.
+* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size, and how a preset button wraps a 120-character question (KI-70).
 
 ## 15. Deviations from the brief / architecture
 
