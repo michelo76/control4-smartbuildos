@@ -104,6 +104,32 @@ check(
     and html:find("#suggestions button {[^}]*max%-width: 100%%") ~= nil
     and html:find("#suggestions button {[^}]*overflow%-wrap: anywhere") ~= nil
 )
+-- Pressing "Unlock with owner PIN" must always visibly do something.
+check(
+  "the unlock button starts hidden: shown only once the controller says the chat can be unlocked",
+  html:find('<div id="chatLocked" class="hidden">', 1, true) ~= nil
+)
+check(
+  "…and a page that cannot connect says why and hides it (the built-in copy, an old address, no answer)",
+  html:find("offline('copy')", 1, true) ~= nil
+    and html:find("refused('address')", 1, true) ~= nil
+    and html:find("show('chatLocked', false);", 1, true) ~= nil
+)
+check(
+  "a press clears the last line first, so a repeated outcome is seen to arrive",
+  html:find("$('unlock').addEventListener('click', function () { press('/chat/unlock'); });", 1, true) ~= nil
+    and html:find("function press(path, body) { notice(''); act(path, body); }", 1, true) ~= nil
+)
+check(
+  "a session the controller forgot is opened again and the action sent once more (not dropped)",
+  html:find("j.reason === 'session' && !retried", 1, true) ~= nil
+)
+check("a refusal without a message still shows something", html:find("notice(j.message || ", 1, true) ~= nil)
+check(
+  "the chat card shows PIN progress and the button waits while it runs",
+  html:find("var progress = AIC.pinProgress(st);", 1, true) ~= nil
+    and html:find("$('unlock').disabled = !!progress;", 1, true) ~= nil
+)
 for _, id in ipairs({
   "status",
   "chatLocked",
@@ -206,6 +232,21 @@ assert.strictEqual(AIC.pollDelay({ ok: true, chat: {} }), 30000);
 assert.strictEqual(AIC.pollDelay({ ok: true, prompt: {} }), 3000);
 assert.strictEqual(AIC.pollDelay({ ok: true, chat: { conversation: [{ state: 'pending' }] } }), 3000);
 assert.strictEqual(AIC.pollDelay(null), 10000);
+// A PIN entry in progress (PIN Lock asked, or checking the PIN) polls every
+// second, so the outcome appears when it lands instead of 30 s later.
+assert.strictEqual(AIC.pollDelay({ ok: true, checking: true, chat: {} }), 1000);
+assert.strictEqual(AIC.pollDelay({ ok: true, prompt: { waiting: true } }), 1000);
+assert.strictEqual(AIC.pollDelay({ ok: true, prompt: { waiting: false, challenge_id: 'ab' } }), 3000);
+assert.strictEqual(AIC.pinProgress({ ok: true, checking: true }), 'Checking the PIN with PIN Lock…');
+assert.strictEqual(AIC.pinProgress({ ok: true, prompt: { waiting: true } }), 'Asking PIN Lock for a PIN entry…');
+assert.strictEqual(AIC.pinProgress({ ok: true, prompt: { waiting: false } }), null);
+assert.strictEqual(AIC.pinProgress({ ok: true }), null);
+var whys = ['copy', 'address', 'starting', 'nofetch', 'relay'];
+var texts = whys.map(AIC.offlineText);
+texts.forEach(function (t) { assert.ok(t && t.length > 20); assert.ok(!/https?:/.test(t)); });
+assert.strictEqual(new Set(texts).size, whys.length, 'each reason reads differently');
+assert.ok(/Close the AI Core tile and open it again/.test(AIC.offlineText('copy')));
+assert.ok(/Republish App URL/.test(AIC.offlineText('address')));
 assert.deepStrictEqual(AIC.parseQuery('?k=abc&s=1%202'), { k: 'abc', s: '1 2' });
 ]]
   )
@@ -213,6 +254,127 @@ assert.deepStrictEqual(AIC.parseQuery('?k=abc&s=1%202'), { k: 'abc', s: '1 2' })
   local ok = os.execute("node " .. tmp)
   os.remove(tmp)
   check("pure helpers pass under node (fake DOM refuses innerHTML)", ok == true or ok == 0)
+
+  print("[3] the whole page under node: pressing Unlock always shows something")
+  local scripts = {}
+  for body in html:gmatch("<script[^>]*>(.-)</script>") do
+    scripts[#scripts + 1] = body
+  end
+  check("two scripts (helpers, page)", #scripts == 2)
+  -- The ids the markup starts hidden, read from the page itself.
+  local hidden = {}
+  for id, cls in html:gmatch('<%w+ id="(%w+)" class="([^"]*)"') do
+    if (" " .. cls .. " "):find(" hidden ", 1, true) then
+      hidden[#hidden + 1] = string.format("%q", id)
+    end
+  end
+  local tmp2 = os.tmpname() .. ".js"
+  local out2 = io.open(tmp2, "w")
+  out2:write(
+    "var PAGE = ",
+    string.format("%q", scripts[1] .. "\n" .. scripts[2]):gsub("\\\n", "\\n"),
+    ";\nvar HIDDEN = [",
+    table.concat(hidden, ","),
+    "];\n",
+    [[
+var vm = require('vm');
+var assert = require('assert');
+// A page in a fake web view: elements by id, a scripted fetch, timers held.
+function boot(loc, routes) {
+  var els = {};
+  function El(id) {
+    this.id = id; this.children = []; this._text = ''; this.disabled = false; this.value = ''; this.on = {};
+    var cls = {}; this.classList = { toggle: function (c, on) { cls[c] = !!on; }, contains: function (c) { return !!cls[c]; } };
+  }
+  Object.defineProperty(El.prototype, 'textContent', { set: function (v) { this._text = String(v); this.children = []; }, get: function () { return this._text; } });
+  Object.defineProperty(El.prototype, 'firstChild', { get: function () { return this.children[0] || null; } });
+  El.prototype.appendChild = function (c) { this.children.push(c); return c; };
+  El.prototype.removeChild = function (c) { this.children.splice(this.children.indexOf(c), 1); return c; };
+  El.prototype.setAttribute = function () {};
+  El.prototype.focus = function () {};
+  El.prototype.click = function () { if (this.on.click) { this.on.click({}); } };
+  El.prototype.addEventListener = function (ev, fn) { this.on[ev] = fn; };
+  // The page's markup: hidden where index.html says so.
+  HIDDEN.forEach(function (id) { els[id] = new El(id); els[id].classList.toggle('hidden', true); });
+  var doc = {
+    getElementById: function (id) { return els[id] || (els[id] = new El(id)); },
+    createElement: function (t) { return new El(t); },
+    addEventListener: function () {}, hidden: false
+  };
+  var calls = [], timers = [];
+  function fetch(url, opts) {
+    var method = (opts && opts.method) || 'GET';
+    calls.push({ method: method, url: url, body: opts && opts.body });
+    var path = url.split('?')[0];
+    var r = routes(method, path, url, calls);
+    return Promise.resolve({ status: r[0], json: function () { return Promise.resolve(r[1]); } });
+  }
+  var ctx = { document: doc, location: loc, fetch: fetch, Date: Date, JSON: JSON, Promise: Promise, Error: Error,
+    encodeURIComponent: encodeURIComponent, decodeURIComponent: decodeURIComponent, Number: Number, String: String, Math: Math,
+    setTimeout: function (fn, ms) { timers.push(ms); return timers.length; }, clearTimeout: function () {},
+    window: { addEventListener: function () {} } };
+  vm.createContext(ctx);
+  vm.runInContext(PAGE, ctx);
+  return { els: els, calls: calls, timers: timers, hidden: function (id) { return els[id].classList.contains('hidden'); } };
+}
+function settle() { return new Promise(function (r) { setTimeout(r, 20); }); }
+var LOCKED = { ok: true, status: { text: {} }, pin: { message: 'PIN Lock is ready for this screen.' }, approvals: {},
+  chat: { available: true, locked: true, message: 'The chat is locked. Enter an owner PIN to open it.' } };
+
+(async function () {
+  // A: the tile opened the driver's built-in copy (no relay, no token).
+  var a = boot({ search: '', protocol: 'controller:', hostname: '' }, function () { throw new Error('no fetch expected'); });
+  await settle();
+  assert.ok(a.hidden('chatLocked'), 'A: no Unlock button on a page that cannot connect');
+  assert.ok(!a.hidden('notice') && /built-in copy/.test(a.els.notice.textContent), 'A: says it is the built-in copy');
+  assert.strictEqual(a.calls.length, 0);
+
+  // B: Unlock on a session the controller forgot (the page slept): the
+  // press is not lost, it is sent again on a new session.
+  var sessions = 0, unlocks = 0;
+  var b = boot({ search: '?k=' + 'a'.repeat(32), protocol: 'http:', hostname: 'controller.test' }, function (m, path, url) {
+    if (path === '/session') { sessions++; return [200, { ok: true, s: 's' + sessions }]; }
+    if (path === '/state') { return [200, unlocks > 0 && /s=s2/.test(url) ? Object.assign({}, LOCKED, { prompt: { 'for': 'chat', waiting: true } }) : LOCKED]; }
+    if (path === '/chat/unlock') { unlocks++; return /s=s1/.test(url) ? [401, { ok: false, reason: 'session' }] : [200, { ok: true, waiting: true }]; }
+    return [404, { ok: false }];
+  });
+  await settle();
+  assert.ok(!b.hidden('chatLocked'), 'B: Unlock shown once the controller says so');
+  b.els.unlock.click();
+  await settle();
+  assert.strictEqual(unlocks, 2, 'B: the unlock was sent again after the session was reopened');
+  assert.strictEqual(sessions, 2);
+  assert.strictEqual(b.els.chatMsg.textContent, 'Asking PIN Lock for a PIN entry…', 'B: progress is shown');
+  assert.ok(b.els.unlock.disabled, 'B: the button waits');
+  assert.strictEqual(b.timers[b.timers.length - 1], 1000, 'B: polls every second while PIN Lock is asked');
+
+  // C: a refusal without a message, and the same refusal twice: always shown.
+  var c = boot({ search: '?k=' + 'a'.repeat(32), protocol: 'http:', hostname: 'controller.test' }, function (m, path) {
+    if (path === '/session') { return [200, { ok: true, s: 's1' }]; }
+    if (path === '/state') { return [200, LOCKED]; }
+    if (path === '/chat/unlock') { return [200, { ok: false, reason: 'whatever' }]; }
+    return [404, { ok: false }];
+  });
+  await settle();
+  c.els.unlock.click();
+  assert.ok(c.hidden('notice'), 'C: the press clears the last line at once');
+  await settle();
+  assert.ok(!c.hidden('notice') && c.els.notice.textContent.length > 10, 'C: a refusal without a message still shows');
+
+  // D: the install token changed (an old tile address): said, not silent.
+  var d = boot({ search: '?k=' + 'b'.repeat(32), protocol: 'http:', hostname: 'controller.test' }, function () { return [403, { ok: false, error: 'bad token' }]; });
+  await settle();
+  assert.ok(d.hidden('chatLocked') && /out-of-date/.test(d.els.notice.textContent), 'D: an old address is said');
+})().catch(function (e) { console.error(e); process.exit(1); });
+]]
+  )
+  out2:close()
+  local ok2 = os.execute("node " .. tmp2)
+  os.remove(tmp2)
+  check(
+    "the page under node: built-in copy, a forgotten session, a bare refusal, an old address",
+    ok2 == true or ok2 == 0
+  )
 else
   print("  SKIP node not available; helper cases not run")
 end

@@ -630,6 +630,23 @@ explain action, `/ask` is refused (`chat_locked`), and no other route returns
 conversation content (asserted on response bodies in
 `test_aicore_webui.lua` [7]).
 
+**An unlock is never silent.** Between `/pin/done` and PIN Lock's redeem
+answer, `/state` carries `checking:true`; a redeem PIN Lock never answers
+ends after the bus deadline (8 s, at the latest 30 s) as `pin_not_responding`,
+and a prompt that expires (PIN Lock never answered the challenge, or the pad
+was left unfinished for its minute) leaves a notice. The page polls every
+second while PIN Lock is asked or is checking, and says so in the chat card
+("Asking PIN Lock for a PIN entry…", "Checking the PIN with PIN Lock…"). The
+Unlock button is in the markup hidden: it appears only once `/state` says the
+chat can be unlocked, so a page that cannot reach the relay (the tile opened
+the driver's built-in `controller://` copy, an out-of-date address whose
+install token is refused, no answer) shows why instead of an Unlock button
+that cannot work. A press clears the last notice first; a refusal without a
+message still shows a sentence; an action on a session the relay forgot (a
+page that slept more than 75 s, a driver restart) opens a new session and is
+sent once more (never the PIN: it went to PIN Lock only). Tests:
+`test_aicore_webui.lua` [16], `test_aicore_page.lua` [3].
+
 **Conversation bounds.** Per session, in memory only: the last 10
 exchanges; a question ≤ 500 characters; an answer ≤ 2048 bytes; cleared
 after 15 minutes without interaction; a question still unanswered after 5

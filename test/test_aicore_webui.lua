@@ -22,6 +22,8 @@
 --   [14] detail level, verify_url origin, rate limits
 --   [15] the dealer's preset questions: locked bytes, order, exact text,
 --        stale ids, the bound, a document without the key
+--   [16] an unlock's outcome is never silent: "checking" while PIN Lock
+--        redeems, a redeem PIN Lock never answers, a pad left unfinished
 --
 -- Run from the driver root: make test
 
@@ -80,6 +82,7 @@ local PIN = {
   reason = "ready",
   retry_in = nil,
   silent = false, -- true: PIN Lock never answers
+  silentRedeem = false, -- true: PIN Lock never answers a redeem (only)
   fails = 0,
   lockedUntil = 0,
   redeemOverride = nil, -- function(result) -> result (a misbehaving PIN Lock)
@@ -116,7 +119,7 @@ A.busAnswer = function(to, capability, args, p)
     return "error", {}, "unknown_target"
   end
   PIN.frames[#PIN.frames + 1] = { capability = capability, args = args, raw = p.args }
-  if PIN.silent then
+  if PIN.silent or (PIN.silentRedeem and capability == "pinlock.redeem") then
     return false
   end
   if capability == "pinlock.availability" then
@@ -1372,6 +1375,49 @@ check("a document WITHOUT the key: no presets, the three built-ins only", #sugs 
 check(
   "…and the last preset id no longer resolves",
   post(pl, "/ask", { suggestion_id = lastId }).reason == "unknown_suggestion"
+)
+
+-- ── [16] ─────────────────────────────────────────────────────────────────────
+print("[16] an unlock's outcome is never silent")
+H.advance(61000) -- a fresh minute for the PIN prompt bucket
+local u = open()
+post(u, "/chat/unlock")
+st = state(u)
+check("setup: a PIN prompt for the chat", st.prompt ~= nil and st.prompt.challenge_id ~= nil, JSON:encode(st.prompt))
+PIN.silentRedeem = true
+check("(PIN Lock's /verify accepted the owner PIN)", PIN.verify(st.prompt.challenge_id, OWNER_PIN).ok == true)
+post(u, "/pin/done", { challenge_id = st.prompt.challenge_id })
+st = state(u)
+check(
+  "while PIN Lock has not answered the redeem, /state says the PIN is being checked",
+  st.checking == true and st.chat.locked == true and st.prompt == nil,
+  JSON:encode({ checking = st.checking, locked = st.chat.locked, notice = st.notice })
+)
+H.advance(9000) -- past the bus deadline (8 s)
+st = state(u)
+check(
+  "a redeem PIN Lock never answers ends in plain words, not silence",
+  st.checking == nil and st.chat.locked == true and st.notice == Webui.TEXT.pin_not_responding,
+  JSON:encode({ checking = st.checking, notice = st.notice })
+)
+PIN.silentRedeem = false
+post(u, "/chat/unlock")
+st = state(u)
+check("a new prompt", st.prompt ~= nil and st.prompt.challenge_id ~= nil and st.notice == nil, JSON:encode(st))
+wait(61000, u)
+st = state(u)
+check(
+  "a pad left unfinished past the challenge's minute says so",
+  st.prompt == nil and st.notice == Webui.TEXT.expired and st.chat.locked == true,
+  JSON:encode({ prompt = st.prompt, notice = st.notice })
+)
+post(u, "/chat/unlock")
+local v16 = enterPin(u, OWNER_PIN)
+st = state(u)
+check(
+  "…and the next unlock still works (no stale checking)",
+  v16 and v16.ok == true and st.chat.locked == false and st.checking == nil,
+  JSON:encode({ locked = st.chat.locked, checking = st.checking })
 )
 
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)
