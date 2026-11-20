@@ -336,9 +336,16 @@ do
   end
 end
 check("docs/ai-core/DRIVER.md names every one of them too", #refMissing == 0, table.concat(refMissing, ", "))
+-- One controller has loaded the driver; nothing more has run on hardware.
+-- Both documents say exactly that: the load, and no AI answer seen.
 check(
-  "both say no physical controller has run it",
-  doc:find("No physical controller") ~= nil and refText:find("No physical controller") ~= nil
+  "both state the one hardware load and no more",
+  doc:find("One physical controller has loaded this driver", 1, true) ~= nil
+    and refText:find("One physical controller has loaded this driver", 1, true) ~= nil
+    and doc:lower():find("no ai answer has been seen", 1, true) ~= nil
+    and refText:lower():find("no ai answer has been seen", 1, true) ~= nil
+    and doc:find("No physical controller", 1, true) == nil
+    and refText:find("No physical controller", 1, true) == nil
 )
 
 print(string.format("\n%d passed, %d failed", pass, fail))

@@ -96,12 +96,19 @@ local function now()
   return os.time()
 end
 
-local function sendToAgent(command, params)
+--- allowEmpty: Director drops empty-string params unless the fourth
+--- SendToDevice argument is true, so a frame that must carry "" (a cleared
+--- detail) passes it.
+local function sendToAgent(command, params, allowEmpty)
   if state.agentId == nil then
     return false
   end
   local ok = pcall(function()
-    C4:SendToDevice(state.agentId, command, params)
+    if allowEmpty == true then
+      C4:SendToDevice(state.agentId, command, params, true)
+    else
+      C4:SendToDevice(state.agentId, command, params)
+    end
   end)
   return ok
 end
@@ -152,6 +159,10 @@ local function csv(list)
   return table.concat(list or {}, ",")
 end
 
+--- Status params whose empty string is a value ("no error now"), sent
+--- with allowEmptyValues. A missing param still means "unchanged".
+local STATUS_CLEARABLE = { detail = true, config_error = true }
+
 --- Sends one status frame (liveness for the registry + counters for Studio).
 function M.sendStatus(extra)
   if not state.registered then
@@ -174,7 +185,15 @@ function M.sendStatus(extra)
   for k, v in pairs(extra or {}) do
     params[k] = tostring(v)
   end
-  return sendToAgent("SBOS_MODULE_STATUS", params)
+  -- "" in detail / config_error means "cleared" and must reach the Agent,
+  -- which keeps the previous text for a param that is missing. Every other
+  -- empty param stays left out, exactly as Director's default drop did.
+  for k, v in pairs(params) do
+    if v == "" and not STATUS_CLEARABLE[k] then
+      params[k] = nil
+    end
+  end
+  return sendToAgent("SBOS_MODULE_STATUS", params, true)
 end
 
 local FLUSH_TIMER = "SbosModuleFlush"
