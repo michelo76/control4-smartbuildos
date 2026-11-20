@@ -6357,7 +6357,35 @@ end
 --- Identity details (names, address) refresh on the first check-in; only the
 --- credential and scope need to come back from here.
 function restorePairingFromBackup()
-  if persist:get(TOKEN_KEY, "", true) ~= "" then
+  local liveToken = persist:get(TOKEN_KEY, "", true) or ""
+  if liveToken ~= "" then
+    -- Paired from persist: make sure the mirror still exists and agrees. It
+    -- was written once, at pairing, so a property value lost since then (a
+    -- re-added instance, a value the project did not keep) stayed lost while
+    -- persist carried the pairing — invisibly, until the next update that
+    -- lost encrypted persist came up "Not paired". Re-written here, every start.
+    local okMirror, mirrored = pcall(function()
+      return JSON:decode(Properties["Pairing Backup"] or "")
+    end)
+    local systemId = persist:get(SYSTEM_KEY, "") or ""
+    local propertyIdValue = persist:get(PROPERTY_KEY, "") or ""
+    if
+      (systemId ~= "" or propertyIdValue ~= "")
+      and not (okMirror and type(mirrored) == "table" and mirrored.token == liveToken)
+    then
+      UpdateProperty(
+        "Pairing Backup",
+        JSON:encode({
+          token = liveToken,
+          system_id = systemId,
+          property_id = propertyIdValue,
+          agent_secret = persist:get(AGENT_SECRET_KEY, "", true) or "",
+          support_id = persist:get(SUPPORT_ID_KEY, "") or "",
+        }),
+        true
+      )
+      log:warn("Pairing Backup was missing or stale; re-written from the live pairing")
+    end
     return false
   end
   local raw = Properties["Pairing Backup"] or ""
