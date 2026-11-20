@@ -106,11 +106,13 @@ received when it paired, and kept encrypted on the controller.
 The Agent fetches licences when it pairs, when a driver it has no record for
 registers, on *Refresh Entitlements Now*, and when SmartBuildOS asks for a
 re-check after it issues or changes a licence (the cloud command
-`REQUEST_ENTITLEMENTS`; the Agent runs at most one a minute and answers a second
-one inside that minute as skipped). Otherwise it looks once an hour and fetches
-again when the last fetch is more than 24 hours old; SmartBuildOS can change
-that period. After each fetch it tells every registered driver where it stands,
-and each hour it tells any driver whose standing has changed.
+`REQUEST_ENTITLEMENTS`; the Agent runs at most one a minute: a request inside
+that minute, or while a fetch is running, is not skipped but run once the minute
+is up and the running fetch has ended, and any number of such requests make one
+fetch). Otherwise it looks once an hour and fetches again when the last fetch is
+more than 24 hours old; SmartBuildOS can change that period. After each fetch it
+tells every registered driver where it stands, and each hour it tells any driver
+whose standing has changed.
 
 ### What the Agent shows
 

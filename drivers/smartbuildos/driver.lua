@@ -9273,6 +9273,7 @@ function refreshEntitlements(reason)
     :post(url, { installed = installed, site_trials = true }, authHeaders(), { timeout = REQUEST_TIMEOUT })
     :next(function(response)
       gEntitlements.inFlight = false
+      EntitlementsOwedSoon()
       local body = response.body
       if type(body) == "string" then
         local okDecode, decoded = pcall(function()
@@ -9358,6 +9359,7 @@ function refreshEntitlements(reason)
       pushEntitlements()
     end, function(err)
       gEntitlements.inFlight = false
+      EntitlementsOwedSoon()
       local detail = tostring(err and (err.error or err.code) or err)
       -- An unreachable cloud is a CONNECTION condition, never a licensing
       -- one: the cache and its grace ladder carry the answers (fail-secure
@@ -9744,27 +9746,88 @@ end
 function EC.REFRESH_ENTITLEMENTS()
   gEntitlements.lastAttempt = 0
   refreshEntitlements("dealer request")
+  -- A refresh that STARTED now began after any owed cloud request arrived,
+  -- so it answers that request too. One that was already running when the
+  -- request came is not this call: it left the debt in place.
+  if gEntitlements.lastAttempt ~= 0 and gEntitlements.owedSince ~= nil then
+    gEntitlements.owedSince = nil
+    CancelTimer("SbosEntitlementsOwed")
+  end
 end
 
 --- The same refresh for the cloud command REQUEST_ENTITLEMENTS
---- (entitlements_refresh_v1). At most one per minute however often the cloud
---- asks; a second inside the window answers "skipped" without calling Driver
---- Cloud. The dealer action above is not throttled. A global, not a local:
---- the main chunk is at Lua's 200-local ceiling.
+--- (entitlements_refresh_v1). At most one cloud-requested refresh starts per
+--- 60 s, and none while another refresh is running; a request that cannot run
+--- now is never dropped: it is OWED (gEntitlements.owedSince) and exactly one
+--- trailing refresh runs as soon as both conditions allow
+--- (EntitlementsOwedCheck). Any number of requests while one is owed collapse
+--- into it. The platform asks again after each licence change, possibly after
+--- this Agent read the licences, so the last request must be honoured. The
+--- dealer action above is not throttled. Globals, not locals: the main chunk
+--- is at Lua's 200-local ceiling. The debt lives only in memory: a restart
+--- drops it.
 --- @return string result The command ack's result line.
 function EntitlementsCloudRefresh()
+  if EntitlementsCloudWait() == 0 then
+    EntitlementsCloudStart("cloud request")
+    return "entitlement refresh started"
+  end
+  if gEntitlements.owedSince == nil then
+    gEntitlements.owedSince = os.time()
+  end
+  EntitlementsOwedCheck()
+  return "entitlement refresh scheduled"
+end
+
+--- Seconds until a cloud-requested refresh may start: 0 when it may start
+--- now, nil while another refresh is in flight (its completion re-checks).
+--- A clock that went backwards opens the window, as an unknown age would.
+function EntitlementsCloudWait()
+  if gEntitlements.inFlight then
+    return nil
+  end
   local last = gEntitlements.cloudRequestedAt
   local age = last ~= nil and os.time() - last or nil
   if age ~= nil and age >= 0 and age < 60 then
-    return "entitlement refresh skipped: one was requested less than 60 s ago"
+    return 60 - age
   end
-  if gEntitlements.inFlight then
-    return "entitlement refresh already in progress"
-  end
+  return 0
+end
+
+function EntitlementsCloudStart(reason)
+  gEntitlements.owedSince = nil
+  CancelTimer("SbosEntitlementsOwed")
   gEntitlements.cloudRequestedAt = os.time()
   gEntitlements.lastAttempt = 0
-  refreshEntitlements("cloud request")
-  return "entitlement refresh started"
+  refreshEntitlements(reason)
+end
+
+--- Runs the owed refresh if it may start now; otherwise arms the one named
+--- timer for the end of the window. While a refresh is in flight nothing is
+--- armed: refreshEntitlements' success and failure paths both call
+--- EntitlementsOwedSoon once in-flight clears.
+function EntitlementsOwedCheck()
+  if gEntitlements.owedSince == nil then
+    return
+  end
+  local wait = EntitlementsCloudWait()
+  if wait == nil then
+    return
+  end
+  if wait == 0 then
+    EntitlementsCloudStart("cloud request (owed)")
+    return
+  end
+  SetTimer("SbosEntitlementsOwed", wait * ONE_SECOND, EntitlementsOwedCheck)
+end
+
+--- From a finished refresh (either outcome): re-check the debt on a timer,
+--- outside the finishing callback, so the trailing refresh never runs while
+--- that callback is still writing the cache.
+function EntitlementsOwedSoon()
+  if gEntitlements.owedSince ~= nil then
+    SetTimer("SbosEntitlementsOwed", ONE_SECOND, EntitlementsOwedCheck)
+  end
 end
 
 --- The whole licensing picture in one print, for support calls.

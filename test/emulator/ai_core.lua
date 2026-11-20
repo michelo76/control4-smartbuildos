@@ -1225,18 +1225,39 @@ check(
   ack and (ack.result or ack.error)
 )
 local licensedAfter = aic.Properties["License Status"]
--- Before commandGoes(), which spends a minute of virtual time.
+-- Before commandGoes(), which spends a minute of virtual time. A second
+-- licence change 30 s later: the Agent may already have read the licences,
+-- so the second request is owed, never dropped, and runs once the minute
+-- since the first is up.
+d:advance(30000)
+S.cloud.catalog.SBOS_AI_CORE =
+  { status = "AUTHORIZED_SUBSCRIPTION", license_type = "SUBSCRIPTION_INCLUDED", features = { "BASE", "AI_LEARNING" } }
+local fetchesBefore = #S.cloud.requests
 ack, refreshed = cloudRequestEntitlements("ent-2")
 check(
-  "a second request inside the minute is skipped, Driver Cloud not called",
-  ack ~= nil and ack.ok == true and tostring(ack.result):find("skipped", 1, true) ~= nil and refreshed == 0,
+  "a second request inside the minute is scheduled, Driver Cloud not called yet",
+  ack ~= nil and ack.ok == true and ack.result == "entitlement refresh scheduled" and refreshed == 0,
   ack and (ack.result or ack.error)
 )
+d:advance(40000)
+local trailing = 0
+for i = fetchesBefore + 1, #S.cloud.requests do
+  if S.cloud.requests[i].path == "/api/driver-cloud/entitlements/refresh" then
+    trailing = trailing + 1
+  end
+end
 check(
-  "AI Core reads Licensed / Permanent without a reload",
+  "one trailing refresh once the minute is up; AI Core reads the SECOND change",
+  trailing == 1 and aic.Properties["License Status"] == "Licensed / Subscribed",
+  trailing .. " " .. tostring(aic.Properties["License Status"])
+)
+check(
+  "AI Core read Licensed / Permanent after the first, without a reload",
   licensedAfter == "Licensed / Permanent" and commandGoes() and aic.env.EC.AI_ASK == aicAsk,
   licensedAfter
 )
+S.cloud.catalog.SBOS_AI_CORE = GRANT_ALL
+refresh()
 
 print("[13h] read_device_state: one live read end to end through the real Agent")
 -- Two stand-in devices: driver XML only (no Lua runs), their variables given

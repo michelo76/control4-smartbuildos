@@ -14,7 +14,10 @@
 --     heartbeat; Director drops "" params without allowEmptyValues
 -- [5] REQUEST_ENTITLEMENTS: the cloud asks for a licence re-check; the
 --     module's licence moves NOT_ENTITLED -> licensed without a restart;
---     one per minute, the dealer action unthrottled; capability advertised
+--     capability advertised. At most one cloud-requested refresh a minute,
+--     and a request that cannot run now is owed, never dropped: [5a] two
+--     changes 30 s apart, [5b] five requests, [5c] in flight (success and
+--     failure), [5d] the dealer action, [5e] a restart
 -- [6] unpaired: like REQUEST_HEARTBEAT, the command never arrives
 --
 -- Run from the driver root: make test
@@ -143,6 +146,25 @@ end
 -- ── fake platform behind lib.http ───────────────────────────────────────────
 local requests = {}
 local responders = {}
+local deferPaths = {} -- path -> true: the request stays in flight
+local deferred = {}
+--- Ends every deferred request: ok = true answers with the responder,
+--- false fails it as an unreachable cloud does.
+local function settleDeferred(ok)
+  local list = deferred
+  deferred = {}
+  for _, d in ipairs(list) do
+    if ok then
+      local answer = responders[d.path](d.data)
+      if d.onOk then
+        d.onOk({ url = d.url, code = 200, headers = {}, body = JSON:encode(answer.body or {}) })
+      end
+    elseif d.onErr then
+      d.onErr({ url = d.url, code = 0, headers = {}, body = "", error = "unreachable" })
+    end
+  end
+  return #list
+end
 local function settled(isOk, value)
   return {
     next = function(_, onOk, onErr)
@@ -162,9 +184,18 @@ package.preload["lib.http"] = function()
       return settled(true, { url = url, code = 200, headers = {}, body = "" })
     end,
     post = function(_, url, data, headers)
-      requests[#requests + 1] = { url = url, data = data, headers = headers }
+      requests[#requests + 1] = { url = url, data = data, headers = headers, at = clock.now }
       local path = url:match("/api/integrations/control4/(.*)$") or url:match("/api/driver%-cloud/(.*)$") or url
       local r = responders[path]
+      if deferPaths[path] then
+        -- In flight until the test calls settleDeferred(): the answer is
+        -- built THEN, from what is issued at that moment.
+        return {
+          next = function(_, onOk, onErr)
+            deferred[#deferred + 1] = { path = path, url = url, data = data, onOk = onOk, onErr = onErr }
+          end,
+        }
+      end
       local answer = r and r(data) or { ok = true, code = 200, body = { ok = true } }
       return settled(
         true,
@@ -564,28 +595,124 @@ do
     module.Properties["License Status"] ~= before and module.Properties["License Status"] ~= "",
     tostring(before) .. " -> " .. tostring(module.Properties["License Status"])
   )
+end
 
-  advance(30000)
+local function fetches()
+  return requestsTo("entitlements/refresh")
+end
+local function ask(id)
+  local acks = heartbeatWith({ { id = id, command = "REQUEST_ENTITLEMENTS" } })
+  return acks[1] and acks[1].ok == true and acks[1].result or (acks[1] and acks[1].error)
+end
+
+print("[5a] two licence changes 30 s apart: two fetches, the second at the 60 s mark")
+do
+  advance(61000) -- clear of [5]'s window
   requests = {}
-  acks = heartbeatWith({ { id = "e2", command = "REQUEST_ENTITLEMENTS" } })
+  issued = "AUTHORIZED_SUBSCRIPTION"
+  local t0 = clock.now
+  check("the first request runs at once", ask("a1") == "entitlement refresh started")
+  advance(30000)
+  -- The platform commits a second change and asks again; the Agent may have
+  -- read the licences before it committed, so this one must be honoured.
+  issued = "AUTHORIZED_PERPETUAL"
+  check("the second is scheduled, not skipped", ask("a2") == "entitlement refresh scheduled")
+  check("nothing fetched for it yet", #fetches() == 1, #fetches())
+  advance(29000)
+  check("still one fetch at 59 s", #fetches() == 1, #fetches())
+  advance(2000)
+  local f = fetches()
+  check("two fetches in total", #f == 2, #f)
   check(
-    "a second request inside the minute is skipped",
-    acks[1] ~= nil and acks[1].ok == true and acks[1].result:find("skipped") ~= nil,
-    acks[1] and (acks[1].result or acks[1].error)
+    "the second at the 60 s mark",
+    f[2] ~= nil and f[2].at - t0 >= 60000 and f[2].at - t0 < 61000,
+    f[2] and (f[2].at - t0)
   )
-  check("without calling Driver Cloud", #requestsTo("entitlements/refresh") == 0)
+  check("the module holds the SECOND change", license.status() == "AUTHORIZED_PERPETUAL", license.status())
+  advance(180000)
+  check("and nothing more is fetched", #fetches() == 2, #fetches())
+end
+
+print("[5b] five requests inside the window: one trailing fetch")
+do
+  advance(61000)
+  requests = {}
+  check("the first runs", ask("b0") == "entitlement refresh started")
+  local all = true
+  for i = 1, 5 do
+    advance(5000)
+    all = all and ask("b" .. i) == "entitlement refresh scheduled"
+  end
+  check("all five answered scheduled", all)
+  advance(60000)
+  check("exactly one trailing fetch", #fetches() == 2, #fetches())
+  advance(180000)
+  check("and no more", #fetches() == 2, #fetches())
+end
+
+print("[5c] a request while a refresh is in flight: one trailing fetch after it ends")
+for _, outcome in ipairs({ "succeeds", "fails" }) do
+  advance(61000)
+  requests = {}
+  deferPaths["entitlements/refresh"] = true
+  -- A dealer refresh that started BEFORE the request: it is in flight.
   D.as(AGENT, function()
     EC.REFRESH_ENTITLEMENTS()
   end)
-  check("the dealer action is not throttled", #requestsTo("entitlements/refresh") == 1)
-  advance(31000)
+  check(outcome .. ": the dealer refresh is in flight", #deferred == 1 and #fetches() == 1, #deferred)
+  check(outcome .. ": the request is scheduled", ask("c-" .. outcome) == "entitlement refresh scheduled")
+  -- Pressed again while the first is still running, the dealer action starts
+  -- nothing, so it cannot answer the owed request.
+  D.as(AGENT, function()
+    EC.REFRESH_ENTITLEMENTS()
+  end)
+  advance(5000)
+  check(outcome .. ": nothing more while in flight", #fetches() == 1, #fetches())
+  deferPaths["entitlements/refresh"] = nil
+  -- The HTTP answer runs in the Agent, as on a controller.
+  D.as(AGENT, settleDeferred, outcome == "succeeds")
+  check(outcome .. ": no trailing fetch inside the finishing callback", #fetches() == 1, #fetches())
+  advance(2000)
+  check(outcome .. ": then exactly one trailing fetch", #fetches() == 2, #fetches())
+  advance(180000)
+  check(outcome .. ": and no more", #fetches() == 2, #fetches())
+end
+
+print("[5d] a dealer refresh started after the request settles the debt")
+do
+  advance(61000)
   requests = {}
-  acks = heartbeatWith({ { id = "e3", command = "REQUEST_ENTITLEMENTS" } })
-  check(
-    "after the minute it runs again",
-    acks[1] ~= nil and acks[1].result == "entitlement refresh started" and #requestsTo("entitlements/refresh") == 1,
-    acks[1] and (acks[1].result or acks[1].error)
-  )
+  check("the first runs", ask("d0") == "entitlement refresh started")
+  advance(10000)
+  check("the second is owed", ask("d1") == "entitlement refresh scheduled")
+  advance(5000)
+  D.as(AGENT, function()
+    EC.REFRESH_ENTITLEMENTS()
+  end)
+  check("the dealer action runs at once (unthrottled)", #fetches() == 2, #fetches())
+  advance(180000)
+  check("it answered the owed request: no trailing fetch", #fetches() == 2, #fetches())
+end
+
+print("[5e] a restart drops the debt")
+do
+  advance(61000)
+  requests = {}
+  check("the first runs", ask("e0") == "entitlement refresh started")
+  advance(10000)
+  check("the second is owed", ask("e1b") == "entitlement refresh scheduled")
+  -- Director reloads the driver: its timers go, the file runs again.
+  clock.timers = {}
+  D.as(AGENT, function()
+    dofile("drivers/smartbuildos/driver.lua")
+    agent.EC = EC
+    OnDriverInit()
+    OnDriverLateInit("DIT_STARTUP")
+  end)
+  D.drain()
+  advance(180000)
+  check("no owed fetch after the restart (the cache is fresh, so init fetches nothing)", #fetches() == 1, #fetches())
+  check("a new request runs at once", ask("e2b") == "entitlement refresh started" and #fetches() == 2)
 end
 
 print("[6] unpaired: the command never arrives, as for REQUEST_HEARTBEAT")
