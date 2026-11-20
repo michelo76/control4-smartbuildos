@@ -4439,7 +4439,19 @@ function ModuleCommandDispatch(payload)
     error(string.format("%s@%s does not register the command %s", moduleId, tostring(target.instance_id), command))
   end
   local args = type(payload.args) == "table" and payload.args or {}
-  ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
+  -- The ledger record exists BEFORE the frame leaves. Director may run the
+  -- module's handler inside SendToDevice, so its Accepted / Executing /
+  -- Completed reports can arrive before ModuleSend returns, and a result for
+  -- a request with no record is dropped (EC.SBOS_MODULE_COMMAND_RESULT).
+  ModuleCommandRecord(
+    requestId,
+    target,
+    command,
+    "Accepted",
+    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
+    expiresAt
+  )
+  local sent = ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
     module_id = moduleId,
     instance_id = tostring(target.instance_id),
     token = target.token,
@@ -4449,28 +4461,31 @@ function ModuleCommandDispatch(payload)
     expires_at = tostring(expiresAt),
     issued_at = tostring(os.time()),
   })
-  ModuleCommandRecord(
-    requestId,
-    target,
-    command,
-    "Accepted",
-    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
-    expiresAt
-  )
-  SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
-    local rec = gModuleCommands[requestId]
-    if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
-      ModuleCommandRecord(
-        requestId,
-        target,
-        command,
-        "Unverified",
-        "no terminal result from the module before expiry",
-        expiresAt
-      )
-      SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
-    end
-  end)
+  if not sent then
+    -- Nothing reached the module: end the record now, as every other
+    -- refusal above does, rather than leave it to expire as Unverified.
+    ModuleCommandRecord(requestId, target, command, "Failed", "could not forward to the module", expiresAt)
+    SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+    error(string.format("could not forward %s to %s@%s", command, moduleId, tostring(target.instance_id)))
+  end
+  local rec = gModuleCommands[requestId]
+  -- A module that already answered with a terminal state needs no expiry.
+  if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
+    SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
+      local current = gModuleCommands[requestId]
+      if current ~= nil and (current.state == "Accepted" or current.state == "Executing") then
+        ModuleCommandRecord(
+          requestId,
+          target,
+          command,
+          "Unverified",
+          "no terminal result from the module before expiry",
+          expiresAt
+        )
+        SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+      end
+    end)
+  end
   SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
   return string.format(
     "accepted: %s forwarded to %s@%s (request %s)",
