@@ -303,6 +303,9 @@ Agent is back.
 | SmartBuildOS Agent not paired                          | Pair the Agent                                                                                                                             |
 | SmartBuildOS cloud unreachable                         | Check the internet connection; requests are not retried forever                                                                            |
 | Last request refused (not_permitted)                   | SmartBuildOS refused it (permission mode, licence features, homeowner settings)                                                            |
+| Refused (not licensed for this controller)             | SmartBuildOS has no AI Core licence for this controller: add one in SmartBuildOS (**Last Error** ends in *(not_entitled)*)                 |
+| AI Status Ready, License Status Not Licensed           | Licence enforcement for AI Core is off in SmartBuildOS, so the driver keeps running; SmartBuildOS refuses each request instead             |
+| Refused by SmartBuildOS: words (reason)                | SmartBuildOS said why; the reason it sent is in brackets. A reason without words reads *code (reason)*                                     |
 | Run Household Analysis: refused locally (rate_limited) | One accepted run an hour, one at a time: **Last Error** says when the next is allowed                                                      |
 | Run Household Analysis: update the SmartBuildOS Agent  | The Agent does not relay this command yet: update it                                                                                       |
 | Tile: Available on the home network only               | The phone is away from home, or **Webview Address** is unknown: set **App Relay Address** (and the same on PIN Lock)                       |

@@ -119,6 +119,8 @@ M.TEXT = {
   basic = "The chat is switched off on this screen. Use the SmartBuildOS portal.",
   chat_locked = "The chat is locked. Enter an owner PIN to open it.",
   not_licensed = "AI Core is not licensed. Ask your integrator.",
+  -- the cloud's refusal of an unlicensed controller (rpc/handler.ts)
+  not_entitled = "AI Core is not licensed for this controller. Ask your integrator.",
   offline = "SmartBuildOS cannot be reached right now. Try again later.",
   too_long = "That question is too long (500 characters at most).",
   empty = "Type a question first.",

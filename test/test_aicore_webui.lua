@@ -903,6 +903,21 @@ for k, t in pairs(Webui.TEXT) do
 end
 check("no text in the table reads like a code", #codey == 0, table.concat(codey, ", "))
 check("an unknown reason falls back to words, never the code", Webui.text("brand_new_reason") == Webui.FALLBACK_TEXT)
+-- An unlicensed controller's ask: the platform's real refusal (rpc/handler.ts
+-- step 8) as the Agent relays it.
+local unlicensedAnswer = {
+  status = "error",
+  error_code = "cloud_refused",
+  result = { reason = "not_entitled", license_status = "NOT_ENTITLED" },
+}
+local unlicensedText = Webui.text(Webui.cloudReason(unlicensedAnswer))
+check(
+  "an unlicensed controller's refusal: 'not licensed for this controller' in words, no code, no licence status",
+  unlicensedText == Webui.TEXT.not_entitled
+    and unlicensedText:find("not licensed for this controller", 1, true) ~= nil
+    and not unlicensedText:find("NOT_ENTITLED", 1, true),
+  unlicensedText
+)
 for _, r in ipairs({
   "above_ceiling",
   "portal_only",

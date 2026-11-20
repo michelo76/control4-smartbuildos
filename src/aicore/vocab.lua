@@ -155,6 +155,46 @@ M.AUDIENCES = { homeowner = true, integrator = true, all = true }
 --- Permission modes (display only on the controller; System Studio owns them).
 M.PERMISSION_MODES = { observe = true, recommend = true, execute_low_risk = true }
 
+--- The cloud's refusal reasons (result.reason of an ok:false answer) in an
+--- installer's words: Last Error, Last Test Result and AI Status show them
+--- (commands.lua interpret). Every reason the platform can send to a cloud op
+--- that interpret() reads: the RPC pipeline (rpc/handler.ts), the op bodies
+--- (rpc/ops.ts validateOpBody, status.ts) and learn_preference
+--- (memory/programming.ts). analyze_household shows its own reasons as they
+--- are (interpretHousehold); the touchscreen has its own words (webui.lua).
+--- A reason not listed here is shown as the token itself.
+M.REFUSAL_REASONS = {
+  -- rpc/handler.ts (every op)
+  not_entitled = "not licensed for this controller",
+  rate_limited = "too many requests; try again later",
+  module_not_registered = "AI Core is not registered with SmartBuildOS",
+  op_not_in_vocabulary = "SmartBuildOS does not accept this request from AI Core",
+  unsupported = "SmartBuildOS does not support this request yet",
+  in_progress = "the same request is still in progress",
+  key_reused_for_a_different_request = "a request id was reused for another request",
+  payload_too_large = "the request is too large",
+  result_too_large = "the answer was too large",
+  unreadable = "the request could not be read",
+  not_json = "the request could not be read",
+  not_an_object = "the request could not be read",
+  bad_fields = "the request was missing a required field",
+  body_not_object = "the request could not be read",
+  -- rpc/ops.ts validateOpBody (every op, status included)
+  no_body_spec = "SmartBuildOS does not support this request yet",
+  unknown_fields = "the request carried a field SmartBuildOS does not accept",
+  invalid_fields = "a field of the request was not valid",
+  -- rpc/ops.ts (the ops that need a home)
+  system_not_linked_to_a_property = "this system is not linked to a home in SmartBuildOS",
+  -- learn_preference (rpc/ops.ts, memory/programming.ts)
+  feature_required = "the licence does not include this feature",
+  learning_not_enabled = "learning is not switched on in System Studio",
+  learning_paused = "learning is paused for this home",
+  room_excluded = "the room is excluded from learning",
+  invalid_statement = "the statement is empty or not valid",
+  names_a_person = "the statement names a person",
+  too_many_programming_memories = "too many preferences stored from programming",
+}
+
 M.LIMITS = {
   question = 500,
   statement = 300,
