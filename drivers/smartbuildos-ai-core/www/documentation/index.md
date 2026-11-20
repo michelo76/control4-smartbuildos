@@ -18,8 +18,11 @@ shows *Agent update required*. The Agent is the licensing authority (SKU
 reads its events instead of collecting them twice, and attaches its local
 history to diagnostics. One AI Core per project. Control4 OS 3.3.2 or later.
 
-**No physical controller has run this driver yet.** It has been tested with unit
-tests and in a Director emulator only. See *What is not claimed*.
+**One physical controller has loaded this driver**: it showed its properties,
+and a real SmartBuildOS cloud accepted its requests. Nothing else has been
+exercised on hardware: no AI answer has been seen there, and the touchscreen
+page and the PIN flow have not been opened. Everything else has been tested with
+unit tests and in a Director emulator only. See *What is not claimed*.
 
 ## Setup
 
@@ -305,6 +308,7 @@ Agent is back.
 | Last request refused (not_permitted)                   | SmartBuildOS refused it (permission mode, licence features, homeowner settings)                                                            |
 | Refused (not licensed for this controller)             | SmartBuildOS has no AI Core licence for this controller: add one in SmartBuildOS (**Last Error** ends in *(not_entitled)*)                 |
 | AI Status Ready, License Status Not Licensed           | Licence enforcement for AI Core is off in SmartBuildOS, so the driver keeps running; SmartBuildOS refuses each request instead             |
+| Not Licensed right after a licence was issued          | Not re-checked yet: this Agent does it by itself at its next check-in; an older Agent needs its *Refresh Entitlements Now* action          |
 | Refused by SmartBuildOS: words (reason)                | SmartBuildOS said why; the reason it sent is in brackets. A reason without words reads *code (reason)*                                     |
 | Run Household Analysis: refused locally (rate_limited) | One accepted run an hour, one at a time: **Last Error** says when the next is allowed                                                      |
 | Run Household Analysis: update the SmartBuildOS Agent  | The Agent does not relay this command yet: update it                                                                                       |
@@ -314,8 +318,10 @@ Agent is back.
 
 ## What is not claimed
 
-- No physical controller has run this driver. Unit tests and a Director emulator
-  are the only evidence so far.
+- On hardware, one controller has loaded this driver and shown its properties,
+  with a real SmartBuildOS cloud accepting its requests. No AI answer has been
+  seen on a controller, and the touchscreen page and the PIN flow have not been
+  opened on one. Everything else rests on unit tests and a Director emulator.
 - The format of Director's system-event payloads is undocumented; only the event
   name is read.
 - Programming cannot be observed running, and a change cannot be attributed to a

@@ -47,8 +47,8 @@ All read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and
 | `Driver Version` | the built `<version>` | driver |
 | `SmartBuildOS Connection Status` | one of the state texts in §6 | state machine |
 | `Agent Pairing Status` | `Paired`, `Not paired`, `No SmartBuildOS Agent`, `Agent update required`, `Unknown (not registered with the Agent yet)` | Agent registration reply |
-| `Property ID` | the id System Studio delivered, else `Not delivered yet (System Studio)` — System Studio's document does not carry it today, so this reads `Not delivered yet` (`KNOWN-ISSUES.md`) | configuration `property_id` |
-| `Controller ID` | as above (not sent today either) | configuration `controller_id` |
+| `Property ID` | the id System Studio delivered, else `Not delivered yet (System Studio)` — the platform sends it from the release that includes its fix; a platform before that release does not, and this stays `Not delivered yet` (`KNOWN-ISSUES.md` KI-6) | configuration `property_id` |
+| `Controller ID` | as above (sent from the same platform release; not by an older one) | configuration `controller_id` |
 | `AI Provider` | display name, else `Not configured (System Studio)` | configuration `provider.name` |
 | `AI Model` | display name, else `Not configured (System Studio)` | configuration `provider.model` |
 | `AI API Credential` | the **status text** System Studio wrote (e.g. `Configured in System Studio · Anthropic ••••abcd`), else `Not configured`. Not an input; the driver never receives, stores or displays a key | configuration `credential_status` |
@@ -862,14 +862,17 @@ refuses):
 | `credential_status` | the status line; without the last four characters if they would look like a key here |
 | `collection` | system events, Flight Recorder topics and Agent events on, no own variables, 60 a minute — the platform has no per-source setting; learning off stops all of it here regardless |
 
-`property_id` and `controller_id` are not sent. `touchscreen.presets` (round
-two) is sent **only** to a controller whose `ai_core` module row lists
-`read_device_state` among its commands (the round-two driver), so an older
-driver — which refuses an unknown key, and with it the whole document — never
-sees it (platform P-R2b; spec round two §3.2). The golden documents
-(`tests/unit/fixtures/ai-core-driver-config/*.json` in the platform) are
-checked against `driverConfigDocument()` on the platform and fed to this
-validator by `test/test_aicore_platform_parity.lua` [10].
+`property_id` and `controller_id` are sent from the platform release that
+includes its fix for them (not merged at the time of writing); an older platform
+does not send them, and the two properties stay at `Not delivered yet`
+(`KNOWN-ISSUES.md` KI-6). `touchscreen.presets` (round two) is sent **only** to
+a controller whose `ai_core` module row lists `read_device_state` among its
+commands (the round-two driver), so an older driver — which refuses an unknown
+key, and with it the whole document — never sees it (platform P-R2b; spec round
+two §3.2). The golden documents
+(`tests/unit/fixtures/ai-core-driver-config/*.json` in the platform) are checked
+against `driverConfigDocument()` on the platform and fed to this validator by
+`test/test_aicore_platform_parity.lua` [10].
 
 **Defaults** — with no configuration, for a field a valid document leaves out,
 and (for learning) after an invalid document. Each is the conservative value:
