@@ -29,9 +29,15 @@ local function scalar(v)
   return nil
 end
 
+-- A dense list of NAMES, read one by one: a list of the values themselves has
+-- holes wherever a field is absent (a variable change has no event_name), and
+-- ipairs stops at the first hole, dropping everything after it.
+local LINE_FIELDS = { "device_label", "event_name", "variable", "value", "text", "step" }
+
 local function line(e)
   local parts = {}
-  for _, v in ipairs({ e.device_label, e.event_name, e.variable, e.value, e.text, e.step }) do
+  for _, k in ipairs(LINE_FIELDS) do
+    local v = e[k]
     if (type(v) == "string" or type(v) == "number") and tostring(v) ~= "" then
       parts[#parts + 1] = tostring(v)
     end

@@ -114,6 +114,32 @@ check(
   empty.payload.flight_recorder.available and #empty.payload.flight_recorder.events == 0
 )
 
+print("[4] summaries keep every field present, whichever are missing")
+-- The Flight Recorder serialises a variable change with device_label,
+-- variable and value but no event_name, a trace with text/step but maybe no
+-- device_label: a missing field must not end the summary there.
+local mixed = D.fields(target, {
+  state = "present",
+  answer = {
+    status = "ok",
+    result = {
+      events = {
+        { kind = "change", device_label = "Kitchen Pendants", variable = "LIGHT_LEVEL", value = 42 },
+        { kind = "trace", text = "scene started", step = "3" },
+        { kind = "change", variable = "STATE", value = "on" },
+      },
+    },
+  },
+}, "a", "b")
+local ev = mixed.payload.flight_recorder.events
+check(
+  "a variable change keeps its variable and reading",
+  ev[1].line == "Kitchen Pendants · LIGHT_LEVEL · 42",
+  ev[1].line
+)
+check("a trace without a device label keeps its text and step", ev[2].line == "scene started · 3", ev[2].line)
+check("a change without a device label keeps the variable", ev[3].line == "STATE · on", ev[3].line)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then
   os.exit(1)
