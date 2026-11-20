@@ -765,6 +765,13 @@ Forwarded by the Agent (`SKU_FILENAMES.SBOS_AI_CORE`); acknowledged with
 a status frame with `applied_config_version` / `config_error`. The same
 document can arrive by `apply_config`.
 
+Whichever way a document arrives (the Agent's heartbeat copy, the cached copy
+the Agent replays when AI Core registers again, or `apply_config`), one
+**older** than the version in force is not applied and changes nothing: over
+`SBOS_DRIVER_CONFIG` it is not acknowledged at all (neither applied nor
+refused), and `apply_config` answers `Completed` as `superseded`. The same
+version again is re-applied.
+
 ```json
 {
   "schema": 1,

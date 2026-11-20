@@ -268,6 +268,36 @@ do
   check("claim_driver_config = true → the client takes it", EC.SBOS_DRIVER_CONFIG == client.onConfig)
 end
 
+print("[6] onConfig: a superseded (older) document is neither applied nor acknowledged")
+do
+  local inForce = "11"
+  setup({
+    onConfig = function(_, version)
+      if tonumber(version) < tonumber(inForce) then
+        return false, 0, true
+      end
+      inForce = version
+      return true, 0
+    end,
+    configVersion = function()
+      return inForce
+    end,
+  })
+  newAgent(2)
+  client.register() -- an Agent to acknowledge to, so a missing ACK means something
+  local acks = #frames("SBOS_DRIVER_CONFIG_ACK")
+  client.onConfig({ sku = "SBOS_AI_CORE", settings = "{}", settings_version = "10" })
+  check("superseded → no SBOS_DRIVER_CONFIG_ACK", #frames("SBOS_DRIVER_CONFIG_ACK") == acks)
+  client.onConfig({ sku = "SBOS_AI_CORE", settings = "{}", settings_version = "12" })
+  local ack = lastFrame("SBOS_DRIVER_CONFIG_ACK")
+  check(
+    "a newer one is applied and acknowledged as before",
+    #frames("SBOS_DRIVER_CONFIG_ACK") == acks + 1
+      and ack.params.applied == "true"
+      and ack.params.settings_version == "12"
+  )
+end
+
 client.stop()
 check("stop cancels the client's timers", timers.SbosModuleStatus == nil and timers.SbosModuleTick == nil)
 print(string.format("\n%d passed, %d failed", pass, fail))

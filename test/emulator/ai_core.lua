@@ -758,8 +758,8 @@ else
   local acks = #S.cloud.events
   heartbeatConfig(S, agent, paused.document, 10)
   check(
-    "an older document forwarded late (v10, paused) is applied but does not undo the preview",
-    #S.cloud.events == acks + 1 and S.cloud.events[#S.cloud.events].code == "remote_settings_applied" and learningOn()
+    "an older document forwarded late (v10, paused) is superseded: not applied, not acknowledged, the preview stands",
+    #S.cloud.events == acks and learningOn()
   )
   heartbeatConfig(S, agent, on.document, 12)
   check("the v12 document (learning-on golden) decides", learningOn())

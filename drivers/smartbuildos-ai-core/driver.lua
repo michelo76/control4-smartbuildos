@@ -298,8 +298,19 @@ local function licenceBlocks(feature)
   return nil
 end
 
+--- Why learning, though switched on, is held by the licence right now (nil
+--- when it is not). Asked live, so an entitlement that loses AI_LEARNING
+--- stops collection on its own, and one that regains it resumes what the
+--- configuration asked for, with no new document or manual pause.
+local function learningLicenceBlock()
+  if gLearning.active ~= true then
+    return nil
+  end
+  return licenceBlocks("AI_LEARNING")
+end
+
 local function learningActive()
-  return gLearning.active == true
+  return gLearning.active == true and learningLicenceBlock() == nil
 end
 
 -- ─── Recording (stage → Agent queue; buffer while no Agent answers) ───────
@@ -405,6 +416,10 @@ end
 local function learningText()
   if gLicenceHalted then
     return "Stopped (not licensed)"
+  end
+  local held = learningLicenceBlock()
+  if held ~= nil then
+    return "Paused by the licence: " .. held
   end
   if gLearning.active then
     return "Active"
@@ -550,9 +565,31 @@ local function persistConfig()
   persist:set(CONFIG_KEY, { cfg = gConfig, version = gConfigVersion, error = gConfigError })
 end
 
+--- Whether a delivered document is OLDER than the one in force. Every
+--- delivery path (the restricted operation apply_config, the Agent's
+--- forwarded heartbeat copy, and the cached copy the Agent replays when this
+--- module registers again) carries the platform's whole-number version; an
+--- older one never replaces a newer one, so a replay cannot undo exclusions
+--- or learning a newer document set. The same version again is re-applied
+--- (idempotent).
+local function configIsOlder(version)
+  local v = tonumber(version)
+  return v ~= nil and v < gConfigVersion
+end
+
 --- Validates the WHOLE document; applies it or keeps the last valid one.
---- @return boolean applied, table refusals
+--- An older document than the one in force is neither validated nor applied.
+--- @return boolean applied, table refusals, boolean superseded
 local function applyConfig(raw, version, source)
+  if configIsOlder(version) then
+    log:info(
+      "configuration v%s (%s) superseded; v%s kept",
+      tostring(version),
+      tostring(source),
+      tostring(gConfigVersion)
+    )
+    return false, {}, true
+  end
   local cfg, refusals = Config.validate(raw)
   if cfg == nil then
     gConfigError = "v" .. tostring(version) .. " refused: " .. Config.describeRefusals(refusals)
@@ -1122,7 +1159,11 @@ local function relayDriverOp(op, request, spec)
       done and "Completed" or "Failed",
       spec.label
         .. said
-        .. ((body.result_text or localReason) and (" " .. tostring(body.result_text or localReason)):sub(1, 200) or "")
+        .. (
+          (body.result_text or localReason)
+            and Commands.cutBytes(" " .. tostring(body.result_text or localReason), 200)
+          or ""
+        )
     )
     client.cloudRequest(spec.result_op, body, { idempotency_key = newRequestId() }, function(a)
       if a.status ~= "ok" then
@@ -1568,8 +1609,9 @@ end
 
 function OPS.apply_config(op)
   -- A queued apply_config can arrive after the Agent already forwarded a
-  -- newer document: an older version never replaces a newer one.
-  if op.version < gConfigVersion then
+  -- newer document: an older version never replaces a newer one (the same
+  -- rule applyConfig enforces on every path).
+  if configIsOlder(op.version) then
     return "Completed",
       "configuration v" .. tostring(op.version) .. " superseded; v" .. tostring(gConfigVersion) .. " kept"
   end
@@ -1796,7 +1838,7 @@ function OnSystemEvent(data)
     payload = {
       event = name,
       system_event_id = spec.id,
-      data = tostring(data):sub(1, 200),
+      data = Commands.cutBytes(data, 200), -- between characters
       note = "Director system event; its payload format is not documented and no cause is known",
     },
   })
@@ -1818,7 +1860,7 @@ function OnWatchedVariableChanged(idDevice, idVariable, strValue)
     return
   end
   gCounters.variable_events = gCounters.variable_events + 1
-  local value = tostring(strValue or ""):sub(1, V.LIMITS.value)
+  local value = Commands.cutBytes(strValue, V.LIMITS.value) -- between characters
   record({
     event_type = "ai_core.observation.variable",
     evidence_source = initial and "initial" or "observed",
@@ -1934,7 +1976,9 @@ local function tick()
     -- 5 minutes: recovery should not wait for the liveness timer.
     discoverFlightRecorder("recovery")
   end
-  if license.enforces() ~= gLicenceHalted then
+  -- Re-plan when the licence moved under collection: a definitive denial,
+  -- or a feature list that no longer (or once again) includes AI_LEARNING.
+  if license.enforces() ~= gLicenceHalted or gCollector.policy.active ~= (learningActive() and not gLicenceHalted) then
     applyCollection()
   end
   if client.isRegistered() and not gAgentLost and gBuffer:depth() > 0 then
@@ -2035,8 +2079,8 @@ function OnDriverLateInit(reason)
     end,
     onCommand = onOperation,
     onConfig = function(settings, version)
-      local applied, refusals = applyConfig(settings, version, "System Studio")
-      return applied, #refusals
+      local applied, refusals, superseded = applyConfig(settings, version, "System Studio")
+      return applied, #refusals, superseded
     end,
   })
   client.onRequest(Reports.CAPABILITY, onReport)
@@ -2065,9 +2109,9 @@ function OnDriverLateInit(reason)
       event_type = "ai_core.observation.agent",
       evidence_source = "system",
       severity = (tParams.name == "device_offline" or tParams.name == "unexpected_restart") and "warning" or "info",
-      label = tostring(tParams.name or ""):sub(1, 64),
+      label = Commands.cutBytes(tParams.name, 64), -- between characters
       payload = {
-        event = tostring(tParams.name or ""):sub(1, 64),
+        event = Commands.cutBytes(tParams.name, 64),
         detail = ok and type(detail) == "table" and detail or {},
       },
     })
@@ -2198,9 +2242,9 @@ function EC.TEST_AGENT_LINK()
         "Agent link: OK at %s — Agent %s, protocol %s..%s, %s, %s; %d module(s)",
         stamp(now()),
         -- The Agent's own words, bounded: a property is not a log.
-        tostring(a.version or "?"):sub(1, 40),
-        tostring(a.protocol_min or "?"):sub(1, 8),
-        tostring(a.protocol_max or "?"):sub(1, 8),
+        Commands.cutBytes(a.version or "?", 40), -- between characters
+        Commands.cutBytes(a.protocol_min or "?", 8),
+        Commands.cutBytes(a.protocol_max or "?", 8),
         a.paired and "paired" or "not paired",
         a.connected and "cloud connected" or "cloud NOT connected",
         #modules

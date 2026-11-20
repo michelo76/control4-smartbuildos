@@ -229,6 +229,39 @@ check(
 )
 sent = tryCommand("AI_LEARN_PREFERENCE", { STATEMENT = "cooler at night" })
 check("AI_LEARNING present: AI_LEARN_PREFERENCE goes", sent, H.vars.AI_LAST_ERROR)
+-- Learning already running when the enforced entitlement loses AI_LEARNING
+-- (BASE,AI_LEARNING → BASE): collection stops at once, without a new
+-- configuration or a manual pause; it resumes when the feature returns.
+H.config(H.learningOn(), 22)
+local function sysRegCount()
+  local n = 0
+  for _ in pairs(H.sysRegs) do
+    n = n + 1
+  end
+  return n
+end
+check(
+  "AI_LEARNING present: learning on, system events registered",
+  H.vars.LEARNING_ACTIVE == "true" and sysRegCount() > 0,
+  tostring(H.vars.LEARNING_ACTIVE) .. " / " .. sysRegCount()
+)
+H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "BASE" })
+check(
+  "AI_LEARNING removed while learning: collection stops (no system events, LEARNING_ACTIVE false)",
+  H.vars.LEARNING_ACTIVE == "false" and sysRegCount() == 0,
+  tostring(H.vars.LEARNING_ACTIVE) .. " / " .. sysRegCount()
+)
+check(
+  "AI_LEARNING removed while learning: Learning Status names the missing feature",
+  prop("Learning Status"):find("AI_LEARNING", 1, true) ~= nil,
+  prop("Learning Status")
+)
+H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "BASE,AI_LEARNING" })
+check(
+  "AI_LEARNING back: learning the configuration asked for resumes",
+  H.vars.LEARNING_ACTIVE == "true" and sysRegCount() > 0,
+  tostring(H.vars.LEARNING_ACTIVE) .. " / " .. sysRegCount()
+)
 H.entitlement({ status = "AUTHORIZED_SUBSCRIPTION", enforcement = "enforce", features = "AI_LEARNING" })
 sent, err = tryCommand("AI_ANALYZE_SYSTEM")
 check(

@@ -566,7 +566,7 @@ function M.interpret(answer)
       -- names nothing that a deliver_result could ever match.
       local job = r.job_id
       if (type(job) == "string" and job ~= "") or type(job) == "number" then
-        return { outcome = "accepted", job_id = tostring(job):sub(1, 128), code = "ok" }
+        return { outcome = "accepted", job_id = M.cutBytes(job, 128), code = "ok" }
       end
       return { outcome = "completed", code = "ok" }
     end
