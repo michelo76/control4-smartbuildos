@@ -3,9 +3,11 @@
 Every known issue and limitation of AI Core across the driver repo and the
 platform, collected in one place, de-duplicated, each with the file it comes
 from. "Open" means nothing in this branch fixes it. Everything here is from
-simulation (unit tests under the C4 shim, the Director emulator) or from
-reading the code: **no physical controller and no live AI provider** has run
-any of it.
+simulation (unit tests under the C4 shim, the Director emulator) or from reading
+the code: **no live AI provider** has run any of it, and on hardware one
+controller has only loaded AI Core and shown its properties, with a real
+SmartBuildOS cloud accepting its requests (no AI answer seen, the touchscreen
+page and the PIN flow not opened).
 
 **Branches.** KI-63 to KI-74 (round two: the live device read and the
 dealer's preset questions) concern only `feat/ai-core-round2`, which is not
@@ -111,9 +113,12 @@ redundant but harmless. Source: this closeout (`src/sbos/envelope.lua`,
 
 ## Driver: not verified on hardware
 
-No physical controller has run AI Core, the Flight Recorder's v2 service or
-module contract v2 (`DRIVER.md` §14; `TEST-MATRIX.md` "Hardware validation
-plan", 21 procedures, none done; `RELEASE.md` §5). Owed on a bench:
+Beyond one controller loading AI Core and showing its properties, with a real
+SmartBuildOS cloud accepting its requests (no AI answer seen, the touchscreen
+page and the PIN flow not opened), nothing of AI Core, the Flight Recorder's v2
+service or module contract v2 has been verified on hardware (`DRIVER.md` §14;
+`TEST-MATRIX.md` "Hardware validation plan", 21 procedures, none done;
+`RELEASE.md` §5). Owed on a bench:
 
 | # | Item | Source |
 | --- | --- | --- |

@@ -1,12 +1,14 @@
 # SmartBuildOS AI Core — driver reference
 
-Status: built on branch `feat/ai-core` (frozen at `09d138b` in pull request
-#49 for the owner); **round two** — the live device read (§7c,
-`read_device_state` → `device_state_result`), the dealer's preset questions
-(§7b, §9 `touchscreen.presets`) — exists **only on `feat/ai-core-round2`**,
-which is not pushed; on `feat/ai-core` there are eight restricted operations,
-eighteen cloud ops and no presets. **No physical controller has run this
-driver.** Everything below is verified by unit tests under the C4 shim and by
+Status: built on branch `feat/ai-core` (frozen at `09d138b` in pull request #49
+for the owner); **round two** — the live device read (§7c, `read_device_state` →
+`device_state_result`), the dealer's preset questions (§7b, §9
+`touchscreen.presets`) — exists **only on `feat/ai-core-round2`**, which is not
+pushed; on `feat/ai-core` there are eight restricted operations, eighteen cloud
+ops and no presets. **One physical controller has loaded this driver**: it
+showed its properties and a real SmartBuildOS cloud accepted its requests; no AI
+answer has been seen on it, and the touchscreen page and the PIN flow were not
+opened. Everything else below is verified by unit tests under the C4 shim and by
 a Director-emulator scenario (simulation); see [Verification](#13-verification)
 and [Not verified on hardware](#14-not-verified-on-hardware).
 
@@ -1038,9 +1040,12 @@ in `KNOWN-ISSUES.md`.
 
 ## 14. Not verified on hardware
 
-No physical controller has run this driver, the Flight Recorder's v2
-service, or module contract v2. The bench procedures are in
-`TEST-MATRIX.md` (hardware validation plan). Owed on a bench:
+One physical controller has loaded this driver and shown its properties, with a
+real SmartBuildOS cloud accepting its requests; no AI answer has been seen on
+it, and the touchscreen page and the PIN flow were not opened. Nothing else in
+this driver, the Flight Recorder's v2 service or module contract v2 has been
+verified on hardware. The bench procedures are in `TEST-MATRIX.md` (hardware
+validation plan). Owed on a bench:
 
 * the whole driver on OS 3.3.2 and 4.x (LuaJIT load, `<script>` tag, squished modules);
 * `C4:UUID("RANDOM")` output; BOOL variable values `"true"`/`"false"` as Composer conditions read them;
