@@ -14,6 +14,9 @@
 ---                  status = function() return status, detail, counters end,
 ---                  onRegistered = fn(reply), onAgentState = fn(agent),
 ---                  onCommand = fn(request), onConfig = fn(settings, version) })
+---                  (onConfig returns applied, refusedCount[, superseded]:
+---                  superseded = true means a newer document is in force and
+---                  this one was not applied; no ACK is sent for it)
 ---   client.register()
 ---
 --- Transport facts this module is built on: SendToDevice params are strings
@@ -434,7 +437,15 @@ function M.onConfig(tParams)
   end)
   local applied, refused = false, 1
   if okD and type(settings) == "table" and state.opts.onConfig then
-    local okA, a, r = pcall(state.opts.onConfig, settings, version)
+    local okA, a, r, superseded = pcall(state.opts.onConfig, settings, version)
+    if okA and superseded == true then
+      -- The handler kept a NEWER document than this one (a replayed or late
+      -- copy): nothing changed, so nothing is acknowledged — neither
+      -- "applied" (it was not) nor "refused" (it was valid, only old).
+      local kept = state.opts.configVersion and state.opts.configVersion() or "?"
+      log:info("driver config v%s superseded by v%s; not applied", version, tostring(kept))
+      return
+    end
     if okA then
       applied = a == true
       refused = tonumber(r) or 0

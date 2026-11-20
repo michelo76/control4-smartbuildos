@@ -472,6 +472,32 @@ st = H.operation("apply_config", { config = good, version = 10 })
 check("apply_config valid → Completed", H.finalState(st) == "Completed")
 local statusFrame = H.lastSent("SBOS_MODULE_STATUS")
 check("applied_config_version 10 reported", statusFrame.params.applied_config_version == "10")
+-- The Agent replays its cached (older) copy over the generic path when this
+-- module registers again: v9 must not undo v10's exclusions or learning.
+local cachedOld = JSON:decode(JSON:encode(good))
+cachedOld.exclusions = { rooms = {}, categories = {} }
+cachedOld.learning = { active = false }
+local acksBefore = #H.sentOf("SBOS_DRIVER_CONFIG_ACK")
+H.config(cachedOld, 9)
+local clientState = require("sbos.moduleclient")._state()
+check(
+  "an older replayed document (v9) over SBOS_DRIVER_CONFIG is not applied: v10 kept",
+  clientState.opts.configVersion() == "10",
+  clientState.opts.configVersion()
+)
+check(
+  "  v10's exclusions and learning survive it",
+  H.vars.LEARNING_ACTIVE == "true" and prop("Permission Mode"):find("^recommend") ~= nil
+)
+check("  and it is neither acknowledged as applied nor as refused", #H.sentOf("SBOS_DRIVER_CONFIG_ACK") == acksBefore)
+EC.AI_RECORD_EVENT({ NAME = "replay probe", ROOM = "Spare Room", CATEGORY = "Lighting" })
+H.advance(3000)
+check("  room 9 is still excluded after the replay", H.vars.AI_LAST_ERROR:find("excluded") ~= nil, H.vars.AI_LAST_ERROR)
+ack = H.config(good, 10)
+check(
+  "the same version again is re-applied (idempotent)",
+  ack.params.applied == "true" and ack.params.settings_version == "10"
+)
 
 print("[11] exclusions and pause suppress collection")
 local recs = #H.envelopes("ai_core.record")

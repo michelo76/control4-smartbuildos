@@ -558,9 +558,31 @@ local function persistConfig()
   persist:set(CONFIG_KEY, { cfg = gConfig, version = gConfigVersion, error = gConfigError })
 end
 
+--- Whether a delivered document is OLDER than the one in force. Every
+--- delivery path (the restricted operation apply_config, the Agent's
+--- forwarded heartbeat copy, and the cached copy the Agent replays when this
+--- module registers again) carries the platform's whole-number version; an
+--- older one never replaces a newer one, so a replay cannot undo exclusions
+--- or learning a newer document set. The same version again is re-applied
+--- (idempotent).
+local function configIsOlder(version)
+  local v = tonumber(version)
+  return v ~= nil and v < gConfigVersion
+end
+
 --- Validates the WHOLE document; applies it or keeps the last valid one.
---- @return boolean applied, table refusals
+--- An older document than the one in force is neither validated nor applied.
+--- @return boolean applied, table refusals, boolean superseded
 local function applyConfig(raw, version, source)
+  if configIsOlder(version) then
+    log:info(
+      "configuration v%s (%s) superseded; v%s kept",
+      tostring(version),
+      tostring(source),
+      tostring(gConfigVersion)
+    )
+    return false, {}, true
+  end
   local cfg, refusals = Config.validate(raw)
   if cfg == nil then
     gConfigError = "v" .. tostring(version) .. " refused: " .. Config.describeRefusals(refusals)
@@ -1526,8 +1548,9 @@ end
 
 function OPS.apply_config(op)
   -- A queued apply_config can arrive after the Agent already forwarded a
-  -- newer document: an older version never replaces a newer one.
-  if op.version < gConfigVersion then
+  -- newer document: an older version never replaces a newer one (the same
+  -- rule applyConfig enforces on every path).
+  if configIsOlder(op.version) then
     return "Completed",
       "configuration v" .. tostring(op.version) .. " superseded; v" .. tostring(gConfigVersion) .. " kept"
   end
@@ -1994,8 +2017,8 @@ function OnDriverLateInit(reason)
     end,
     onCommand = onOperation,
     onConfig = function(settings, version)
-      local applied, refusals = applyConfig(settings, version, "System Studio")
-      return applied, #refusals
+      local applied, refusals, superseded = applyConfig(settings, version, "System Studio")
+      return applied, #refusals, superseded
     end,
   })
   client.onRequest(Reports.CAPABILITY, onReport)
