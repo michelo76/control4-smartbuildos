@@ -5,6 +5,7 @@ local http = require("lib.http")
 local log = require("lib.logging")
 local deferred = require("deferred")
 local version = require("version")
+local sbosUpdater = require("lib.sbos-updater")
 
 --- Utility class for updating drivers from GitHub releases.
 --- @class GitHubUpdater
@@ -53,11 +54,19 @@ function GitHubUpdater:getLatestRelease(repo, includePrereleases)
   end)
 end
 
---- Identify assets for driver files that are outdated compared to the latest GitHub release.
+--- Identify the release assets that would UPGRADE an installed driver.
+---
+--- Decided per driver file with the platform updater's rule
+--- (`sbos-updater`.shouldInstall): an asset is taken only when the release is
+--- strictly newer than THAT driver's installed version. It used to compare the
+--- release against the oldest installed driver and then take every installed
+--- driver's asset, so one stale sibling downgraded a newer, hand-loaded Agent.
+--- A driver whose version cannot be read, or whose asset the release lacks, is
+--- skipped with a warning; the others still update.
 --- @param repo string The GitHub repository, in the format "owner/repo".
 --- @param driverFilenames string[] List of driver filenames to check.
 --- @param includePrereleases? boolean If true, includes pre-releases (optional).
---- @param forceUpdate? boolean If true, all assets will be treated as outdated regardless of version (optional).
+--- @param forceUpdate? boolean Re-install drivers already AT the release version; never older (optional).
 --- @return Deferred<table[], string> outdatedAssets Deferred resolving to a list of assets to be updated, or rejected with an error message.
 function GitHubUpdater:getOutdatedDriverAssets(repo, driverFilenames, includePrereleases, forceUpdate)
   log:trace(
@@ -70,39 +79,32 @@ function GitHubUpdater:getOutdatedDriverAssets(repo, driverFilenames, includePre
   if IsEmpty(driverFilenames) then
     return reject(string.format("at least one driver filename is required to check for updates"))
   end
-  -- Determine the minimum driver version from the provided filenames; this determines if an update is needed.
-  local minDriverVersion
-  for _, driverFilename in pairs(driverFilenames) do
-    local driverVersion, err = version(GetDriverVersion(driverFilename))
-    if not IsEmpty(err) then
-      return reject(string.format("failed to determine the current %s driver version", driverFilename))
-    elseif minDriverVersion == nil or minDriverVersion > driverVersion then
-      minDriverVersion = driverVersion
-    end
-  end
 
   return self:getLatestRelease(repo, includePrereleases):next(function(latestRelease)
-    if not forceUpdate and latestRelease.version <= minDriverVersion then
-      return {}
+    local byName = {}
+    for _, asset in pairs(Select(latestRelease, "assets") or {}) do
+      local assetName = Select(asset, "name")
+      if type(assetName) == "string" then
+        byName[assetName] = asset
+      end
     end
     --- @type table[]
     local assets = {}
-    local driverFilenamesMap = TableReverse(driverFilenames)
-    for _, asset in pairs(Select(latestRelease, "assets") or {}) do
-      local assetName = Select(asset, "name")
-      if driverFilenamesMap[assetName] ~= nil then
-        driverFilenamesMap[assetName] = nil
-        table.insert(assets, asset)
+    local seen = {}
+    for _, driverFilename in ipairs(driverFilenames) do
+      if not seen[driverFilename] then
+        seen[driverFilename] = true
+        local installed = GetDriverVersion(driverFilename)
+        if sbosUpdater.shouldInstall(latestRelease.tag_name, installed, forceUpdate) then
+          if byName[driverFilename] ~= nil then
+            table.insert(assets, byName[driverFilename])
+          else
+            log:warn("repo %s release %s has no asset %s", repo, tostring(latestRelease.tag_name), driverFilename)
+          end
+        elseif installed == nil or installed == "" then
+          log:warn("cannot read the installed %s version; not updating it", driverFilename)
+        end
       end
-    end
-    if not IsEmpty(driverFilenamesMap) then
-      return reject(
-        string.format(
-          "repo %s latest release does not have the following asset(s): %s",
-          repo,
-          table.concat(TableKeys(driverFilenamesMap), ", ")
-        )
-      )
     end
     return assets
   end)
