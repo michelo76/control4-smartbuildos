@@ -659,7 +659,22 @@ is not recorded as an envelope.
 
 **Asking.** The existing cloud op `ask` with `channel:"touchscreen"` and
 `detail` (`Touchscreen Detail`), `command:"AI_TOUCHSCREEN_ASK"`. The answer
-arrives through the existing `deliver_result`, matched by `request_id`.
+arrives through the existing `deliver_result`, matched by the ask's own
+`request_id` **or by `job_id`** (the job the accept answer named). On a real
+system only the job id matches: the platform's `deliver_result.request_id` is
+the request id of the frame the Agent relayed (the module client's
+per-attempt id), while the ask's own id travels as `idempotency_key` and
+`body.request_id`. Builds up to 20261121.173753 matched on `request_id`
+alone, so every touchscreen answer was taken for a Composer answer: the page
+said "Waiting for the answer…" for 5 minutes, then "SmartBuildOS did not
+answer", while the answer sat in `AI_LAST_RESPONSE` (`KNOWN-ISSUES.md`
+KI-77). A question whose 5 minutes ran out is still held: an answer that
+arrives later is shown to the session that asked. An ask nobody waits for
+any more (its page closed or went away, its conversation was cleared, its
+accept answer was lost) keeps its ids for an hour so that its answer is
+dropped (counted), not published. *Print Diagnostics* prints how many
+touchscreen asks were sent, how many wait (and the oldest's age), how many
+were answered while locked and how many dropped.
 Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket

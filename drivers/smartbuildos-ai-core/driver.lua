@@ -1637,11 +1637,12 @@ function OPS.deliver_result(op)
   if op.pending_approvals ~= nil and op.pending_approvals ~= gLast.pending_approvals and gWeb.ui then
     gWeb.ui.approvals.at = nil -- the count changed: the page asks again
   end
-  if gWeb.ui and gWeb.ui:owns(op.request_id) then
+  if gWeb.ui and gWeb.ui:owns(op.request_id, op.job_id) then
     -- A touchscreen answer belongs to the page session that asked, behind
     -- its owner PIN (ruling 17): never AI_LAST_RESPONSE, never persisted,
     -- no AI Response Ready (Composer programming could show it unlocked).
-    gWeb.ui:deliver(op.request_id, op.text)
+    -- Matched by the job id too: the platform's request_id is the relay's.
+    gWeb.ui:deliver(op.request_id, op.text, op.job_id)
     if op.pending_approvals ~= nil then
       gLast.pending_approvals = op.pending_approvals
     end
@@ -2357,6 +2358,15 @@ function EC.PRINT_DIAGNOSTICS()
   -- names only (never a question, an answer or a PIN: none reaches here).
   if gWeb.ui ~= nil then
     log:print("  touchscreen: %s", gWeb.ui:summary())
+    local waitingAsks, oldestAsk = gWeb.ui:waiting()
+    log:print(
+      "  touchscreen asks: %d sent, %d waiting for an answer%s, %d answered while locked, %d dropped (nobody waiting)",
+      gWeb.ui.counters.asks,
+      waitingAsks,
+      oldestAsk ~= nil and string.format(" (oldest %d s)", oldestAsk) or "",
+      gWeb.ui.counters.answers_held,
+      gWeb.ui.counters.answers_dropped
+    )
     for _, line in ipairs(gWeb.ui:refusalLines()) do
       log:print("  touchscreen %s", line)
     end
