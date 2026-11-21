@@ -993,7 +993,10 @@ function M.settingsRows(def)
     row("Allowed transitions", #list > 0 and table.concat(list, ", ") or "any")
   end
   for _, input in ipairs(def.inputs or {}) do
-    row("Input " .. input.index, inputPhrase(input) .. (input.true_when and (" — true when " .. input.true_when) or ""))
+    row(
+      "Input " .. input.index,
+      inputPhrase(input) .. (input.true_when and (" — true when " .. input.true_when) or "")
+    )
   end
   if def.feedback ~= nil then
     row(
@@ -1080,7 +1083,10 @@ function M.wiring(def, slot)
     local text = COMMAND_TEXT[command]
     local skip = command == "trigger" and def.type == "conditions" and def.settings.evaluation ~= "gate"
     if t.inputs > 0 and not commandFed then
-      skip = skip or command == "input" or command == "input_unavailable" or (command == "set" and def.type == "threshold")
+      skip = skip
+        or command == "input"
+        or command == "input_unavailable"
+        or (command == "set" and def.type == "threshold")
     end
     if not skip then
       inputs[#inputs + 1] = { command = text[1], block = label, does = text[2] }
@@ -1109,8 +1115,8 @@ end
 
 --- Recipes. A template fills a DRAFT only: it never creates a block and
 --- never maps a device (the dealer picks devices). `wiring` is the exact
---- Composer programming to add, with BLOCK standing for the slot the block
---- lands in.
+--- Composer programming to add, with {slot} standing for the slot the block
+--- lands in ("Block 03").
 M.TEMPLATES = {
   {
     id = "driveway_cooldown",
@@ -1118,8 +1124,8 @@ M.TEMPLATES = {
     summary = "Run the welcome scene on driveway motion, but not again for 10 minutes.",
     raw = { type = "cooldown", name = "Driveway Welcome", tag = "Driveway", duration = "10m" },
     wiring = {
-      "When Driveway Motion senses motion → Logic Pack: BLOCK_TRIGGER (BLOCK)",
-      "When Logic Pack: BLOCK Passed → run the Welcome lighting scene",
+      "When Driveway Motion senses motion → Logic Pack: BLOCK_TRIGGER ({slot})",
+      "When Logic Pack: {slot} Passed → run the Welcome lighting scene",
     },
     needs = {},
   },
@@ -1136,9 +1142,9 @@ M.TEMPLATES = {
       recovery = "cancel_if_missed",
     },
     wiring = {
-      "When Bathroom Motion senses motion → Logic Pack: BLOCK_START (BLOCK)",
-      "When Logic Pack: BLOCK Expired → turn the bathroom light and fan off",
-      "Optional: when the light is switched off by hand → Logic Pack: BLOCK_CANCEL (BLOCK)",
+      "When Bathroom Motion senses motion → Logic Pack: BLOCK_START ({slot})",
+      "When Logic Pack: {slot} Expired → turn the bathroom light and fan off",
+      "Optional: when the light is switched off by hand → Logic Pack: BLOCK_CANCEL ({slot})",
     },
     needs = {},
   },
@@ -1148,9 +1154,9 @@ M.TEMPLATES = {
     summary = "A switch that stays on until someone turns it off, even through a restart.",
     raw = { type = "flag", name = "Guest Override", tag = "House" },
     wiring = {
-      "When the Guest keypad button is pressed → Logic Pack: BLOCK_TOGGLE (BLOCK)",
-      "In any automation: If Logic Pack: BLOCK is active → Stop",
-      "When Logic Pack: BLOCK Became True / Became False → set the keypad LED",
+      "When the Guest keypad button is pressed → Logic Pack: BLOCK_TOGGLE ({slot})",
+      "In any automation: If Logic Pack: {slot} is active → Stop",
+      "When Logic Pack: {slot} Became True / Became False → set the keypad LED",
     },
     needs = {},
   },
@@ -1160,8 +1166,8 @@ M.TEMPLATES = {
     summary = "Announce a greeting the first time the kitchen is entered each day.",
     raw = { type = "once", name = "Daily Greeting", tag = "Kitchen" },
     wiring = {
-      "When Kitchen Motion senses motion → Logic Pack: BLOCK_TRIGGER (BLOCK)",
-      "When Logic Pack: BLOCK Passed → play the greeting announcement",
+      "When Kitchen Motion senses motion → Logic Pack: BLOCK_TRIGGER ({slot})",
+      "When Logic Pack: {slot} Passed → play the greeting announcement",
     },
     needs = {},
   },
@@ -1179,10 +1185,10 @@ M.TEMPLATES = {
       inputs = { { used = true, label = "Rack temperature" } },
     },
     wiring = {
-      "Pick the rack sensor's temperature variable in Draft Input 1 Device / Variable, or send it with Logic Pack: BLOCK_INPUT (BLOCK, Input 1, value)",
-      "When Logic Pack: BLOCK Became True → turn the rack fan on",
-      "When Logic Pack: BLOCK Became False → turn the rack fan off",
-      "When Logic Pack: BLOCK Faulted → notify the dealer: the sensor is not reporting",
+      "Pick the rack sensor's temperature variable in Draft Input 1 Device / Variable, or send it with Logic Pack: BLOCK_INPUT ({slot}, Input 1, value)",
+      "When Logic Pack: {slot} Became True → turn the rack fan on",
+      "When Logic Pack: {slot} Became False → turn the rack fan off",
+      "When Logic Pack: {slot} Faulted → notify the dealer: the sensor is not reporting",
     },
     needs = { "Input 1: the temperature sensor's variable" },
   },

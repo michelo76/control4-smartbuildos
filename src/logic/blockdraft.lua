@@ -273,8 +273,7 @@ function Draft:validate()
       local found = self.deps.legacy and self.deps.legacy.describe(adopt) or nil
       local value = found and found[def.type]
       if value == nil then
-        problems[#problems + 1] =
-          string.format('There is no free-form %s named "%s" to adopt.', def.type, adopt)
+        problems[#problems + 1] = string.format('There is no free-form %s named "%s" to adopt.', def.type, adopt)
       else
         seed = { key = adopt, value = value }
       end
@@ -299,7 +298,7 @@ function Draft:validate()
     local found = self.deps.legacy.describe(def.name)
     if found ~= nil and (found.counter ~= nil or found.flag ~= nil or found.timer or found.once) then
       lines[#lines + 1] = string.format(
-        'Note: a free-form key with this name already exists. The block is separate from it and adopts nothing%s.',
+        "Note: a free-form key with this name already exists. The block is separate from it and adopts nothing%s.",
         (def.type == "flag" or def.type == "counter") and " (use Draft Adopt Legacy Key to copy its value in)" or ""
       )
     end

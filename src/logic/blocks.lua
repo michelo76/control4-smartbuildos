@@ -782,10 +782,12 @@ function Blocks:_evaluate(slot, ctx)
     local why
     if x > s.upper then
       result = true
-      why = string.format("Reading %s%s is above the upper threshold %s%s.", tostring(x), units, tostring(s.upper), units)
+      why =
+        string.format("Reading %s%s is above the upper threshold %s%s.", tostring(x), units, tostring(s.upper), units)
     elseif x < s.lower then
       result = false
-      why = string.format("Reading %s%s is below the lower threshold %s%s.", tostring(x), units, tostring(s.lower), units)
+      why =
+        string.format("Reading %s%s is below the lower threshold %s%s.", tostring(x), units, tostring(s.lower), units)
     else
       why = string.format(
         "Reading %s%s is between %s and %s: it stays %s.",
@@ -852,9 +854,10 @@ function Blocks:_stable(slot, ctx)
     self:_decide(slot, {
       input = ctx.input,
       decision = dropped and "cancelled" or "unchanged",
-      reason = dropped
-          and string.format('The source went back to "%s" before the change had held. The pending change was dropped.', value)
-        or string.format('The source is still "%s".', value),
+      reason = dropped and string.format(
+        'The source went back to "%s" before the change had held. The pending change was dropped.',
+        value
+      ) or string.format('The source is still "%s".', value),
       accepted = true,
       suppressed = dropped,
     })
@@ -1016,7 +1019,8 @@ function Blocks:_async(kind, slot, f)
     self:_decide(slot, {
       input = "(timer)",
       decision = late and "expired_late" or "expired",
-      reason = late and "The countdown ended while the controller was down; After Restart is Fire late, so it expired now."
+      reason = late
+          and "The countdown ended while the controller was down; After Restart is Fire late, so it expired now."
         or string.format("The countdown of %s ended.", Defs.duration(block.settings.duration_ms)),
       fire = { "expired" },
       accepted = true,
@@ -1230,7 +1234,8 @@ function Blocks:_handle(item)
     return self:_refuse(
       slot,
       what,
-      self.retired[slot] and ('this slot held "' .. self.retired[slot].name .. '", which was retired') or "this slot is empty"
+      self.retired[slot] and ('this slot held "' .. self.retired[slot].name .. '", which was retired')
+        or "this slot is empty"
     )
   end
   if self.readOnly then
@@ -1243,11 +1248,7 @@ function Blocks:_handle(item)
     return self:_refuse(slot, what, "the block is disabled")
   end
   if not Defs.accepts(block.type, command) then
-    return self:_refuse(
-      slot,
-      what,
-      string.format("a %s block has no %s command", Defs.TYPES[block.type].label, what)
-    )
+    return self:_refuse(slot, what, string.format("a %s block has no %s command", Defs.TYPES[block.type].label, what))
   end
   if self:_flood(slot) then
     self:isolate(
@@ -1317,7 +1318,10 @@ function HANDLERS.cooldown.reset(self, slot, _, rt)
   self.eng:forgetThrottle(key(slot))
   rt.suppressed = 0
   self.deps.cancel("lb:cd:" .. slot)
-  self:_decide(slot, { input = "Reset", decision = "reset", reason = "Cooldown cleared: the next trigger passes.", accepted = true })
+  self:_decide(
+    slot,
+    { input = "Reset", decision = "reset", reason = "Cooldown cleared: the next trigger passes.", accepted = true }
+  )
   return true, "reset"
 end
 
@@ -1454,7 +1458,10 @@ function HANDLERS.timer.cancel(self, slot, _, rt)
     })
     return true, "cancelled"
   end
-  self:_decide(slot, { input = "Cancel", decision = "unchanged", reason = "No countdown was running.", accepted = true })
+  self:_decide(
+    slot,
+    { input = "Cancel", decision = "unchanged", reason = "No countdown was running.", accepted = true }
+  )
   return true, "unchanged"
 end
 
@@ -1525,7 +1532,15 @@ end
 function HANDLERS.once.reset(self, slot, _, rt)
   self.eng:forgetOnce(key(slot))
   rt.suppressed = 0
-  self:_decide(slot, { input = "Reset", decision = "reset", reason = "Today's pass was forgotten: the next trigger passes.", accepted = true })
+  self:_decide(
+    slot,
+    {
+      input = "Reset",
+      decision = "reset",
+      reason = "Today's pass was forgotten: the next trigger passes.",
+      accepted = true,
+    }
+  )
   return true, "reset"
 end
 
@@ -1565,7 +1580,11 @@ function HANDLERS.flag.set(self, slot, _, _, args, what)
   if args.VALUE ~= nil and Defs.trim(args.VALUE) ~= "" then
     want = Defs.boolean(args.VALUE)
     if want == nil then
-      return self:_refuse(slot, what, string.format('VALUE "%s" is not true/false, on/off, yes/no or 1/0', tostring(args.VALUE)))
+      return self:_refuse(
+        slot,
+        what,
+        string.format('VALUE "%s" is not true/false, on/off, yes/no or 1/0', tostring(args.VALUE))
+      )
     end
   end
   local _, _, events = self:_call(function()
@@ -1626,12 +1645,7 @@ local function counterResult(self, slot, block, rt, what, ok, why, events)
       rt.last = reached
       fire[#fire + 1] = reached and "became_true" or "became_false"
       reason = reason
-        .. string.format(
-          " It %s the threshold (%s %d).",
-          reached and "reached" or "left",
-          s.comparison,
-          s.threshold
-        )
+        .. string.format(" It %s the threshold (%s %d).", reached and "reached" or "left", s.comparison, s.threshold)
     end
   end
   self:_decide(slot, { input = what, decision = "changed", reason = reason, fire = fire, accepted = true })
@@ -1849,7 +1863,11 @@ function HANDLERS.stable.cancel(self, slot, _, rt)
     self:_decide(slot, {
       input = "Cancel",
       decision = "cancelled",
-      reason = string.format('The pending change to "%s" was dropped. The output stays "%s".', dropped, tostring(rt.stable)),
+      reason = string.format(
+        'The pending change to "%s" was dropped. The output stays "%s".',
+        dropped,
+        tostring(rt.stable)
+      ),
       fire = { "cancelled" },
       accepted = true,
     })
@@ -1937,7 +1955,10 @@ end
 function HANDLERS.selector.reset(self, slot, block, rt)
   local initial = block.settings.initial
   if rt.state == initial then
-    self:_decide(slot, { input = "Reset", decision = "unchanged", reason = "Already in the initial state.", accepted = true })
+    self:_decide(
+      slot,
+      { input = "Reset", decision = "unchanged", reason = "Already in the initial state.", accepted = true }
+    )
     return true, "unchanged"
   end
   rt.previous, rt.state = rt.state, initial
@@ -2145,7 +2166,11 @@ function Blocks:create(def)
   self.revision = self.revision + 1
   self:_install(slot, block, true)
   self:_watch(slot)
-  self:_note(slot, "configured", string.format('Created: %s block named "%s".', Defs.TYPES[block.type].label, block.name))
+  self:_note(
+    slot,
+    "configured",
+    string.format('Created: %s block named "%s".', Defs.TYPES[block.type].label, block.name)
+  )
   self:_evaluateIfInputDriven(slot)
   return slot, block
 end
@@ -2347,10 +2372,8 @@ function Blocks:stopImpact(slot, retiring)
   local k, now = key(slot), self:_now()
   local info = self.eng:timerInfo(k)
   if info ~= nil then
-    out[#out + 1] = string.format(
-      "Its countdown (%s left) is cancelled without firing.",
-      Defs.remaining(info.expires_at - now)
-    )
+    out[#out + 1] =
+      string.format("Its countdown (%s left) is cancelled without firing.", Defs.remaining(info.expires_at - now))
   end
   if self.eng:debouncePendingFor(k) then
     out[#out + 1] = "Its pending quiet countdown is dropped without firing."
@@ -2360,7 +2383,7 @@ function Blocks:stopImpact(slot, retiring)
   end
   if retiring then
     out[#out + 1] = string.format(
-      "%s is kept out of use so that programming written for \"%s\" can never drive a different block. Commands sent to it are refused and say so.",
+      '%s is kept out of use so that programming written for "%s" can never drive a different block. Commands sent to it are refused and say so.',
       Defs.slotLabel(slot),
       block.name
     )
@@ -2656,7 +2679,8 @@ function Blocks:restore(doc)
     if slot ~= nil and slot >= 1 and slot <= Defs.SLOTS then
       slots[#slots + 1] = slot
     else
-      report.notes[#report.notes + 1] = string.format('Stored entry "%s" names no slot and was left alone.', tostring(k))
+      report.notes[#report.notes + 1] =
+        string.format('Stored entry "%s" names no slot and was left alone.', tostring(k))
     end
   end
   table.sort(slots)
@@ -2887,7 +2911,12 @@ function Blocks:statusLine(slot)
     end
     if t == "threshold" then
       local units = block.settings.units ~= "" and (" " .. block.settings.units) or ""
-      return string.format("%s (last reading %s%s)", rt.last and "Active" or "Clear", tostring(rt.reading or "-"), units)
+      return string.format(
+        "%s (last reading %s%s)",
+        rt.last and "Active" or "Clear",
+        tostring(rt.reading or "-"),
+        units
+      )
     end
     return rt.last and "True" or "False"
   elseif t == "stable" then

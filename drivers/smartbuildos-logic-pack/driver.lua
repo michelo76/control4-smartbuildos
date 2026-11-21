@@ -600,13 +600,8 @@ local function lbBlocksLine()
   for _, slot in ipairs(LB.blocks:slots()) do
     local view = LB.blocks:view(slot)
     if view.kind == "block" then
-      parts[#parts + 1] = string.format(
-        "%02d %s (%s%s)",
-        slot,
-        view.name,
-        view.type_label,
-        view.enabled and "" or ", disabled"
-      )
+      parts[#parts + 1] =
+        string.format("%02d %s (%s%s)", slot, view.name, view.type_label, view.enabled and "" or ", disabled")
     elseif view.kind == "retired" then
       parts[#parts + 1] = string.format("%02d retired: %s", slot, view.retired.name)
     else
@@ -1062,7 +1057,8 @@ function OnServerDataIn(handle, data, _, _, identifier)
   LB.relayBuffers[handle] = nil
   local result
   if LB.blocks == nil then
-    result = { status = "503 Service Unavailable", contentType = "application/json", body = '{"ok":false,"error":"starting"}' }
+    result =
+      { status = "503 Service Unavailable", contentType = "application/json", body = '{"ok":false,"error":"starting"}' }
   else
     result = Relay.route(req, lbRelayToken(), lbRelayProvider)
   end
@@ -1351,7 +1347,11 @@ local function registerComposerSurface()
     { 8, "Pack Read-Only", "The SmartBuildOS licence halted the pack" },
     { 9, "Pack Restored", "The pack is active again" },
     { EVENT_BLOCKS_RESTORE_FAILED, "Blocks Restore Failed", "The stored Logic Blocks could not be read at startup" },
-    { EVENT_BLOCKS_APPLIED, "Blocks Configuration Applied", "A block was created, changed, enabled, disabled or retired" },
+    {
+      EVENT_BLOCKS_APPLIED,
+      "Blocks Configuration Applied",
+      "A block was created, changed, enabled, disabled or retired",
+    },
   }) do
     pcall(function()
       C4:AddEvent(e[1], e[2], e[3])
@@ -1740,7 +1740,12 @@ for i = 1, Defs.MAX_INPUTS do
     end
   end
 end
-for _, prop in ipairs({ "Draft Feedback Device", "Draft Feedback Variable", "Draft Feedback Expect", "Draft Feedback Within" }) do
+for _, prop in ipairs({
+  "Draft Feedback Device",
+  "Draft Feedback Variable",
+  "Draft Feedback Expect",
+  "Draft Feedback Within",
+}) do
   OPC[(prop:gsub(" ", "_"))] = function(value)
     lbDraftProperty(prop, value)
   end
@@ -1916,7 +1921,13 @@ local function lbTwoStep(what, slot, text, act)
     what = what,
     slot = slot,
     until_at = now() + 60,
-    text = string.format("%s %s? %s Run %s again within 60 seconds to confirm.", what:upper(), Defs.slotLabel(slot), text, what),
+    text = string.format(
+      "%s %s? %s Run %s again within 60 seconds to confirm.",
+      what:upper(),
+      Defs.slotLabel(slot),
+      text,
+      what
+    ),
   }
   UpdateProperty("Selected Block Status", LB.armed.text)
 end

@@ -59,66 +59,104 @@ do
   draft:set("tag", "Bathroom")
   check("any edit after a check un-checks it", draft:describe():find("not checked") ~= nil)
   local applied, slot = draft:apply()
-  check("apply creates the block in one step", applied and slot == 1 and b.blocks[1].name == "Bath" and b.blocks[1].tag == "Bathroom")
+  check(
+    "apply creates the block in one step",
+    applied and slot == 1 and b.blocks[1].name == "Bath" and b.blocks[1].tag == "Bathroom"
+  )
   check("the draft is gone after apply", not draft:active())
 
   -- Editing: nothing reaches the live block until Apply.
   b:input(1, "start")
   w.advance(60)
-  check("edit loads the block's settings", draft:load(1) and draft.raw.duration == "15m" and draft.raw.repeat_start == "Restart the countdown")
+  check(
+    "edit loads the block's settings",
+    draft:load(1) and draft.raw.duration == "15m" and draft.raw.repeat_start == "Restart the countdown"
+  )
   draft:set("duration", "5m")
   draft:set("name", "Bath Fan")
-  check("editing a draft does not touch the live block", b.blocks[1].name == "Bath" and b.blocks[1].settings.duration_ms == 900000)
+  check(
+    "editing a draft does not touch the live block",
+    b.blocks[1].name == "Bath" and b.blocks[1].settings.duration_ms == 900000
+  )
   check("the running countdown is untouched by the draft", b:outputs(1).active)
   ok, problems = draft:validate()
   local impact = table.concat(problems, " ")
-  check("validate previews the rename and the running countdown", ok and impact:find("Renames") ~= nil and impact:find("CANCELLED") ~= nil, impact)
+  check(
+    "validate previews the rename and the running countdown",
+    ok and impact:find("Renames") ~= nil and impact:find("CANCELLED") ~= nil,
+    impact
+  )
   check("validate itself changes nothing", b.blocks[1].name == "Bath" and b:outputs(1).active)
   draft:set("duration", "never")
   check("an invalid edit is refused", draft:apply() == false)
-  check("and the live block keeps its last valid settings and its countdown", b.blocks[1].settings.duration_ms == 900000 and b:outputs(1).active)
+  check(
+    "and the live block keeps its last valid settings and its countdown",
+    b.blocks[1].settings.duration_ms == 900000 and b:outputs(1).active
+  )
   draft:set("duration", "5m")
   local id = b.blocks[1].id
   applied, slot = draft:apply()
-  check("a valid edit applies in one step", applied and slot == 1 and b.blocks[1].name == "Bath Fan" and b.blocks[1].settings.duration_ms == 300000)
+  check(
+    "a valid edit applies in one step",
+    applied and slot == 1 and b.blocks[1].name == "Bath Fan" and b.blocks[1].settings.duration_ms == 300000
+  )
   check("identity is kept across the edit", b.blocks[1].id == id)
 
   check("load refuses an empty slot", draft:load(9) == false)
-  check("a duplicate name is caught at validation", draft:start("Flag / Latch", "bath fan") and select(2, draft:validate())[1]:find("already named") ~= nil)
+  check(
+    "a duplicate name is caught at validation",
+    draft:start("Flag / Latch", "bath fan") and select(2, draft:validate())[1]:find("already named") ~= nil
+  )
   draft:discard()
 
   -- Templates fill a draft only, and never map a device.
   local okT, template = draft:fromTemplate("Rack temperature (threshold with deadband)")
   check("a template fills a draft", okT and template.id == "rack_temperature" and draft.raw.upper == "85")
   check("a template creates no block", b:counts().used == 1)
-  check("a template maps no device", draft.raw.inputs[1].device_id == nil and draft.raw.inputs[1].label == "Rack temperature")
+  check(
+    "a template maps no device",
+    draft.raw.inputs[1].device_id == nil and draft.raw.inputs[1].label == "Rack temperature"
+  )
   ok, problems = draft:validate()
-  check("its validation tells the dealer how the input is fed", ok and table.concat(problems, " "):find("BLOCK_INPUT") ~= nil)
+  check(
+    "its validation tells the dealer how the input is fed",
+    ok and table.concat(problems, " "):find("BLOCK_INPUT") ~= nil
+  )
   draft:setInput(1, "device_id", 82)
   check("a device without a variable is refused", draft:validate() == false)
   draft:setInput(1, "variable_id", 1000)
   draft:setInput(1, "device_name", "Rack Sensor")
   check("picking the dealer's device makes it valid", draft:validate() == true)
-  check("every template is itself a valid definition", (function()
-    for _, t in ipairs(Defs.TEMPLATES) do
-      if Defs.normalize(t.raw) == nil then
-        return false
+  check(
+    "every template is itself a valid definition",
+    (function()
+      for _, t in ipairs(Defs.TEMPLATES) do
+        if Defs.normalize(t.raw) == nil then
+          return false
+        end
       end
-    end
-    return #Defs.TEMPLATES == 5
-  end)())
+      return #Defs.TEMPLATES == 5
+    end)()
+  )
   draft:discard()
 
   -- Legacy keys: never adopted by name; adoption is explicit and previewed.
   draft:start("Counter", "Good Night")
   ok, problems = draft:validate()
-  check("a block named like a free-form key adopts nothing", ok and table.concat(problems, " "):find("adopts nothing") ~= nil)
+  check(
+    "a block named like a free-form key adopts nothing",
+    ok and table.concat(problems, " "):find("adopts nothing") ~= nil
+  )
   local _, plainSlot = draft:apply()
   check("and starts from zero", b:outputs(plainSlot).value == 0)
   draft:start("Counter", "Good Night Adopted")
   draft:set("adopt_legacy", "Good Night")
   ok, problems = draft:validate()
-  check("explicit adoption is previewed with the value", ok and table.concat(problems, " "):find('"Good Night" %(7%)') ~= nil, table.concat(problems, " "))
+  check(
+    "explicit adoption is previewed with the value",
+    ok and table.concat(problems, " "):find('"Good Night" %(7%)') ~= nil,
+    table.concat(problems, " ")
+  )
   check("the preview says the free-form key is not deleted", table.concat(problems, " "):find("not deleted") ~= nil)
   w.clear()
   local _, adopted = draft:apply()
@@ -129,7 +167,10 @@ do
   draft:start("Cooldown", "No Adoption")
   draft:set("duration", "1m")
   draft:set("adopt_legacy", "guest")
-  check("adoption is refused for types where it means nothing", select(2, draft:validate())[1]:find("only to a Flag or a Counter") ~= nil)
+  check(
+    "adoption is refused for types where it means nothing",
+    select(2, draft:validate())[1]:find("only to a Flag or a Counter") ~= nil
+  )
   draft:load(1)
   draft:set("adopt_legacy", "guest")
   check("adoption is refused when editing an existing block", draft:validate() == false)
@@ -156,7 +197,8 @@ do
   local liveHistory, liveTimers, liveWatched = #b.history, w.timerCount(), #w.watched
   local liveDoc = Blocks.fingerprint(b:serialize())
 
-  local sb = assert(Sandbox.open({ def = Blocks.copy(b.blocks[cool]), slot = cool, now = w.t, localDay = w.deps.localDay }))
+  local sb =
+    assert(Sandbox.open({ def = Blocks.copy(b.blocks[cool]), slot = cool, now = w.t, localDay = w.deps.localDay }))
   sb:input("trigger")
   sb:advance(120)
   sb:input("trigger")
@@ -175,7 +217,10 @@ do
     table.concat(kinds, ",")
   )
   check("sandbox: time is simulated", state.elapsed == 120 + 600 + 86400 and state.simulated == true)
-  check("sandbox: the simulated block is labelled with the live slot", state.view.label == "Block 01" and state.view.name == "Driveway Welcome")
+  check(
+    "sandbox: the simulated block is labelled with the live slot",
+    state.view.label == "Block 01" and state.view.name == "Driveway Welcome"
+  )
 
   -- The isolation, at the live runtime's output boundary.
   check("sandbox: fired no live event", #w.fired == liveFired)
@@ -203,21 +248,42 @@ do
   sb:replay()
   check("sandbox: and again", shape(sb:state().timeline) == before and #sb:state().steps == 7)
   sb:reset()
-  check("sandbox: reset returns to the start", sb:state().elapsed == 0 and #sb:state().steps == 0 and #sb:state().timeline == 0)
-  sb:replay({ { op = "input", command = "trigger" }, { op = "advance", seconds = 601 }, { op = "input", command = "trigger" } })
-  check("sandbox: a scripted scenario runs", (function()
-    local n = 0
-    for _, e in ipairs(sb:state().timeline) do
-      if e.kind == "event" then
-        n = n + 1
+  check(
+    "sandbox: reset returns to the start",
+    sb:state().elapsed == 0 and #sb:state().steps == 0 and #sb:state().timeline == 0
+  )
+  sb:replay({
+    { op = "input", command = "trigger" },
+    { op = "advance", seconds = 601 },
+    { op = "input", command = "trigger" },
+  })
+  check(
+    "sandbox: a scripted scenario runs",
+    (function()
+      local n = 0
+      for _, e in ipairs(sb:state().timeline) do
+        if e.kind == "event" then
+          n = n + 1
+        end
       end
-    end
-    return n == 2
-  end)())
+      return n == 2
+    end)()
+  )
 
   -- A mapped input is fed by hand; nothing is watched.
-  local rs = assert(Sandbox.open({ def = Blocks.copy(b.blocks[rack]), slot = rack, now = w.t, localDay = w.deps.localDay, sources = { [1] = "80" } }))
-  check("sandbox: starts from the source value the live block has", rs:state().view.sources[1].value == "80" and #rs:state().timeline == 1)
+  local rs = assert(
+    Sandbox.open({
+      def = Blocks.copy(b.blocks[rack]),
+      slot = rack,
+      now = w.t,
+      localDay = w.deps.localDay,
+      sources = { [1] = "80" },
+    })
+  )
+  check(
+    "sandbox: starts from the source value the live block has",
+    rs:state().view.sources[1].value == "80" and #rs:state().timeline == 1
+  )
   rs:source(1, "90")
   rs:source(1, nil, true)
   rs:source(1, "70")
@@ -229,8 +295,15 @@ do
       events[#events + 1] = e.event_kind
     end
   end
-  check("sandbox: mapped inputs can be driven and made unreadable", table.concat(events, ",") == "became_true,faulted,became_true", table.concat(events, ","))
-  check("sandbox: a source that comes back is read silently, exactly as live", silent.kind == "decision" and silent.decision == "baseline")
+  check(
+    "sandbox: mapped inputs can be driven and made unreadable",
+    table.concat(events, ",") == "became_true,faulted,became_true",
+    table.concat(events, ",")
+  )
+  check(
+    "sandbox: a source that comes back is read silently, exactly as live",
+    silent.kind == "decision" and silent.decision == "baseline"
+  )
   check("sandbox: driving a mapped input touched no live listener", #w.watched == liveWatched and #w.fired == liveFired)
 
   check("sandbox: a negative advance is refused", select(1, rs:advance(-5)) == false)
@@ -240,7 +313,10 @@ do
     rs:advance(1)
   end
   check("sandbox: remembered steps are bounded", #rs:state().steps == Sandbox.LIMITS.steps)
-  check("sandbox: refuses a definition that cannot be read", Sandbox.open({ def = { type = "nope" }, slot = 1, now = 0 }) == nil)
+  check(
+    "sandbox: refuses a definition that cannot be read",
+    Sandbox.open({ def = { type = "nope" }, slot = 1, now = 0 }) == nil
+  )
   check("sandbox: refuses nothing to copy", Sandbox.open({}) == nil)
 end
 
@@ -250,17 +326,30 @@ do
   local w = H.world({ variables = { ["82:1000"] = true, ["90:1"] = true } })
   local b = Blocks.new(w.deps)
   local empty = AppState.build(b, { now = w.t })
-  check("app document: an empty pack is a valid document", empty.schema == AppState.SCHEMA and #empty.blocks == 0 and empty.capacity.used == 0)
+  check(
+    "app document: an empty pack is a valid document",
+    empty.schema == AppState.SCHEMA and #empty.blocks == 0 and empty.capacity.used == 0
+  )
   check("app document: says where blocks are configured", empty.authority:find("Composer") ~= nil)
   check("app document: carries the recipes and the type reference", #empty.templates == 5 and #empty.types == 10)
 
-  local cool = H.make(b, { type = "cooldown", name = "Driveway Welcome", tag = "Driveway", duration = "10m", notes = "scene 12" })
+  local cool =
+    H.make(b, { type = "cooldown", name = "Driveway Welcome", tag = "Driveway", duration = "10m", notes = "scene 12" })
   local rack = H.make(b, {
     type = "threshold",
     name = "Rack",
     upper = "85",
     lower = "78",
-    inputs = { { used = true, label = "Temp", device_id = 82, variable_id = 1000, device_name = "Rack Sensor", variable_name = "TEMP" } },
+    inputs = {
+      {
+        used = true,
+        label = "Temp",
+        device_id = 82,
+        variable_id = 1000,
+        device_name = "Rack Sensor",
+        variable_name = "TEMP",
+      },
+    },
     feedback = { device_id = 90, variable_id = 1, expect = "1", within = "10s" },
   })
   local gone = H.make(b, {
@@ -284,17 +373,44 @@ do
     pack_status = "active",
     license = { status = "Licensed / Subscribed", source = "Included with subscription", tier = "Professional" },
   })
-  check("app document: lists the blocks in slot order", #doc.blocks == 3 and doc.blocks[1].slot == cool and doc.blocks[2].slot == rack)
+  check(
+    "app document: lists the blocks in slot order",
+    #doc.blocks == 3 and doc.blocks[1].slot == cool and doc.blocks[2].slot == rack
+  )
   local view = doc.blocks[1]
-  check("app document: a plain-English explanation", view.explanation:find("suppresses every repeat for 10 minutes") ~= nil)
-  check("app document: last accepted and last suppressed are separate", view.last_accepted.decision == "passed" and view.last_suppressed.decision == "suppressed")
+  check(
+    "app document: a plain-English explanation",
+    view.explanation:find("suppresses every repeat for 10 minutes") ~= nil
+  )
+  check(
+    "app document: last accepted and last suppressed are separate",
+    view.last_accepted.decision == "passed" and view.last_suppressed.decision == "suppressed"
+  )
   check("app document: the next eligible time", view.deadline ~= nil and view.deadline.what == "is eligible again")
-  check("app document: wiring names the exact command and event", view.wiring.inputs[1].command == "BLOCK_TRIGGER" and view.wiring.outputs[1].event == "Block 01 Passed" and view.wiring.outputs[1].id == 1011)
+  check(
+    "app document: wiring names the exact command and event",
+    view.wiring.inputs[1].command == "BLOCK_TRIGGER"
+      and view.wiring.outputs[1].event == "Block 01 Passed"
+      and view.wiring.outputs[1].id == 1011
+  )
   local src = doc.blocks[2].sources[1]
-  check("app document: a source shows its device, value, validity and its own timestamp", src.device_id == 82 and src.variable_id == 1000 and src.value == "90" and src.status == "ok" and src.observed_at == w.t - 2)
-  check("app document: timestamps are per fact, not one for the page", view.last_accepted.at ~= src.observed_at and doc.generated_at == w.t)
+  check(
+    "app document: a source shows its device, value, validity and its own timestamp",
+    src.device_id == 82
+      and src.variable_id == 1000
+      and src.value == "90"
+      and src.status == "ok"
+      and src.observed_at == w.t - 2
+  )
+  check(
+    "app document: timestamps are per fact, not one for the page",
+    view.last_accepted.at ~= src.observed_at and doc.generated_at == w.t
+  )
   check("app document: a mapped input needs no command in its wiring", #doc.blocks[2].wiring.inputs == 0)
-  check("app document: missing mappings are listed", #doc.diagnostics.missing_mappings == 1 and doc.diagnostics.missing_mappings[1].name == "Gone")
+  check(
+    "app document: missing mappings are listed",
+    #doc.diagnostics.missing_mappings == 1 and doc.diagnostics.missing_mappings[1].name == "Gone"
+  )
   check("app document: blocks needing attention are counted", doc.faults == 1)
 
   local passed, became
@@ -306,21 +422,33 @@ do
       became = e
     end
   end
-  check("activity: input, decision and event are separate fields", passed.input == "Trigger" and passed.decision == "passed" and passed.events[1] == "passed")
+  check(
+    "activity: input, decision and event are separate fields",
+    passed.input == "Trigger" and passed.decision == "passed" and passed.events[1] == "passed"
+  )
   check("activity: with no feedback mapped, confirmation is 'not monitored'", passed.confirmed == "not_monitored")
   check("activity: with feedback mapped and reported, it is confirmed", became.confirmed == "confirmed")
-  check("activity: an emitted event alone is never 'confirmed'", (function()
-    for _, e in ipairs(doc.activity) do
-      if e.confirmed == "confirmed" and e.slot ~= rack then
-        return false
+  check(
+    "activity: an emitted event alone is never 'confirmed'",
+    (function()
+      for _, e in ipairs(doc.activity) do
+        if e.confirmed == "confirmed" and e.slot ~= rack then
+          return false
+        end
       end
-    end
-    return true
-  end)())
-  check("activity: records carry their origin and a run id", passed.origin == "live" and tostring(passed.run):find("^r%d+$") ~= nil)
+      return true
+    end)()
+  )
+  check(
+    "activity: records carry their origin and a run id",
+    passed.origin == "live" and tostring(passed.run):find("^r%d+$") ~= nil
+  )
   check("activity: newest first", doc.activity[1].seq > doc.activity[#doc.activity].seq)
   local filtered = AppState.activity(b, { slot = tostring(cool), decision = "suppressed" })
-  check("activity: filter by block and decision", #filtered.activity == 1 and filtered.activity[1].decision == "suppressed")
+  check(
+    "activity: filter by block and decision",
+    #filtered.activity == 1 and filtered.activity[1].decision == "suppressed"
+  )
   check("activity: filter by time", #AppState.activity(b, { since = tostring(w.t - 1) }).activity < #doc.activity)
   check("activity: the page is bounded", #AppState.activity(b, { limit = "100000" }).activity <= Blocks.LIMITS.history)
 
@@ -339,16 +467,38 @@ do
   check("export: a token riding a URL is blanked", text:find("k=%[redacted%]") ~= nil)
   check("export: the licensed company is left out", text:find("Secret Co", 1, true) == nil)
   check("export: dealer notes are left out", text:find("scene 12", 1, true) == nil)
-  check("export: keeps what support needs", exported.blocks[1].name == "Driveway Welcome" and #exported.activity > 0 and exported.diagnostics ~= nil)
+  check(
+    "export: keeps what support needs",
+    exported.blocks[1].name == "Driveway Welcome" and #exported.activity > 0 and exported.diagnostics ~= nil
+  )
   check("export: is bounded", #exported.activity <= AppState.EXPORT_ACTIVITY and #text < 256 * 1024)
-  check("redact: sensitive keys", AppState.redact({ token = "x", Authorization = "y", ok = "z" }).token == "[redacted]" and AppState.redact({ Authorization = "y" }).Authorization == "[redacted]")
-  check("redact: bearer text and long hex runs", AppState.redact("Bearer abc.def") == "Bearer [redacted]" and AppState.redact("id 0123456789abcdef0123456789abcdef") == "id [redacted]")
-  check("redact: ordinary text is left alone", AppState.redact("Rack reading 90 at 16:04") == "Rack reading 90 at 16:04")
+  check(
+    "redact: sensitive keys",
+    AppState.redact({ token = "x", Authorization = "y", ok = "z" }).token == "[redacted]"
+      and AppState.redact({ Authorization = "y" }).Authorization == "[redacted]"
+  )
+  check(
+    "redact: bearer text and long hex runs",
+    AppState.redact("Bearer abc.def") == "Bearer [redacted]"
+      and AppState.redact("id 0123456789abcdef0123456789abcdef") == "id [redacted]"
+  )
+  check(
+    "redact: ordinary text is left alone",
+    AppState.redact("Rack reading 90 at 16:04") == "Rack reading 90 at 16:04"
+  )
 
   local summary = AppState.summary(b, { now = w.t, version = "1" })
   local summaryText = JSON:encode(summary)
-  check("cloud summary: names, types and health only", summary.blocks[1].name == "Driveway Welcome" and summary.blocks[2].state == "active")
-  check("cloud summary: no source values, no history, no notes", summaryText:find('"sources"', 1, true) == nil and summaryText:find("scene 12", 1, true) == nil and summaryText:find('"activity"', 1, true) == nil)
+  check(
+    "cloud summary: names, types and health only",
+    summary.blocks[1].name == "Driveway Welcome" and summary.blocks[2].state == "active"
+  )
+  check(
+    "cloud summary: no source values, no history, no notes",
+    summaryText:find('"sources"', 1, true) == nil
+      and summaryText:find("scene 12", 1, true) == nil
+      and summaryText:find('"activity"', 1, true) == nil
+  )
   check("cloud summary: small", #summaryText < 8 * 1024)
   local _ = gone
 end
@@ -390,33 +540,86 @@ do
     query.k = k
     return Relay.route({ method = method, path = path, query = query, body = body or "" }, TOKEN, provider)
   end
-  check("relay: /ping needs no token and names the service", req("GET", "/ping").body == '{"ok":true,"service":"logic-blocks"}')
-  check("relay: /app needs no token and holds no data", req("GET", "/app").status == "200 OK" and req("GET", "/app").contentType:find("text/html") ~= nil)
+  check(
+    "relay: /ping needs no token and names the service",
+    req("GET", "/ping").body == '{"ok":true,"service":"logic-blocks"}'
+  )
+  check(
+    "relay: /app needs no token and holds no data",
+    req("GET", "/app").status == "200 OK" and req("GET", "/app").contentType:find("text/html") ~= nil
+  )
   check("relay: /state without a token is refused", req("GET", "/state").status == "403 Forbidden")
   check("relay: /state with a wrong token is refused", req("GET", "/state", "wrong").status == "403 Forbidden")
-  check("relay: an empty configured token refuses everything", Relay.route({ method = "GET", path = "/state", query = { k = "" }, body = "" }, "", provider).status == "403 Forbidden")
+  check(
+    "relay: an empty configured token refuses everything",
+    Relay.route({ method = "GET", path = "/state", query = { k = "" }, body = "" }, "", provider).status
+      == "403 Forbidden"
+  )
   check("relay: /state with the token answers", req("GET", "/state", TOKEN).status == "200 OK")
-  check("relay: no answer ever contains the token", req("GET", "/state", TOKEN).body:find(TOKEN, 1, true) == nil and req("GET", "/state", "wrong").body:find(TOKEN, 1, true) == nil)
-  check("relay: /activity passes its filters", JSON:decode(req("GET", "/activity", TOKEN, nil, { slot = "3" }).body).slot == "3")
+  check(
+    "relay: no answer ever contains the token",
+    req("GET", "/state", TOKEN).body:find(TOKEN, 1, true) == nil
+      and req("GET", "/state", "wrong").body:find(TOKEN, 1, true) == nil
+  )
+  check(
+    "relay: /activity passes its filters",
+    JSON:decode(req("GET", "/activity", TOKEN, nil, { slot = "3" }).body).slot == "3"
+  )
   check("relay: /export answers", JSON:decode(req("GET", "/export", TOKEN).body).exported == true)
   check("relay: a malformed request is 400", req("BAD", "/").status == "400 Bad Request")
   check("relay: a preflight is answered before the token wall", req("OPTIONS", "/state").status == "204 No Content")
 
-  check("relay: sandbox open is routed with its body", req("POST", "/sandbox/open", TOKEN, '{"slot":3}').status == "200 OK" and calls[#calls].op == "open" and calls[#calls].body.slot == 3)
-  check("relay: a refused sandbox step is 422 with the reason", req("POST", "/sandbox/advance", TOKEN, "{}").status == "422 Unprocessable Entity")
-  check("relay: a sandbox body that is not JSON is 400", req("POST", "/sandbox/input", TOKEN, "not json").status == "400 Bad Request")
-  check("relay: sandbox writes need the token", req("POST", "/sandbox/open", "wrong", '{"slot":3}').status == "403 Forbidden")
+  check(
+    "relay: sandbox open is routed with its body",
+    req("POST", "/sandbox/open", TOKEN, '{"slot":3}').status == "200 OK"
+      and calls[#calls].op == "open"
+      and calls[#calls].body.slot == 3
+  )
+  check(
+    "relay: a refused sandbox step is 422 with the reason",
+    req("POST", "/sandbox/advance", TOKEN, "{}").status == "422 Unprocessable Entity"
+  )
+  check(
+    "relay: a sandbox body that is not JSON is 400",
+    req("POST", "/sandbox/input", TOKEN, "not json").status == "400 Bad Request"
+  )
+  check(
+    "relay: sandbox writes need the token",
+    req("POST", "/sandbox/open", "wrong", '{"slot":3}').status == "403 Forbidden"
+  )
   check("relay: reading the sandbox", req("GET", "/sandbox", TOKEN).status == "200 OK" and calls[#calls].op == nil)
-  check("relay: a sandbox write route refuses GET", req("GET", "/sandbox/open", TOKEN).status == "405 Method Not Allowed")
+  check(
+    "relay: a sandbox write route refuses GET",
+    req("GET", "/sandbox/open", TOKEN).status == "405 Method Not Allowed"
+  )
   check("relay: a read route refuses POST", req("POST", "/state", TOKEN, "{}").status == "405 Method Not Allowed")
 
   -- There is no route that configures a block.
   local before = #calls
   local none = true
   for _, path in ipairs({
-    "/block", "/blocks", "/config", "/configure", "/settings", "/apply", "/draft", "/create", "/retire",
-    "/enable", "/disable", "/rename", "/command", "/input", "/trigger", "/set", "/state/apply", "/sandbox/apply",
-    "/sandbox/live", "/export/import", "/restore", "/reset",
+    "/block",
+    "/blocks",
+    "/config",
+    "/configure",
+    "/settings",
+    "/apply",
+    "/draft",
+    "/create",
+    "/retire",
+    "/enable",
+    "/disable",
+    "/rename",
+    "/command",
+    "/input",
+    "/trigger",
+    "/set",
+    "/state/apply",
+    "/sandbox/apply",
+    "/sandbox/live",
+    "/export/import",
+    "/restore",
+    "/reset",
   }) do
     for _, method in ipairs({ "POST", "PUT", "PATCH", "DELETE" }) do
       local answer = req(method, path, TOKEN, '{"slot":1,"name":"x","enabled":false}')
@@ -427,7 +630,11 @@ do
     end
   end
   check("relay: no route configures, commands or resets a block", none and #calls == before)
-  check("relay: PUT and DELETE are refused even on real paths", req("PUT", "/sandbox/open", TOKEN, "{}").status == "405 Method Not Allowed" and req("DELETE", "/state", TOKEN).status == "405 Method Not Allowed")
+  check(
+    "relay: PUT and DELETE are refused even on real paths",
+    req("PUT", "/sandbox/open", TOKEN, "{}").status == "405 Method Not Allowed"
+      and req("DELETE", "/state", TOKEN).status == "405 Method Not Allowed"
+  )
 end
 
 c.finish()

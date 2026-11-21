@@ -90,8 +90,9 @@ local function newBlocks()
     watch = function(dev, var)
       local v = variable(dev, var)
       if v == nil then
-        return false, devices[dev] == nil and ("device " .. dev .. " is not in the project")
-          or ("variable " .. var .. " is not on device " .. dev)
+        return false,
+          devices[dev] == nil and ("device " .. dev .. " is not in the project")
+            or ("variable " .. var .. " is not on device " .. dev)
       end
       -- Director reports the current value the moment a listener is set.
       order = order + 1
@@ -143,28 +144,100 @@ local function make(raw)
 end
 
 local function house()
-  local driveway = make({ type = "cooldown", name = "Driveway Welcome", tag = "Driveway", duration = "10m", notes = "Welcome scene is the Exterior > Welcome advanced lighting scene." })
-  local bath = make({ type = "timer", name = "Bathroom Vacancy", tag = "Bathroom", duration = "15m", repeat_start = "restart", recovery = "cancel_if_missed" })
+  local driveway = make({
+    type = "cooldown",
+    name = "Driveway Welcome",
+    tag = "Driveway",
+    duration = "10m",
+    notes = "Welcome scene is the Exterior > Welcome advanced lighting scene.",
+  })
+  local bath = make({
+    type = "timer",
+    name = "Bathroom Vacancy",
+    tag = "Bathroom",
+    duration = "15m",
+    repeat_start = "restart",
+    recovery = "cancel_if_missed",
+  })
   local guest = make({ type = "flag", name = "Guest Override", tag = "House" })
   local greeting = make({ type = "once", name = "Daily Greeting", tag = "Kitchen" })
   make({
-    type = "threshold", name = "Rack Temperature", tag = "Rack", upper = "85", lower = "78", units = "°F",
-    inputs = { { used = true, label = "Rack temperature", device_id = 82, variable_id = 1000, device_name = "Rack Sensor", variable_name = "TEMPERATURE_F" } },
-    feedback = { device_id = 90, variable_id = 1, device_name = "Rack Fan Relay", variable_name = "RELAY_STATE", expect = "1,on", within = "10s" },
+    type = "threshold",
+    name = "Rack Temperature",
+    tag = "Rack",
+    upper = "85",
+    lower = "78",
+    units = "°F",
+    inputs = {
+      {
+        used = true,
+        label = "Rack temperature",
+        device_id = 82,
+        variable_id = 1000,
+        device_name = "Rack Sensor",
+        variable_name = "TEMPERATURE_F",
+      },
+    },
+    feedback = {
+      device_id = 90,
+      variable_id = 1,
+      device_name = "Rack Fan Relay",
+      variable_name = "RELAY_STATE",
+      expect = "1,on",
+      within = "10s",
+    },
   })
   make({
-    type = "conditions", name = "Entry Ready", tag = "Entry", mode = "All", evaluation = "Continuous output",
+    type = "conditions",
+    name = "Entry Ready",
+    tag = "Entry",
+    mode = "All",
+    evaluation = "Continuous output",
     inputs = {
-      { used = true, label = "Door closed", device_id = 60, variable_id = 1001, device_name = "Front Door Contact", variable_name = "CONTACT_STATE", true_when = "closed" },
+      {
+        used = true,
+        label = "Door closed",
+        device_id = 60,
+        variable_id = 1001,
+        device_name = "Front Door Contact",
+        variable_name = "CONTACT_STATE",
+        true_when = "closed",
+      },
       { used = true, label = "Alarm disarmed" },
     },
   })
   make({
-    type = "stable", name = "Office Occupied", tag = "Office", duration = "30s",
-    inputs = { { used = true, label = "Office motion", device_id = 61, variable_id = 1002, device_name = "Office Motion", variable_name = "MOTION_STATE", true_when = "1" } },
+    type = "stable",
+    name = "Office Occupied",
+    tag = "Office",
+    duration = "30s",
+    inputs = {
+      {
+        used = true,
+        label = "Office motion",
+        device_id = 61,
+        variable_id = 1002,
+        device_name = "Office Motion",
+        variable_name = "MOTION_STATE",
+        true_when = "1",
+      },
+    },
   })
-  local mode = make({ type = "selector", name = "House Mode", tag = "House", states = "Home, Away, Night", initial_state = "Home", transitions = "Home > Away, Home > Night, Away > Home, Night > Home" })
-  local visitors = make({ type = "counter", name = "Visitors Today", tag = "Entry", counter_threshold = "3", counter_comparison = ">=" })
+  local mode = make({
+    type = "selector",
+    name = "House Mode",
+    tag = "House",
+    states = "Home, Away, Night",
+    initial_state = "Home",
+    transitions = "Home > Away, Home > Night, Away > Home, Night > Home",
+  })
+  local visitors = make({
+    type = "counter",
+    name = "Visitors Today",
+    tag = "Entry",
+    counter_threshold = "3",
+    counter_comparison = ">=",
+  })
   make({ type = "quiet", name = "Hallway Settled", tag = "Hallway", duration = "20s" })
   local old = make({ type = "flag", name = "Old Test Flag" })
   blocks:retire(old)
@@ -205,7 +278,12 @@ local function info()
     pack_status = readOnly and "read-only (licence)" or "active",
     read_only = readOnly,
     license = { status = "Development host - no Agent", source = "-", tier = "-" },
-    clock = { day = localDay(clock), tz = os.date("%Z"), utc_offset = os.date("%z"), basis = "Once Per Day uses the controller's local calendar day." },
+    clock = {
+      day = localDay(clock),
+      tz = os.date("%Z"),
+      utc_offset = os.date("%z"),
+      basis = "Once Per Day uses the controller's local calendar day.",
+    },
     legacy = { counters = 0, flags = 0, timers = 0, once = 0, state = "", note = "Development host: no classic keys." },
     transport = {
       kind = "DEVELOPMENT HOST (not a controller)",
@@ -255,7 +333,8 @@ local function sandboxOp(op, body)
         sources[row.index] = row.value
       end
     end
-    local sb, why = Sandbox.open({ def = Blocks.copy(block), slot = slot, now = clock, localDay = localDay, sources = sources })
+    local sb, why =
+      Sandbox.open({ def = Blocks.copy(block), slot = slot, now = clock, localDay = localDay, sources = sources })
     if sb == nil then
       return { ok = false, error = tostring(why) }
     end
@@ -308,7 +387,11 @@ local provider = {
 
 local function dev(path, body)
   if path == "/__dev/command" then
-    local ok, why = blocks:input(tonumber(body.slot), tostring(body.command or ""), { VALUE = body.value, BY = body.by, INPUT = body.input })
+    local ok, why = blocks:input(
+      tonumber(body.slot),
+      tostring(body.command or ""),
+      { VALUE = body.value, BY = body.by, INPUT = body.input }
+    )
     runTimers()
     return { ok = ok == true, info = tostring(why) }
   elseif path == "/__dev/variable" then
@@ -395,7 +478,12 @@ for line in io.lines() do
   local out
   if ok and type(msg) == "table" then
     local okH, result = pcall(handle, msg)
-    out = okH and result or { status = "500 Internal Server Error", contentType = "application/json", body = JSON:encode({ ok = false, error = tostring(result) }) }
+    out = okH and result
+      or {
+        status = "500 Internal Server Error",
+        contentType = "application/json",
+        body = JSON:encode({ ok = false, error = tostring(result) }),
+      }
   else
     out = { status = "400 Bad Request", contentType = "application/json", body = '{"ok":false}' }
   end

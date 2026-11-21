@@ -157,18 +157,21 @@ end
 function M.activity(blocks, query)
   query = query or {}
   local out = {}
-  for _, e in ipairs(blocks:activity({
-    slot = tonumber(query.slot),
-    decision = query.decision ~= nil and query.decision ~= "" and tostring(query.decision) or nil,
-    since = tonumber(query.since),
-    limit = tonumber(query.limit) or M.ACTIVITY,
-  })) do
+  for _, e in
+    ipairs(blocks:activity({
+      slot = tonumber(query.slot),
+      decision = query.decision ~= nil and query.decision ~= "" and tostring(query.decision) or nil,
+      since = tonumber(query.since),
+      limit = tonumber(query.limit) or M.ACTIVITY,
+    }))
+  do
     out[#out + 1] = entry(e)
   end
   return { ok = true, generated_at = blocks:_now(), activity = out }
 end
 
-local SENSITIVE = { "token", "secret", "password", "passwd", "authorization", "bearer", "credential", "apikey", "api_key" }
+local SENSITIVE =
+  { "token", "secret", "password", "passwd", "authorization", "bearer", "credential", "apikey", "api_key" }
 
 local function sensitiveKey(k)
   local s = tostring(k):lower()

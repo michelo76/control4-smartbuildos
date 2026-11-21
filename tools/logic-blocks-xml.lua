@@ -112,18 +112,37 @@ local function inputParam()
 end
 
 local COMMANDS = {
-  { "BLOCK_TRIGGER", "Run the rule of BLOCK: cooldown, quiet period, once per day, timer start, or a gate's conditions" },
+  {
+    "BLOCK_TRIGGER",
+    "Run the rule of BLOCK: cooldown, quiet period, once per day, timer start, or a gate's conditions",
+  },
   { "BLOCK_START", "Start the countdown of the timer in BLOCK (follows its Repeated Start setting)" },
   { "BLOCK_RESTART", "Start the countdown of the timer in BLOCK again from now" },
   { "BLOCK_CANCEL", "Cancel what is pending in BLOCK: a countdown, a quiet period or a change waiting to hold" },
-  { "BLOCK_SET", "Set BLOCK to VALUE: a flag (true/false), a counter (whole number), a state selector (state name) or a threshold reading", "value" },
+  {
+    "BLOCK_SET",
+    "Set BLOCK to VALUE: a flag (true/false), a counter (whole number), a state selector (state name) or a threshold reading",
+    "value",
+  },
   { "BLOCK_CLEAR", "Turn the flag in BLOCK off, or set the counter in BLOCK to 0" },
   { "BLOCK_TOGGLE", "Flip the flag in BLOCK" },
   { "BLOCK_INCREMENT", "Add BY (default 1) to the counter in BLOCK", "by" },
   { "BLOCK_DECREMENT", "Subtract BY (default 1) from the counter in BLOCK", "by" },
-  { "BLOCK_RESET", "Make BLOCK forget its history: the cooldown, today's pass, the count, the state. Nothing fires for a cleared countdown" },
-  { "BLOCK_INPUT", "Send VALUE to INPUT of BLOCK (true/false for conditions, a number for a threshold, a state for a stable filter)", "input", "value" },
-  { "BLOCK_INPUT_UNAVAILABLE", "Tell BLOCK that INPUT cannot be read right now. The block's result becomes unknown, not false", "input" },
+  {
+    "BLOCK_RESET",
+    "Make BLOCK forget its history: the cooldown, today's pass, the count, the state. Nothing fires for a cleared countdown",
+  },
+  {
+    "BLOCK_INPUT",
+    "Send VALUE to INPUT of BLOCK (true/false for conditions, a number for a threshold, a state for a stable filter)",
+    "input",
+    "value",
+  },
+  {
+    "BLOCK_INPUT_UNAVAILABLE",
+    "Tell BLOCK that INPUT cannot be read right now. The block's result becomes unknown, not false",
+    "input",
+  },
 }
 
 local function commands()

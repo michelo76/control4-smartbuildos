@@ -309,8 +309,9 @@ ul.plain li,ol.steps li{margin:3px 0}
           if (n < 0) return;
           e.preventDefault();
           n = (n + SCREENS.length) % SCREENS.length;
+          // Arrowing along the tabs keeps the keyboard on the tabs.
+          S.focusTab = SCREENS[n][0];
           go(SCREENS[n][0]);
-          setTimeout(function () { var el = document.getElementById('tab-' + SCREENS[n][0]); if (el) el.focus(); }, 0);
         }
       });
       nav.appendChild(b);
@@ -768,7 +769,7 @@ ul.plain li,ol.steps li{margin:3px 0}
           t('li', 'Properties: set Template to "' + tp.name + '". Actions: Load Template Into Draft. This fills a draft only; no block exists yet.'),
           t('li', 'Adjust Draft Name and the other Draft properties. Pick devices where the recipe needs them.'),
           t('li', 'Actions: Validate Draft, read Draft Check and Draft Impact, then Apply Draft. The Blocks property shows which slot it landed in.')
-        ].concat(arr(tp.wiring).map(function (w) { return t('li', 'Programming: ' + w.replace(/BLOCK/g, 'its slot')); })))
+        ].concat(arr(tp.wiring).map(function (w) { return t('li', 'Programming: ' + w.replace(/\{slot\}/g, 'its slot')); })))
       ]));
     });
     root.appendChild(t('h2', 'Block types'));
@@ -841,6 +842,8 @@ ul.plain li,ol.steps li{margin:3px 0}
       S.latency = Date.now() - started;
       S.doc = doc; S.fetchedAt = Date.now(); S.error = null; S.failures = 0; S.loading = false;
       if (!busyTyping()) render(); else renderChips();
+      // The activity list is its own request: keep it as fresh as the rest.
+      if (S.route.screen === 'activity' && !S.act.loading && !busyTyping()) loadActivity();
     }, function (e) {
       S.error = e.message; S.failures += 1; S.loading = false;
       if (!busyTyping()) render(); else renderChips();
@@ -849,9 +852,11 @@ ul.plain li,ol.steps li{margin:3px 0}
 
   window.addEventListener('hashchange', function () {
     S.route = parseRoute();
+    if (S.route.screen === 'activity' && S.doc) loadActivity();
     render();
-    var main = document.getElementById('main');
-    if (main) main.focus({ preventScroll: true });
+    var target = S.focusTab ? document.getElementById('tab-' + S.focusTab) : document.getElementById('main');
+    S.focusTab = null;
+    if (target) target.focus({ preventScroll: true });
     window.scrollTo(0, 0);
   });
   S.route = parseRoute();

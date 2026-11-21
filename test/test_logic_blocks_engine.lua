@@ -86,17 +86,32 @@ do
   check("validate: duration too long", bad({ type = "cooldown", name = "x", duration = "8d" }, "at most"))
   check(
     "validate: inverted thresholds",
-    bad({ type = "threshold", name = "x", upper = "70", lower = "80", inputs = { { used = true, label = "t" } } }, "above upper")
+    bad(
+      { type = "threshold", name = "x", upper = "70", lower = "80", inputs = { { used = true, label = "t" } } },
+      "above upper"
+    )
   )
   check(
     "validate: equal thresholds are allowed",
-    Defs.normalize({ type = "threshold", name = "x", upper = "70", lower = "70", inputs = { { used = true, label = "t" } } }) ~= nil
+    Defs.normalize({
+      type = "threshold",
+      name = "x",
+      upper = "70",
+      lower = "70",
+      inputs = { { used = true, label = "t" } },
+    }) ~= nil
   )
   check(
     "validate: non-numeric threshold",
-    bad({ type = "threshold", name = "x", upper = "hot", lower = "1", inputs = { { used = true, label = "t" } } }, "must be a number")
+    bad(
+      { type = "threshold", name = "x", upper = "hot", lower = "1", inputs = { { used = true, label = "t" } } },
+      "must be a number"
+    )
   )
-  check("validate: threshold needs an input", bad({ type = "threshold", name = "x", upper = "2", lower = "1" }, "at least one input"))
+  check(
+    "validate: threshold needs an input",
+    bad({ type = "threshold", name = "x", upper = "2", lower = "1" }, "at least one input")
+  )
   check("validate: selector needs two states", bad({ type = "selector", name = "x", states = "Home" }, "at least two"))
   check("validate: selector duplicate state", bad({ type = "selector", name = "x", states = "Home, home" }, "twice"))
   check(
@@ -109,7 +124,10 @@ do
   )
   check(
     "validate: device without variable",
-    bad({ type = "stable", name = "x", duration = "5s", inputs = { { used = true, label = "m", device_id = 5 } } }, "both a device")
+    bad(
+      { type = "stable", name = "x", duration = "5s", inputs = { { used = true, label = "m", device_id = 5 } } },
+      "both a device"
+    )
   )
   check(
     "validate: counter threshold must be whole",
@@ -339,9 +357,15 @@ do
   b:input(s, "increment", { BY = "5" })
   check("counter: staying over the threshold does not fire it again", w.count(s .. ":became_true") == 1)
   b:input(s, "set", { VALUE = "8" })
-  check("counter: setting its own value fires nothing", w.count(s .. ":value_changed") == 4 and H.last(b).decision == "unchanged")
+  check(
+    "counter: setting its own value fires nothing",
+    w.count(s .. ":value_changed") == 4 and H.last(b).decision == "unchanged"
+  )
   b:input(s, "decrement", { BY = "6" })
-  check("counter: leaving the threshold fires Became False", w.count(s .. ":became_false") == 1 and b:outputs(s).value == 2)
+  check(
+    "counter: leaving the threshold fires Became False",
+    w.count(s .. ":became_false") == 1 and b:outputs(s).value == 2
+  )
   b:input(s, "reset")
   check("counter: reset returns to zero", b:outputs(s).value == 0)
   b:input(s, "reset")
@@ -354,12 +378,18 @@ do
   check("counter: a value past the classic engine's bound is clamped to it", b:outputs(s).value == 1000000000)
   local changes = w.count(s .. ":value_changed")
   b:input(s, "increment", { BY = "10" })
-  check("counter: and an increment at the bound is not a change", b:outputs(s).value == 1000000000 and w.count(s .. ":value_changed") == changes)
+  check(
+    "counter: and an increment at the bound is not a change",
+    b:outputs(s).value == 1000000000 and w.count(s .. ":value_changed") == changes
+  )
   b:input(s, "set", { VALUE = "-5000000000" })
   check("counter: the lower bound clamps too", b:outputs(s).value == -1000000000)
   local plain = H.make(b, { type = "counter", name = "Plain" })
   b:input(plain, "decrement")
-  check("counter: goes negative; no threshold means never active", b:outputs(plain).value == -1 and not b:outputs(plain).active)
+  check(
+    "counter: goes negative; no threshold means never active",
+    b:outputs(plain).value == -1 and not b:outputs(plain).active
+  )
 end
 
 -- ── G. All / Any conditions ─────────────────────────────────────────────────
@@ -372,7 +402,10 @@ do
     mode = "All",
     inputs = { { used = true, label = "A" }, { used = true, label = "B" } },
   })
-  check("conditions: nothing read yet is unknown, not false", b:outputs(all).valid == false and b:outputs(all).state == "unknown")
+  check(
+    "conditions: nothing read yet is unknown, not false",
+    b:outputs(all).valid == false and b:outputs(all).state == "unknown"
+  )
   b:input(all, "input", { INPUT = "Input 1", VALUE = "true" })
   check("conditions ALL: true and unknown is unknown", b:outputs(all).valid == false and #w.fired == 0)
   b:input(all, "input", { INPUT = "Input 2", VALUE = "true" })
@@ -380,8 +413,14 @@ do
   b:input(all, "input", { INPUT = "2", VALUE = "true" })
   check("conditions: an unchanged result fires nothing", #w.fired == 1)
   b:input(all, "input_unavailable", { INPUT = "Input 2" })
-  check("conditions ALL: true and unknown fires Faulted, not Became False", w.fired[2] == all .. ":faulted" and #w.fired == 2)
-  check("conditions: unknown is reported as not valid", b:outputs(all).valid == false and b:outputs(all).active == false)
+  check(
+    "conditions ALL: true and unknown fires Faulted, not Became False",
+    w.fired[2] == all .. ":faulted" and #w.fired == 2
+  )
+  check(
+    "conditions: unknown is reported as not valid",
+    b:outputs(all).valid == false and b:outputs(all).active == false
+  )
   b:input(all, "input_unavailable", { INPUT = "Input 2" })
   check("conditions: Faulted fires once, not on every unknown", #w.fired == 2)
   b:input(all, "input", { INPUT = "2", VALUE = "true" })
@@ -393,9 +432,15 @@ do
   b:input(all, "trigger")
   check("conditions: a continuous block refuses BLOCK_TRIGGER", w.refused[#w.refused].why:find("continuous") ~= nil)
   b:input(all, "input", { INPUT = "3", VALUE = "true" })
-  check("conditions: an input that is not configured is refused", w.refused[#w.refused].why:find("not configured") ~= nil)
+  check(
+    "conditions: an input that is not configured is refused",
+    w.refused[#w.refused].why:find("not configured") ~= nil
+  )
   b:input(all, "input", { INPUT = "1", VALUE = "closed" })
-  check("conditions: a value that is not true/false is refused", w.refused[#w.refused].why:find("not true/false") ~= nil)
+  check(
+    "conditions: a value that is not true/false is refused",
+    w.refused[#w.refused].why:find("not true/false") ~= nil
+  )
 
   local any = H.make(b, {
     type = "conditions",
@@ -409,7 +454,10 @@ do
   b:input(any, "input", { INPUT = "2", VALUE = "Closed" })
   check("conditions ANY: a custom true-when value counts as true", w.firedText() == any .. ":became_true")
   b:input(any, "input_unavailable", { INPUT = "1" })
-  check("conditions ANY: unknown or true is TRUE (one true decides)", b:outputs(any).valid and b:outputs(any).active and #w.fired == 1)
+  check(
+    "conditions ANY: unknown or true is TRUE (one true decides)",
+    b:outputs(any).valid and b:outputs(any).active and #w.fired == 1
+  )
   b:input(any, "input", { INPUT = "2", VALUE = "open" })
   check("conditions ANY: unknown or false is unknown", w.fired[2] == any .. ":faulted")
 
@@ -426,31 +474,50 @@ do
   check("gate: and fires Faulted so programming can react", w.count(gate .. ":faulted") == 1)
   b:input(gate, "input", { INPUT = "1", VALUE = "true" })
   b:input(gate, "input", { INPUT = "2", VALUE = "false" })
-  check("gate: inputs alone fire nothing", w.count(gate .. ":became_true") == 0 and w.count(gate .. ":became_false") == 0)
+  check(
+    "gate: inputs alone fire nothing",
+    w.count(gate .. ":became_true") == 0 and w.count(gate .. ":became_false") == 0
+  )
   b:input(gate, "trigger")
   check("gate: a trigger while the conditions are false is suppressed", w.count(gate .. ":passed") == 0)
   check("gate: the suppression names the false input", H.last(b).reason:find("Armed") ~= nil, H.last(b).reason)
   b:input(gate, "input", { INPUT = "2", VALUE = "true" })
   b:input(gate, "trigger")
   check("gate: a trigger while the conditions hold passes", w.count(gate .. ":passed") == 1)
-  check("gate: wiring lists Passed and not Became True", (function()
-    local names = {}
-    for _, o in ipairs(b:view(gate).wiring.outputs) do
-      names[#names + 1] = o.event
-    end
-    local text = table.concat(names, ",")
-    return text:find("Passed") ~= nil and text:find("Became True") == nil
-  end)())
+  check(
+    "gate: wiring lists Passed and not Became True",
+    (function()
+      local names = {}
+      for _, o in ipairs(b:view(gate).wiring.outputs) do
+        names[#names + 1] = o.event
+      end
+      local text = table.concat(names, ",")
+      return text:find("Passed") ~= nil and text:find("Became True") == nil
+    end)()
+  )
 end
 
 -- ── H. Threshold with deadband ──────────────────────────────────────────────
 
 do
   local b, w = new()
-  local s = H.make(b, { type = "threshold", name = "Rack", upper = "85", lower = "78", units = "F", inputs = { { used = true, label = "Temp" } } })
+  local s = H.make(
+    b,
+    {
+      type = "threshold",
+      name = "Rack",
+      upper = "85",
+      lower = "78",
+      units = "F",
+      inputs = { { used = true, label = "Temp" } },
+    }
+  )
   check("threshold: no reading yet is unknown", b:outputs(s).valid == false)
   b:input(s, "input", { VALUE = "80" })
-  check("threshold: a first reading inside the band is clear and fires nothing", b:outputs(s).valid and not b:outputs(s).active and #w.fired == 0)
+  check(
+    "threshold: a first reading inside the band is clear and fires nothing",
+    b:outputs(s).valid and not b:outputs(s).active and #w.fired == 0
+  )
   b:input(s, "input", { VALUE = "85" })
   check("threshold: exactly on the upper limit changes nothing", #w.fired == 0)
   b:input(s, "input", { VALUE = "85.1" })
@@ -464,28 +531,51 @@ do
   b:input(s, "set", { VALUE = "90" })
   check("threshold: BLOCK_SET is the same input", w.fired[3] == s .. ":became_true" and b:outputs(s).value == 90)
   b:input(s, "input", { VALUE = "warm" })
-  check("threshold: a non-number is refused; the last reading stands", #w.refused == 1 and b:outputs(s).active and b:outputs(s).value == 90)
+  check(
+    "threshold: a non-number is refused; the last reading stands",
+    #w.refused == 1 and b:outputs(s).active and b:outputs(s).value == 90
+  )
   b:input(s, "input_unavailable")
-  check("threshold: an unreadable source fires Faulted, not Became False", w.fired[4] == s .. ":faulted" and b:outputs(s).valid == false)
+  check(
+    "threshold: an unreadable source fires Faulted, not Became False",
+    w.fired[4] == s .. ":faulted" and b:outputs(s).valid == false
+  )
   b:input(s, "input", { VALUE = "91" })
   check("threshold: readable again and still above: nothing fires", #w.fired == 4 and b:outputs(s).active)
   b:input(s, "input_unavailable")
   b:input(s, "input", { VALUE = "70" })
   check("threshold: readable again and now below fires Became False", w.fired[#w.fired] == s .. ":became_false")
 
-  local first = H.make(b, { type = "threshold", name = "First", upper = "10", lower = "5", inputs = { { used = true, label = "x" } } })
+  local first = H.make(
+    b,
+    { type = "threshold", name = "First", upper = "10", lower = "5", inputs = { { used = true, label = "x" } } }
+  )
   w.clear()
   b:input(first, "input", { VALUE = "12" })
-  check("threshold: a first reading above the limit sent by programming fires Became True", w.firedText() == first .. ":became_true")
+  check(
+    "threshold: a first reading above the limit sent by programming fires Became True",
+    w.firedText() == first .. ":became_true"
+  )
 end
 
 -- ── I. Stable-state filter ──────────────────────────────────────────────────
 
 do
   local b, w = new()
-  local s = H.make(b, { type = "stable", name = "Occupied", duration = "30s", inputs = { { used = true, label = "Motion", true_when = "1" } } })
+  local s = H.make(
+    b,
+    {
+      type = "stable",
+      name = "Occupied",
+      duration = "30s",
+      inputs = { { used = true, label = "Motion", true_when = "1" } },
+    }
+  )
   b:input(s, "input", { VALUE = "0" })
-  check("stable: the first value is taken as it is and fires nothing", #w.fired == 0 and b:outputs(s).state == "0" and b:outputs(s).valid)
+  check(
+    "stable: the first value is taken as it is and fires nothing",
+    #w.fired == 0 and b:outputs(s).state == "0" and b:outputs(s).valid
+  )
   b:input(s, "input", { VALUE = "1" })
   check("stable: a change does not reach the output at once", b:outputs(s).state == "0" and #w.fired == 0)
   w.advance(20)
@@ -493,7 +583,10 @@ do
   w.advance(9.9)
   check("stable: the same new value again does not restart the wait", #w.fired == 0)
   w.advance(0.1)
-  check("stable: after holding, Value Changed and Became True fire", w.firedText() == s .. ":value_changed " .. s .. ":became_true")
+  check(
+    "stable: after holding, Value Changed and Became True fire",
+    w.firedText() == s .. ":value_changed " .. s .. ":became_true"
+  )
   check("stable: the output is the held value", b:outputs(s).state == "1" and b:outputs(s).active)
   b:input(s, "input", { VALUE = "0" })
   w.advance(29)
@@ -529,13 +622,23 @@ do
     initial_state = "Home",
     transitions = "Home > Away, Home > Night, * > Home",
   })
-  check("selector: starts in the initial state", b:outputs(s).state == "Home" and b:outputs(s).value == 1 and not b:outputs(s).active)
+  check(
+    "selector: starts in the initial state",
+    b:outputs(s).state == "Home" and b:outputs(s).value == 1 and not b:outputs(s).active
+  )
   b:input(s, "set", { VALUE = "night" })
-  check("selector: an allowed transition fires Value Changed", w.firedText() == s .. ":value_changed" and b:outputs(s).state == "Night")
+  check(
+    "selector: an allowed transition fires Value Changed",
+    w.firedText() == s .. ":value_changed" and b:outputs(s).state == "Night"
+  )
   check("selector: the state index is the value", b:outputs(s).value == 3)
   b:input(s, "set", { VALUE = "Away" })
   check("selector: a transition that is not allowed is refused", #w.refused == 1 and b:outputs(s).state == "Night")
-  check("selector: and the refusal is readable", w.refused[1].why:find("Night → Away is not an allowed transition") ~= nil, w.refused[1].why)
+  check(
+    "selector: and the refusal is readable",
+    w.refused[1].why:find("Night → Away is not an allowed transition") ~= nil,
+    w.refused[1].why
+  )
   b:input(s, "set", { VALUE = "Vacation" })
   check("selector: an unknown state is refused and lists the states", w.refused[2].why:find("Home, Away, Night") ~= nil)
   b:input(s, "set", { VALUE = "Night" })
@@ -547,7 +650,10 @@ do
   check("selector: reset returns to the initial state", b:outputs(s).state == "Home" and #w.fired == 4)
   local second = H.make(b, { type = "selector", name = "Pool Mode", states = "Off, Heat" })
   b:input(second, "set", { VALUE = "Heat" })
-  check("selector: every selector is its own machine", b:outputs(second).state == "Heat" and b:outputs(s).state == "Home")
+  check(
+    "selector: every selector is its own machine",
+    b:outputs(second).state == "Heat" and b:outputs(s).state == "Home"
+  )
 end
 
 -- ── Identity, slots, configuration ──────────────────────────────────────────
@@ -560,9 +666,15 @@ do
   check("blocks with similar names are independent", b:outputs(a).active and not b:outputs(other).active)
   local id = b.blocks[a].id
   local def = Defs.normalize({ type = "timer", name = "Bedtime", duration = "10m" })
-  check("rename: impact says programming is unaffected", table.concat(b:impact(a, def), " "):find("keep their ids") ~= nil)
+  check(
+    "rename: impact says programming is unaffected",
+    table.concat(b:impact(a, def), " "):find("keep their ids") ~= nil
+  )
   check("rename: applies", b:apply(a, def) == true)
-  check("rename: keeps the identity and the slot", b.blocks[a].id == id and b.blocks[a].slot == a and b.blocks[a].name == "Bedtime")
+  check(
+    "rename: keeps the identity and the slot",
+    b.blocks[a].id == id and b.blocks[a].slot == a and b.blocks[a].name == "Bedtime"
+  )
   check("rename: does not disturb a running countdown", b:outputs(a).active)
   w.advance(600)
   check("rename: the countdown still expires on its slot's event", w.count(a .. ":expired") == 1)
@@ -571,19 +683,29 @@ do
   w.advance(60)
   local changed = Defs.normalize({ type = "timer", name = "Bedtime", duration = "5m" })
   local impact = table.concat(b:impact(a, changed), " ")
-  check("settings change: impact names the running countdown", impact:find("9 minutes left") ~= nil and impact:find("CANCELLED") ~= nil, impact)
+  check(
+    "settings change: impact names the running countdown",
+    impact:find("9 minutes left") ~= nil and impact:find("CANCELLED") ~= nil,
+    impact
+  )
   local fired = #w.fired
   b:apply(a, changed)
   check("settings change: the countdown is cancelled without firing", not b:outputs(a).active and #w.fired == fired)
   w.advance(3600)
   check("settings change: and never fires later", #w.fired == fired)
   check("a block's type cannot change", b:apply(a, Defs.normalize({ type = "flag", name = "Bedtime" })) == false)
-  check("a duplicate name is refused", select(2, b:create(Defs.normalize({ type = "flag", name = "bedtime" }))):find("already named") ~= nil)
+  check(
+    "a duplicate name is refused",
+    select(2, b:create(Defs.normalize({ type = "flag", name = "bedtime" }))):find("already named") ~= nil
+  )
 
   b:input(other, "start")
   fired = #w.fired
   b:setEnabled(other, false)
-  check("disable: cancels the countdown without a final event", #w.fired == fired and b:outputs(other).state == "disabled")
+  check(
+    "disable: cancels the countdown without a final event",
+    #w.fired == fired and b:outputs(other).state == "disabled"
+  )
   w.advance(3600)
   check("disable: nothing fires afterwards", #w.fired == fired)
   b:input(other, "start")
@@ -593,12 +715,18 @@ do
   check("enable: works again", b:outputs(other).active)
 
   local retiredId = b.blocks[other].id
-  check("retire: impact explains the slot is kept out of use", table.concat(b:stopImpact(other, true), " "):find("kept out of use") ~= nil)
+  check(
+    "retire: impact explains the slot is kept out of use",
+    table.concat(b:stopImpact(other, true), " "):find("kept out of use") ~= nil
+  )
   fired = #w.fired
   b:retire(other)
   check("retire: nothing fires", #w.fired == fired and b:outputs(other).state == "retired")
   b:input(other, "start")
-  check("retire: programming still pointing at the slot is refused by name", w.refused[#w.refused].why:find("Good%-Night") ~= nil)
+  check(
+    "retire: programming still pointing at the slot is refused by name",
+    w.refused[#w.refused].why:find("Good%-Night") ~= nil
+  )
   local third = H.make(b, { type = "flag", name = "Third" })
   check("a retired slot is not reused for a new block", third ~= other and third == 3)
   check("retired identity is remembered", b.retired[other].id == retiredId)
@@ -623,7 +751,10 @@ do
   b:input("x", "trigger")
   check("an invalid slot is refused, not guessed", w.refused[#w.refused].why == "BLOCK names no slot")
   b:input(a, "increment")
-  check("a command the type does not take is refused", w.refused[#w.refused].why:find("has no Increment command") ~= nil)
+  check(
+    "a command the type does not take is refused",
+    w.refused[#w.refused].why:find("has no Increment command") ~= nil
+  )
 end
 
 -- ── Variables first, reentrancy, back-to-back ───────────────────────────────
@@ -635,14 +766,17 @@ do
   b:input(counter, "increment")
   b:input(counter, "increment")
   b:input(counter, "increment")
-  check("variables are written before the event fires", (function()
-    for i, e in ipairs(w.events) do
-      if e.out == nil or e.out.value ~= i then
-        return false
+  check(
+    "variables are written before the event fires",
+    (function()
+      for i, e in ipairs(w.events) do
+        if e.out == nil or e.out.value ~= i then
+          return false
+        end
       end
-    end
-    return #w.events == 3
-  end)())
+      return #w.events == 3
+    end)()
+  )
   check("back-to-back events each carry their own value", w.events[1].out.value == 1 and w.events[3].out.value == 3)
 
   -- Programming on an event sends another command (to the same block and to
@@ -663,7 +797,11 @@ do
     w.firedText() == counter .. ":value_changed " .. counter .. ":value_changed " .. flag .. ":became_true",
     w.firedText()
   )
-  check("each event saw its own value, not a later one", seen[1]:find("@4$") ~= nil and seen[2]:find("@5$") ~= nil, table.concat(seen, " "))
+  check(
+    "each event saw its own value, not a later one",
+    seen[1]:find("@4$") ~= nil and seen[2]:find("@5$") ~= nil,
+    table.concat(seen, " ")
+  )
   w.onEmit = nil
   check("the queue is empty afterwards", #b.queue == 0 and b.depth == 0)
 
@@ -699,7 +837,10 @@ do
   for _ = 1, Blocks.LIMITS.inputs_per_window do
     b:input(s, "toggle")
   end
-  check("ordinary bursts up to the limit are all handled, none dropped", w.count(s .. ":became_true") + w.count(s .. ":became_false") == Blocks.LIMITS.inputs_per_window)
+  check(
+    "ordinary bursts up to the limit are all handled, none dropped",
+    w.count(s .. ":became_true") + w.count(s .. ":became_false") == Blocks.LIMITS.inputs_per_window
+  )
   b:input(s, "toggle")
   check("the input over the limit isolates the block", b:view(s).isolated ~= nil and w.count(s .. ":faulted") == 1)
   b:input(quiet, "set")
@@ -737,24 +878,49 @@ do
     name = "Rack",
     upper = "85",
     lower = "78",
-    inputs = { { used = true, label = "Temp", device_id = 82, variable_id = 1000, device_name = "Rack Sensor", variable_name = "TEMPERATURE" } },
+    inputs = {
+      {
+        used = true,
+        label = "Temp",
+        device_id = 82,
+        variable_id = 1000,
+        device_name = "Rack Sensor",
+        variable_name = "TEMPERATURE",
+      },
+    },
   }
   local s = H.make(b, raw)
   check("a mapped input starts a listener", w.watched[1] == "82:1000")
-  check("before the first value it is waiting, not zero", b:view(s).sources[1].status == "awaiting" and b:outputs(s).valid == false)
+  check(
+    "before the first value it is waiting, not zero",
+    b:view(s).sources[1].status == "awaiting" and b:outputs(s).valid == false
+  )
   b:variable(82, 1000, "90")
-  check("the opening value sets the state and fires nothing", #w.fired == 0 and b:outputs(s).active == true and b:outputs(s).valid)
+  check(
+    "the opening value sets the state and fires nothing",
+    #w.fired == 0 and b:outputs(s).active == true and b:outputs(s).valid
+  )
   check("the opening value is recorded as a starting value", H.last(b).decision == "baseline")
   b:variable(82, 1000, "70")
   check("a later change fires", w.firedText() == s .. ":became_false")
-  check("the source shows the device, the value and when", (function()
-    local row = b:view(s).sources[1]
-    return row.device_id == 82 and row.variable_id == 1000 and row.value == "70" and row.observed_at == w.t and row.status == "ok"
-  end)())
+  check(
+    "the source shows the device, the value and when",
+    (function()
+      local row = b:view(s).sources[1]
+      return row.device_id == 82
+        and row.variable_id == 1000
+        and row.value == "70"
+        and row.observed_at == w.t
+        and row.status == "ok"
+    end)()
+  )
   w.advance(86400 * 3)
   check("an unchanged valid source is never called stale", b:view(s).sources[1].status == "ok" and b:outputs(s).valid)
   b:input(s, "input", { VALUE = "99" })
-  check("a mapped input does not take commands", w.refused[#w.refused].why:find("does not take commands") ~= nil and b:outputs(s).value == 70)
+  check(
+    "a mapped input does not take commands",
+    w.refused[#w.refused].why:find("does not take commands") ~= nil and b:outputs(s).value == 70
+  )
 
   raw.name = "Rack Two"
   local second = H.make(b, raw)
@@ -767,18 +933,27 @@ do
 
   b:variableLost(82, 1000, "variable 1000 is not on device 82")
   check("a source that goes away fires Faulted, not Became False", w.fired[#w.fired] == s .. ":faulted")
-  check("and is reported as a missing mapping", #b:missingMappings() == 1 and b:missingMappings()[1].why:find("1000") ~= nil)
+  check(
+    "and is reported as a missing mapping",
+    #b:missingMappings() == 1 and b:missingMappings()[1].why:find("1000") ~= nil
+  )
   check("the value is unknown, not zero", b:outputs(s).valid == false and b:view(s).sources[1].value == nil)
   local fired = #w.fired
   b:checkWatches(function()
     return true
   end)
   b:variable(82, 1000, "60")
-  check("when it comes back its first value is taken silently", #w.fired == fired and b:outputs(s).valid and not b:outputs(s).active)
+  check(
+    "when it comes back its first value is taken silently",
+    #w.fired == fired and b:outputs(s).valid and not b:outputs(s).active
+  )
   b:variable(82, 1000, "96")
   check("and later changes fire again", w.fired[#w.fired] == s .. ":became_true")
   b:variable(82, 1000, "hot")
-  check("a mapped value that is not a number makes the result unknown", b:outputs(s).valid == false and b:view(s).sources[1].status == "invalid")
+  check(
+    "a mapped value that is not a number makes the result unknown",
+    b:outputs(s).valid == false and b:view(s).sources[1].status == "invalid"
+  )
 
   local missing = H.make(b, {
     type = "stable",
@@ -786,7 +961,10 @@ do
     duration = "5s",
     inputs = { { used = true, label = "Lost", device_id = 7, variable_id = 7 } },
   })
-  check("a mapping to a variable that does not exist is unavailable from the start", b:view(missing).sources[1].status == "unavailable")
+  check(
+    "a mapping to a variable that does not exist is unavailable from the start",
+    b:view(missing).sources[1].status == "unavailable"
+  )
   check("and never reads as a value", b:outputs(missing).valid == false)
 
   local reader = H.make(b, {
@@ -794,7 +972,10 @@ do
     name = "Reader",
     inputs = { { used = true, label = "Block one active", device_id = 500, variable_id = 4011, true_when = "1" } },
   })
-  check("an input that reads another block's variable is a known relationship", b:view(reader).sources[1].reads_block == 1)
+  check(
+    "an input that reads another block's variable is a known relationship",
+    b:view(reader).sources[1].reads_block == 1
+  )
   b:retire(s)
   check("the last block to leave releases the listener", w.unwatched[#w.unwatched] == "82:1000")
 end
@@ -816,10 +997,16 @@ do
   w.advance(4)
   b:variable(90, 1, "1")
   check("feedback: confirmed only when the equipment reports the expected value", passEntry.confirmed == "confirmed")
-  check("feedback: the confirmation is its own record", H.last(b).decision == "feedback" and H.last(b).reason:find("confirmed") ~= nil)
+  check(
+    "feedback: the confirmation is its own record",
+    H.last(b).decision == "feedback" and H.last(b).reason:find("confirmed") ~= nil
+  )
   w.advance(120)
   b:input(s, "trigger")
-  check("feedback: equipment already in the expected state is not credited", H.last(b).decision == "feedback" and b.history[#b.history - 1].confirmed == "already")
+  check(
+    "feedback: equipment already in the expected state is not credited",
+    H.last(b).decision == "feedback" and b.history[#b.history - 1].confirmed == "already"
+  )
   b:variable(90, 1, "0")
   w.advance(120)
   b:input(s, "trigger")
@@ -852,7 +1039,10 @@ do
   check("read-only: countdowns are held", b:outputs(late).state == "held" and b:outputs(resume).state == "held")
   b:input(flag, "clear")
   b:input(late, "start")
-  check("read-only: inputs are refused with read-only", w.refused[1].why == "read-only" and w.refused[2].why == "read-only")
+  check(
+    "read-only: inputs are refused with read-only",
+    w.refused[1].why == "read-only" and w.refused[2].why == "read-only"
+  )
   check("read-only: reads still answer", b:outputs(flag).active == true)
   check("read-only: configuration is refused", select(2, b:setEnabled(flag, false)) == "read-only")
   w.advance(100)
@@ -860,8 +1050,14 @@ do
   b:setReadOnly(false)
   w.advance(1)
   check("restored: Fire late expires now", w.count(late .. ":expired") == 1)
-  check("restored: Cancel if missed is cancelled and does not fire", w.count(cancel .. ":expired") == 0 and b:outputs(cancel).state == "idle")
-  check("restored: Resume remaining carries on with what was left", w.count(resume .. ":expired") == 0 and b:outputs(resume).active)
+  check(
+    "restored: Cancel if missed is cancelled and does not fire",
+    w.count(cancel .. ":expired") == 0 and b:outputs(cancel).state == "idle"
+  )
+  check(
+    "restored: Resume remaining carries on with what was left",
+    w.count(resume .. ":expired") == 0 and b:outputs(resume).active
+  )
   w.advance(38)
   check("restored: Resume remaining has not expired early", w.count(resume .. ":expired") == 0)
   w.advance(2)
@@ -875,7 +1071,10 @@ do
   w.advance(10)
   b:setReadOnly(false)
   w.advance(49)
-  check("a countdown that outlives a short halt carries on", w.count(cancel .. ":expired") == 0 and b:outputs(cancel).active)
+  check(
+    "a countdown that outlives a short halt carries on",
+    w.count(cancel .. ":expired") == 0 and b:outputs(cancel).active
+  )
   w.advance(1)
   check("and expires at its original deadline", w.count(cancel .. ":expired") == 1)
 end
@@ -919,10 +1118,16 @@ do
   check("restore: cooldown window kept", b2:outputs(cooldown).state == "cooling")
   check("restore: disabled stays disabled", b2:outputs(once).state == "disabled")
   check("restore: identity, slot and revision kept", b2.blocks[flag].id == id and b2.revision == revision)
-  check("restore: a value programming sent is kept and marked", b2:view(conditions).sources[1].via == "restored" and b2:outputs(conditions).active)
+  check(
+    "restore: a value programming sent is kept and marked",
+    b2:view(conditions).sources[1].via == "restored" and b2:outputs(conditions).active
+  )
   check("restore: history from before is marked as restored", b2.history[1].origin == "restored")
   b2:input(counter, "decrement", { BY = "4" })
-  check("restore: transitions carry on from the restored state", w.firedText() == counter .. ":value_changed " .. counter .. ":became_false")
+  check(
+    "restore: transitions carry on from the restored state",
+    w.firedText() == counter .. ":value_changed " .. counter .. ":became_false"
+  )
   b2:input(cooldown, "trigger")
   check("restore: the cooldown still suppresses", w.count(cooldown .. ":passed") == 0)
   w.advance(480)
@@ -948,7 +1153,11 @@ do
     local label = string.format("timer restart (%s, down %ds): ", case.policy, case.down)
     check(label .. "Expired fired " .. case.fires .. " time(s)", w.count(s .. ":expired") == case.fires, w.firedText())
     check(label .. (case.runs and "still running" or "not running"), b2:outputs(s).active == case.runs)
-    check(label .. "the recovery report says so", table.concat(report.notes, " "):find(case.text, 1, true) ~= nil, table.concat(report.notes, " "))
+    check(
+      label .. "the recovery report says so",
+      table.concat(report.notes, " "):find(case.text, 1, true) ~= nil,
+      table.concat(report.notes, " ")
+    )
     if case.policy == "Fire late" and case.fires == 1 then
       check(label .. "the expiry is marked late", H.last(b2).decision == "expired_late")
     end
@@ -968,7 +1177,8 @@ end
 do
   local b, w = new({ variables = { ["82:1000"] = true } })
   local quiet = H.make(b, { type = "quiet", name = "Quiet", duration = "30s" })
-  local stable = H.make(b, { type = "stable", name = "Stable", duration = "30s", inputs = { { used = true, label = "s" } } })
+  local stable =
+    H.make(b, { type = "stable", name = "Stable", duration = "30s", inputs = { { used = true, label = "s" } } })
   local mapped = H.make(b, {
     type = "threshold",
     name = "Mapped",
@@ -982,13 +1192,25 @@ do
   b:input(stable, "input", { VALUE = "b" })
   local b2, report = reload(b, w, 600)
   w.advance(60)
-  check("restart: a pending quiet countdown is dropped and reported", w.count(quiet .. ":passed") == 0 and table.concat(report.notes, " "):find("did NOT pass") ~= nil)
+  check(
+    "restart: a pending quiet countdown is dropped and reported",
+    w.count(quiet .. ":passed") == 0 and table.concat(report.notes, " "):find("did NOT pass") ~= nil
+  )
   check("restart: a pending stable change never fires", #w.fired == 0)
   check("restart: the source's last value is the new starting state, set silently", b2:outputs(stable).state == "b")
-  check("restart: and the report says the pending change was dropped", table.concat(report.notes, " "):find("waiting to hold") ~= nil)
-  check("restart: a mapped input is read again, not restored", b2:view(mapped).sources[1].status == "awaiting" and b2:outputs(mapped).valid == false)
+  check(
+    "restart: and the report says the pending change was dropped",
+    table.concat(report.notes, " "):find("waiting to hold") ~= nil
+  )
+  check(
+    "restart: a mapped input is read again, not restored",
+    b2:view(mapped).sources[1].status == "awaiting" and b2:outputs(mapped).valid == false
+  )
   b2:variable(82, 1000, "3")
-  check("restart: its opening value fires nothing even though it changed while down", #w.fired == 0 and not b2:outputs(mapped).active)
+  check(
+    "restart: its opening value fires nothing even though it changed while down",
+    #w.fired == 0 and not b2:outputs(mapped).active
+  )
   check("restart: the silent change is in the history", H.last(b2).decision == "baseline")
   b2:variable(82, 1000, "30")
   check("restart: later changes fire normally", w.firedText() == mapped .. ":became_true")
@@ -1004,17 +1226,33 @@ do
   local b, w, report = attempt("garbage")
   check("corrupt: a non-table document fails loudly", report.failed and b.restoreFailed ~= nil)
   check("corrupt: nothing is created in its place", b:counts().used == 0)
-  check("corrupt: inputs are refused and say why", b:input(1, "trigger") == false and w.refused[1].why:find("could not be read") ~= nil)
+  check(
+    "corrupt: inputs are refused and say why",
+    b:input(1, "trigger") == false and w.refused[1].why:find("could not be read") ~= nil
+  )
   check("corrupt: configuration is refused", b:create(Defs.normalize({ type = "flag", name = "x" })) == nil)
   check("corrupt: nothing asks to be saved over the stored copy", w.changed == 0)
   b:acknowledgeRestoreFailure()
-  check("corrupt: after the dealer acknowledges, it starts empty and can save", H.make(b, { type = "flag", name = "x" }) == 1 and w.changed > 0)
+  check(
+    "corrupt: after the dealer acknowledges, it starts empty and can save",
+    H.make(b, { type = "flag", name = "x" }) == 1 and w.changed > 0
+  )
 
-  check("corrupt: another driver's document is refused", attempt({ schema = "something_else", v = 1, blocks = {} }) and select(3, attempt({ schema = "something_else", v = 1, blocks = {} })).failed)
+  check(
+    "corrupt: another driver's document is refused",
+    attempt({ schema = "something_else", v = 1, blocks = {} })
+      and select(3, attempt({ schema = "something_else", v = 1, blocks = {} })).failed
+  )
   local _, _, newer = attempt({ schema = Blocks.SCHEMA, v = Blocks.VERSION + 1, blocks = {} })
-  check("corrupt: a document from a newer driver is refused, not downgraded", newer.failed and newer.why:find("newer driver") ~= nil)
+  check(
+    "corrupt: a document from a newer driver is refused, not downgraded",
+    newer.failed and newer.why:find("newer driver") ~= nil
+  )
   check("corrupt: no version is refused", select(3, attempt({ schema = Blocks.SCHEMA, blocks = {} })).failed)
-  check("corrupt: no blocks table is refused", select(3, attempt({ schema = Blocks.SCHEMA, v = Blocks.VERSION })).failed)
+  check(
+    "corrupt: no blocks table is refused",
+    select(3, attempt({ schema = Blocks.SCHEMA, v = Blocks.VERSION })).failed
+  )
   check("an absent document is simply empty", select(3, attempt(nil)).ok)
 
   local good, gw = new()
@@ -1027,9 +1265,15 @@ do
   gw.clear()
   local partial = Blocks.new(gw.deps)
   local partialReport = partial:restore(doc)
-  check("one unreadable block does not take the others with it", partialReport.ok and partialReport.loaded == 1 and partialReport.unreadable == 1)
+  check(
+    "one unreadable block does not take the others with it",
+    partialReport.ok and partialReport.loaded == 1 and partialReport.unreadable == 1
+  )
   check("the readable block works", partial:outputs(keep).active)
-  check("the unreadable block does nothing and says so", partial:outputs(broken).state == "unreadable" and partial:view(broken).kind == "unreadable")
+  check(
+    "the unreadable block does nothing and says so",
+    partial:outputs(broken).state == "unreadable" and partial:view(broken).kind == "unreadable"
+  )
   check("its slot is not handed to a new block", partial:freeSlot() == 3)
   partial:input(broken, "start")
   check("commands to it are refused with the reason", gw.refused[#gw.refused].why:find("could not be read") ~= nil)
@@ -1048,9 +1292,17 @@ do
       return d
     end,
   }, 2)
-  check("migration: walks every step to the current version", migrated ~= nil and migrated.v == 2 and migrated.middle and migrated.new_field == 1, why)
+  check(
+    "migration: walks every step to the current version",
+    migrated ~= nil and migrated.v == 2 and migrated.middle and migrated.new_field == 1,
+    why
+  )
   check("migration: a missing step fails instead of guessing", Blocks.migrate({ v = 0 }, {}, 1) == nil)
-  check("migration: a step that throws fails", Blocks.migrate({ v = 0 }, { [0] = function() error("x") end }, 1) == nil)
+  check("migration: a step that throws fails", Blocks.migrate({ v = 0 }, {
+    [0] = function()
+      error("x")
+    end,
+  }, 1) == nil)
 end
 
 -- ── Housekeeping and bounds ─────────────────────────────────────────────────
