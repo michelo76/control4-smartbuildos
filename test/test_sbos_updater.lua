@@ -252,7 +252,6 @@ local KNOWN_UNLISTED = {
   ["smartbuildos-flight-recorder.c4z"] = true,
   ["smartbuildos-guest-mode.c4z"] = true,
   ["smartbuildos-load-shedding.c4z"] = true,
-  ["smartbuildos-logic-pack.c4z"] = true,
   ["smartbuildos-mqtt-broker.c4z"] = true,
   ["smartbuildos-notification-router.c4z"] = true,
   ["smartbuildos-pin-lock.c4z"] = true,

@@ -22,6 +22,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **Logic Pack: Logic Blocks** (`docs/smartbuildos-logic-blocks/DESIGN.md`). Up
+  to 16 named rules, set up on the Properties and Actions tabs: cooldown, quiet
+  period, restartable timer, once per day, flag, counter, all/any conditions,
+  threshold with a deadband, stable-state filter and state selector. Programming
+  feeds a block with the new `BLOCK_*` commands, or the block reads a device
+  variable; each slot has its own events, variables and conditionals. A dealer
+  app, served by the driver on the home network, shows each block's rule, inputs
+  and decisions and has a sandbox that simulates one block without touching the
+  live one. Every classic command, event, variable and conditional is unchanged,
+  and a block never takes over a free-form key. The Logic Pack is now in the
+  store publish map and the Agent's update list, so a release publishes it and
+  installed copies update in place. Not yet run on a controller:
+  `docs/smartbuildos-logic-blocks/BENCH.md` lists what is owed.
+
 - **Agent: Studio release G1 reporting**
   (`docs/studio-g1/AGENT-CONTRACT-G1.md`). The heartbeat now carries three
   optional blocks. `device_poll` confirms each 5-minute poll with a digest the

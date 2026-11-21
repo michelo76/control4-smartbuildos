@@ -15,6 +15,7 @@ local PAGES = {
   { dir = "drivers/smartbuildos-ai-core", module = "src/aicore/page.lua" },
   { dir = "drivers/smartbuildos-commissioning", module = "src/commissioning/page.lua" },
   { dir = "drivers/smartbuildos-daypart", module = "src/daypart/page.lua" },
+  { dir = "drivers/smartbuildos-logic-pack", module = "src/logic/page.lua" },
   { dir = "drivers/smartbuildos-pin-lock", module = "src/pinlock/page.lua" },
   -- VenueFlow ships two pages (operator and Installer Studio), built from
   -- ui/venueflow by tools/venueflow-ui.py.

@@ -9,6 +9,11 @@ to create first: a counter, a flag or a timer exists from the first line that
 names it. One driver serves the whole project, and what it holds is stored on
 the controller and comes back after a restart.
 
+It also holds up to 16 **Logic Blocks**: named rules such as a cooldown, a
+restartable timer or a threshold with a deadband, each with its own events,
+variables and conditionals. They have their own section,
+[Logic Blocks](#logic-blocks).
+
 Requires the SmartBuildOS Agent (`smartbuildos.c4z`) paired to a SmartBuildOS
 system. The Agent is the licensing authority (SKU `SBOS_LOGIC_PACK`): **License
 Status** shows this driver's standing. A definitive licence denial with
@@ -355,6 +360,338 @@ Pressing Good Night twice does not replay the scene, because the second
 `Night` and *State Changed* does not fire again. There is one state per project;
 a second, independent yes or no is a flag.
 
+## Logic Blocks
+
+A Logic Block is a named rule you set up once and then use from programming. You
+give it a name and a type in Composer, programming tells it when something
+happened, and it answers with its own event when its rule says so.
+
+```
+When Driveway Motion senses motion
+    → Logic Pack: BLOCK_TRIGGER (Block 01)
+
+When Logic Pack: Block 01 Passed
+    → run the Welcome lighting scene
+```
+
+Block 01 here is a Cooldown named Driveway Welcome, set to 10 minutes. The
+driver decides whether the trigger passes and says what it decided. Running the
+scene is still your programming. The driver operates no equipment.
+
+Blocks and the keys described in the rest of this manual live side by side. A
+key exists the moment a programming line names it and tells you which key fired
+through one shared variable. A block is created on purpose, has its own events,
+variables and conditionals, shows its settings and its last decisions, and can
+be simulated before it is trusted. A block never takes over a key because it has
+the same name: the two are stored apart.
+
+### Create a block
+
+<!-- walkthrough: Create a Logic Block -->
+
+1. Open the driver's Properties. Type **New Block Name** (for example
+   `Driveway Welcome`) and pick **New Block Type** (`Cooldown`).
+1. On the Actions tab run *New Draft*. **Draft** reads
+   `New Cooldown block - not checked`, and only the Draft properties this type
+   uses are shown.
+1. Fill in the Draft properties. For a cooldown that is **Draft Duration**:
+   `10m`.
+1. Run *Validate Draft*. **Draft Check** reads `Valid` or names every problem at
+   once. **Draft Impact** says what applying it will do.
+1. Run *Apply Draft*. **Blocks** now reads `01 Driveway Welcome (Cooldown)`: the
+   block is in slot 01.
+1. In Programming, use the commands and events of **Block 01**.
+
+Nothing you type in a Draft property reaches a live block. A draft is checked as
+a whole and applied in one step, or not at all. A draft that does not validate
+leaves the block exactly as it was.
+
+To start from a recipe, pick **Template** and run *Load Template Into Draft*
+instead of *New Draft*. A template fills the draft only. It never creates a
+block and never picks a device for you.
+
+A duration is written the way it is said: `10m`, `90s`, `1h30m`, `500ms`. A bare
+number is seconds. The longest is 7 days.
+
+### The block types
+
+| Type                    | What it does                                                                                  | Feed it with                                                               | It fires                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------- |
+| Cooldown                | Passes the first trigger, suppresses repeats for the duration. No pass when the duration ends | `BLOCK_TRIGGER`                                                            | *Passed*                                       |
+| Quiet-Period Trigger    | Each trigger restarts a countdown. Passes once when triggers have stopped for the duration    | `BLOCK_TRIGGER`, `BLOCK_CANCEL`                                            | *Started*, *Passed*, *Cancelled*               |
+| Restartable Timer       | A countdown you start, restart and cancel                                                     | `BLOCK_START`, `BLOCK_RESTART`, `BLOCK_CANCEL`                             | *Started*, *Expired*, *Cancelled*              |
+| Once Per Day            | Passes the first trigger of each calendar day on the controller's clock                       | `BLOCK_TRIGGER`                                                            | *Passed*                                       |
+| Flag / Latch            | An on/off value that stays where programming put it                                           | `BLOCK_SET`, `BLOCK_CLEAR`, `BLOCK_TOGGLE`                                 | *Became True*, *Became False*                  |
+| Counter                 | A whole number, with an optional threshold                                                    | `BLOCK_INCREMENT`, `BLOCK_DECREMENT`, `BLOCK_SET`, `BLOCK_CLEAR`           | *Value Changed*, *Became True*, *Became False* |
+| All / Any Conditions    | Combines up to four true/false inputs                                                         | `BLOCK_INPUT` or device variables; `BLOCK_TRIGGER` when it gates a trigger | *Became True*, *Became False*, or *Passed*     |
+| Threshold With Deadband | On above the upper limit, off below the lower one, unchanged in between                       | `BLOCK_INPUT` or a device variable                                         | *Became True*, *Became False*                  |
+| Stable-State Filter     | Follows its source only after the source has held a new state for the duration                | `BLOCK_INPUT` or a device variable; `BLOCK_CANCEL`                         | *Value Changed*, *Became True*, *Became False* |
+| State Selector          | One of the states you list, with optional allowed transitions                                 | `BLOCK_SET`                                                                | *Value Changed*                                |
+
+Every type can also fire *Faulted*, and takes `BLOCK_RESET` where it has
+something to forget.
+
+The details that decide how programming behaves:
+
+- **Cooldown.** The interval is measured from the pass. A trigger at exactly the
+  interval passes. Suppressed triggers are counted and the block says when it is
+  eligible again.
+- **Quiet-Period Trigger.** *Started* fires on the first trigger of a burst
+  only. `BLOCK_CANCEL` stops the countdown and fires *Cancelled*; nothing
+  passes.
+- **Restartable Timer.** **Draft Repeated Start** decides what a start does
+  while it is running: `Restart the countdown` (the default) or
+  `Ignore while running`. `BLOCK_RESTART` always restarts. *Started* fires when
+  it goes from idle to running, not on a restart.
+- **Once Per Day.** The day is the controller's local calendar day. It is not a
+  24-hour interval: a pass at 23:59 and another at 00:01 are both allowed.
+- **Flag and Counter.** Setting a value the block already has fires nothing. The
+  counter's bounds are those of the classic counters, ±1,000,000,000, and a
+  value outside them is clamped. With **Draft Counter Threshold** set, the block
+  is active while the count meets the comparison, and fires *Became True* and
+  *Became False* when it crosses.
+- **All / Any Conditions.** **Draft Evaluation** picks one of two behaviours.
+  `Continuous output` fires *Became True* and *Became False* as the inputs
+  change. `Gate a trigger` fires nothing by itself: `BLOCK_TRIGGER` passes only
+  while the conditions hold.
+- **Threshold With Deadband.** It turns on above **Draft Upper Threshold** and
+  off below **Draft Lower Threshold**. A reading exactly on a limit changes
+  nothing. A first reading inside the band is off. A lower limit above the upper
+  one is refused.
+- **Stable-State Filter.** A change is held back until it has lasted **Draft
+  Duration**. If the source changes again first, the pending change is dropped.
+  The first value it ever reads is taken as it is.
+- **State Selector.** **Draft Transitions** lists the allowed changes as
+  `From > To`, separated by commas; `*` means any state. Empty allows every
+  change. A change that is not allowed is refused and **Last Refusal** says
+  which changes are.
+
+### Unknown is not false
+
+An input a block cannot read is unknown. It is never treated as false or as
+zero.
+
+- All Conditions: one false input makes the result false. Otherwise one unknown
+  input makes it unknown.
+- Any Conditions: one true input makes the result true. Otherwise one unknown
+  input makes it unknown.
+- A threshold or a stable filter with no readable source is unknown.
+
+When a block loses its result it fires *Faulted* once, its `VALID` variable
+reads false and its `STATE` reads `unknown`. It does not fire *Became False*.
+When the input can be read again and the result is what it was, nothing fires. A
+gate holds a trigger back while its conditions are unknown and fires *Faulted*
+so programming can react.
+
+### Inputs from a device variable
+
+The three value-driven types can read a device variable directly, with no
+programming line. In the draft, pick **Draft Input 1 Device**, then **Draft
+Input 1 Variable**. For a true/false input, **Draft Input 1 True When** lists
+the values that mean true, for example `closed,1`.
+
+- The value Director reports when the listener starts sets the block's state and
+  fires nothing. So does the value read after a controller restart.
+- A variable that has not changed for a long time is still valid. It is not
+  marked stale for being quiet.
+- If the device or the variable is removed, the input reads as unknown within a
+  minute and the dealer app lists it under missing mappings.
+- An input that is mapped to a device refuses `BLOCK_INPUT`.
+
+An input with a label and no device is fed by `BLOCK_INPUT`. A value sent that
+way is kept across a restart, because programming is the only place it exists.
+
+### Programming reference for blocks
+
+Every block command takes **BLOCK**, a list of `Block 01` to `Block 16`. The
+slot number is the reference: renaming a block changes nothing in programming.
+
+| Command                   | Parameters                | Does                                                                                              |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `BLOCK_TRIGGER`           | `BLOCK`                   | Runs the rule: cooldown, quiet period, once per day, timer start, or a gate                       |
+| `BLOCK_START`             | `BLOCK`                   | Starts a timer, following its Repeated Start setting                                              |
+| `BLOCK_RESTART`           | `BLOCK`                   | Starts a timer again from now                                                                     |
+| `BLOCK_CANCEL`            | `BLOCK`                   | Cancels a countdown, a quiet period or a change waiting to hold                                   |
+| `BLOCK_SET`               | `BLOCK`, `VALUE`          | A flag (`true`/`false`), a counter, a state name or a threshold reading                           |
+| `BLOCK_CLEAR`             | `BLOCK`                   | Turns a flag off; sets a counter to 0                                                             |
+| `BLOCK_TOGGLE`            | `BLOCK`                   | Flips a flag                                                                                      |
+| `BLOCK_INCREMENT`         | `BLOCK`, `BY`             | Adds `BY` (default 1) to a counter                                                                |
+| `BLOCK_DECREMENT`         | `BLOCK`, `BY`             | Subtracts `BY` (default 1) from a counter                                                         |
+| `BLOCK_RESET`             | `BLOCK`                   | Forgets the cooldown, today's pass, the count or the state. Nothing fires for a cleared countdown |
+| `BLOCK_INPUT`             | `BLOCK`, `INPUT`, `VALUE` | Sends a value to one of a block's inputs                                                          |
+| `BLOCK_INPUT_UNAVAILABLE` | `BLOCK`, `INPUT`          | Says an input cannot be read right now. The result becomes unknown                                |
+
+A command the block's type does not take, a value of the wrong kind, a command
+to an empty or retired slot and a command to a disabled block are refused. The
+refusal is named under **Last Refusal** and never halts programming.
+
+Each slot has eight events, four variables and three conditionals. Their ids
+depend on the slot number only, never on the name or the type:
+
+| For slot `n` | Name                                                                                                            | Id                 |
+| ------------ | --------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Events       | `Block nn Passed`, `Started`, `Expired`, `Cancelled`, `Value Changed`, `Became True`, `Became False`, `Faulted` | `1000 + 10n + 1…8` |
+| Variables    | `BLOCK_nn_ACTIVE`, `BLOCK_nn_VALID`, `BLOCK_nn_VALUE`, `BLOCK_nn_STATE`                                         | `4000 + 10n + 1…4` |
+| Conditionals | *Block nn is active*, *Block nn value*, *Block nn state*                                                        | `100 + 10n + 1…3`  |
+
+What the four variables hold:
+
+| Type                    | `ACTIVE`                 | `VALUE`                   | `STATE`                        |
+| ----------------------- | ------------------------ | ------------------------- | ------------------------------ |
+| Cooldown                | cooling down             | triggers suppressed       | `ready`, `cooling`             |
+| Quiet-Period Trigger    | countdown pending        | triggers in the burst     | `idle`, `waiting`              |
+| Restartable Timer       | running                  | seconds left              | `idle`, `running`, `held`      |
+| Once Per Day            | passed today             | triggers suppressed today | `ready`, `done_today`          |
+| Flag / Latch            | on                       | 1 or 0                    | `on`, `off`                    |
+| Counter                 | threshold met            | the count                 | `counting`, `reached`, `below` |
+| All / Any Conditions    | result is true           | inputs that are true      | `true`, `false`, `unknown`     |
+| Threshold With Deadband | above the upper limit    | the last reading          | `active`, `clear`, `unknown`   |
+| Stable-State Filter     | held state is true       | 1 or 0                    | the held state, `unknown`      |
+| State Selector          | not in the initial state | position in the list      | the state name                 |
+
+`VALID` is true when the block has a result. An empty slot reads `empty`, a
+disabled block `disabled`, a retired slot `retired`, an isolated block
+`isolated`. A slot's variables are written before its event fires, so
+programming on the event reads the values of that event.
+
+### Changing, disabling and retiring a block
+
+Pick the block in **Selected Block**, then:
+
+| Action                   | Does                                                                                                                   |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| *Edit Selected Block*    | Copies its settings into the draft. Change the Draft properties, then *Validate Draft* and *Apply Draft*               |
+| *Copy Selected Block*    | Makes a new block with the same settings, named from **New Block Name**. It gets a new slot and starts with no history |
+| *Disable Selected Block* | The block ignores inputs and fires nothing. Anything pending is dropped with no event. Its stored value is kept        |
+| *Enable Selected Block*  | Puts it back to work                                                                                                   |
+| *Resume Selected Block*  | Releases a block that was isolated                                                                                     |
+| *Retire Selected Block*  | Stops the block for good and keeps its slot out of use. Asks twice: the first press says what will happen              |
+| *Release Retired Slot*   | Makes a retired slot available to a new block. Asks twice                                                              |
+
+- **Renaming** keeps the slot, the events, the variables and the conditionals.
+  Programming keeps working.
+- **Changing settings** drops anything that is pending on that block. A running
+  countdown is cancelled and neither *Expired* nor *Cancelled* fires. **Draft
+  Impact** says so before you apply. A flag keeps its value, a counter its
+  count.
+- **The type cannot change.** Retire the block and create a new one.
+- **A retired slot is not given to a new block**, so programming written for the
+  retired block can never drive a different one. Commands still sent to it are
+  refused and name the block that was retired. Release the slot only once that
+  programming is gone.
+- There are 16 slots.
+
+### After a restart
+
+Flags, counts, selector states, cooldown times and today's passes come back.
+Blocks that read a device variable read it again; the value they find sets their
+state and fires nothing, even when it changed while the controller was down.
+Check the block's conditional at start-up if equipment must follow.
+
+A timer that was running follows **Draft After Restart**:
+
+| Setting            | Its deadline is still ahead                | Its deadline passed while the controller was down               |
+| ------------------ | ------------------------------------------ | --------------------------------------------------------------- |
+| `Cancel if missed` | Carries on to its deadline                 | Cancelled. *Expired* does not fire. The recovery report says so |
+| `Fire late`        | Carries on to its deadline                 | *Expired* fires once at start-up                                |
+| `Resume remaining` | Counts the time it had left, from start-up | Counts the time it had left, from start-up                      |
+
+`Cancel if missed` is the default. A quiet-period countdown or a stable-filter
+change that was pending is dropped and does not fire. The classic `START_TIMER`
+keeps its own rule: an overdue timer fires at start-up, marked late.
+
+If the stored blocks cannot be read, nothing is reset. **Blocks Status** reads
+`RESTORE FAILED` with the reason, *Blocks Restore Failed* fires, blocks refuse
+commands and the stored copy is left untouched. *Acknowledge Restore Failure*
+keeps a copy of what was stored and lets the pack start empty.
+
+### Recipes
+
+| Recipe           | Block                             | Programming                                                                                                       |
+| ---------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Driveway welcome | Cooldown, `10m`                   | Driveway motion → `BLOCK_TRIGGER`. *Passed* → run the Welcome scene                                               |
+| Bathroom vacancy | Restartable Timer, `15m`          | Bathroom motion → `BLOCK_START`. *Expired* → light and fan off. Light switched off by hand → `BLOCK_CANCEL`       |
+| Guest override   | Flag / Latch                      | Keypad button → `BLOCK_TOGGLE`. In other programming: *If Block nn is active* → Stop. *Became True/False* → LED   |
+| Daily greeting   | Once Per Day                      | Kitchen motion → `BLOCK_TRIGGER`. *Passed* → play the greeting                                                    |
+| Rack temperature | Threshold, upper `85`, lower `78` | Input 1 = the sensor's temperature variable. *Became True* → fan on. *Became False* → fan off. *Faulted* → notify |
+
+Each is a **Template**.
+
+### The dealer app
+
+**Dealer App** shows an address such as `http://192.168.1.20:47871/app?k=…`.
+Open it in a browser on a computer or phone on the same network as the
+controller.
+
+| Screen           | Shows                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| Overview         | Every block: name, slot, type, state, running countdowns, faults. Search and filters               |
+| Block detail     | The rule in plain words, its settings, each input's value and when it was read, the last decisions |
+| Connections      | The device variables the driver reads, and the commands and events to wire in Composer             |
+| Activity         | The last decisions, newest first, filtered by block, decision or time                              |
+| Test sandbox     | A copy of one block in a simulation: send inputs, move time, see what would fire                   |
+| Diagnostics      | Version, licence, clock, missing mappings, the restart recovery report, a redacted export          |
+| Templates & help | The recipes, the block types and the words used                                                    |
+
+The app reports and simulates. It cannot create, change, enable or retire a
+block: that is done here in Composer. The sandbox runs on a copy with its own
+clock; it fires no event, sends no command and changes no live block.
+
+The app works on the home network only. It shows when its picture was taken and
+says so when the controller stops answering. **Dealer App Access** `Off` closes
+the controller port it is served from. If **Dealer App** says the controller
+address is unknown, type the controller's IP address into **App Relay Address**.
+The address carries an access token: share it with people who may see this
+system's programming logic.
+
+**Cloud Status Mirror** is `Off` unless you turn it on. `On` sends a summary
+(block names, types and whether each is healthy) to SmartBuildOS through the
+Agent. It has not been checked end to end on a controller.
+
+### Did the equipment respond?
+
+An event that fired is not proof that anything moved. For each decision the app
+shows four separate facts: the input was received, the block evaluated it, an
+event was emitted, the equipment was confirmed. The last one is shown only when
+you give the block a feedback variable: **Draft Feedback Device** and **Draft
+Feedback Variable**, the values that mean it responded in **Draft Feedback
+Expect**, and how long to wait in **Draft Feedback Within**. Without one the app
+says `Not monitored`.
+
+### Reading a decision
+
+| Word           | Means                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Passed         | The trigger was let through and *Passed* fired                                          |
+| Suppressed     | The rule held the trigger back. Nothing fired. The reason says when it would pass       |
+| Refused        | The input could not be used: wrong value, wrong command, disabled, retired or read-only |
+| No change      | The value is what it already was. Nothing fired                                         |
+| Starting value | A value read at start-up or when a listener started. It set the state and fired nothing |
+| Faulted        | The block lost its result because an input cannot be read                               |
+| Missed         | Something that was pending when the controller stopped was dropped and did not fire     |
+| Isolated       | The block was fed far faster than a house does and was stopped                          |
+
+A block that receives more than 300 inputs in 10 seconds, or that is fed from
+its own events until the input queue fills, is isolated: it stops, says why,
+fires *Faulted* once and stays stopped until *Resume Selected Block*. The other
+blocks keep working.
+
+### What is not claimed for blocks
+
+- None of the block features has been run on a controller. Everything in this
+  section comes from the driver's code and its automated tests, which run off
+  the controller, and from Control4's published documentation.
+- Not yet seen in Composer: how 128 slot events, 64 variables and 48
+  conditionals look in the pickers; whether an update in place adds them to an
+  existing installation; the true/false form of the slot variables; hiding the
+  Draft properties a type does not use.
+- Not yet seen on a network: the dealer app served by a controller.
+- A block's events are named by slot (`Block 03 Passed`), not by the block's
+  name. **Blocks** and the dealer app say which block is in which slot.
+- The driver cannot see Composer programming. It cannot tell you whether a
+  block's events are wired, or to what.
+- Sequences, repeating intervals and typed-in expressions are not block types.
+
 ## Programming reference
 
 ### Commands
@@ -421,17 +758,24 @@ All are read-only.
 
 ## Properties
 
-| Property                                                                                | What it shows or sets                                                                                                        |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Driver Status**, **Driver Version**                                                   | `Online` once the driver runs, and its build                                                                                 |
-| **Pack Status**                                                                         | `starting`, `active` or `read-only (licence)`                                                                                |
-| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the Agent answered for this driver                                                                                      |
-| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                 |
-| **Summary**                                                                             | How many counters, set flags and running timers there are, and the state. Refreshed once a minute                            |
-| **Last Trigger**                                                                        | The last timer, debounce, throttle, once-per-day or state change, with the time. Counter and flag changes are not shown here |
-| **Last Refusal**                                                                        | The last command the driver did not accept, the reason and the time                                                          |
-| **Counter Slot 1 Key** to **Counter Slot 8 Key**                                        | The counter each slot follows                                                                                                |
-| **Log Level**, **Log Mode**                                                             | Logging, for support                                                                                                         |
+| Property                                                                                | What it shows or sets                                                                                                         |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Driver Status**, **Driver Version**                                                   | `Online` once the driver runs, and its build                                                                                  |
+| **Pack Status**                                                                         | `starting`, `active` or `read-only (licence)`                                                                                 |
+| **License Status**, **License Source**, **Subscription Tier**, **SmartBuildOS Company** | What the Agent answered for this driver                                                                                       |
+| **AI Core**                                                                             | Whether this driver reports to SmartBuildOS AI Core; see [AI Core](#ai-core)                                                  |
+| **Summary**                                                                             | How many counters, set flags and running timers there are, and the state. Refreshed once a minute                             |
+| **Last Trigger**                                                                        | The last timer, debounce, throttle, once-per-day or state change, with the time. Counter and flag changes are not shown here  |
+| **Last Refusal**                                                                        | The last command the driver did not accept, the reason and the time                                                           |
+| **Counter Slot 1 Key** to **Counter Slot 8 Key**                                        | The counter each slot follows                                                                                                 |
+| **Blocks Status**, **Blocks**                                                           | How many of the 16 slots are used and which block is in which slot. `RESTORE FAILED` when the stored blocks could not be read |
+| **Selected Block**, **Selected Block Status**                                           | The block the Selected Block actions act on, and where it stands now                                                          |
+| **New Block Name**, **New Block Type**, **Template**                                    | What *New Draft* and *Load Template Into Draft* start from                                                                    |
+| **Draft**, **Draft Check**, **Draft Impact**                                            | What the draft is for, the result of *Validate Draft*, and what *Apply Draft* would do to anything running                    |
+| The other **Draft …** properties                                                        | The draft's settings. Only those the draft's type uses are shown. See [Logic Blocks](#logic-blocks)                           |
+| **Dealer App**, **App Data Relay**, **Dealer App Access**, **App Relay Address**        | The address of the dealer app, whether the controller is serving it, and the switch and the address override for it           |
+| **Cloud Status Mirror**                                                                 | `Off` (default) or `On`: a summary of the blocks sent to SmartBuildOS through the Agent                                       |
+| **Log Level**, **Log Mode**                                                             | Logging, for support                                                                                                          |
 
 ## Actions
 
@@ -441,6 +785,16 @@ All are read-only.
 | Reset All Counters, Clear All Flags, Cancel All Timers, Reset Everything | The same as `RESET_ALL` with `Counters`, `Flags`, `Timers` or `Everything`                                                                                                                                                 |
 | Register With Agent Now                                                  | Asks the Agent for the licence at once                                                                                                                                                                                     |
 | Refresh Status                                                           | Repaints the status properties and the slot variables now                                                                                                                                                                  |
+| New Draft, Load Template Into Draft, Edit Selected Block                 | Start a block draft: empty, from a recipe, or from an existing block                                                                                                                                                       |
+| Validate Draft, Apply Draft, Discard Draft                               | Check the whole draft, make it live in one step, or throw it away                                                                                                                                                          |
+| Enable, Disable, Resume, Copy, Retire Selected Block                     | Act on the block picked in **Selected Block**. Retire asks twice                                                                                                                                                           |
+| Release Retired Slot                                                     | Makes a retired slot available again. Asks twice                                                                                                                                                                           |
+| Refresh Device Lists                                                     | Reads the project's devices again for the draft's device lists, and re-checks the device variables blocks read                                                                                                             |
+| Print Blocks                                                             | In the Lua tab: every block with its rule, its state, its inputs and its event ids, and the last restart's recovery report                                                                                                 |
+| Acknowledge Restore Failure                                              | Only after **Blocks Status** reads `RESTORE FAILED`: keeps a copy of what was stored and lets the pack start empty                                                                                                         |
+
+The classic resets (*Reset Everything* and `RESET_ALL`) act on keys only. They
+never touch a block.
 
 ## Reading the status
 
@@ -551,6 +905,7 @@ controller.
   under **Last Refusal**. The rest of this page comes from the driver's code and
   its automated tests, which run off the controller. That includes timers across
   a restart and the way the conditionals appear in Composer.
-- Nothing the pack holds (keys, counts, flags, the state) is sent anywhere. The
-  driver has no network code of its own; it registers its licence with the Agent
-  on the same controller.
+- Nothing the pack holds (keys, counts, flags, the state, blocks) is sent
+  anywhere unless **Cloud Status Mirror** is turned on. The driver registers its
+  licence with the Agent on the same controller, and it serves the dealer app to
+  browsers on the home network while **Dealer App Access** is `On`.

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self' http: https:; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>Logic Blocks</title>
+<style>
+:root{
+  --bg:#f6f5f2;--card:#ffffff;--line:#dedbd3;--text:#1c1a17;--muted:#5d584f;--accent:#c2410c;--accent-bg:#fff1e6;
+  --ok:#166534;--ok-bg:#e6f4ea;--warn:#92400e;--warn-bg:#fdf0d5;--bad:#b42318;--bad-bg:#fde8e6;--info:#1d4ed8;--info-bg:#e6edff;
+  --sim:#6d28d9;--sim-bg:#f1e9ff;--focus:#1d4ed8;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12110f;--card:#1c1a17;--line:#35312b;--text:#f1eee8;--muted:#b3ada1;--accent:#fb923c;--accent-bg:#3a2110;
+  --ok:#6ee7a0;--ok-bg:#12301e;--warn:#fbbf24;--warn-bg:#3a2a08;--bad:#fca5a5;--bad-bg:#3d1512;--info:#93b4ff;--info-bg:#16233f;
+  --sim:#c4a5ff;--sim-bg:#2a1b47;--focus:#93b4ff;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.skip{position:absolute;left:-999px;top:0;background:var(--card);padding:8px 12px;z-index:10}
+.skip:focus{left:8px;top:8px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:calc(10px + env(safe-area-inset-top)) 16px 0}
+.top{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;max-width:1120px;margin:0 auto}
+h1{font-size:18px;margin:0;font-weight:650}
+h2{font-size:17px;margin:0 0 8px}
+h3{font-size:15px;margin:0 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12.5px;background:var(--card);white-space:nowrap}
+.chip.ok{color:var(--ok);background:var(--ok-bg);border-color:transparent}
+.chip.warn{color:var(--warn);background:var(--warn-bg);border-color:transparent}
+.chip.bad{color:var(--bad);background:var(--bad-bg);border-color:transparent}
+.chip.info{color:var(--info);background:var(--info-bg);border-color:transparent}
+.chip.sim{color:var(--sim);background:var(--sim-bg);border-color:transparent}
+.chip.plain{color:var(--muted)}
+nav{max-width:1120px;margin:8px auto 0;display:flex;gap:2px;overflow-x:auto}
+nav button{background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;white-space:nowrap;color:var(--muted);cursor:pointer}
+nav button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+main{max-width:1120px;margin:0 auto;padding:16px 16px calc(40px + env(safe-area-inset-bottom))}
+.banner{border-radius:10px;padding:10px 14px;margin:0 0 14px;border:1px solid transparent}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}
+.banner.bad{background:var(--bad-bg);color:var(--bad)}
+.banner.info{background:var(--info-bg);color:var(--info)}
+.banner.sim{background:var(--sim-bg);color:var(--sim)}
+.banner strong{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 12px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.blockcard{display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer}
+.blockcard:hover{border-color:var(--accent)}
+.blockcard .name{font-weight:650;font-size:16px;overflow-wrap:anywhere}
+.blockcard .meta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.blockcard .status{color:var(--muted);overflow-wrap:anywhere}
+.blockcard .foot{display:flex;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;font-size:12.5px;color:var(--muted)}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.stats{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-size:22px;line-height:1.2}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;align-items:end}
+.field{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)}
+.field input,.field select{min-height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:6px 10px;color:var(--text);min-width:130px}
+.field.grow{flex:1 1 220px}
+.btn{min-height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){.btn.primary{color:#1c1a17}}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+th{font-size:12.5px;color:var(--muted);font-weight:600}
+dl{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:6px 14px;margin:0}
+dt{color:var(--muted)}
+dd{margin:0;overflow-wrap:anywhere}
+.two{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.say{font-size:16px;margin:0 0 6px}
+.countdown{font-variant-numeric:tabular-nums;font-weight:650}
+ol.steps,ul.plain{margin:6px 0 0;padding-left:20px}
+ul.plain li,ol.steps li{margin:3px 0}
+.act{border-bottom:1px solid var(--line);padding:10px 0}
+.act:last-child{border-bottom:0}
+.act .head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.stages{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px;margin-top:6px}
+.stage{border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12.5px}
+.stage b{display:block;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.stage.yes{border-color:transparent;background:var(--ok-bg);color:var(--ok)}
+.stage.no{border-color:transparent;background:var(--warn-bg);color:var(--warn)}
+.stage.na{color:var(--muted)}
+.skeleton{height:92px;border-radius:12px;background:linear-gradient(90deg,var(--card),var(--line),var(--card));background-size:200% 100%;animation:sh 1.4s infinite}
+@keyframes sh{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skeleton{animation:none}}
+.empty{text-align:center;padding:28px 16px}
+.tl{border-left:3px solid var(--line);margin:0;padding:0 0 0 12px;list-style:none}
+.tl li{margin:0 0 8px}
+.tl .ev{color:var(--sim);font-weight:600}
+@media (max-width:640px){
+  main{padding:12px 12px 40px}
+  table.stack thead{display:none}
+  table.stack tr{display:block;border-bottom:1px solid var(--line);padding:6px 0}
+  table.stack td{display:flex;gap:10px;border:0;padding:3px 0}
+  table.stack td::before{content:attr(data-label);flex:0 0 38%;color:var(--muted);font-size:12.5px}
+  dl{grid-template-columns:1fr}
+  dt{margin-top:6px}
+}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <div class="top">
+    <h1>Logic Blocks</h1>
+    <div class="chips" id="chips" role="status" aria-live="polite"></div>
+  </div>
+  <nav id="nav" role="tablist" aria-label="Screens"></nav>
+</header>
+<main id="main" tabindex="-1"></main>
+<script>
+(function () {
+  'use strict';
+
+  // ── Transport ─────────────────────────────────────────────────────────────
+  // Same origin when served by the driver's relay (/app); else the ?relay=
+  // pointer. The token rides ?k= and is never shown, logged or exported.
+  var params = {};
+  String(location.search).replace(/^\?/, '').split('&').forEach(function (p) {
+    if (!p) return;
+    var i = p.indexOf('=');
+    params[decodeURIComponent(i < 0 ? p : p.slice(0, i))] = decodeURIComponent(i < 0 ? '' : p.slice(i + 1));
+  });
+  var base = params.relay || (location.protocol.indexOf('http') === 0 ? location.origin : '');
+  var token = params.k || '';
+  var POLL_MS = 5000;
+  var STALE_AFTER_S = 20;
+
+  function api(path, opts) {
+    if (!base) return Promise.reject(new Error('This page was opened without a controller address. Open the address shown in the Dealer App property in Composer.'));
+    var url = base + path + (path.indexOf('?') < 0 ? '?' : '&') + 'k=' + encodeURIComponent(token);
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 8000);
+    opts = opts || {};
+    opts.signal = ctl.signal;
+    opts.cache = 'no-store';
+    return fetch(url, opts).then(function (r) {
+      clearTimeout(timer);
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.status === 403) throw new Error('The controller refused the access token. Open the address shown in the Dealer App property again; it changes if the driver was re-added.');
+        if (!r.ok && !j.error) throw new Error('The controller answered ' + r.status + '.');
+        j._status = r.status;
+        return j;
+      });
+    }, function (e) {
+      clearTimeout(timer);
+      throw new Error(e && e.name === 'AbortError' ? 'The controller did not answer within 8 seconds.' : 'The controller could not be reached from this device.');
+    });
+  }
+  function post(path, body) {
+    return api(path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body || {}) });
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  var S = {
+    doc: null,          // last good /state document
+    fetchedAt: 0,       // browser ms when it arrived
+    error: null,        // last fetch error text
+    failures: 0,
+    latency: null,
+    loading: true,
+    route: { screen: 'overview', arg: null },
+    filter: { q: '', type: '', tag: '', show: '' },
+    act: { slot: '', decision: '', since: '', list: null, loading: false, error: null, at: 0 },
+    sb: null, sbError: null, sbBusy: false, sbSlot: ''
+  };
+
+  var SCREENS = [
+    ['overview', 'Overview'], ['connections', 'Connections'], ['activity', 'Activity'],
+    ['sandbox', 'Test sandbox'], ['diagnostics', 'Diagnostics'], ['help', 'Templates & help']
+  ];
+
+  // ── DOM helpers (text only: nothing typed in Composer is ever parsed as HTML)
+  function h(tag, attrs, kids) {
+    var el = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    });
+    (kids || []).forEach(function (c) {
+      if (c === null || c === undefined || c === false) return;
+      el.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);
+    });
+    return el;
+  }
+  function t(tag, text, cls) { return h(tag, { class: cls, text: text }); }
+  function chip(text, kind) { return h('span', { class: 'chip ' + (kind || 'plain'), text: text }); }
+  function arr(x) { return Array.isArray(x) ? x : []; }
+
+  // ── Time: everything the controller stamps is read against the CONTROLLER's
+  // clock (generated_at + time since the answer arrived), so a wrong clock on
+  // this device cannot distort "3 minutes ago".
+  function controllerNow() {
+    if (!S.doc) return Date.now() / 1000;
+    return S.doc.generated_at + (Date.now() - S.fetchedAt) / 1000;
+  }
+  function span(seconds) {
+    seconds = Math.max(0, Math.round(seconds));
+    if (seconds < 60) return seconds + ' s';
+    var m = Math.floor(seconds / 60), s = seconds % 60;
+    if (m < 60) return m + ' min' + (s && m < 10 ? ' ' + s + ' s' : '');
+    var hr = Math.floor(m / 60); m = m % 60;
+    if (hr < 48) return hr + ' h' + (m ? ' ' + m + ' min' : '');
+    return Math.floor(hr / 24) + ' d ' + (hr % 24) + ' h';
+  }
+  function ago(at) {
+    if (at === null || at === undefined) return 'never';
+    var d = controllerNow() - at;
+    if (d < 0) return 'in ' + span(-d);
+    if (d < 2) return 'just now';
+    return span(d) + ' ago';
+  }
+  function clock(at) {
+    if (at === null || at === undefined) return '-';
+    var d = new Date(at * 1000);
+    var today = new Date();
+    var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toDateString() === today.toDateString() ? time : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
+  }
+  function stamp(at) { return at === null || at === undefined ? 'never' : clock(at) + ' (' + ago(at) + ')'; }
+
+  // ── Freshness ─────────────────────────────────────────────────────────────
+  function freshness() {
+    if (!S.doc) return S.error ? 'offline' : 'loading';
+    var age = (Date.now() - S.fetchedAt) / 1000;
+    if (S.failures > 0 || age > STALE_AFTER_S) return 'stale';
+    return 'live';
+  }
+
+  function renderChips() {
+    var box = document.getElementById('chips');
+    box.textContent = '';
+    var f = freshness();
+    if (f === 'live') box.appendChild(chip('Live · updated ' + ago(S.doc.generated_at), 'ok'));
+    else if (f === 'stale') box.appendChild(chip('Stale · showing ' + clock(S.doc.generated_at), 'warn'));
+    else if (f === 'offline') box.appendChild(chip('Not connected', 'bad'));
+    else box.appendChild(chip('Connecting…', 'plain'));
+    if (S.doc) {
+      var d = S.doc.driver || {};
+      if (d.read_only) box.appendChild(chip('Read-only (licence)', 'bad'));
+      else box.appendChild(chip('Pack ' + (d.pack_status || 'unknown'), d.pack_status === 'active' ? 'plain' : 'warn'));
+      if (S.doc.faults) box.appendChild(chip(S.doc.faults + ' need attention', 'warn'));
+    }
+  }
+
+  function banners(into) {
+    var f = freshness();
+    if (f === 'stale') {
+      into.appendChild(h('div', { class: 'banner warn', role: 'status' }, [
+        t('strong', 'This is not live.'),
+        'Showing what the controller reported at ' + stamp(S.doc.generated_at) + '. ' + (S.error || 'No newer answer has arrived.') + ' Countdowns below are estimates until it answers again.'
+      ]));
+    }
+    if (S.doc && S.doc.diagnostics && S.doc.diagnostics.restore_failed) {
+      into.appendChild(h('div', { class: 'banner bad', role: 'alert' }, [
+        t('strong', 'Stored blocks were not loaded after the last restart.'),
+        S.doc.diagnostics.restore_failed + '. Nothing was reset. In Composer, read Blocks Status, then decide whether to run Acknowledge Restore Failure.'
+      ]));
+    }
+    if (S.doc && S.doc.driver && S.doc.driver.read_only) {
+      into.appendChild(h('div', { class: 'banner bad', role: 'status' }, [
+        t('strong', 'The pack is read-only.'),
+        'The SmartBuildOS licence does not cover it right now. Blocks refuse every input and running countdowns are held. Nothing has been lost.'
+      ]));
+    }
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+  function parseRoute() {
+    var m = String(location.hash || '').replace(/^#/, '').split('/');
+    var screen = m[0] || 'overview';
+    if (screen === 'block') return { screen: 'block', arg: parseInt(m[1], 10) };
+    for (var i = 0; i < SCREENS.length; i++) if (SCREENS[i][0] === screen) return { screen: screen, arg: m[1] || null };
+    return { screen: 'overview', arg: null };
+  }
+  function go(hash) { location.hash = hash; }
+
+  function renderNav() {
+    var nav = document.getElementById('nav');
+    nav.textContent = '';
+    var current = S.route.screen === 'block' ? 'overview' : S.route.screen;
+    SCREENS.forEach(function (s, i) {
+      var b = h('button', {
+        role: 'tab', id: 'tab-' + s[0], 'aria-selected': s[0] === current ? 'true' : 'false',
+        tabindex: s[0] === current ? '0' : '-1', text: s[1],
+        onclick: function () { go(s[0]); },
+        onkeydown: function (e) {
+          var n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? SCREENS.length - 1 : -1;
+          if (n < 0) return;
+          e.preventDefault();
+          n = (n + SCREENS.length) % SCREENS.length;
+          // Arrowing along the tabs keeps the keyboard on the tabs.
+          S.focusTab = SCREENS[n][0];
+          go(SCREENS[n][0]);
+        }
+      });
+      nav.appendChild(b);
+    });
+  }
+
+  // ── Shared pieces ─────────────────────────────────────────────────────────
+  function blockBadges(b) {
+    var out = [chip(b.label, 'plain'), chip(b.type_label, 'plain')];
+    if (b.tag) out.push(chip(b.tag, 'info'));
+    if (b.isolated) out.push(chip('Isolated', 'bad'));
+    else if (!b.enabled) out.push(chip('Disabled', 'warn'));
+    else if (b.output && b.output.valid === false) out.push(chip('Unknown', 'warn'));
+    else out.push(chip('Enabled', 'ok'));
+    return out;
+  }
+  function countdownText(b) {
+    if (!b.deadline) return null;
+    var left = b.deadline.at - controllerNow();
+    return (left > 0 ? span(left) : 'due now') + ' until it ' + b.deadline.what;
+  }
+  function findBlock(slot) {
+    var list = arr(S.doc && S.doc.blocks);
+    for (var i = 0; i < list.length; i++) if (list[i].slot === slot) return list[i];
+    return null;
+  }
+  function composerPath(b) {
+    return 'Composer Pro → System Design → SmartBuildOS Logic Pack → Properties: set Selected Block to "' +
+      (b ? (('0' + b.slot).slice(-2) + ' · ' + b.name) : 'the block') + '" → Actions: Edit Selected Block → change the Draft properties → Validate Draft → Apply Draft.';
+  }
+  var DECISIONS = {
+    passed: ['Passed', 'ok'], suppressed: ['Suppressed', 'warn'], started: ['Started', 'info'], restarted: ['Restarted', 'info'],
+    expired: ['Expired', 'ok'], expired_late: ['Expired late', 'warn'], cancelled: ['Cancelled', 'plain'], changed: ['Changed', 'ok'],
+    unchanged: ['No change', 'plain'], became_true: ['Became true', 'ok'], became_false: ['Became false', 'ok'], faulted: ['Faulted', 'bad'],
+    refused: ['Refused', 'bad'], isolated: ['Isolated', 'bad'], resumed: ['Resumed', 'info'], reset: ['Reset', 'plain'],
+    configured: ['Configured', 'info'], enabled: ['Enabled', 'info'], disabled: ['Disabled', 'warn'], retired: ['Retired', 'warn'],
+    baseline: ['Starting value', 'plain'], readable: ['Readable again', 'info'], recovered: ['Recovered', 'info'], missed: ['Missed', 'warn'],
+    held: ['Held', 'warn'], feedback: ['Equipment feedback', 'info']
+  };
+  function decisionChip(d) { var x = DECISIONS[d] || [d, 'plain']; return chip(x[0], x[1]); }
+  var ORIGINS = { live: ['Live', 'plain'], restored: ['From before the restart', 'warn'], sim: ['Simulated', 'sim'] };
+
+  function stageRow(e) {
+    var events = arr(e.events);
+    var received = e.input && e.input !== '(driver)' && e.input !== '(timer)';
+    var conf = e.confirmed;
+    var confText = { confirmed: 'Confirmed by feedback', not_confirmed: 'No feedback arrived', already: 'Already in that state (not attributable)', pending: 'Waiting for feedback', not_monitored: 'Not monitored' }[conf] || 'Nothing to confirm';
+    var names = events.map(function (k) { return (e.name ? '' : '') + ({ passed: 'Passed', started: 'Started', expired: 'Expired', cancelled: 'Cancelled', value_changed: 'Value Changed', became_true: 'Became True', became_false: 'Became False', faulted: 'Faulted' }[k] || k); });
+    return h('div', { class: 'stages' }, [
+      h('div', { class: 'stage ' + (received ? 'yes' : 'na') }, [t('b', '1 · Input received'), received ? e.input : (e.input === '(timer)' ? 'A countdown ended' : 'None (driver)')]),
+      h('div', { class: 'stage yes' }, [t('b', '2 · Block evaluated'), (DECISIONS[e.decision] || [e.decision])[0]]),
+      h('div', { class: 'stage ' + (events.length ? 'yes' : 'na') }, [t('b', '3 · Event emitted'), events.length ? names.join(', ') : 'No event']),
+      h('div', { class: 'stage ' + (conf === 'confirmed' ? 'yes' : (conf === 'not_confirmed' ? 'no' : 'na')) }, [t('b', '4 · Equipment confirmed'), confText])
+    ]);
+  }
+  function activityItem(e, withBlock) {
+    var o = ORIGINS[e.origin] || [e.origin, 'plain'];
+    return h('div', { class: 'act' }, [
+      h('div', { class: 'head' }, [
+        t('span', clock(e.at), 'mono'),
+        withBlock ? t('strong', (e.name || '') + ' ') : null,
+        decisionChip(e.decision),
+        e.origin !== 'live' ? chip(o[0], o[1]) : null,
+        t('span', ago(e.at), 'muted small'),
+        e.run ? t('span', e.run + (e.cause ? ' ← ' + e.cause : ''), 'muted small mono') : null
+      ]),
+      t('div', e.reason || ''),
+      stageRow(e)
+    ]);
+  }
+
+  // ── A · Overview ──────────────────────────────────────────────────────────
+  function matches(b) {
+    var f = S.filter;
+    if (f.type && b.type !== f.type) return false;
+    if (f.tag && (b.tag || '') !== f.tag) return false;
+    if (f.show === 'attention' && !(b.isolated || (b.enabled && b.output && b.output.valid === false))) return false;
+    if (f.show === 'disabled' && b.enabled) return false;
+    if (f.show === 'enabled' && !b.enabled) return false;
+    if (f.show === 'running' && !b.deadline) return false;
+    if (f.q) {
+      var hay = (b.name + ' ' + (b.tag || '') + ' ' + b.type_label + ' ' + b.label + ' ' + (b.status || '')).toLowerCase();
+      if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
+    }
+    return true;
+  }
+  function overview(root) {
+    var doc = S.doc;
+    var blocks = arr(doc.blocks);
+    var running = blocks.filter(function (b) { return !!b.deadline; }).length;
+    var last = arr(doc.activity)[0];
+    var cap = doc.capacity || {};
+    root.appendChild(h('div', { class: 'stats' }, [
+      h('div', { class: 'stat' }, [t('b', String(cap.used || 0) + ' / ' + String(cap.slots || 16)), 'Slots used']),
+      h('div', { class: 'stat' }, [t('b', String(cap.enabled || 0)), 'Enabled']),
+      h('div', { class: 'stat' }, [t('b', String(running)), 'Countdowns running']),
+      h('div', { class: 'stat' }, [t('b', String(doc.faults || 0)), 'Need attention']),
+      h('div', { class: 'stat' }, [t('b', last ? ago(last.at) : 'None'), 'Last activity'])
+    ]));
+    if (!blocks.length) {
+      root.appendChild(h('div', { class: 'card empty' }, [
+        t('h2', 'No blocks yet'),
+        t('p', 'Blocks are created in Composer Pro, not here.', 'muted'),
+        h('ol', { class: 'steps', style: 'text-align:left;display:inline-block' }, [
+          t('li', 'Open this driver in Composer Pro and go to Properties.'),
+          t('li', 'Type New Block Name, pick New Block Type, then run the action New Draft (or pick a Template and run Load Template Into Draft).'),
+          t('li', 'Fill in the Draft properties, run Validate Draft, then Apply Draft.'),
+          t('li', 'The block appears here within a few seconds.')
+        ]),
+        h('p', {}, [h('button', { class: 'btn', onclick: function () { go('help'); }, text: 'See the recipes' })])
+      ]));
+      return;
+    }
+    var types = {}, tags = {};
+    blocks.forEach(function (b) { types[b.type] = b.type_label; if (b.tag) tags[b.tag] = true; });
+    function sel(label, key, options) {
+      var s = h('select', { 'aria-label': label, onchange: function (e) { S.filter[key] = e.target.value; render(); } },
+        [h('option', { value: '', text: 'All' })].concat(options.map(function (o) { return h('option', { value: o[0], text: o[1], selected: S.filter[key] === o[0] }); })));
+      return h('label', { class: 'field' }, [label, s]);
+    }
+    var q = h('input', { type: 'search', placeholder: 'Name, room, type…', value: S.filter.q, 'aria-label': 'Search blocks',
+      oninput: function (e) { S.filter.q = e.target.value; paintList(); } });
+    root.appendChild(h('div', { class: 'controls' }, [
+      h('label', { class: 'field grow' }, ['Search', q]),
+      sel('Type', 'type', Object.keys(types).map(function (k) { return [k, types[k]]; })),
+      sel('Room / tag', 'tag', Object.keys(tags).sort().map(function (k) { return [k, k]; })),
+      sel('Show', 'show', [['enabled', 'Enabled'], ['disabled', 'Disabled'], ['running', 'Countdown running'], ['attention', 'Need attention']])
+    ]));
+    var list = h('div', { class: 'grid', id: 'blocklist' });
+    root.appendChild(list);
+    function paintList() {
+      list.textContent = '';
+      var shown = blocks.filter(matches);
+      if (!shown.length) { list.appendChild(h('div', { class: 'card' }, ['No block matches these filters. ', h('button', { class: 'btn', text: 'Clear filters', onclick: function () { S.filter = { q: '', type: '', tag: '', show: '' }; render(); } })])); return; }
+      shown.forEach(function (b) {
+        var cd = countdownText(b);
+        list.appendChild(h('button', { class: 'blockcard', onclick: function () { go('block/' + b.slot); }, 'aria-label': b.name + ', ' + b.type_label + ', ' + b.label + '. ' + b.status }, [
+          t('div', b.name, 'name'),
+          h('div', { class: 'meta' }, blockBadges(b)),
+          t('div', b.status, 'status'),
+          cd ? h('div', { class: 'countdown', 'data-at': b.deadline.at, 'data-what': b.deadline.what, text: cd }) : null,
+          h('div', { class: 'foot' }, [
+            t('span', b.last_accepted ? 'Last accepted ' + ago(b.last_accepted.at) : 'No input accepted yet'),
+            t('span', b.fault ? 'Fault' : '')
+          ])
+        ]));
+      });
+    }
+    paintList();
+    if (arr(doc.unreadable).length) {
+      root.appendChild(h('div', { class: 'banner bad' }, [t('strong', 'Unreadable slots'), arr(doc.unreadable).map(function (u) { return u.label + ': ' + u.why; }).join(' · ')]));
+    }
+    if (arr(doc.retired).length) {
+      root.appendChild(t('p', 'Retired slots (kept out of use): ' + arr(doc.retired).map(function (r) { return r.label + ' "' + r.retired.name + '"'; }).join(', '), 'muted small'));
+    }
+  }
+
+  // ── B · Block detail ──────────────────────────────────────────────────────
+  var SRC = { ok: ['Read', 'ok'], awaiting: ['Waiting for the first value', 'warn'], never: ['Never sent', 'warn'], unavailable: ['Cannot be read', 'bad'], invalid: ['Not usable', 'bad'] };
+  function sourcesTable(b) {
+    var rows = arr(b.sources);
+    if (!rows.length) return t('p', 'This block type has no value inputs. It is driven by commands from Composer programming.', 'muted');
+    return h('table', { class: 'stack' }, [
+      h('thead', {}, [h('tr', {}, ['Input', 'Where it comes from', 'Value', 'Reads as', 'State', 'Observed'].map(function (x) { return t('th', x); }))]),
+      h('tbody', {}, rows.map(function (r) {
+        var st = SRC[r.status] || [r.status, 'plain'];
+        var from = r.mode === 'variable'
+          ? (r.device_name || 'device') + ' › ' + (r.variable_name || 'variable') + '  (device ' + r.device_id + ', variable ' + r.variable_id + ')'
+          : 'Sent by programming: BLOCK_INPUT (' + b.label + ', Input ' + r.index + ')';
+        return h('tr', {}, [
+          h('td', { 'data-label': 'Input' }, [r.label]),
+          h('td', { 'data-label': 'From' }, [from, r.reads_block ? ' — reads Block ' + ('0' + r.reads_block).slice(-2) : '']),
+          h('td', { 'data-label': 'Value', class: 'mono' }, [r.value === undefined || r.value === null ? '—' : String(r.value)]),
+          h('td', { 'data-label': 'Reads as' }, [r.reads_as || (r.status === 'ok' ? 'as sent' : 'unknown')]),
+          h('td', { 'data-label': 'State' }, [chip(st[0], st[1]), r.why ? t('div', r.why, 'small muted') : null, r.via === 'restored' ? t('div', 'Kept from before the restart', 'small muted') : null]),
+          h('td', { 'data-label': 'Observed' }, [r.observed_at ? stamp(r.observed_at) : 'never'])
+        ]);
+      }))
+    ]);
+  }
+  function blockDetail(root, slot) {
+    var b = findBlock(slot);
+    if (!b) {
+      root.appendChild(h('div', { class: 'card' }, [t('h2', 'No block in slot ' + slot), h('button', { class: 'btn', text: 'Back to overview', onclick: function () { go('overview'); } })]));
+      return;
+    }
+    root.appendChild(h('p', {}, [h('a', { href: '#overview', text: '← All blocks' })]));
+    root.appendChild(h('div', { class: 'card' }, [
+      t('h2', b.name),
+      h('div', { class: 'chips', style: 'margin-bottom:10px' }, blockBadges(b)),
+      t('h3', 'What it does'),
+      t('p', b.explanation, 'say'),
+      t('h3', 'Right now'),
+      t('p', b.status, 'say'),
+      countdownText(b) ? h('p', { class: 'countdown', 'data-at': b.deadline.at, 'data-what': b.deadline.what, text: countdownText(b) }) : null,
+      countdownText(b) ? t('p', 'Deadline ' + clock(b.deadline.at) + ' on the controller clock.', 'muted small') : null,
+      b.isolated ? h('div', { class: 'banner bad' }, [t('strong', 'Isolated ' + ago(b.isolated.at)), b.isolated.text + ' It stays stopped until Resume Selected Block is run in Composer.']) : null,
+      b.fault && !b.isolated ? h('div', { class: 'banner warn' }, [t('strong', 'No result since ' + clock(b.fault.at)), b.fault.text + '. Unknown is not treated as false.']) : null,
+      h('div', { class: 'row' }, [
+        h('button', { class: 'btn', text: 'Try it in the sandbox', onclick: function () { S.sbSlot = String(b.slot); go('sandbox'); } }),
+        h('button', { class: 'btn', text: 'See its wiring', onclick: function () { go('connections/' + b.slot); } })
+      ])
+    ]));
+    var out = b.output || {};
+    var n = ('0' + b.slot).slice(-2);
+    root.appendChild(h('div', { class: 'two' }, [
+      h('div', { class: 'card' }, [t('h3', 'Settings'), h('dl', {}, [].concat.apply([], arr(b.settings).map(function (r) { return [t('dt', r.label), t('dd', r.value)]; })).concat(arr(b.settings).length ? [] : [t('dd', 'No settings for this type.')]))]),
+      h('div', { class: 'card' }, [t('h3', 'Current output'), h('dl', {}, [
+        t('dt', 'Active'), h('dd', {}, [out.valid === false ? 'unknown' : (out.active ? 'yes' : 'no'), t('span', '  BLOCK_' + n + '_ACTIVE', 'mono muted')]),
+        t('dt', 'Valid'), h('dd', {}, [out.valid ? 'yes' : 'no', t('span', '  BLOCK_' + n + '_VALID', 'mono muted')]),
+        t('dt', 'Value'), h('dd', {}, [String(out.value), t('span', '  BLOCK_' + n + '_VALUE', 'mono muted')]),
+        t('dt', 'State'), h('dd', {}, [String(out.state), t('span', '  BLOCK_' + n + '_STATE', 'mono muted')])
+      ])])
+    ]));
+    root.appendChild(h('div', { class: 'card' }, [t('h3', 'Inputs'), sourcesTable(b),
+      b.feedback ? h('p', { class: 'small' }, ['Equipment feedback: ' + (b.feedback.device_name || 'device ' + b.feedback.device_id) + ' › ' + (b.feedback.variable_name || 'variable ' + b.feedback.variable_id) + ' is one of "' + b.feedback.expect + '". Current value: ' + (b.feedback.value === undefined || b.feedback.value === null ? 'not read' : b.feedback.value) + (b.feedback.why ? ' (' + b.feedback.why + ')' : '') + '.'])
+        : t('p', 'No equipment feedback is mapped, so this page can say an event fired but never that equipment responded.', 'small muted')]));
+    function last(label, x) { return [t('dt', label), h('dd', {}, [x ? x.text : 'None yet', x ? t('div', stamp(x.at), 'small muted') : null])]; }
+    var c = b.counts || {};
+    root.appendChild(h('div', { class: 'two' }, [
+      h('div', { class: 'card' }, [t('h3', 'Last inputs'), h('dl', {}, [].concat(last('Accepted', b.last_accepted), last('Suppressed', b.last_suppressed), last('Refused', b.last_refused)))]),
+      h('div', { class: 'card' }, [t('h3', 'Since it was created'), h('dl', {}, [
+        t('dt', 'Inputs accepted'), t('dd', String(c.accepted || 0)), t('dt', 'Suppressed'), t('dd', String(c.suppressed || 0)),
+        t('dt', 'Refused'), t('dd', String(c.refused || 0)), t('dt', 'Events emitted'), t('dd', String(c.emitted || 0)),
+        t('dt', 'Settings revision'), t('dd', String(b.rev || 1) + ' · changed ' + ago(b.updated_at))
+      ])])
+    ]));
+    root.appendChild(h('div', { class: 'card' }, [t('h3', 'Configured in Composer'), t('p', 'This page cannot change a block. To change this one: ' + composerPath(b)), b.notes ? h('p', {}, [t('strong', 'Dealer notes: '), b.notes]) : null]));
+    var mine = arr(S.doc.activity).filter(function (e) { return e.slot === b.slot; }).slice(0, 12);
+    root.appendChild(h('div', { class: 'card' }, [t('h3', 'Recent decisions'),
+      mine.length ? h('div', {}, mine.map(function (e) { return activityItem(e, false); })) : t('p', 'Nothing recorded for this block yet.', 'muted'),
+      h('p', {}, [h('button', { class: 'btn', text: 'All activity for this block', onclick: function () { S.act.slot = String(b.slot); S.act.list = null; go('activity'); } })])]));
+  }
+
+  // ── C · Connections ───────────────────────────────────────────────────────
+  function connections(root, only) {
+    var blocks = arr(S.doc.blocks);
+    root.appendChild(h('div', { class: 'banner info' }, [
+      t('strong', 'What this page can and cannot see'),
+      'The driver knows the device variables it reads itself. It cannot see Composer programming. The wiring listed below is what to add in Composer; whether it has been added is not verified here.'
+    ]));
+    if (!blocks.length) { root.appendChild(t('p', 'No blocks yet.', 'muted')); return; }
+    blocks.forEach(function (b) {
+      if (only && String(b.slot) !== String(only)) return;
+      var owned = arr(b.sources).filter(function (r) { return r.mode === 'variable'; });
+      var rel = arr(b.sources).filter(function (r) { return r.reads_block; });
+      var w = b.wiring || {};
+      root.appendChild(h('section', { class: 'card', 'aria-label': b.name }, [
+        h('div', { class: 'row', style: 'justify-content:space-between' }, [t('h2', b.name), h('div', { class: 'chips' }, blockBadges(b))]),
+        t('h3', 'Mappings this driver owns'),
+        owned.length || b.feedback ? h('ul', { class: 'plain' }, owned.map(function (r) {
+          var st = SRC[r.status] || [r.status, 'plain'];
+          return h('li', {}, [r.label + ' ← ' + (r.device_name || 'device') + ' › ' + (r.variable_name || 'variable') + ' (device ' + r.device_id + ', variable ' + r.variable_id + ') ', chip(st[0], st[1]), r.why ? ' ' + r.why : '']);
+        }).concat(b.feedback ? [h('li', {}, ['Equipment feedback ← ' + (b.feedback.device_name || 'device') + ' › ' + (b.feedback.variable_name || 'variable') + ' (device ' + b.feedback.device_id + ', variable ' + b.feedback.variable_id + ')'])] : []))
+          : t('p', 'None. This block reads no device variable directly.', 'muted'),
+        t('h3', 'Relationships between blocks'),
+        rel.length ? h('ul', { class: 'plain' }, rel.map(function (r) { return t('li', r.label + ' reads Block ' + ('0' + r.reads_block).slice(-2) + (findBlock(r.reads_block) ? ' (' + findBlock(r.reads_block).name + ')' : '')); }))
+          : t('p', 'None known. A block is related to another only when one of its inputs reads the other block\'s variable. Chains built with Composer programming are not visible here.', 'muted'),
+        h('h3', {}, ['Composer wiring to add ', chip('Not verified from here', 'warn')]),
+        t('div', 'Feed it (Programming → Actions → this driver):', 'small muted'),
+        arr(w.inputs).length ? h('ul', { class: 'plain' }, arr(w.inputs).map(function (i) { return h('li', {}, [t('span', i.command + ' (' + i.block + ')', 'mono'), ' — ' + i.does]); }))
+          : t('p', 'Nothing to send: every input of this block is read from a device variable.', 'muted'),
+        t('div', 'React to it (Programming → Events → this driver):', 'small muted'),
+        h('ul', { class: 'plain' }, arr(w.outputs).map(function (o) { return h('li', {}, [t('span', o.event, 'mono'), ' — when ' + o.when + ' ', t('span', '(event id ' + o.id + ')', 'muted small')]); })),
+        t('h3', 'Dealer notes'),
+        t('p', b.notes || 'None. Notes are typed in Draft Notes in Composer.', b.notes ? '' : 'muted')
+      ]));
+    });
+    if (only) root.appendChild(h('p', {}, [h('a', { href: '#connections', text: 'Show every block' })]));
+  }
+
+  // ── D · Activity ──────────────────────────────────────────────────────────
+  function loadActivity() {
+    var a = S.act;
+    a.loading = true; a.error = null;
+    var q = '/activity?limit=200';
+    if (a.slot) q += '&slot=' + encodeURIComponent(a.slot);
+    if (a.decision) q += '&decision=' + encodeURIComponent(a.decision);
+    if (a.since) q += '&since=' + encodeURIComponent(String(Math.floor(controllerNow() - parseInt(a.since, 10))));
+    return api(q).then(function (j) { a.list = arr(j.activity); a.at = j.generated_at; a.loading = false; if (S.route.screen === 'activity') render(); },
+      function (e) { a.loading = false; a.error = e.message; if (S.route.screen === 'activity') render(); });
+  }
+  function activity(root) {
+    var a = S.act;
+    function sel(label, key, options) {
+      return h('label', { class: 'field' }, [label, h('select', { 'aria-label': label, onchange: function (e) { a[key] = e.target.value; a.list = null; loadActivity(); render(); } },
+        [h('option', { value: '', text: 'All' })].concat(options.map(function (o) { return h('option', { value: o[0], text: o[1], selected: String(a[key]) === String(o[0]) }); })))]);
+    }
+    root.appendChild(h('div', { class: 'controls' }, [
+      sel('Block', 'slot', arr(S.doc.blocks).map(function (b) { return [String(b.slot), b.label + ' · ' + b.name]; })),
+      sel('Decision', 'decision', Object.keys(DECISIONS).map(function (k) { return [k, DECISIONS[k][0]]; })),
+      sel('Time', 'since', [['900', 'Last 15 minutes'], ['3600', 'Last hour'], ['86400', 'Last 24 hours']]),
+      h('button', { class: 'btn', text: 'Refresh', onclick: function () { a.list = null; loadActivity(); render(); } })
+    ]));
+    var lim = (S.doc.diagnostics || {}).limits || {};
+    root.appendChild(t('p', 'Newest first. The controller keeps the last ' + (lim.history || 200) + ' decisions in memory and the last ' + (lim.history_saved || 50) + ' across a restart. Each row shows four separate facts; an emitted event is not proof that equipment responded.', 'small muted'));
+    if (a.list === null && !a.loading && !a.error) loadActivity();
+    if (a.error) root.appendChild(h('div', { class: 'banner bad', role: 'alert' }, [t('strong', 'Activity could not be loaded.'), a.error]));
+    if (a.list === null) { root.appendChild(h('div', { class: 'skeleton', 'aria-label': 'Loading activity' })); return; }
+    if (!a.list.length) { root.appendChild(h('div', { class: 'card empty' }, [t('h2', 'Nothing matches'), t('p', a.slot || a.decision || a.since ? 'No decision matches these filters.' : 'No decision has been recorded yet. Trigger a block from Composer programming, or try one in the sandbox.', 'muted')])); return; }
+    root.appendChild(h('div', { class: 'card' }, a.list.map(function (e) { return activityItem(e, true); })));
+    root.appendChild(t('p', 'Showing ' + a.list.length + ' decisions as of ' + stamp(a.at) + '.', 'small muted'));
+  }
+
+  // ── E · Test sandbox ──────────────────────────────────────────────────────
+  var CMD = { trigger: 'Trigger', start: 'Start', restart: 'Restart', cancel: 'Cancel', set: 'Set', clear: 'Clear', toggle: 'Toggle', increment: 'Increment', decrement: 'Decrement', reset: 'Reset' };
+  function sbCall(path, body) {
+    S.sbBusy = true; S.sbError = null; render();
+    return post(path, body).then(function (j) {
+      S.sbBusy = false;
+      if (j.ok === false) S.sbError = j.error || 'The sandbox refused that.'; else S.sb = j.open === false ? null : j;
+      render();
+    }, function (e) { S.sbBusy = false; S.sbError = e.message; render(); });
+  }
+  function sandbox(root) {
+    root.appendChild(h('div', { class: 'banner sim' }, [
+      t('strong', 'Simulated. Nothing here reaches the house.'),
+      'The sandbox copies a block\'s settings into a separate runtime with its own clock. It never fires a Composer event, sends a command, changes the live block or saves anything.'
+    ]));
+    var blocks = arr(S.doc.blocks);
+    if (!blocks.length) { root.appendChild(t('p', 'Create a block in Composer first; the sandbox copies an existing block.', 'muted')); return; }
+    var pick = h('select', { 'aria-label': 'Block to copy', onchange: function (e) { S.sbSlot = e.target.value; } },
+      blocks.map(function (b) { return h('option', { value: String(b.slot), text: b.label + ' · ' + b.name + ' (' + b.type_label + ')', selected: S.sbSlot === String(b.slot) }); }));
+    if (!S.sbSlot) S.sbSlot = String(blocks[0].slot);
+    root.appendChild(h('div', { class: 'controls' }, [
+      h('label', { class: 'field grow' }, ['Block to copy', pick]),
+      h('button', { class: 'btn primary', disabled: S.sbBusy, text: S.sb ? 'Copy again (fresh sandbox)' : 'Copy settings into the sandbox', onclick: function () { sbCall('/sandbox/open', { slot: parseInt(S.sbSlot, 10) }); } }),
+      S.sb ? h('button', { class: 'btn', disabled: S.sbBusy, text: 'Close sandbox', onclick: function () { sbCall('/sandbox/close', {}); } }) : null
+    ]));
+    if (S.sbError) root.appendChild(h('div', { class: 'banner bad', role: 'alert' }, [t('strong', 'Sandbox'), S.sbError]));
+    var sb = S.sb;
+    if (!sb) { root.appendChild(t('p', 'No sandbox is open. Copy a block to start; the live block keeps running untouched.', 'muted')); return; }
+    var v = sb.view || {};
+    var liveB = findBlock(sb.slot);
+    var accepts = {};
+    arr((v.wiring || {}).inputs).forEach(function (i) { accepts[i.command.replace('BLOCK_', '').toLowerCase()] = true; });
+    var valueIn = h('input', { type: 'text', 'aria-label': 'Value', placeholder: 'value' });
+    var byIn = h('input', { type: 'text', 'aria-label': 'By', placeholder: 'by (default 1)', style: 'max-width:130px' });
+    var cmdButtons = Object.keys(CMD).filter(function (k) { return accepts[k]; }).map(function (k) {
+      return h('button', { class: 'btn', disabled: S.sbBusy, text: CMD[k], onclick: function () { sbCall('/sandbox/input', { command: k, value: valueIn.value, by: byIn.value }); } });
+    });
+    var needsValue = accepts.set, needsBy = accepts.increment;
+    var inputRows = arr(v.sources).map(function (r) {
+      var f = h('input', { type: 'text', 'aria-label': 'Value for ' + r.label, placeholder: r.reads_as ? 'true / false' : 'value', value: r.value === undefined || r.value === null ? '' : String(r.value) });
+      return h('div', { class: 'row', style: 'margin:6px 0' }, [
+        t('span', r.label + ':', ''), f,
+        h('button', { class: 'btn', disabled: S.sbBusy, text: 'Send', onclick: function () { sbCall('/sandbox/source', { index: r.index, value: f.value }); } }),
+        h('button', { class: 'btn', disabled: S.sbBusy, text: 'Make unreadable', onclick: function () { sbCall('/sandbox/source', { index: r.index, unavailable: true }); } }),
+        t('span', (SRC[r.status] || [r.status])[0] + (r.reads_as ? ', reads as ' + r.reads_as : ''), 'small muted')
+      ]);
+    });
+    var custom = h('input', { type: 'number', min: '0', step: '1', value: '30', 'aria-label': 'Seconds to advance', style: 'max-width:110px' });
+    var next = arr(sb.pending_timers)[0];
+    function adv(s) { return h('button', { class: 'btn', disabled: S.sbBusy, text: '+' + span(s), onclick: function () { sbCall('/sandbox/advance', { seconds: s }); } }); }
+    root.appendChild(h('div', { class: 'two' }, [
+      h('div', { class: 'card' }, [
+        h('div', { class: 'row', style: 'justify-content:space-between' }, [t('h2', 'Sandbox: ' + (v.name || '')), chip('Simulated', 'sim')]),
+        t('p', v.explanation || '', 'small muted'),
+        h('dl', {}, [
+          t('dt', 'Simulated time'), t('dd', '+' + span(sb.elapsed) + ' after it was opened' + (sb.day ? ' · day ' + sb.day : '')),
+          t('dt', 'State'), t('dd', v.status || ''),
+          t('dt', 'Output'), t('dd', v.output ? 'active ' + (v.output.valid === false ? 'unknown' : (v.output.active ? 'yes' : 'no')) + ' · value ' + v.output.value + ' · state ' + v.output.state : '-'),
+          t('dt', 'Next timer'), t('dd', next ? 'in ' + span(next.in_seconds) : 'none pending')
+        ]),
+        t('h3', 'Send an input'),
+        cmdButtons.length ? h('div', { class: 'row' }, [needsValue ? valueIn : null, needsBy ? byIn : null].concat(cmdButtons)) : null,
+        inputRows.length ? h('div', {}, inputRows) : null,
+        t('h3', 'Move time'),
+        h('div', { class: 'row' }, [adv(1), adv(10), adv(60), adv(600), adv(3600),
+          next ? h('button', { class: 'btn', disabled: S.sbBusy, text: 'To the next timer', onclick: function () { sbCall('/sandbox/advance', { seconds: Math.ceil(next.in_seconds) }); } }) : null,
+          custom, h('button', { class: 'btn', disabled: S.sbBusy, text: 'Advance seconds', onclick: function () { sbCall('/sandbox/advance', { seconds: parseFloat(custom.value) || 0 }); } })]),
+        t('h3', 'Scenario'),
+        h('div', { class: 'row' }, [
+          h('button', { class: 'btn', disabled: S.sbBusy, text: 'Reset to the start', onclick: function () { sbCall('/sandbox/reset', {}); } }),
+          h('button', { class: 'btn', disabled: S.sbBusy || !arr(sb.steps).length, text: 'Replay these ' + arr(sb.steps).length + ' steps', onclick: function () { sbCall('/sandbox/replay', {}); } })
+        ]),
+        liveB ? t('p', 'Live block right now: ' + liveB.status + ' — unaffected by anything above.', 'small muted') : null
+      ]),
+      h('div', { class: 'card' }, [
+        t('h3', 'What would happen'),
+        arr(sb.timeline).length ? h('ol', { class: 'tl' }, arr(sb.timeline).map(function (e) {
+          if (e.kind === 'event') return h('li', {}, [t('span', '+' + span(e.offset) + '  ', 'mono muted'), t('span', 'Would fire: ' + e.event, 'ev')]);
+          return h('li', {}, [t('span', '+' + span(e.offset) + '  ', 'mono muted'), decisionChip(e.decision), ' ', e.input && e.input.charAt(0) !== '(' ? e.input + ' → ' : '', e.reason || '']);
+        })) : t('p', 'Nothing yet. Send an input or move time.', 'muted')
+      ])
+    ]));
+  }
+
+  // ── F · Diagnostics ───────────────────────────────────────────────────────
+  function exportFile() {
+    api('/export').then(function (j) {
+      delete j._status;
+      var blob = new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' });
+      var a = h('a', { href: URL.createObjectURL(blob), download: 'logic-blocks-diagnostics.json' });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    }, function (e) { alert('Export failed: ' + e.message); });
+  }
+  function diagnostics(root) {
+    var doc = S.doc, d = doc.driver || {}, lic = doc.license || {}, dg = doc.diagnostics || {}, tr = dg.transport || {}, cl = d.clock || {}, rec = doc.recovery || {}, st = dg.stats || {}, lim = dg.limits || {}, leg = doc.legacy || {};
+    function dl(rows) { return h('dl', {}, [].concat.apply([], rows.map(function (r) { return [t('dt', r[0]), h('dd', {}, [r[1] === undefined || r[1] === null || r[1] === '' ? '—' : String(r[1])])]; }))); }
+    root.appendChild(h('div', { class: 'row', style: 'margin-bottom:12px' }, [
+      h('button', { class: 'btn primary', text: 'Download redacted export', onclick: exportFile }),
+      t('span', 'No tokens, no licence identifiers, no dealer notes. Bounded to the kept history.', 'small muted')
+    ]));
+    root.appendChild(h('div', { class: 'two' }, [
+      h('div', { class: 'card' }, [t('h3', 'Driver'), dl([['Version', d.version], ['Driver status', d.status], ['Pack status', d.pack_status + (d.read_only ? ' (read-only)' : '')], ['Running since', d.started_at ? stamp(d.started_at) : null], ['Configuration revision', d.config_revision], ['Stored document version', d.schema_version]])]),
+      h('div', { class: 'card' }, [t('h3', 'SmartBuildOS Agent and licence'), dl([['Licence status', lic.status], ['Source', lic.source], ['Tier', lic.tier]]), t('p', 'When the Agent or SmartBuildOS cannot be reached the blocks keep working. Only a definite, enforced denial makes the pack read-only.', 'small muted')]),
+      h('div', { class: 'card' }, [t('h3', 'Transport and freshness'), dl([
+        ['This page', tr.kind], ['Relay', tr.listening ? 'listening on port ' + tr.port : 'not listening'], ['Controller address', (tr.host || 'unknown') + ' (' + (tr.host_state || '') + ')'],
+        ['Reach', tr.remote], ['Cloud summary', tr.mirror],
+        ['Snapshot taken', stamp(doc.generated_at)], ['Answer time', S.latency === null ? null : S.latency + ' ms'], ['Failed requests in a row', S.failures], ['Last error', S.error]
+      ])]),
+      h('div', { class: 'card' }, [t('h3', 'Controller clock'), dl([['Local day', cl.day], ['Time zone', (cl.tz || '') + ' ' + (cl.utc_offset || '')], ['Basis', cl.basis], ['Last clock jump noticed', dg.clock_jump ? Math.round(dg.clock_jump.seconds) + ' s at ' + clock(dg.clock_jump.at) : 'none']])])
+    ]));
+    var mm = arr(dg.missing_mappings);
+    root.appendChild(h('div', { class: 'card' }, [t('h3', 'Missing mappings'),
+      mm.length ? h('table', { class: 'stack' }, [h('thead', {}, [h('tr', {}, ['Block', 'Input', 'Device / variable', 'Why'].map(function (x) { return t('th', x); }))]),
+        h('tbody', {}, mm.map(function (m) { return h('tr', {}, [h('td', { 'data-label': 'Block' }, [('0' + m.slot).slice(-2) + ' · ' + m.name]), h('td', { 'data-label': 'Input' }, [m.input]), h('td', { 'data-label': 'Device' }, ['device ' + m.device_id + ', variable ' + m.variable_id]), h('td', { 'data-label': 'Why' }, [m.why])]); }))])
+        : t('p', 'Every mapped input can be read.', 'muted')]));
+    var notes = arr(rec.notes);
+    root.appendChild(h('div', { class: 'card' }, [t('h3', 'Restart recovery report'),
+      dl([['Last start', rec.at ? stamp(rec.at) : null], ['State saved before it', rec.saved_at ? stamp(rec.saved_at) : null], ['Blocks loaded', rec.loaded], ['Result', rec.failed ? 'NOT LOADED: ' + rec.failed : 'Loaded']]),
+      notes.length ? h('ul', { class: 'plain' }, notes.map(function (x) { return t('li', x); })) : t('p', 'Nothing needed recovering.', 'muted')]));
+    root.appendChild(h('div', { class: 'two' }, [
+      h('div', { class: 'card' }, [t('h3', 'Counters since start'), dl([['Inputs received', st.inputs], ['Refused', st.refused], ['Events emitted', st.emitted], ['Deepest input queue', st.queued_max], ['Blocks isolated', st.isolations], ['Clock jumps', st.clock_jumps]])]),
+      h('div', { class: 'card' }, [t('h3', 'Bounds'), dl([['Slots', lim.slots], ['Inputs per block', lim.inputs_per_block], ['Decisions kept', lim.history + ' (' + lim.history_saved + ' across a restart)'], ['Inputs queued', lim.queue], ['Runaway limit', lim.inputs_per_window + ' inputs to one block in ' + lim.window_s + ' s']])]),
+      h('div', { class: 'card' }, [t('h3', 'Classic free-form keys'), dl([['Counters', leg.counters], ['Flags set', leg.flags], ['Timers running', leg.timers], ['Once-per-day passed', leg.once], ['State', leg.state]]), t('p', leg.note || '', 'small muted')])
+    ]));
+  }
+
+  // ── G · Templates & help ──────────────────────────────────────────────────
+  function help(root) {
+    root.appendChild(h('div', { class: 'card' }, [
+      t('h2', 'How a block is used'),
+      h('ol', { class: 'steps' }, [
+        t('li', 'Something happens in the house. Composer programming on that event sends a command to a block, for example BLOCK_TRIGGER (Block 03).'),
+        t('li', 'The block applies its rule and decides: pass, suppress, start, expire, change.'),
+        t('li', 'When it decides to act it fires its own event, for example Block 03 Passed.'),
+        t('li', 'Composer programming on THAT event runs the scene, the light, the announcement. The driver does not operate equipment.')
+      ]),
+      t('p', S.doc.authority || '', 'muted')
+    ]));
+    root.appendChild(t('h2', 'Recipes'));
+    arr(S.doc.templates).forEach(function (tp) {
+      root.appendChild(h('section', { class: 'card', 'aria-label': tp.name }, [
+        h('div', { class: 'row', style: 'justify-content:space-between' }, [t('h3', tp.name), chip(tp.type_label, 'plain')]),
+        t('p', tp.summary),
+        t('p', tp.explanation, 'small muted'),
+        t('div', 'Settings it fills in:', 'small muted'),
+        h('ul', { class: 'plain' }, arr(tp.settings).map(function (r) { return t('li', r.label + ': ' + r.value); }).concat(arr(tp.settings).length ? [] : [t('li', 'None.')])),
+        arr(tp.needs).length ? h('p', {}, [chip('You pick the devices', 'warn'), ' ' + arr(tp.needs).join('; ')]) : null,
+        t('div', 'In Composer:', 'small muted'),
+        h('ol', { class: 'steps' }, [
+          t('li', 'Properties: set Template to "' + tp.name + '". Actions: Load Template Into Draft. This fills a draft only; no block exists yet.'),
+          t('li', 'Adjust Draft Name and the other Draft properties. Pick devices where the recipe needs them.'),
+          t('li', 'Actions: Validate Draft, read Draft Check and Draft Impact, then Apply Draft. The Blocks property shows which slot it landed in.')
+        ].concat(arr(tp.wiring).map(function (w) { return t('li', 'Programming: ' + w.replace(/\{slot\}/g, 'its slot')); })))
+      ]));
+    });
+    root.appendChild(t('h2', 'Block types'));
+    root.appendChild(h('div', { class: 'card' }, [h('table', { class: 'stack' }, [
+      h('thead', {}, [h('tr', {}, ['Type', 'What it is for', 'Commands', 'Events'].map(function (x) { return t('th', x); }))]),
+      h('tbody', {}, arr(S.doc.types).map(function (ty) { return h('tr', {}, [h('td', { 'data-label': 'Type' }, [t('strong', ty.label)]), h('td', { 'data-label': 'For' }, [ty.summary]), h('td', { 'data-label': 'Commands', class: 'mono' }, [arr(ty.commands).join(', ')]), h('td', { 'data-label': 'Events' }, [arr(ty.events).join(', ')])]); }))
+    ])]));
+    root.appendChild(t('h2', 'Words used on this page'));
+    root.appendChild(h('div', { class: 'card' }, [h('dl', {}, [
+      t('dt', 'Passed'), t('dd', 'The block let a trigger through and fired Passed.'),
+      t('dt', 'Suppressed'), t('dd', 'The block received a trigger and its rule held it back. Nothing fired. The reason says why and when it would pass.'),
+      t('dt', 'Refused'), t('dd', 'The input could not be used at all: a wrong value, a command the type does not take, a disabled or read-only block.'),
+      t('dt', 'Unknown'), t('dd', 'An input cannot be read, so the block has no result. Unknown is never counted as false or zero. The block fires Faulted when it loses its result.'),
+      t('dt', 'Starting value'), t('dd', 'A value read when a listener started or after a restart. It sets the state and fires nothing.'),
+      t('dt', 'Isolated'), t('dd', 'A block that was fed faster than a house can (a programming loop) was stopped so the rest keeps working. Resume it in Composer.'),
+      t('dt', 'The four facts'), t('dd', 'Input received, block evaluated, event emitted, equipment confirmed. The last is shown only when an equipment feedback variable is mapped; an event firing never proves the equipment moved.')
+    ])]));
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render() {
+    renderChips();
+    renderNav();
+    var root = document.getElementById('main');
+    var focused = document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('aria-label');
+    var scroll = window.scrollY;
+    root.textContent = '';
+    if (!S.doc) {
+      if (S.error) {
+        root.appendChild(h('div', { class: 'card empty', role: 'alert' }, [
+          t('h2', 'Not connected to the controller'),
+          t('p', S.error),
+          h('ul', { class: 'plain', style: 'text-align:left;display:inline-block' }, [
+            t('li', 'This device must be on the same network as the controller.'),
+            t('li', 'In Composer, the Dealer App property shows the address to open; App Data Relay says whether the controller is listening.'),
+            t('li', 'Dealer App Access must be On.')
+          ]),
+          h('p', {}, [h('button', { class: 'btn primary', text: 'Try again', onclick: function () { S.error = null; S.loading = true; render(); poll(); } })])
+        ]));
+      } else {
+        root.appendChild(h('div', { class: 'grid', 'aria-busy': 'true', 'aria-label': 'Loading blocks' }, [h('div', { class: 'skeleton' }), h('div', { class: 'skeleton' }), h('div', { class: 'skeleton' })]));
+      }
+      return;
+    }
+    banners(root);
+    var r = S.route;
+    if (r.screen === 'overview') overview(root);
+    else if (r.screen === 'block') blockDetail(root, r.arg);
+    else if (r.screen === 'connections') connections(root, r.arg);
+    else if (r.screen === 'activity') activity(root);
+    else if (r.screen === 'sandbox') sandbox(root);
+    else if (r.screen === 'diagnostics') diagnostics(root);
+    else help(root);
+    if (focused) {
+      var again = root.querySelector('[aria-label="' + String(focused).replace(/"/g, '\\"') + '"]');
+      if (again && again.tagName !== 'BUTTON') again.focus();
+    }
+    window.scrollTo(0, scroll);
+  }
+
+  // Typing in a field must not be interrupted by a poll.
+  function busyTyping() {
+    var a = document.activeElement;
+    return a && (a.tagName === 'INPUT' || a.tagName === 'SELECT');
+  }
+
+  function poll() {
+    var started = Date.now();
+    return api('/state').then(function (doc) {
+      S.latency = Date.now() - started;
+      S.doc = doc; S.fetchedAt = Date.now(); S.error = null; S.failures = 0; S.loading = false;
+      if (!busyTyping()) render(); else renderChips();
+      // The activity list is its own request: keep it as fresh as the rest.
+      if (S.route.screen === 'activity' && !S.act.loading && !busyTyping()) loadActivity();
+    }, function (e) {
+      S.error = e.message; S.failures += 1; S.loading = false;
+      if (!busyTyping()) render(); else renderChips();
+    });
+  }
+
+  window.addEventListener('hashchange', function () {
+    S.route = parseRoute();
+    if (S.route.screen === 'activity' && S.doc) loadActivity();
+    render();
+    var target = S.focusTab ? document.getElementById('tab-' + S.focusTab) : document.getElementById('main');
+    S.focusTab = null;
+    if (target) target.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  });
+  S.route = parseRoute();
+  render();
+  poll();
+  setInterval(function () { if (!document.hidden) poll(); }, POLL_MS);
+  // Once a second only the countdowns and the freshness chip move; the page
+  // is not rebuilt, so focus and scroll position are left alone.
+  setInterval(function () {
+    if (document.hidden) return;
+    renderChips();
+    var list = document.querySelectorAll('.countdown[data-at]');
+    for (var i = 0; i < list.length; i++) {
+      var left = parseFloat(list[i].getAttribute('data-at')) - controllerNow();
+      list[i].textContent = (left > 0 ? span(left) : 'due now') + ' until it ' + list[i].getAttribute('data-what');
+    }
+  }, 1000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+  // For tests and support: read-only handle on what the page holds.
+  window.__logicBlocks = { state: S, freshness: freshness };
+})();
+</script>
+</body>
+</html>
