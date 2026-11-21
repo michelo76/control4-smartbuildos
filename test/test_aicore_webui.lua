@@ -24,6 +24,9 @@
 --        stale ids, the bound, a document without the key
 --   [16] an unlock's outcome is never silent: "checking" while PIN Lock
 --        redeems, a redeem PIN Lock never answers, a pad left unfinished
+--   [17] the `command` of every cloud body is one the platform accepts (the
+--        scripted cloud refuses any other, as the platform does), and what
+--        a refusal said can be read on the controller as codes only
 --
 -- Run from the driver root: make test
 
@@ -169,15 +172,40 @@ local CLOUD = {
   },
   detail = {},
   refuse = {}, -- op -> reason
+  refuseResult = {}, -- op -> the whole result of the refusal (with refuse[op])
   decideStatus = "queued",
+  commandRefused = 0,
 }
+--- The platform's rule for a body's `command` (rpc/ops.ts: COMMON.command
+--- is text of at most 48 characters matching COMMAND = /^AI_[A-Z_]{2,40}$/;
+--- anything else refuses the WHOLE body). The answers below are the ones the
+--- platform's handlers give for it: a job op answers reason invalid_fields,
+--- a touchscreen approval op reason invalid_args with the detail.
+local function platformCommandOk(command)
+  return type(command) == "string"
+    and #command <= 48
+    and command:match("^AI_[A-Z_]+$") ~= nil
+    and #command >= 5
+    and #command <= 43
+end
 A.cloud = function(op, body)
+  if not platformCommandOk(body.command) then
+    CLOUD.commandRefused = CLOUD.commandRefused + 1
+    local result = op == "ask" and { reason = "invalid_fields", fields = { "command" } }
+      or { reason = "invalid_args", detail = "invalid_fields", fields = { "command" } }
+    return { status = "error", http_status = "200", error_code = "invalid_args", result = result }
+  end
   if CLOUD.refuse[op] then
     local reason = CLOUD.refuse[op]
     local code = reason == "rate_limited" and "rate_limited"
       or reason == "invalid_args" and "invalid_args"
       or "not_permitted"
-    return { status = "error", http_status = "200", error_code = code, result = { reason = reason } }
+    return {
+      status = "error",
+      http_status = "200",
+      error_code = code,
+      result = CLOUD.refuseResult[op] or { reason = reason },
+    }
   end
   if op == "approvals_pending" then
     local r = {}
@@ -1418,6 +1446,112 @@ check(
   "…and the next unlock still works (no stale checking)",
   v16 and v16.ok == true and st.chat.locked == false and st.checking == nil,
   JSON:encode({ locked = st.chat.locked, checking = st.checking })
+)
+
+-- ── [17] ─────────────────────────────────────────────────────────────────────
+print("[17] the command of every cloud body, and reading a refusal on the controller")
+check(
+  "(the scripted cloud holds the platform's command rule)",
+  platformCommandOk("AI_ASK") and not platformCommandOk("TOUCHSCREEN_ASK") and not platformCommandOk("AI_ask")
+)
+local proof17 = { nonce = string.rep("a", 32), verified_at = os.time(), role = "owner" }
+local built = {
+  ask = Webui.askBody("aic-1", "q", "standard"),
+  approvals_pending = Webui.pendingBody("aic-1"),
+  approval_detail = Webui.detailBody("aic-1", REF_A, proof17),
+  approval_decide = Webui.decideBody("aic-1", REF_A, "approve", HASH_A, proof17),
+}
+for _, op in ipairs({ "ask", "approvals_pending", "approval_detail", "approval_decide" }) do
+  local c = built[op].command
+  local name = type(c) == "string" and c:match("^AI_([A-Z_]+)$") or nil
+  check(
+    op .. ": its command is one the platform accepts (AI_ and 2 to 40 capitals or underscores)",
+    name ~= nil and #name >= Webui.COMMAND_NAME.min and #name <= Webui.COMMAND_NAME.max and platformCommandOk(c),
+    c
+  )
+end
+check(
+  "no touchscreen request of the whole run was refused for its command",
+  CLOUD.commandRefused == 0,
+  CLOUD.commandRefused
+)
+H.advance(61000)
+local w = open()
+st = state(w)
+check(
+  "the approvals list is read (not 'could not read that request')",
+  st.approvals.count == 3 and st.approvals.message ~= Webui.TEXT.invalid_args,
+  JSON:encode(st.approvals)
+)
+unlock(w)
+local QUESTION17 = "Is the wine cellar door closed?"
+local r17 = post(w, "/ask", { question = QUESTION17 })
+st = state(w)
+check(
+  "a touchscreen question is accepted and waits for its answer",
+  r17.ok == true and st.chat.conversation[#st.chat.conversation].state == "pending",
+  JSON:encode(st.chat.conversation)
+)
+check(
+  "…sent as AI_TOUCHSCREEN_ASK",
+  lastCloud("ask").body.command == "AI_TOUCHSCREEN_ASK",
+  lastCloud("ask").body.command
+)
+-- A body the platform's validator refuses (what an older build's command
+-- got): the page says so in words, and the codes can be read in Composer.
+CLOUD.refuse.ask = "invalid_args"
+CLOUD.refuseResult.ask = { reason = "invalid_fields", fields = { "command", "Not A Field Name", QUESTION17 } }
+H.advance(61000)
+post(w, "/chat/touch")
+r17 = post(w, "/ask", { question = QUESTION17 })
+st = state(w)
+local last17 = st.chat.conversation[#st.chat.conversation]
+check(
+  "a body the platform could not read: 'could not read that request', not the bare fallback",
+  r17.ok == true and last17.state == "refused" and last17.message == Webui.TEXT.invalid_args,
+  JSON:encode(last17)
+)
+CLOUD.refuse.ask, CLOUD.refuseResult.ask = nil, nil
+CLOUD.refuse.approvals_pending = "invalid_args"
+CLOUD.refuseResult.approvals_pending = { reason = "invalid_args", detail = "invalid_fields", fields = { "command" } }
+H.advance(61000)
+post(w, "/approvals/refresh")
+st = state(w)
+check("the approvals list refused: said on the page", st.approvals.message == Webui.TEXT.invalid_args)
+check(
+  "…and Touchscreen Approvals says what came back, not 'approvals off'",
+  tostring(H.prop("Touchscreen Approvals")):find(
+    "approvals not available (invalid_args, detail invalid_fields, fields command)",
+    1,
+    true
+  ) ~= nil,
+  H.prop("Touchscreen Approvals")
+)
+local before17 = #printed
+EC.PRINT_DIAGNOSTICS()
+local diag17 = table.concat(printed, "\n", before17 + 1)
+check(
+  "Print Diagnostics names the last refusal of each: code, reason and field names",
+  diag17:find("touchscreen ask not accepted: invalid_args, reason invalid_fields, fields command (", 1, true) ~= nil
+    and diag17:find(
+        "touchscreen approvals_pending not accepted: invalid_args, detail invalid_fields, fields command (",
+        1,
+        true
+      )
+      ~= nil,
+  diag17:match("touchscreen ask[^\n]*")
+)
+check(
+  "…codes only: no question, nothing that is not a field name",
+  diag17:find(QUESTION17, 1, true) == nil and diag17:find("Not A Field Name", 1, true) == nil
+)
+CLOUD.refuse.approvals_pending, CLOUD.refuseResult.approvals_pending = nil, nil
+H.advance(61000)
+post(w, "/approvals/refresh")
+check(
+  "once the list is read again the property stops saying it",
+  tostring(H.prop("Touchscreen Approvals")):find("not available", 1, true) == nil,
+  H.prop("Touchscreen Approvals")
 )
 
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)

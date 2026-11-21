@@ -23,7 +23,8 @@
 --       operations.lua with a value of the platform's shape; result kinds,
 --       detail, count and text bounds fit
 --   [8] cloud ops: every body key the driver sends is in rpc/ops.ts
---       OP_BODIES (+ COMMON), every required field is in the minimal body,
+--       OP_BODIES (+ COMMON), every `command` matches the platform's
+--       COMMAND pattern, every required field is in the minimal body,
 --       enum lists equal, text bounds fit (Director's names included), the
 --       character rule and the unit of the bounds (code points) agree;
 --       {accepted, job_id: null} answers read as completed, job answers
@@ -803,6 +804,46 @@ do
   local decide = Webui.decideBody("aic-1", ref, "approve", string.rep("b", 64), proof)
   driverBodies.approval_decide =
     { full = decide, minimal = decide, max = {}, enums = { decision = set(Webui.DECISIONS) } }
+end
+-- The `command` of every body. validateFields refuses the WHOLE body when a
+-- top-level `command` does not match COMMAND (invalid_args, fields
+-- ["command"]): the touchscreen bodies once carried names without the AI_
+-- prefix, which no other check here compared, and every touchscreen question
+-- and the approvals list were refused on the first real controller.
+do
+  local source = opsTs:match("\nconst COMMAND = /(.-)/;")
+  local lo, hi = tostring(source):match("^%^AI_%[A%-Z_%]{(%d+),(%d+)}%$$")
+  check(
+    "rpc/ops.ts COMMAND is the rule this test can read (^AI_[A-Z_]{min,max}$)",
+    lo ~= nil and opsTs:find('name === "command" && !prefix && !COMMAND.test(t)', 1, true) ~= nil,
+    source
+  )
+  lo, hi = tonumber(lo) or 2, tonumber(hi) or 40
+  check(
+    "…and equals the driver's own statement of it (webui.COMMAND_NAME)",
+    Webui.COMMAND_NAME.min == lo and Webui.COMMAND_NAME.max == hi and Webui.COMMAND_PATTERN == "^AI_[A-Z_]+$",
+    lo .. ".." .. hi
+  )
+  local commandMax = tonumber(opsTs:match('command: { kind: "text", max: (%d+) }'))
+  check("COMMON.command's length bound is readable", commandMax ~= nil)
+  local wrong, seen = {}, 0
+  for _, op in ipairs(keys(driverBodies)) do
+    for _, which in ipairs({ "full", "minimal" }) do
+      local c = (driverBodies[op][which] or {}).command
+      if c ~= nil then
+        seen = seen + 1
+        local name = type(c) == "string" and c:match("^AI_([A-Z_]+)$") or nil
+        if name == nil or #name < lo or #name > hi or #c > (commandMax or 48) then
+          wrong[#wrong + 1] = op .. "=" .. tostring(c)
+        end
+      end
+    end
+  end
+  check(
+    "every `command` the driver sends matches the platform's COMMAND (" .. seen .. " bodies)",
+    seen >= 20 and #wrong == 0,
+    table.concat(wrong, ", ")
+  )
 end
 for _, op in ipairs(keys(V.CLOUD_OPS)) do
   local d = driverBodies[op]
