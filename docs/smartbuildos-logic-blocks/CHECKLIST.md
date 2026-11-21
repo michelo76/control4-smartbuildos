@@ -37,4 +37,4 @@ Build order:
 - [x] Scoped build target, dealer guide, design doc, bench checklist
 
 Result: see `DESIGN.md` (what was built and why), `BENCH.md` (what a controller
-still has to prove) and `REGISTRY.md` (what was found and left unapplied).
+still has to prove) and `REGISTRY.md` (the store and updater entries, added afterwards).

@@ -1,20 +1,21 @@
 # Logic Blocks — SKU and registry
 
-Nothing in this file has been applied. It records what was found and holds the
-change ready, because applying it changes what ships to customer controllers.
+The two registry entries below were added on this branch on 21 Nov 2026, on the
+owner's instruction. Nothing has been pushed or published. Read "What merging
+this now does" before the branch is merged.
 
-## What exists today (read at `origin/main`)
+## What existed before (read at `origin/main`)
 
 | Registry                                                        | `SBOS_LOGIC_PACK` / `smartbuildos-logic-pack.c4z`                                              |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Platform `driver_catalog` (`20261109120000_dealer_tooling_drivers.sql`) | **Present.** `SmartBuildOS Logic Pack`, category Utility, channel `BETA`, tier Professional, included with subscription, OS 3.3.2 |
 | Platform `src/lib/control4/dealer-tooling/catalog.ts`           | **Present.**                                                                                   |
-| `.github/workflows/publish-to-store.yml` `sku_for()`            | **Absent.** A release prints `skip smartbuildos-logic-pack.c4z (no catalog SKU)`               |
-| Agent `DRIVER_FILENAMES` (`drivers/smartbuildos/driver.lua`)    | **Absent.** The Agent never updates this driver                                                |
+| `.github/workflows/publish-to-store.yml` `sku_for()`            | Was absent (a release printed `skip … (no catalog SKU)`). **Added on this branch.**            |
+| Agent `DRIVER_FILENAMES` (`drivers/smartbuildos/driver.lua`)    | Was absent (the Agent never updated this driver). **Added on this branch.**                    |
 | Agent `SKU_FILENAMES`                                           | **Absent, and not needed.** It delivers remote settings; this release takes none               |
 
-The same two are absent for all eight drivers of the 9 November batch, so this
-looks like a decision (or an omission) about the batch, not about this driver.
+The same two are still absent for the rest of the 9 November batch; only the
+Logic Pack was added.
 
 ## Not changed, deliberately
 
@@ -24,22 +25,33 @@ looks like a decision (or an omission) about the batch, not about this driver.
   primitives. "Logic Blocks" is used in the driver's documentation and the app
   only. Changing store metadata is the owner's call and a platform migration;
   none was written.
-- **The two absent registry entries.** Adding them means the next published
-  release uploads the Logic Pack to the store and every Agent that has it
-  installed updates it in place. That should follow the bench session in
-  `BENCH.md`, section 2 in particular (update in place), not precede it.
 
-## The change, ready to apply
+## What merging this now does
 
-`registry.patch` in this folder adds one line to each:
+Once this branch is on `main` and a release is published:
 
-```sh
-git apply --check docs/smartbuildos-logic-blocks/registry.patch   # verified clean on this branch
-git apply docs/smartbuildos-logic-blocks/registry.patch
-```
+- the release workflow uploads `smartbuildos-logic-pack.c4z` to the store under
+  `SBOS_LOGIC_PACK` instead of skipping it;
+- every Agent built from that release checks for and installs Logic Pack
+  updates, so an installed Logic Pack is updated in place to the Logic Blocks
+  build.
 
-After applying, `test/test_aicore_surface.lua` and `test/test_aicore_updates.lua`
-read the Agent's `DRIVER_FILENAMES`; run `make test`.
+Update in place is exactly what `BENCH.md` section 2 has not yet proven on a
+controller (whether the new events, variables and conditionals appear on an
+existing installation). Do that check before the first release that contains
+this branch.
+
+## What was changed
+
+- `.github/workflows/publish-to-store.yml`: one `sku_for()` case mapping
+  `smartbuildos-logic-pack.c4z` to `SBOS_LOGIC_PACK`.
+- `drivers/smartbuildos/driver.lua`: `smartbuildos-logic-pack.c4z` added to
+  `DRIVER_FILENAMES`.
+- `test/test_sbos_updater.lua`: the Logic Pack removed from `KNOWN_UNLISTED`
+  (that suite fails when a listed driver is still named there).
+
+`make test` passes with these in place (201 test files). To undo, revert the
+commit that made them.
 
 ## If the catalogue text is to change later
 

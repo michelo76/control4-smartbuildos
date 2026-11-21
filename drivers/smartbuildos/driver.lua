@@ -41,6 +41,7 @@ DRIVER_FILENAMES = {
   "smartbuildos-system-link-thermostat.c4z",
   "smartbuildos-insights.c4z",
   "smartbuildos-ai-core.c4z",
+  "smartbuildos-logic-pack.c4z",
   "smartbuildos-venueflow.c4z",
   "bond-bridge.c4z",
   "bond-color-light.c4z",

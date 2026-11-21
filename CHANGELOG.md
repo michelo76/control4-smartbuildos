@@ -31,7 +31,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   app, served by the driver on the home network, shows each block's rule, inputs
   and decisions and has a sandbox that simulates one block without touching the
   live one. Every classic command, event, variable and conditional is unchanged,
-  and a block never takes over a free-form key. Not yet run on a controller:
+  and a block never takes over a free-form key. The Logic Pack is now in the
+  store publish map and the Agent's update list, so a release publishes it and
+  installed copies update in place. Not yet run on a controller:
   `docs/smartbuildos-logic-blocks/BENCH.md` lists what is owed.
 
 - **Agent: Studio release G1 reporting**
