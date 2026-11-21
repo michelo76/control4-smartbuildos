@@ -257,9 +257,23 @@ end
 
 -- ── cloud bodies (the parity test reads these) ───────────────────────────────
 
+--- The `command` each body carries. The platform accepts a command only
+--- when it is shaped like a Composer command, `AI_` and 2 to 40 capitals or
+--- underscores (platform rpc/ops.ts COMMAND), and refuses the WHOLE body
+--- otherwise (invalid_args, fields ["command"]): a name without the prefix
+--- made every touchscreen question and the approvals list fail on the first
+--- real controller. test_aicore_webui.lua [17] holds every body to the rule.
+M.COMMANDS = {
+  ask = "AI_TOUCHSCREEN_ASK",
+  approvals = "AI_TOUCHSCREEN_APPROVALS",
+  approval = "AI_TOUCHSCREEN_APPROVAL",
+}
+M.COMMAND_PATTERN = "^AI_[A-Z_]+$"
+M.COMMAND_NAME = { min = 2, max = 40 } -- characters after "AI_"
+
 function M.askBody(requestId, question, detail)
   return {
-    command = "TOUCHSCREEN_ASK",
+    command = M.COMMANDS.ask,
     request_id = requestId,
     question = clean(question, M.LIMITS.question),
     channel = M.CHANNEL,
@@ -272,16 +286,16 @@ function M.verification(proof)
 end
 
 function M.pendingBody(requestId)
-  return { command = "TOUCHSCREEN_APPROVALS", request_id = requestId }
+  return { command = M.COMMANDS.approvals, request_id = requestId }
 end
 
 function M.detailBody(requestId, ref, proof)
-  return { command = "TOUCHSCREEN_APPROVAL", request_id = requestId, ref = ref, verification = M.verification(proof) }
+  return { command = M.COMMANDS.approval, request_id = requestId, ref = ref, verification = M.verification(proof) }
 end
 
 function M.decideBody(requestId, ref, decision, argsHash, proof)
   return {
-    command = "TOUCHSCREEN_APPROVAL",
+    command = M.COMMANDS.approval,
     request_id = requestId,
     ref = ref,
     decision = decision,
@@ -290,27 +304,73 @@ function M.decideBody(requestId, ref, decision, argsHash, proof)
   }
 end
 
---- A cloud refusal's reason: result.reason when it is a code, else the
---- error code. Unknown ones still map to plain words (M.text fallback).
+local function token(s, max)
+  return type(s) == "string" and #s <= max and s:match("^[a-z][a-z0-9_]*$") ~= nil
+end
+
+--- A cloud refusal's reason: result.reason when it is a code this page has
+--- words for; else the error code (the platform's body validation answers
+--- invalid_args with reasons of its own, `invalid_fields` among them: the
+--- code's sentence says more than the fallback); else the reason anyway.
+--- Unknown ones still map to plain words (M.text fallback).
 local function cloudReason(answer)
   answer = type(answer) == "table" and answer or {}
   local r = type(answer.result) == "table" and answer.result or {}
-  if type(r.reason) == "string" and r.reason:match("^[a-z][a-z0-9_]*$") and #r.reason <= 48 then
-    return r.reason
+  local reason = token(r.reason, 48) and r.reason or nil
+  if reason ~= nil and M.TEXT[reason] ~= nil then
+    return reason
   end
   local code = tostring(answer.error_code or "")
   if code == "cloud_unreachable" or code == "deadline_exceeded" or code == "target_unavailable" then
-    return "cloud_unreachable"
+    code = "cloud_unreachable"
+  elseif code == "agent_not_paired" or code == "incompatible_protocol" then
+    code = "agent"
   end
-  if code == "rate_limited" then
-    return "rate_limited"
-  end
-  if code == "agent_not_paired" or code == "incompatible_protocol" then
-    return "agent"
+  if reason ~= nil and M.TEXT[code] == nil then
+    return reason
   end
   return code ~= "" and code or "unavailable"
 end
 M.cloudReason = cloudReason
+
+--- What a refused cloud answer said, as codes only (for Print Diagnostics
+--- and the Composer property): the error code, result.reason, result.detail
+--- and the field NAMES the platform's validator listed. Never a value, a
+--- question, an answer or any other text of the result.
+local function refusalCodes(answer, at)
+  answer = type(answer) == "table" and answer or {}
+  local r = type(answer.result) == "table" and answer.result or {}
+  local fields = {}
+  for _, f in ipairs(type(r.fields) == "table" and r.fields or {}) do
+    if type(f) == "string" and #f <= 48 and f:match("^[a-z][a-z0-9_.|]*$") and #fields < 5 then
+      fields[#fields + 1] = f
+    end
+  end
+  local code = tostring(answer.error_code or "")
+  return {
+    code = token(code, 48) and code or (answer.status == "ok" and "not_accepted" or "unknown"),
+    reason = token(r.reason, 48) and r.reason or nil,
+    detail = token(r.detail, 48) and r.detail or nil,
+    fields = fields,
+    at = at,
+  }
+end
+M.refusalCodes = refusalCodes
+
+--- One refusal in one line: `invalid_args, reason invalid_fields, fields command`.
+function M.refusalLine(x)
+  local line = x.code
+  if x.reason ~= nil and x.reason ~= x.code then
+    line = line .. ", reason " .. x.reason
+  end
+  if x.detail ~= nil then
+    line = line .. ", detail " .. x.detail
+  end
+  if #x.fields > 0 then
+    line = line .. ", fields " .. table.concat(x.fields, " ")
+  end
+  return line
+end
 
 -- ── the UI ───────────────────────────────────────────────────────────────────
 
@@ -344,6 +404,7 @@ function M.new(deps)
   self.approvals = { enabled = false, count = 0, eligible = {}, portal_only_count = 0, checked_at = nil, at = nil }
   self.approvalsInflight = false
   self.approvalsReason = nil
+  self.refusals = {} -- [op] = the last refused cloud answer, codes only (refusalCodes)
   self.presetRev = math.floor(tonumber(deps.now()) or 0)
   self.presetSig = nil
   self.counters = {
@@ -371,6 +432,27 @@ local function notify(self)
   if self.deps.onChange then
     pcall(self.deps.onChange)
   end
+end
+
+--- Remembers what came back for a cloud `op` that was not accepted (codes
+--- only, memory only), so the reason can be read on the controller: Print
+--- Diagnostics, and for the approvals list the Touchscreen Approvals property.
+function UI:refused(op, answer)
+  self.refusals[op] = refusalCodes(answer, self:now())
+end
+
+--- The last refusal of each cloud op the page uses, one line each (codes
+--- and field names only).
+function UI:refusalLines()
+  local out = {}
+  for _, op in ipairs({ "ask", "approvals_pending", "approval_detail", "approval_decide" }) do
+    local x = self.refusals[op]
+    if x ~= nil then
+      out[#out + 1] =
+        string.format("%s not accepted: %s (%d s ago)", op, M.refusalLine(x), math.max(0, self:now() - x.at))
+    end
+  end
+  return out
 end
 
 -- sessions ----------------------------------------------------------------
@@ -720,6 +802,7 @@ function UI:refreshApprovals(force)
     local r = type(answer.result) == "table" and answer.result or {}
     if answer.status ~= "ok" then
       self.approvalsReason = cloudReason(answer)
+      self:refused("approvals_pending", answer)
       notify(self)
       return
     end
@@ -738,6 +821,7 @@ function UI:refreshApprovals(force)
       at = self:now(),
     }
     self.approvalsReason = nil
+    self.refusals.approvals_pending = nil
     notify(self)
   end)
   return true
@@ -778,6 +862,7 @@ function UI:openReview(s, ref)
     if answer.status ~= "ok" then
       s.review = nil
       s.proofs.approval = nil -- the proof dies with the item it was for
+      self:refused("approval_detail", answer)
       s.notice = M.text(cloudReason(answer))
       s.skipped[ref] = true
       notify(self)
@@ -916,6 +1001,7 @@ local function ask(self, s, body)
     local r = Commands.interpret(answer)
     if r.outcome == "accepted" then
       entry.job_id = r.job_id
+      self.refusals.ask = nil
       return
     end
     self.asks[requestId] = nil
@@ -928,6 +1014,7 @@ local function ask(self, s, body)
     else
       entry.state = "refused"
       entry.message = M.text(cloudReason(answer))
+      self:refused("ask", answer)
     end
     notify(self)
   end)
@@ -1335,6 +1422,7 @@ function UI:route(req, token)
         s.review = nil
       end
       if answer.status ~= "ok" then
+        self:refused("approval_decide", answer)
         s.notice = M.text(cloudReason(answer))
       else
         s.notice = M.OUTCOME_TEXT[r.status] or M.FALLBACK_TEXT
@@ -1360,7 +1448,10 @@ function UI:summary()
   local chatPart = detail == "basic" and "chat off (Basic)" or ("chat " .. detail .. ", owner PIN to view")
   local a = self.approvals
   local apPart
-  if a.at == nil then
+  if self.refusals.approvals_pending ~= nil then
+    -- Not "off": the list itself could not be read. Say what came back.
+    apPart = "approvals not available (" .. M.refusalLine(self.refusals.approvals_pending) .. ")"
+  elseif a.at == nil then
     apPart = "approvals not checked yet"
   elseif a.enabled then
     apPart = "approvals on in the homeowner portal"

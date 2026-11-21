@@ -79,7 +79,7 @@ All read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and
 | `Test AI Connection` | `TEST_AI_CONNECTION` | cloud op `test_provider`; `Last Test Result` says accepted (job id; the result arrives as AI Response Ready) or the refusal code |
 | `Sync Now` | `SYNC_NOW` | re-registers if needed, drains the buffer, flushes staged events, re-reads the directory, sends a status frame (which carries `applied_config_version`), and (protocol 2) calls cloud op `status`, whose body is `{request_id}` only — the platform takes no other field (`rpc/ops.ts` `OP_BODIES.status`) and refuses an unknown one |
 | `Republish App URL` | `REPUBLISH_URL` | sends the page's URL (`URL_CHANGED` on binding 5001) again; Navigator applies it the next time the tile opens |
-| `Print Diagnostics` | `PRINT_DIAGNOSTICS` | prints state, Agent link, licence, configuration, learning, Flight Recorder link, collection plan, every counter, pending jobs and bus counters to the Lua output |
+| `Print Diagnostics` | `PRINT_DIAGNOSTICS` | prints state, Agent link, licence, configuration, learning, Flight Recorder link, collection plan, every counter, pending jobs, bus counters, and the touchscreen summary with the last answer SmartBuildOS did not accept for each touchscreen op (codes and field names only) to the Lua output |
 
 ## 3. Composer commands
 
@@ -658,12 +658,34 @@ persisted last response or *AI Response Ready*, and a touchscreen question
 is not recorded as an envelope.
 
 **Asking.** The existing cloud op `ask` with `channel:"touchscreen"` and
-`detail` (`Touchscreen Detail`), `command:"TOUCHSCREEN_ASK"`. The answer
+`detail` (`Touchscreen Detail`), `command:"AI_TOUCHSCREEN_ASK"`. The answer
 arrives through the existing `deliver_result`, matched by `request_id`.
 Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
+
+**The `command` of a touchscreen body.** `AI_TOUCHSCREEN_ASK`,
+`AI_TOUCHSCREEN_APPROVALS` and `AI_TOUCHSCREEN_APPROVAL` (`webui.COMMANDS`).
+The platform accepts a `command` only when it is shaped like a Composer
+command, `AI_` and 2 to 40 capitals or underscores (platform `rpc/ops.ts`
+`COMMAND`), and refuses the whole body otherwise (`invalid_args`, fields
+`command`). Builds up to 20261120.210226 sent names without the prefix: on the
+first real controller every touchscreen question answered "SmartBuildOS
+refused that" and the approvals card said "SmartBuildOS could not read that
+request" (`KNOWN-ISSUES.md` KI-76). `test_aicore_webui.lua` [17] and the
+parity test [8] hold every body's `command` to the rule.
+
+**Reading a refusal on the controller.** What SmartBuildOS last answered to a
+touchscreen op it did not accept is kept in memory as codes only: the error
+code, `result.reason`, `result.detail` and the field names the platform's
+validator listed, never a value, a question or an answer. *Print Diagnostics*
+prints one line per op (`touchscreen ask not accepted: invalid_args, reason
+invalid_fields, fields command (12 s ago)`), and `Touchscreen Approvals` says
+`approvals not available (<codes>)` while the approvals list cannot be read,
+no longer "approvals off". On the page, a refusal whose reason has no
+sentence of its own takes the error code's sentence when there is one (a body
+the platform could not read says so), else the general one.
 
 **The dealer's preset questions (round two, D-R2b; on `feat/ai-core-round2`
 only — on `feat/ai-core` the suggestions are the three built-ins).** Staff set up to 6 in

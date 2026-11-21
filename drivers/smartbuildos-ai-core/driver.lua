@@ -2353,6 +2353,14 @@ function EC.PRINT_DIAGNOSTICS()
   for k, v in pairs(client.busCounters()) do
     log:print("  bus %s = %s", tostring(k), tostring(v))
   end
+  -- The touchscreen page: what SmartBuildOS last refused, as codes and field
+  -- names only (never a question, an answer or a PIN: none reaches here).
+  if gWeb.ui ~= nil then
+    log:print("  touchscreen: %s", gWeb.ui:summary())
+    for _, line in ipairs(gWeb.ui:refusalLines()) do
+      log:print("  touchscreen %s", line)
+    end
+  end
   if gReports then
     local rk = {}
     for k in pairs(gReports.counters) do
