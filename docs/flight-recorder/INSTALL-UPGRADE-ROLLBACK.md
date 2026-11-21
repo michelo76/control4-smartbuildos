@@ -10,7 +10,8 @@
    keeps its queue).
 2. **Agent.** Install the `smartbuildos.c4z` built from this branch (Composer
    Pro → Agents, per PR #31; an older project-driver instance is removed from
-   System Design first; Pairing Backup restores the pairing). Confirm the
+   System Design first and must then be paired again with a new code; a
+   re-added instance keeps neither persist nor Pairing Backup). Confirm the
    heartbeat shows `capabilities` containing `modules_v1`.
 3. **Flight Recorder driver.** Add `smartbuildos-flight-recorder.c4z` in
    Composer (System Design, Utility). One per project. Properties paint

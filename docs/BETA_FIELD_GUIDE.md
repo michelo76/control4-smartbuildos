@@ -93,8 +93,11 @@ Work through these top-down; each line is one visit-sized test.
     **Driver → Add or Update Driver…** (it is a normal project driver, one per
     project). To update, load the new `.c4z` the same way — it refreshes in
     place; if a change won't surface, remove `smartbuildos` from the local
-    driver database and re-add. Pairing survives in the Pairing Backup property,
-    so it re-pairs itself. *Record:* did the update refresh in place? Do
+    driver database and re-add. An update in place is meant to keep the
+    pairing through the Pairing Backup property (unverified on hardware, see
+    `docs/KNOWN_LIMITATIONS.md`); a removed and re-added Agent starts with
+    default properties and must be paired again with a new code. *Record:* did
+    the update refresh in place, did **Connection Status** stay paired, and do
     dependent drivers still get answered?
 15. **Pair by account number** — as an alternative to a pairing code, on
     the Agent enter **Account Number** (the SmartBuildOS company code); a

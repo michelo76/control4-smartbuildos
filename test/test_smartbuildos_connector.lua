@@ -2604,6 +2604,38 @@ EC.UNPAIR()
 check("unpair clears the backup too", (Properties["Pairing Backup"] or "") == "", Properties["Pairing Backup"])
 check("after unpair + wipe, restore does nothing", restorePairingFromBackup() == false)
 
+-- The mirror was written ONCE, at pairing, and never again. A paired Agent
+-- whose Pairing Backup property had come back empty (a re-added instance, a
+-- property value the project did not keep) kept working on persist alone, so
+-- nothing showed it — until the next update that lost encrypted persist found
+-- no backup and came up "Not paired" with every pairing value gone.
+print("\n[45b] A paired Agent repairs an empty Pairing Backup at start")
+pair()
+Properties["Pairing Backup"] = ""
+check("start with persist intact: still paired, nothing to restore", restorePairingFromBackup() == false)
+local healed = Properties["Pairing Backup"] or ""
+check("the empty backup is re-written from persist", healed:find("token", 1, true) ~= nil, healed)
+for k in pairs(store) do
+  store[k] = nil
+end
+restorePairingFromBackup()
+reset()
+nextResponse = { ok = true, code = 200 }
+EC.SEND_HEARTBEAT()
+check("the NEXT persist loss restores from the re-written backup", #requests > 0, #requests)
+local stale = JSON:decode(Properties["Pairing Backup"])
+stale.token = "an-older-token"
+Properties["Pairing Backup"] = JSON:encode(stale)
+restorePairingFromBackup()
+check(
+  "a backup that disagrees with the live token is re-written",
+  JSON:decode(Properties["Pairing Backup"]).token ~= "an-older-token"
+)
+EC.UNPAIR()
+check("unpair still leaves the backup empty", (Properties["Pairing Backup"] or "") == "")
+check("and an unpaired start does not invent one", restorePairingFromBackup() == false)
+check("the backup stays empty when unpaired", (Properties["Pairing Backup"] or "") == "")
+
 print("\n[46] Tier 1: changes reach the platform in seconds, not on the tick")
 pair()
 reset()

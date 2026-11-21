@@ -2541,6 +2541,9 @@ function driverCapabilities()
     -- Module contract v2: discovery, local pub/sub, module requests and the
     -- closed-vocabulary cloud relay (POST modules/rpc).
     "modules_v2",
+    -- REQUEST_ENTITLEMENTS: the cloud may ask for a licence re-check (after
+    -- it issues or changes one) instead of waiting out the daily refresh.
+    "entitlements_refresh_v1",
   }
   local rank = remoteControlRank()
   if rank >= 1 then
@@ -3558,6 +3561,12 @@ local COMMAND_RUNNERS = {
   REQUEST_CATALOGUE = function()
     sendCatalogue()
     return "catalogue sent"
+  end,
+  -- The dealer action "Refresh Entitlements Now", asked by the cloud after a
+  -- licence was issued or changed, so drivers stop reading "Not Licensed"
+  -- before the daily refresh. Throttled on the controller (one a minute).
+  REQUEST_ENTITLEMENTS = function()
+    return EntitlementsCloudRefresh()
   end,
   -- A platform-authored notice, surfaced through Control4's OWN channels.
   --
@@ -4660,7 +4669,19 @@ function ModuleCommandDispatch(payload)
     error(string.format("%s@%s does not register the command %s", moduleId, tostring(target.instance_id), command))
   end
   local args = type(payload.args) == "table" and payload.args or {}
-  ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
+  -- The ledger record exists BEFORE the frame leaves. Director may run the
+  -- module's handler inside SendToDevice, so its Accepted / Executing /
+  -- Completed reports can arrive before ModuleSend returns, and a result for
+  -- a request with no record is dropped (EC.SBOS_MODULE_COMMAND_RESULT).
+  ModuleCommandRecord(
+    requestId,
+    target,
+    command,
+    "Accepted",
+    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
+    expiresAt
+  )
+  local sent = ModuleSend(target.instance_id, "SBOS_MODULE_COMMAND", {
     module_id = moduleId,
     instance_id = tostring(target.instance_id),
     token = target.token,
@@ -4670,28 +4691,31 @@ function ModuleCommandDispatch(payload)
     expires_at = tostring(expiresAt),
     issued_at = tostring(os.time()),
   })
-  ModuleCommandRecord(
-    requestId,
-    target,
-    command,
-    "Accepted",
-    "forwarded to " .. moduleId .. "@" .. tostring(target.instance_id),
-    expiresAt
-  )
-  SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
-    local rec = gModuleCommands[requestId]
-    if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
-      ModuleCommandRecord(
-        requestId,
-        target,
-        command,
-        "Unverified",
-        "no terminal result from the module before expiry",
-        expiresAt
-      )
-      SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
-    end
-  end)
+  if not sent then
+    -- Nothing reached the module: end the record now, as every other
+    -- refusal above does, rather than leave it to expire as Unverified.
+    ModuleCommandRecord(requestId, target, command, "Failed", "could not forward to the module", expiresAt)
+    SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+    error(string.format("could not forward %s to %s@%s", command, moduleId, tostring(target.instance_id)))
+  end
+  local rec = gModuleCommands[requestId]
+  -- A module that already answered with a terminal state needs no expiry.
+  if rec ~= nil and (rec.state == "Accepted" or rec.state == "Executing") then
+    SetTimer("ModuleCommandExpiry:" .. requestId, (expiresAt - os.time() + 5) * ONE_SECOND, function()
+      local current = gModuleCommands[requestId]
+      if current ~= nil and (current.state == "Accepted" or current.state == "Executing") then
+        ModuleCommandRecord(
+          requestId,
+          target,
+          command,
+          "Unverified",
+          "no terminal result from the module before expiry",
+          expiresAt
+        )
+        SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
+      end
+    end)
+  end
   SetTimer(EVENTS_FAST_TIMER, 2 * ONE_SECOND, FlushEvents)
   return string.format(
     "accepted: %s forwarded to %s@%s (request %s)",
@@ -6554,7 +6578,35 @@ end
 --- Identity details (names, address) refresh on the first check-in; only the
 --- credential and scope need to come back from here.
 function restorePairingFromBackup()
-  if persist:get(TOKEN_KEY, "", true) ~= "" then
+  local liveToken = persist:get(TOKEN_KEY, "", true) or ""
+  if liveToken ~= "" then
+    -- Paired from persist: make sure the mirror still exists and agrees. It
+    -- was written once, at pairing, so a property value lost since then (a
+    -- re-added instance, a value the project did not keep) stayed lost while
+    -- persist carried the pairing — invisibly, until the next update that
+    -- lost encrypted persist came up "Not paired". Re-written here, every start.
+    local okMirror, mirrored = pcall(function()
+      return JSON:decode(Properties["Pairing Backup"] or "")
+    end)
+    local systemId = persist:get(SYSTEM_KEY, "") or ""
+    local propertyIdValue = persist:get(PROPERTY_KEY, "") or ""
+    if
+      (systemId ~= "" or propertyIdValue ~= "")
+      and not (okMirror and type(mirrored) == "table" and mirrored.token == liveToken)
+    then
+      UpdateProperty(
+        "Pairing Backup",
+        JSON:encode({
+          token = liveToken,
+          system_id = systemId,
+          property_id = propertyIdValue,
+          agent_secret = persist:get(AGENT_SECRET_KEY, "", true) or "",
+          support_id = persist:get(SUPPORT_ID_KEY, "") or "",
+        }),
+        true
+      )
+      log:warn("Pairing Backup was missing or stale; re-written from the live pairing")
+    end
     return false
   end
   local raw = Properties["Pairing Backup"] or ""
@@ -9470,6 +9522,7 @@ function refreshEntitlements(reason)
     :post(url, { installed = installed, site_trials = true }, authHeaders(), { timeout = REQUEST_TIMEOUT })
     :next(function(response)
       gEntitlements.inFlight = false
+      EntitlementsOwedSoon()
       local body = response.body
       if type(body) == "string" then
         local okDecode, decoded = pcall(function()
@@ -9555,6 +9608,7 @@ function refreshEntitlements(reason)
       pushEntitlements()
     end, function(err)
       gEntitlements.inFlight = false
+      EntitlementsOwedSoon()
       local detail = tostring(err and (err.error or err.code) or err)
       -- An unreachable cloud is a CONNECTION condition, never a licensing
       -- one: the cache and its grace ladder carry the answers (fail-secure
@@ -9941,6 +9995,88 @@ end
 function EC.REFRESH_ENTITLEMENTS()
   gEntitlements.lastAttempt = 0
   refreshEntitlements("dealer request")
+  -- A refresh that STARTED now began after any owed cloud request arrived,
+  -- so it answers that request too. One that was already running when the
+  -- request came is not this call: it left the debt in place.
+  if gEntitlements.lastAttempt ~= 0 and gEntitlements.owedSince ~= nil then
+    gEntitlements.owedSince = nil
+    CancelTimer("SbosEntitlementsOwed")
+  end
+end
+
+--- The same refresh for the cloud command REQUEST_ENTITLEMENTS
+--- (entitlements_refresh_v1). At most one cloud-requested refresh starts per
+--- 60 s, and none while another refresh is running; a request that cannot run
+--- now is never dropped: it is OWED (gEntitlements.owedSince) and exactly one
+--- trailing refresh runs as soon as both conditions allow
+--- (EntitlementsOwedCheck). Any number of requests while one is owed collapse
+--- into it. The platform asks again after each licence change, possibly after
+--- this Agent read the licences, so the last request must be honoured. The
+--- dealer action above is not throttled. Globals, not locals: the main chunk
+--- is at Lua's 200-local ceiling. The debt lives only in memory: a restart
+--- drops it.
+--- @return string result The command ack's result line.
+function EntitlementsCloudRefresh()
+  if EntitlementsCloudWait() == 0 then
+    EntitlementsCloudStart("cloud request")
+    return "entitlement refresh started"
+  end
+  if gEntitlements.owedSince == nil then
+    gEntitlements.owedSince = os.time()
+  end
+  EntitlementsOwedCheck()
+  return "entitlement refresh scheduled"
+end
+
+--- Seconds until a cloud-requested refresh may start: 0 when it may start
+--- now, nil while another refresh is in flight (its completion re-checks).
+--- A clock that went backwards opens the window, as an unknown age would.
+function EntitlementsCloudWait()
+  if gEntitlements.inFlight then
+    return nil
+  end
+  local last = gEntitlements.cloudRequestedAt
+  local age = last ~= nil and os.time() - last or nil
+  if age ~= nil and age >= 0 and age < 60 then
+    return 60 - age
+  end
+  return 0
+end
+
+function EntitlementsCloudStart(reason)
+  gEntitlements.owedSince = nil
+  CancelTimer("SbosEntitlementsOwed")
+  gEntitlements.cloudRequestedAt = os.time()
+  gEntitlements.lastAttempt = 0
+  refreshEntitlements(reason)
+end
+
+--- Runs the owed refresh if it may start now; otherwise arms the one named
+--- timer for the end of the window. While a refresh is in flight nothing is
+--- armed: refreshEntitlements' success and failure paths both call
+--- EntitlementsOwedSoon once in-flight clears.
+function EntitlementsOwedCheck()
+  if gEntitlements.owedSince == nil then
+    return
+  end
+  local wait = EntitlementsCloudWait()
+  if wait == nil then
+    return
+  end
+  if wait == 0 then
+    EntitlementsCloudStart("cloud request (owed)")
+    return
+  end
+  SetTimer("SbosEntitlementsOwed", wait * ONE_SECOND, EntitlementsOwedCheck)
+end
+
+--- From a finished refresh (either outcome): re-check the debt on a timer,
+--- outside the finishing callback, so the trailing refresh never runs while
+--- that callback is still writing the cache.
+function EntitlementsOwedSoon()
+  if gEntitlements.owedSince ~= nil then
+    SetTimer("SbosEntitlementsOwed", ONE_SECOND, EntitlementsOwedCheck)
+  end
 end
 
 --- The whole licensing picture in one print, for support calls.

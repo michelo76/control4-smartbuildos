@@ -58,9 +58,12 @@ On pairing, the Agent redeems the code for a long-lived device token, fires
 *Paired*, sends a full device snapshot and a heartbeat, and fetches the
 licences. The token is what grants access. It is stored encrypted on the
 controller and copied into the masked, read-only **Pairing Backup** property so
-that the pairing survives a driver update. That property is kept with the
-project, so treat a project backup as carrying the pairing. The token, the codes
-and the backup are kept out of the log.
+that the pairing can survive a driver update in place; the Agent rewrites that
+copy at every start while it is paired. Whether Composer keeps a value the
+driver writes into a masked property is not yet confirmed on hardware, so after
+an update check that **Connection Status** is still paired. Removing and
+re-adding the Agent never keeps the pairing. The token, the codes and the backup
+are kept out of the log.
 
 ### Pair by account number
 
@@ -104,10 +107,15 @@ SmartBuildOS issued for this controller, signed with a secret the controller
 received when it paired, and kept encrypted on the controller.
 
 The Agent fetches licences when it pairs, when a driver it has no record for
-registers, and on *Refresh Entitlements Now*. Otherwise it looks once an hour
-and fetches again when the last fetch is more than 24 hours old; SmartBuildOS
-can change that period. After each fetch it tells every registered driver where
-it stands, and each hour it tells any driver whose standing has changed.
+registers, on *Refresh Entitlements Now*, and when SmartBuildOS asks for a
+re-check after it issues or changes a licence (the cloud command
+`REQUEST_ENTITLEMENTS`; the Agent runs at most one a minute: a request inside
+that minute, or while a fetch is running, is not skipped but run once the minute
+is up and the running fetch has ended, and any number of such requests make one
+fetch). Otherwise it looks once an hour and fetches again when the last fetch is
+more than 24 hours old; SmartBuildOS can change that period. After each fetch it
+tells every registered driver where it stands, and each hour it tells any driver
+whose standing has changed.
 
 ### What the Agent shows
 
@@ -299,12 +307,12 @@ home can raise it. Each tier includes the ones above it.
 | `Full control`            | Also: locking and unlocking, garage open and close, arming and disarming security. Disarming needs a user code. SmartBuildOS requires the homeowner to approve each of these on their phone before it is sent |
 
 Requests to report (a full sync, a heartbeat, diagnostics, a capability probe,
-the catalogue, a network scan), notices, and a fixed list of operations on
-SmartBuildOS module drivers (pause, resume, apply settings) are not limited by
-this property: they do not operate equipment. A command the Agent does not know
-is refused by name. Commands arrive on the next check-in, so **Heartbeat
-Interval** is also how long a command can wait. Lowering the tier takes effect
-at once.
+the catalogue, a network scan), a licence re-check, notices, and a fixed list of
+operations on SmartBuildOS module drivers (pause, resume, apply settings) are
+not limited by this property: they do not operate equipment. A command the Agent
+does not know is refused by name. Commands arrive on the next check-in, so
+**Heartbeat Interval** is also how long a command can wait. Lowering the tier
+takes effect at once.
 
 ## Notices, restarts and service mode
 

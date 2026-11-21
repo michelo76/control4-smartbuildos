@@ -3,9 +3,11 @@
 Every known issue and limitation of AI Core across the driver repo and the
 platform, collected in one place, de-duplicated, each with the file it comes
 from. "Open" means nothing in this branch fixes it. Everything here is from
-simulation (unit tests under the C4 shim, the Director emulator) or from
-reading the code: **no physical controller and no live AI provider** has run
-any of it.
+simulation (unit tests under the C4 shim, the Director emulator) or from reading
+the code: **no live AI provider** has run any of it, and on hardware one
+controller has only loaded AI Core and shown its properties, with a real
+SmartBuildOS cloud accepting its requests (no AI answer seen, the touchscreen
+page and the PIN flow not opened).
 
 **Branches.** KI-63 to KI-74 (round two: the live device read and the
 dealer's preset questions) concern only `feat/ai-core-round2`, which is not
@@ -101,7 +103,7 @@ redundant but harmless. Source: this closeout (`src/sbos/envelope.lua`,
 | KI-3 | Category exclusions are translated, not shared: the platform's `scenes`, `keypad` and `other` have no driver category and are enforced by the cloud alone; `climate` and `shades` both map to the driver's `comfort`, so excluding either also refuses `comfort` markers on the controller (errs towards excluding more) | open, by design | `DRIVER.md` §9; platform `src/lib/ai-core/settings/driver-config.ts` `DRIVER_CATEGORIES_FOR` |
 | KI-4 | Staff settings accept any lowercase category name in `excluded_categories` (`settings.ts` `CATEGORY`); one outside the learning vocabulary excludes nothing on either side (the portal accepts only `LEARNING_CATEGORIES`) | open | platform `src/lib/ai-core/settings/settings.ts` |
 | KI-5 | The homeowner's room list is read from rooms the Flight Recorder has recorded (`flight_recorder_events.room_id`, last 1000 events with a room): a room with no recorded event yet is not offered. `control4_devices.room_id` cannot be used: it is a uuid column, `NULL` in practice | open | platform `src/lib/ai-core/memory/portal.ts`; migration `20260829182833_control4_devices_room_id.sql` |
-| KI-6 | `Property ID` and `Controller ID` read `Not delivered yet`: System Studio's document does not carry `property_id` / `controller_id` | open | `DRIVER.md` §1; platform `settings.ts` `driverConfigDocument` |
+| KI-6 | `Property ID` and `Controller ID` read `Not delivered yet` until System Studio's document carries `property_id` / `controller_id`. The platform sends them from the release that includes its fix (open there, not merged); a platform before that release leaves both properties at `Not delivered yet` | open until the platform release ships | `DRIVER.md` §1; platform `settings.ts` `driverConfigDocument` |
 | KI-7 | Prompt delivery of a pause / resume / exclusion change needs the controller to have declared `modules_v1` and the document to have been published with a version; the queued `MODULE_COMMAND` expires after 10 minutes. Otherwise nothing is queued (logged, not an error) and the change reaches the controller with the next configuration delivery | open, by design | platform `settings.ts` `promptDriverDelivery`; `src/lib/control4/flight-recorder/modules.ts` `MODULE_COMMAND_TTL_SECONDS` |
 | KI-8 | The Agent forwards a configuration only when its `settings_version` or content changed since it last forwarded one (`forwardDriverConfig` fingerprint): an AI Core instance added after the current document was forwarded to another instance waits for the next change to receive it, and has learning off until then | open | `drivers/smartbuildos/driver.lua` `forwardDriverConfig` |
 | KI-36 | The `request_id` inside `ai_core.command` / `ai_core.record` **payloads** arrives as `[redacted]`: `aic-` + a UUID is 40 characters of `[%w-]`, which `sbos.envelope.looksLikeSecret` treats as a key. The envelope's `correlation_id` (not redacted) carries the same id, and `AI_LAST_REQUEST_ID` shows it; the payload copy is lost. Found during this closeout (shim) | open | `src/sbos/envelope.lua` `looksLikeSecret`; `src/aicore/commands.lua` `envelope` |
@@ -111,9 +113,12 @@ redundant but harmless. Source: this closeout (`src/sbos/envelope.lua`,
 
 ## Driver: not verified on hardware
 
-No physical controller has run AI Core, the Flight Recorder's v2 service or
-module contract v2 (`DRIVER.md` §14; `TEST-MATRIX.md` "Hardware validation
-plan", 21 procedures, none done; `RELEASE.md` §5). Owed on a bench:
+Beyond one controller loading AI Core and showing its properties, with a real
+SmartBuildOS cloud accepting its requests (no AI answer seen, the touchscreen
+page and the PIN flow not opened), nothing of AI Core, the Flight Recorder's v2
+service or module contract v2 has been verified on hardware (`DRIVER.md` §14;
+`TEST-MATRIX.md` "Hardware validation plan", 21 procedures, none done;
+`RELEASE.md` §5). Owed on a bench:
 
 | # | Item | Source |
 | --- | --- | --- |
