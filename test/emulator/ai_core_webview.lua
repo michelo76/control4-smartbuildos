@@ -260,6 +260,7 @@ local function post(path, body)
   local _, r = http(aic, 47871, "POST", q(path, S), body or {})
   return r
 end
+local lastAfterDone = nil
 local function enterPin(pin)
   local st = state()
   local p = st.prompt
@@ -274,6 +275,9 @@ local function enterPin(pin)
   local vhost = p.verify_url:match("^http://([%d%.]+):47831/verify$")
   local vcode, vdoc = http(pl, 47831, "POST", "/verify", { challenge_id = p.challenge_id, pin = pin })
   post("/pin/done", { challenge_id = p.challenge_id })
+  -- Before PIN Lock's redeem answer arrives (the bus is asynchronous here):
+  -- what the page's very next poll sees.
+  lastAfterDone = state()
   d:advance(1000)
   return vcode, vdoc, vhost
 end
@@ -294,6 +298,12 @@ check(
   "PIN Lock's /verify accepted the owner PIN (200), on this controller",
   vcode == 200 and vhost == "192.168.1.2",
   vcode
+)
+check(
+  "the poll right after /pin/done is never 'locked, nothing pending': unlocked already, or checking",
+  lastAfterDone ~= nil
+    and (lastAfterDone.chat.locked == false or (lastAfterDone.checking == true and lastAfterDone.chat.locked == true)),
+  json.encode(lastAfterDone or {})
 )
 st = state()
 check("the chat is unlocked", st.chat.locked == false and #st.chat.suggestions == 3, json.encode(st.chat))

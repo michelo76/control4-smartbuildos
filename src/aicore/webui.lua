@@ -65,6 +65,7 @@ M.LIMITS = {
   approvals_refresh_seconds = 30, -- approvals_pending at most this often
   approvals_stale_seconds = 60, -- refreshed when older, while a page is open
   pin_check_seconds = 30, -- pinlock.availability at most this often
+  redeem_wait_seconds = 30, -- a redeem PIN Lock never answered is reported after this
   title = 80,
   description = 300,
 }
@@ -432,7 +433,14 @@ function UI:sweep()
         end
       end
       if s.prompt ~= nil and t >= s.prompt.expires_at then
+        -- Never silently: a prompt PIN Lock did not answer, or a pad nobody
+        -- finished, says so on the page.
+        s.notice = M.text(s.prompt.waiting and "pin_not_responding" or "expired")
         s.prompt = nil
+      end
+      if s.checking ~= nil and t - s.checking.at >= M.LIMITS.redeem_wait_seconds then
+        s.checking = nil
+        s.notice = M.text("pin_not_responding")
       end
       for _, e in ipairs(s.conversation) do
         if e.state == "pending" and t - e.at >= M.LIMITS.answer_wait_seconds then
@@ -478,6 +486,7 @@ function UI:openSession()
     proofs = {}, -- chat_view = {...}, approval = {...}
     conversation = {},
     prompt = nil, -- the PIN entry the page is asked for
+    checking = nil, -- when a redeem was sent (the page shows "Checking the PIN…")
     review = nil, -- the approval item being reviewed
     notice = nil, -- one line for the page
     skipped = {}, -- refs decided here this session
@@ -626,9 +635,15 @@ local function redeem(self, s, challengeId)
     return false, "no_prompt"
   end
   s.prompt = nil
-  p.redeeming = true
+  -- Until PIN Lock answers, /state says a PIN is being checked: the page
+  -- shows it and keeps polling fast, so the outcome appears when it lands.
+  local checking = { at = self:now() }
+  s.checking = checking
   local args = { challenge_id = p.challenge_id, nonce = p.nonce, purpose = p.purpose, subject = p.subject }
   self.deps.pinRequest("pinlock.redeem", args, function(answer)
+    if s.checking == checking then
+      s.checking = nil
+    end
     answer = type(answer) == "table" and answer or {}
     local r = type(answer.result) == "table" and answer.result or {}
     if answer.status ~= "ok" then
@@ -1042,6 +1057,9 @@ function UI:stateDoc(s)
     },
     notice = s.notice,
   }
+  if s.checking ~= nil then
+    doc.checking = true
+  end
   local available, why = self:chatAvailable()
   local chat = { available = available, locked = true }
   if not available then

@@ -65,8 +65,8 @@ input[type=text] { width: 100%; min-height: 48px; padding: 8px 12px; border-radi
 
 <section class="card" aria-labelledby="hChat">
   <h2 id="hChat">Chat</h2>
-  <div id="chatMsg" class="muted"></div>
-  <div id="chatLocked">
+  <div id="chatMsg" class="muted">Connecting to AI Core…</div>
+  <div id="chatLocked" class="hidden">
     <button id="unlock" class="primary" type="button">Unlock with owner PIN</button>
   </div>
   <div id="chatOpen" class="hidden">
@@ -154,9 +154,12 @@ var AIC = (function () {
     return s >= 60 ? 'Locks again after ' + Math.ceil(s / 60) + ' min without use' : 'Locks again in ' + s + ' s';
   };
   A.riskText = function (risk) { return risk === 'medium' ? 'Risk: medium' : risk === 'low' ? 'Risk: low' : ''; };
-  // Poll fast while something is pending, slowly when idle.
+  // Poll fast while something is pending, slowly when idle. Fastest while
+  // PIN Lock is being asked for a PIN entry or is checking a PIN: the
+  // outcome must appear when it lands, not up to 30 s later.
   A.pollDelay = function (st) {
     if (!st || !st.ok) { return 10000; }
+    if (st.checking || (st.prompt && st.prompt.waiting)) { return 1000; }
     if (st.prompt || (st.review && st.review.loading)) { return 3000; }
     var conv = (st.chat && st.chat.conversation) || [];
     for (var i = 0; i < conv.length; i++) { if (conv[i].state === 'pending') { return 3000; } }
@@ -192,6 +195,25 @@ var AIC = (function () {
       root.appendChild(b);
     });
   };
+  // What the chat card says while a PIN entry is in progress (null: nothing
+  // in progress, the controller's own message stands).
+  A.pinProgress = function (st) {
+    if (!st || !st.ok) { return null; }
+    if (st.checking) { return 'Checking the PIN with PIN Lock…'; }
+    if (st.prompt && st.prompt.waiting) { return 'Asking PIN Lock for a PIN entry…'; }
+    return null;
+  };
+  // Why the page cannot talk to AI Core, in words the person at the screen
+  // can act on. `why`: 'copy' (the tile opened the driver's built-in copy,
+  // not the live page), 'address' (the page's address is out of date),
+  // 'starting', 'nofetch', anything else: the relay did not answer.
+  A.offlineText = function (why) {
+    if (why === 'copy') { return 'This screen opened the built-in copy of the AI Core page, which cannot connect. Close the AI Core tile and open it again. If this stays, ask your integrator to check Webview Address in Composer.'; }
+    if (why === 'address') { return 'This screen has an out-of-date AI Core page address. Close the AI Core tile and open it again. If this stays, ask your integrator to press Republish App URL in Composer.'; }
+    if (why === 'starting') { return 'AI Core is starting. Try again in a moment.'; }
+    if (why === 'nofetch') { return 'This screen cannot run the AI Core page. Use the SmartBuildOS portal.'; }
+    return 'AI Core did not answer. Available on the home network only: open this screen from a touch screen or a phone on the home Wi-Fi.';
+  };
   A.statusLines = function (st) {
     var t = (st.status && st.status.text) || {};
     return [t.online, t.licensed, t.provider, t.learning, st.pin && st.pin.message];
@@ -215,6 +237,15 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
 
   function show(id, on) { $(id).classList.toggle('hidden', !on); }
   function notice(text) { $('notice').textContent = text || ''; show('notice', !!text); }
+  // Not connected: say why, and never leave a control on screen that
+  // cannot work.
+  function offline(why) {
+    notice(AIC.offlineText(why));
+    $('chatMsg').textContent = 'Not connected.';
+    show('chatLocked', false);
+    show('chatOpen', false);
+    show('review', false);
+  }
   function url(path) { return path + '?k=' + encodeURIComponent(K) + '&s=' + encodeURIComponent(S); }
   function call(path, body, keepalive) {
     return fetch(url(path), {
@@ -222,40 +253,61 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
     }).then(function (r) { return r.json(); });
   }
-  function offLan() {
-    notice('Available on the home network only. Open this screen from a touch screen or a phone on the home Wi-Fi.');
-  }
+  function offLan() { offline('relay'); }
+  function failed(e) { offline(e && e.why ? e.why : 'relay'); }
+  function refused(why) { var e = new Error(why); e.why = why; return e; }
   function openSession() {
     return fetch('/session?k=' + encodeURIComponent(K), { method: 'POST', cache: 'no-store', body: '{}' })
-      .then(function (r) { return r.json(); })
-      .then(function (j) { if (!j.ok) { throw new Error('session'); } S = j.s; });
+      .then(function (r) {
+        if (r.status === 403) { throw refused('address'); }
+        if (r.status === 503) { throw refused('starting'); }
+        return r.json();
+      })
+      .then(function (j) { if (!j || !j.ok) { throw refused('relay'); } S = j.s; });
   }
   function schedule(ms) { clearTimeout(timer); timer = setTimeout(poll, ms); }
   function poll() {
     fetch(url('/state'), { cache: 'no-store' }).then(function (r) {
       if (r.status === 401) { return openSession().then(poll); }
+      if (r.status === 403) { throw refused('address'); }
       return r.json().then(function (st) { render(st); schedule(AIC.pollDelay(st)); });
-    }).catch(function () { offLan(); schedule(15000); });
+    }).catch(function (e) { failed(e); schedule(15000); });
   }
-  function act(path, body) {
+  // One action. Its outcome is always shown: a refusal's message, or why
+  // the page could not ask. A session the controller forgot (a page that
+  // slept longer than 75 s, a driver restart) is opened again and the
+  // action sent once more, instead of being dropped.
+  function act(path, body, retried) {
     call(path, body).then(function (j) {
-      if (j && j.ok === false && j.message) { notice(j.message); }
+      if (j && j.reason === 'session' && !retried) {
+        return openSession().then(function () { act(path, body, true); });
+      }
+      if (j && j.error === 'bad token') { offline('address'); return; }
+      if (j && j.ok === false) { notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.'); }
       poll();
-    }).catch(offLan);
+    }).catch(failed);
   }
+  // A person pressed something: clear the last line first, so an outcome
+  // that repeats it is still seen to arrive.
+  function press(path, body) { notice(''); act(path, body); }
 
   function render(st) {
     last = st;
-    if (!st || !st.ok) { return; }
+    if (!st || !st.ok) {
+      if (st && st.message) { notice(st.message); }
+      return;
+    }
     AIC.renderLines(document, $('status'), AIC.statusLines(st));
     var chat = st.chat || {};
-    $('chatMsg').textContent = chat.message || '';
+    var progress = AIC.pinProgress(st);
+    $('chatMsg').textContent = progress || chat.message || '';
     show('chatLocked', chat.available && chat.locked);
+    $('unlock').disabled = !!progress;
     show('chatOpen', chat.available && !chat.locked);
     if (chat.available && !chat.locked) {
       $('lockIn').textContent = AIC.leftText(chat.locks_in);
       AIC.renderConversation(document, $('conversation'), chat.conversation);
-      AIC.renderSuggestions(document, $('suggestions'), chat.suggestions, function (id) { act('/ask', { suggestion_id: id }); });
+      AIC.renderSuggestions(document, $('suggestions'), chat.suggestions, function (id) { press('/ask', { suggestion_id: id }); });
     } else {
       AIC.clear($('conversation'));
       AIC.clear($('suggestions'));
@@ -328,19 +380,19 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   $('padCancel').addEventListener('click', function () { closePad(); act('/pin/cancel'); });
 
   // ── actions ──
-  $('unlock').addEventListener('click', function () { act('/chat/unlock'); });
-  $('lock').addEventListener('click', function () { act('/chat/lock'); });
+  $('unlock').addEventListener('click', function () { press('/chat/unlock'); });
+  $('lock').addEventListener('click', function () { press('/chat/lock'); });
   $('ask').addEventListener('click', function () {
     var q = $('question').value;
     $('question').value = '';
-    act('/ask', { question: q });
+    press('/ask', { question: q });
   });
   $('question').addEventListener('keydown', function (e) { if (e.key === 'Enter') { $('ask').click(); } });
-  $('explain').addEventListener('click', function () { act('/ask', { explain: true }); });
-  $('review').addEventListener('click', function () { act('/approvals/next'); });
-  $('approve').addEventListener('click', function () { act('/approvals/decide', { decision: 'approve' }); });
-  $('decline').addEventListener('click', function () { act('/approvals/decide', { decision: 'decline' }); });
-  $('closeItem').addEventListener('click', function () { act('/approvals/close'); });
+  $('explain').addEventListener('click', function () { press('/ask', { explain: true }); });
+  $('review').addEventListener('click', function () { press('/approvals/next'); });
+  $('approve').addEventListener('click', function () { press('/approvals/decide', { decision: 'approve' }); });
+  $('decline').addEventListener('click', function () { press('/approvals/decide', { decision: 'decline' }); });
+  $('closeItem').addEventListener('click', function () { press('/approvals/close'); });
   ['pointerdown', 'keydown'].forEach(function (ev) {
     document.addEventListener(ev, function () {
       var now = Date.now();
@@ -356,8 +408,9 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   });
   window.addEventListener('pagehide', function () { if (S) { call('/session/close', {}, true).catch(function () {}); } });
 
-  if (!K || location.protocol !== 'http:') { offLan(); return; }
-  openSession().then(poll).catch(offLan);
+  if (!K || location.protocol !== 'http:') { offline('copy'); return; }
+  if (typeof fetch !== 'function') { offline('nofetch'); return; }
+  openSession().then(poll).catch(failed);
 })();
 </script>
 </body>

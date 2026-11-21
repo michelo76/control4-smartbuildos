@@ -644,6 +644,40 @@ local function scan(label, text, needles)
   check(label, #hits == 0, table.concat(hits, ","))
 end
 
+--- `text` with every stored digest, salt and token set aside: a whole run of
+--- exactly 24 (salt), 32 (relay / session token) or 64 (digest) hex digits.
+--- Those are random by design, so four PIN digits turn up inside one by
+--- chance about once in a hundred runs; that is not a plaintext PIN. Any
+--- other run is kept: a PIN glued to a digest (68 digits) is still found.
+local DIGEST_LENGTHS = { [24] = true, [32] = true, [64] = true }
+local function plain(text)
+  return (text:gsub("%x+", function(run)
+    return DIGEST_LENGTHS[#run] and "#" or nil
+  end))
+end
+local chance = VENDOR_PIN .. string.rep("a", 20)
+scan(
+  "(a PIN's digits inside a salt, a token or a digest by chance are not a plaintext PIN)",
+  plain(
+    '{"salt":"'
+      .. chance
+      .. '","session":"'
+      .. chance
+      .. string.rep("b", 8)
+      .. '","hash":"'
+      .. chance
+      .. string.rep("c", 40)
+      .. '"}'
+  ),
+  secrets
+)
+check(
+  "(…but a PIN on its own, or glued to a digest, still is)",
+  plain('{"pin":"' .. VENDOR_PIN .. '"}'):find(VENDOR_PIN, 1, true) ~= nil
+    and plain('{"hash":"' .. VENDOR_PIN .. string.rep("c", 64) .. '"}'):find(VENDOR_PIN, 1, true) ~= nil
+    and plain('{"note":"code ' .. SEQUENCE .. '"}'):find(SEQUENCE, 1, true) ~= nil
+)
+
 local logText = table.concat(captured, "\n")
 check(
   "logging really was captured (Trace, handler debug on)",
@@ -685,11 +719,11 @@ for _, s in ipairs(serverSent) do
   replies[#replies + 1] = s.data
 end
 local replyBlob = table.concat(replies, "\n")
-scan("no PIN or sequence echoed in any relay reply", replyBlob, secrets)
+scan("no PIN or sequence echoed in any relay reply", plain(replyBlob), secrets)
 scan("no digest or salt in any relay reply", replyBlob, digests)
 
 local persistedBlob = JSON:encode(persisted)
-scan("no plaintext PIN or sequence in the persisted store", persistedBlob, secrets)
+scan("no plaintext PIN or sequence in the persisted store", plain(persistedBlob), secrets)
 check("the persisted store is written as encrypted state under one key", persisted["pl_state_v2"] ~= nil)
 
 print = realPrint
