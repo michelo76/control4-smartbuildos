@@ -107,6 +107,15 @@ local sbosUpdater = require("lib.sbos-updater")
 -- Global on purpose: the main chunk is at Lua's 200-local ceiling.
 AgentTelemetry = require("sbos.agenttelemetry")
 --#endif
+-- Studio release G1 (docs/studio-g1/AGENT-CONTRACT-G1.md). Global on purpose,
+-- like the two above. installJsonNull lets a device row carry an explicit JSON
+-- null (`online: null`); every other value encodes exactly as before.
+AgentStudio = require("sbos.agentstudio")
+AgentStudio.installJsonNull(JSON)
+--- G1 state. `poll`: the device_poll block waiting for a delivered heartbeat.
+--- `controllerSig`: the controller block the platform last received.
+--- `truncated`: whether the device map hit the payload ceiling.
+gStudio = { poll = nil, controllerSig = nil, truncated = false, errors = AgentStudio.newLastErrors() }
 
 --- Interval labels mapped to seconds.
 --- @type table<string, number>
@@ -1123,6 +1132,8 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
   http:post(url, payload, authHeaders(), { timeout = REQUEST_TIMEOUT }):next(function(response)
     log:info("%s delivered (HTTP %s)", description, tostring(response.code))
     pcall(NoteClock, response.headers)
+    -- last_errors_v1: a channel's entry is removed on its next success.
+    gStudio.errors.success(AgentStudio.channelFor(path))
     -- A request can still be in flight when the driver unpairs: the unpair
     -- notice itself always is, because EC.UNPAIR wipes the pairing right after
     -- sending it. Its answer must not repaint an unpaired driver as
@@ -1176,6 +1187,16 @@ local function send(path, payload, description, onOk, onDelivered, onFailed)
       log:error("%s failed after %d attempt(s): %s", description, gFailures, reason)
     end
     C4:FireEvent("Sync Failed")
+    -- last_errors_v1: the reason rides the next heartbeat, stripped of any
+    -- header or credential value. HTTP: the platform's own error/detail text;
+    -- transport (status 0): the reason lib/http was given ("Timeout…").
+    pcall(
+      gStudio.errors.failure,
+      AgentStudio.channelFor(path),
+      code,
+      code ~= nil and bodyText(err.body) or AgentStudio.transportReason(err and err.error or err),
+      os.time()
+    )
 
     -- Tell the PLATFORM, not just the Lua window and a Composer event.
     --
@@ -1770,9 +1791,10 @@ end
 --- devices. That is exactly what shipped first.
 ---
 --- Devices with no network binding at all (IR-controlled sources, serial-only
---- gear, dumb loads) are skipped rather than invented: Director has no link
---- state for them, and reporting them as online would be a guess presented as a
---- fact.
+--- gear, dumb loads) have no link state in Director. Until G1 they were
+--- skipped; since G1 (device_online_null_v1) they are reported with
+--- `connection_type` and `online` both null — never as online, which would be
+--- a guess presented as a fact. Proxies of another device are not repeated.
 ---
 --- @return table<string, table<string, any>> devices Keyed by "c4:<device id>".
 --- The name Composer shows for a project item, or nil.
@@ -1813,18 +1835,31 @@ end
 
 local function readDeviceState()
   local devices = {}
-  for rawId, device in pairs(C4:GetDevices({}) or {}) do
+  local project = C4:GetDevices({}) or {}
+  -- device_online_null_v1: a proxy is the same equipment as its protocol
+  -- device, so it is never reported as an unbound twin of it.
+  local proxies = AgentStudio.proxyIds(project)
+  for rawId, device in pairs(project) do
     local id = tointeger(rawId)
     if id ~= nil then
       local binding = networkBinding(id)
-      if binding ~= nil then
+      if binding == nil then
+        -- device_online_null_v1 (G1): a device with no network binding (IR,
+        -- serial, relay, contact) is now REPORTED, as `connection_type: null,
+        -- online: null` on the wire — "not monitored", which is the truth,
+        -- rather than absent, which made Composer's count and the platform's
+        -- disagree. Internally it reads exactly like an unaddressed binding.
+        devices["c4:" .. id] = AgentStudio.unboundRow(id, device, proxies)
+      else
         -- `status` is the authority. Anything that is not the string "online"
         -- is treated as down, so an unexpected value fails visible rather than
         -- silently reporting a dead device as healthy.
         local status = tostring(binding.status or ""):lower()
         -- An unaddressed binding has no reachability to report. Sending
         -- `online = false` for it would be a fabricated outage, so the address
-        -- is sent as-is and the platform reads a missing one as "state unknown".
+        -- is sent as-is and, since G1, `online` goes on the wire as JSON null
+        -- (AgentStudio.wireRow). Internally it stays false so transitions and
+        -- the Devices Offline count behave exactly as before.
         local addressable = isRealAddress(binding.addr)
         devices["c4:" .. id] = {
           -- Driver-local: whether this device has a state worth counting. The
@@ -1842,6 +1877,8 @@ local function readDeviceState()
           binding_id = tointeger(binding.networkbindingid),
           network_status = status ~= "" and status or nil,
           room = device.roomName,
+          -- room_identity_v1: the integer Control4 room id beside the name.
+          room_id = tointeger(device.roomId),
           driver_file = device.driverFileName,
           -- MEASURED 2026-08-17. The `uuid` on an SSDP-discovered binding
           -- carries the device's MAC on the end of its identifier:
@@ -2280,6 +2317,10 @@ local function readAllState(done)
         devices[key] = device
       end
     end
+    -- The platform's 2,000-row payload ceiling, applied HERE so the snapshot,
+    -- the deltas, the counts and the device_poll digest all describe the same
+    -- set: network-bound rows first, then key order (AgentStudio.capRows).
+    devices, gStudio.truncated = AgentStudio.capRows(devices)
     done(devices)
   end)
 end
@@ -2324,7 +2365,11 @@ local function sendFullSync()
     local list = toList(devices)
     UpdateProperty("Devices Offline", tostring(offlineCount(devices)))
     log:info("Sending full sync of %d device(s)", #list)
-    send("devices", { kind = "snapshot", devices = list }, "full sync", collectCommands)
+    -- G1: rows as the wire spells them (explicit nulls), plus the project's
+    -- rooms and driver census. Each extra is omitted when unreadable.
+    local snapshot = { kind = "snapshot", devices = AgentStudio.wireRows(list) }
+    AgentStudioFullSyncExtras(snapshot)
+    send("devices", snapshot, "full sync", collectCommands)
 
     -- A project with no visible devices is either a genuinely empty project or a
     -- driver that cannot see it. Those look identical from the platform, so say
@@ -2348,6 +2393,7 @@ local function pollDeviceState()
       gDeviceState = devices
       gHasSnapshot = true
       UpdateProperty("Devices Offline", tostring(offlineCount(devices)))
+      AgentStudioPollCompleted(devices)
       return
     end
 
@@ -2384,6 +2430,12 @@ local function pollDeviceState()
           event_type = "transition",
           state = device.online and "online" or "offline",
         })
+      elseif AgentStudio.wireStateChanged(previous, device) then
+        -- G1: offline ↔ unknown (an address set to NOT_SET, say). Internally
+        -- both read `online = false`, so nothing above fires — no Composer
+        -- event, no transition — but the wire value moved, and the platform's
+        -- copy (and with it the device_poll digest) must move too.
+        table.insert(changes, device)
       end
     end
 
@@ -2407,11 +2459,27 @@ local function pollDeviceState()
 
     if #changes == 0 then
       log:debug("Device poll: no changes")
+      AgentStudioPollCompleted(devices)
       return
     end
 
     log:info("Device poll: %d change(s)", #changes)
-    send("devices", { kind = "delta", devices = changes }, "device delta", collectCommands)
+    -- device_poll_v1: the digest rides the heartbeat AFTER this delta has
+    -- landed (or failed — a mismatch is then the right signal), so the
+    -- platform never compares it against rows it has not written yet.
+    local completedAt = os.time()
+    send(
+      "devices",
+      { kind = "delta", devices = AgentStudio.wireRows(changes), devices_truncated = gStudio.truncated or nil },
+      "device delta",
+      collectCommands,
+      function()
+        AgentStudioPollCompleted(devices, completedAt)
+      end,
+      function()
+        AgentStudioPollCompleted(devices, completedAt)
+      end
+    )
   end)
 end
 
@@ -2490,6 +2558,10 @@ function driverCapabilities()
   if rank >= 3 then
     caps[#caps + 1] = "control_v1"
   end -- locks/garage/security
+  -- Studio release G1: read-only reporting, independent of the write tier.
+  for _, cap in ipairs(AgentStudio.CAPABILITIES) do
+    caps[#caps + 1] = cap
+  end
   return caps
 end
 
@@ -3120,10 +3192,146 @@ function EC.SBOS_ATMOSPHERE_STATE(tParams)
   mirrorDriverState(tParams, true)
 end
 
+-- ─── Studio release G1 (docs/studio-g1/AGENT-CONTRACT-G1.md) ─────────────────
+--
+-- The pure rules are in src/sbos/agentstudio.lua; these globals wire them to
+-- Director (globals, not locals: the main chunk is at the 200-local limit).
+
+--- SHA-256 as lowercase hex, through the same C4:Hash call the released
+--- updater uses to verify a download (src/lib/sbos-updater.lua). nil when the
+--- primitive does not answer; the device_poll block then goes without a digest.
+function AgentStudioSha256(input)
+  local ok, hex = pcall(function()
+    return C4:Hash("SHA256", input, { return_encoding = "HEX", data_encoding = "NONE" })
+  end)
+  if ok and type(hex) == "string" then
+    return hex:lower()
+  end
+  return nil
+end
+
+--- device_poll_v1: a poll completed; its block waits for the next DELIVERED
+--- heartbeat (a newer poll replaces it).
+function AgentStudioPollCompleted(devices, completedAt)
+  local poll = INTERVALS[Properties["Device Poll Interval"] or ""] or INTERVALS["5m"]
+  gStudio.poll = AgentStudio.devicePollBlock(devices, completedAt or os.time(), poll, AgentStudioSha256)
+end
+
+--- Whether a driver file is one of ours (the update allowlist).
+function AgentStudioIsSbosFile(file)
+  local wanted = tostring(file or ""):lower()
+  for _, name in ipairs(type(DRIVER_FILENAMES) == "table" and DRIVER_FILENAMES or {}) do
+    if name:lower() == wanted then
+      return true
+    end
+  end
+  return type(DC_FILENAME) == "string" and DC_FILENAME:lower() == wanted
+end
+
+--- room_identity_v1 + driver_census_v1: the full-sync extras, each omitted
+--- when its source did not answer (absence is never a claim). Also marks a
+--- truncated device list.
+function AgentStudioFullSyncExtras(payload)
+  if gStudio.truncated then
+    payload.devices_truncated = true
+  end
+  -- Same call composerProjectName() already makes on every send.
+  local okL, xml = pcall(function()
+    return C4:GetProjectItems("LOCATIONS", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+  end)
+  if okL then
+    local okR, rooms = pcall(AgentStudio.roomsFromLocations, xml)
+    if okR and #rooms > 0 then
+      payload.rooms = rooms
+    end
+  end
+  local okD, project = pcall(function()
+    return C4:GetDevices({})
+  end)
+  if okD and type(project) == "table" then
+    local okC, drivers = pcall(AgentStudio.driverCensus, project, function(id, field)
+      -- `name` / `version` from the device's own driver.xml. GetDeviceData is
+      -- released for this driver's own id; for another device, and the
+      -- "version" field at all, it is a PROBE (pcall'd, sent only if it answered).
+      return C4:GetDeviceData(id, field)
+    end, AgentStudioIsSbosFile)
+    if okC and #drivers > 0 then
+      payload.drivers = drivers
+    end
+  end
+  return payload
+end
+
+--- The G1 heartbeat blocks, computed once per beat. `controller` is included
+--- on the first beat after start and whenever a value changes, until a beat
+--- carrying it has been delivered.
+function AgentStudioHeartbeatBlocks()
+  local controller = AgentStudio.controllerBlock({
+    -- PROBE: not called by the released Agent.
+    timezone = {
+      probe = true,
+      read = function()
+        return C4:GetTimeZone()
+      end,
+    },
+    -- PROBE: not called by the released Agent.
+    locale = {
+      probe = true,
+      read = function()
+        return C4:GetLocale()
+      end,
+    },
+    -- Released: controllerName() reads it.
+    hostname = {
+      probe = false,
+      read = function()
+        return C4:GetHostname()
+      end,
+    },
+    -- PROBE: only ever in the diagnostics sweep, where it measured ABSENT on
+    -- OS 4.2 and 4.3. Kept so a future OS that has it says so.
+    project_id = {
+      probe = true,
+      read = function()
+        return C4:GetProjectId()
+      end,
+    },
+    -- Released: the startup observation reads it. A per-boot value, never a serial.
+    boot_id = {
+      probe = false,
+      read = function()
+        return (SafeAgentBootId())
+      end,
+    },
+  })
+  local sig = AgentStudio.controllerSignature(controller)
+  return {
+    device_poll = gStudio.poll,
+    controller = (controller ~= nil and sig ~= gStudio.controllerSig) and controller or nil,
+    controllerSig = sig,
+    last_errors = gStudio.errors.block(),
+  }
+end
+
+--- A heartbeat carrying `blocks` reached the platform (any 2xx).
+function AgentStudioHeartbeatDelivered(blocks)
+  if blocks.device_poll ~= nil and gStudio.poll == blocks.device_poll then
+    gStudio.poll = nil
+  end
+  if blocks.controller ~= nil then
+    gStudio.controllerSig = blocks.controllerSig
+  end
+end
+
 --- Sends a heartbeat: proof of life plus a small health summary.
 local function sendHeartbeat()
   -- The backstop for the midnight timer: see AgentRollDay.
   pcall(AgentRollDay)
+  -- Studio G1 blocks. Each is nil (absent) when there is nothing to say.
+  local okG1, studio = pcall(AgentStudioHeartbeatBlocks)
+  if not okG1 or type(studio) ~= "table" then
+    studio = {}
+  end
   send(
     "heartbeat",
     {
@@ -3215,6 +3423,14 @@ local function sendHeartbeat()
           or nil,
         pending_startup_observations = #gAgentPendingObservation,
       },
+      -- ── Studio release G1 (docs/studio-g1/AGENT-CONTRACT-G1.md). Optional;
+      -- absent means this Agent had nothing to say, never a claim. ─────────
+      -- device_poll_v1: once per completed device poll.
+      device_poll = studio.device_poll,
+      -- controller_identity_v1: first beat after start, then on change.
+      controller = studio.controller,
+      -- last_errors_v1: per upload channel, until that channel next succeeds.
+      last_errors = studio.last_errors,
     },
     "heartbeat",
     function(body)
@@ -3293,6 +3509,11 @@ local function sendHeartbeat()
           sendCatalogue()
         end
       end
+    end,
+    -- Delivery (any 2xx), not a parseable body: the G1 blocks it carried are
+    -- now the platform's, so they are not repeated.
+    function()
+      AgentStudioHeartbeatDelivered(studio)
     end
   )
 end

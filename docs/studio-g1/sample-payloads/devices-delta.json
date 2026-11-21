@@ -1,0 +1,36 @@
+{
+    "devices": [
+        {
+            "address": "NOT_SET",
+            "addressable": false,
+            "binding_id": 6001,
+            "connection_type": "uuid",
+            "device_id": 11,
+            "driver_file": "example_amplifier.c4z",
+            "key": "c4:11",
+            "name": "Living Room Amplifier",
+            "network_status": "online",
+            "online": null,
+            "room": "Living Room",
+            "room_id": 6,
+            "source": "director"
+        }
+    ],
+    "kind": "delta",
+    "sent_at": 1790000901,
+    "system": {
+        "controller_type": "XDT_CORE1",
+        "device_id": 9,
+        "driver_device_id": 9,
+        "driver_name": "SmartBuildOS Agent",
+        "driver_version": "",
+        "os_version": "4.3.0.763929-res",
+        "property_id": "property-1",
+        "system_id": "system-1"
+    },
+    "technical_metadata": {
+        "composer_project_ref": "Project",
+        "director_ip": "192.168.1.2",
+        "director_mac": "00:0F:FF:00:00:01"
+    }
+}

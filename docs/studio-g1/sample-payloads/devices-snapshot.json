@@ -1,0 +1,149 @@
+{
+    "devices": [
+        {
+            "addressable": false,
+            "connection_type": null,
+            "device_id": 9,
+            "driver_file": "smartbuildos.c4z",
+            "key": "c4:9",
+            "name": "SmartBuildOS",
+            "online": null,
+            "room": "Equipment",
+            "room_id": 5,
+            "source": "director"
+        },
+        {
+            "address": "192.168.1.50",
+            "addressable": true,
+            "binding_id": 6001,
+            "connection_type": "uuid",
+            "device_id": 11,
+            "driver_file": "example_amplifier.c4z",
+            "key": "c4:11",
+            "name": "Living Room Amplifier",
+            "network_status": "online",
+            "online": true,
+            "room": "Living Room",
+            "room_id": 6,
+            "source": "director"
+        },
+        {
+            "address": "NOT_SET",
+            "addressable": false,
+            "binding_id": 6001,
+            "connection_type": "uuid",
+            "device_id": 12,
+            "driver_file": "example_amplifier.c4z",
+            "key": "c4:12",
+            "name": "Den Amplifier",
+            "network_status": "online",
+            "online": null,
+            "room": "Den",
+            "room_id": 7,
+            "source": "director"
+        },
+        {
+            "address": "192.168.1.51",
+            "addressable": true,
+            "binding_id": 6001,
+            "connection_type": "uuid",
+            "device_id": 13,
+            "driver_file": "example_pool.c4z",
+            "key": "c4:13",
+            "name": "Pool Controller",
+            "network_status": "online",
+            "online": true,
+            "room": "Equipment",
+            "room_id": 5,
+            "source": "director"
+        },
+        {
+            "addressable": false,
+            "connection_type": null,
+            "device_id": 14,
+            "driver_file": "example_irtv.c4i",
+            "key": "c4:14",
+            "name": "Den TV",
+            "online": null,
+            "room": "Den",
+            "room_id": 7,
+            "source": "director"
+        }
+    ],
+    "drivers": [
+        {
+            "count": 2,
+            "file": "example_amplifier.c4z",
+            "name": "Example Network Amplifier",
+            "sbos": false,
+            "version": "112"
+        },
+        {
+            "count": 1,
+            "file": "example_irtv.c4i",
+            "name": "Example IR Television",
+            "sbos": false,
+            "version": "7"
+        },
+        {
+            "count": 1,
+            "file": "example_pool.c4z",
+            "name": "Example Pool Controller",
+            "sbos": false,
+            "version": "3"
+        },
+        {
+            "count": 1,
+            "file": "smartbuildos.c4z",
+            "name": "SmartBuildOS Agent",
+            "sbos": true
+        }
+    ],
+    "kind": "snapshot",
+    "rooms": [
+        {
+            "building": "Main House",
+            "floor": "Main Floor",
+            "id": 5,
+            "name": "Equipment",
+            "parent_id": 4
+        },
+        {
+            "building": "Main House",
+            "floor": "Main Floor",
+            "id": 6,
+            "name": "Living Room",
+            "parent_id": 4
+        },
+        {
+            "building": "Main House",
+            "floor": "Main Floor",
+            "id": 7,
+            "name": "Den",
+            "parent_id": 4
+        },
+        {
+            "building": "Main House",
+            "floor": "Main Floor",
+            "id": 8,
+            "name": "Guest Room",
+            "parent_id": 4
+        }
+    ],
+    "sent_at": 1790000001,
+    "system": {
+        "controller_type": "XDT_CORE1",
+        "device_id": 9,
+        "driver_device_id": 9,
+        "driver_name": "SmartBuildOS Agent",
+        "driver_version": "",
+        "os_version": "4.3.0.763929-res",
+        "property_id": "property-1",
+        "system_id": "system-1"
+    },
+    "technical_metadata": {
+        "composer_project_ref": "Project",
+        "director_ip": "192.168.1.2",
+        "director_mac": "00:0F:FF:00:00:01"
+    }
+}
