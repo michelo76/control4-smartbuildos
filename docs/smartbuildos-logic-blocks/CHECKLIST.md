@@ -22,15 +22,19 @@ Decisions taken before building (evidence in `DESIGN.md`):
 
 Build order:
 
-- [ ] Additive engine changes (per-call window cap, debounce cancel, forgets)
-- [ ] `logic/blockdefs.lua` — types, settings schema, validation, wording
-- [ ] `logic/blocks.lua` — slots, identities, runtime, sources, history,
+- [x] Additive engine changes (per-call window cap, debounce cancel, forgets)
+- [x] `logic/blockdefs.lua` — types, settings schema, validation, wording
+- [x] `logic/blocks.lua` — slots, identities, runtime, sources, history,
       loop isolation, persistence v1 + migration, recovery report
-- [ ] `logic/blockdraft.lua` — draft, validate, atomic apply, templates
-- [ ] `logic/sandbox.lua` — isolated simulation runtime
-- [ ] `logic/appstate.lua` — read-only app document, redacted export
-- [ ] `logic/relay.lua` — LAN routes (read + sandbox only)
-- [ ] `driver.xml` surface + generator; `driver.lua` adapter
-- [ ] `www/app/index.html` — seven dealer screens
-- [ ] Tests: engine, compatibility, driver, relay, sandbox isolation, page
-- [ ] Scoped build target, dealer guide, design doc, bench checklist
+- [x] `logic/blockdraft.lua` — draft, validate, atomic apply, templates,
+      explicit legacy adoption
+- [x] `logic/sandbox.lua` — isolated simulation runtime
+- [x] `logic/appstate.lua` — read-only app document, redacted export
+- [x] `logic/relay.lua` — LAN routes (read + sandbox only)
+- [x] `driver.xml` surface + generator; `driver.lua` adapter
+- [x] `www/app/index.html` — seven dealer screens
+- [x] Tests: engine, compatibility, driver, relay, sandbox isolation, page
+- [x] Scoped build target, dealer guide, design doc, bench checklist
+
+Result: see `DESIGN.md` (what was built and why), `BENCH.md` (what a controller
+still has to prove) and `REGISTRY.md` (what was found and left unapplied).

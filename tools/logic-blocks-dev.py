@@ -75,7 +75,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         text = fmt % args
         # The page token never reaches the log.
-        sys.stderr.write(text.replace(os.environ.get("LB_DEV_TOKEN", "devblocks0123456789abcdef"), "[token]") + "\n")
+        sys.stderr.write(
+            text.replace(
+                os.environ.get("LB_DEV_TOKEN", "devblocks0123456789abcdef"), "[token]"
+            )
+            + "\n"
+        )
 
     def _send(self, status, content_type, body):
         data = body.encode("utf-8") if isinstance(body, str) else body
@@ -98,22 +103,43 @@ class Handler(BaseHTTPRequestHandler):
                 OFFLINE["on"] = bool(json.loads(body or "{}").get("on"))
             except ValueError:
                 OFFLINE["on"] = False
-            return self._send("200 OK", "application/json", json.dumps({"ok": True, "offline": OFFLINE["on"]}))
+            return self._send(
+                "200 OK",
+                "application/json",
+                json.dumps({"ok": True, "offline": OFFLINE["on"]}),
+            )
         if parts.path in ("/", ""):
             self.send_response(302)
-            self.send_header("Location", "/app?k=" + os.environ.get("LB_DEV_TOKEN", "devblocks0123456789abcdef"))
+            self.send_header(
+                "Location",
+                "/app?k=" + os.environ.get("LB_DEV_TOKEN", "devblocks0123456789abcdef"),
+            )
             self.send_header("Content-Length", "0")
             self.end_headers()
             return None
-        if OFFLINE["on"] and parts.path not in ("/app",) and not parts.path.startswith("/__dev/"):
+        if (
+            OFFLINE["on"]
+            and parts.path not in ("/app",)
+            and not parts.path.startswith("/__dev/")
+        ):
             # What a controller that stopped answering looks like to the page.
             self.close_connection = True
             self.connection.close()
             return None
         answer = HOST.call(
-            {"type": "http", "method": method, "path": parts.path, "query": dict(parse_qsl(parts.query)), "body": body}
+            {
+                "type": "http",
+                "method": method,
+                "path": parts.path,
+                "query": dict(parse_qsl(parts.query)),
+                "body": body,
+            }
         )
-        return self._send(answer.get("status", "500"), answer.get("contentType", "application/json"), answer.get("body", ""))
+        return self._send(
+            answer.get("status", "500"),
+            answer.get("contentType", "application/json"),
+            answer.get("body", ""),
+        )
 
     def do_GET(self):
         self._handle("GET")
@@ -136,15 +162,21 @@ def ticker():
 
 def main():
     global HOST
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "47871")))
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get("PORT", "47871"))
+    )
     args = parser.parse_args()
     HOST = Host()
     HOST.call({"type": "tick"})
     threading.Thread(target=ticker, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     token = os.environ.get("LB_DEV_TOKEN", "devblocks0123456789abcdef")
-    print(f"Logic Blocks dev page: http://localhost:{args.port}/app?k={token}", flush=True)
+    print(
+        f"Logic Blocks dev page: http://localhost:{args.port}/app?k={token}", flush=True
+    )
     print("Development host: no controller, no Composer, no equipment.", flush=True)
     try:
         server.serve_forever()

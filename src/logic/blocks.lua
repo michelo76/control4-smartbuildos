@@ -1532,15 +1532,12 @@ end
 function HANDLERS.once.reset(self, slot, _, rt)
   self.eng:forgetOnce(key(slot))
   rt.suppressed = 0
-  self:_decide(
-    slot,
-    {
-      input = "Reset",
-      decision = "reset",
-      reason = "Today's pass was forgotten: the next trigger passes.",
-      accepted = true,
-    }
-  )
+  self:_decide(slot, {
+    input = "Reset",
+    decision = "reset",
+    reason = "Today's pass was forgotten: the next trigger passes.",
+    accepted = true,
+  })
   return true, "reset"
 end
 

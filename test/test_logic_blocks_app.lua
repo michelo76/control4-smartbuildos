@@ -271,15 +271,13 @@ do
   )
 
   -- A mapped input is fed by hand; nothing is watched.
-  local rs = assert(
-    Sandbox.open({
-      def = Blocks.copy(b.blocks[rack]),
-      slot = rack,
-      now = w.t,
-      localDay = w.deps.localDay,
-      sources = { [1] = "80" },
-    })
-  )
+  local rs = assert(Sandbox.open({
+    def = Blocks.copy(b.blocks[rack]),
+    slot = rack,
+    now = w.t,
+    localDay = w.deps.localDay,
+    sources = { [1] = "80" },
+  }))
   check(
     "sandbox: starts from the source value the live block has",
     rs:state().view.sources[1].value == "80" and #rs:state().timeline == 1
@@ -501,6 +499,47 @@ do
   )
   check("cloud summary: small", #summaryText < 8 * 1024)
   local _ = gone
+end
+
+-- ── Size at capacity ────────────────────────────────────────────────────────
+
+do
+  -- The largest document the driver can produce: every slot in use, the
+  -- widest block type, long names and notes, and a full history.
+  local w = H.world()
+  local b = Blocks.new(w.deps)
+  for i = 1, Defs.SLOTS do
+    H.make(b, {
+      type = "conditions",
+      name = string.format("Conditions block number %02d with a long name", i),
+      tag = "Room number " .. i,
+      notes = string.rep("n", Defs.LIMITS.notes),
+      inputs = {
+        { used = true, label = "Input one with a long label" },
+        { used = true, label = "Input two with a long label" },
+        { used = true, label = "Input three with a long label" },
+        { used = true, label = "Input four with a long label" },
+      },
+    })
+  end
+  for n = 1, 400 do
+    b:input(
+      (n % Defs.SLOTS) + 1,
+      "input",
+      { INPUT = tostring((n % 4) + 1), VALUE = (n % 3 == 0) and "true" or "false" }
+    )
+    w.advance(1)
+  end
+  local doc = JSON:encode(AppState.build(b, { now = w.t }))
+  local export = JSON:encode(AppState.export(b, { now = w.t }))
+  check("at capacity: the app document stays under 96 KB", #doc < 96 * 1024, #doc)
+  check("at capacity: the export stays under 128 KB", #export < 128 * 1024, #export)
+  check(
+    "at capacity: the stored document stays under 96 KB",
+    #JSON:encode(b:serialize()) < 96 * 1024,
+    #JSON:encode(b:serialize())
+  )
+  check("at capacity: the cloud summary stays under 8 KB", #JSON:encode(AppState.summary(b, { now = w.t })) < 8 * 1024)
 end
 
 -- ── Relay routes ────────────────────────────────────────────────────────────

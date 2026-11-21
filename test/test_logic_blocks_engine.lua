@@ -91,16 +91,13 @@ do
       "above upper"
     )
   )
-  check(
-    "validate: equal thresholds are allowed",
-    Defs.normalize({
-      type = "threshold",
-      name = "x",
-      upper = "70",
-      lower = "70",
-      inputs = { { used = true, label = "t" } },
-    }) ~= nil
-  )
+  check("validate: equal thresholds are allowed", Defs.normalize({
+    type = "threshold",
+    name = "x",
+    upper = "70",
+    lower = "70",
+    inputs = { { used = true, label = "t" } },
+  }) ~= nil)
   check(
     "validate: non-numeric threshold",
     bad(
@@ -501,17 +498,14 @@ end
 
 do
   local b, w = new()
-  local s = H.make(
-    b,
-    {
-      type = "threshold",
-      name = "Rack",
-      upper = "85",
-      lower = "78",
-      units = "F",
-      inputs = { { used = true, label = "Temp" } },
-    }
-  )
+  local s = H.make(b, {
+    type = "threshold",
+    name = "Rack",
+    upper = "85",
+    lower = "78",
+    units = "F",
+    inputs = { { used = true, label = "Temp" } },
+  })
   check("threshold: no reading yet is unknown", b:outputs(s).valid == false)
   b:input(s, "input", { VALUE = "80" })
   check(
@@ -562,15 +556,12 @@ end
 
 do
   local b, w = new()
-  local s = H.make(
-    b,
-    {
-      type = "stable",
-      name = "Occupied",
-      duration = "30s",
-      inputs = { { used = true, label = "Motion", true_when = "1" } },
-    }
-  )
+  local s = H.make(b, {
+    type = "stable",
+    name = "Occupied",
+    duration = "30s",
+    inputs = { { used = true, label = "Motion", true_when = "1" } },
+  })
   b:input(s, "input", { VALUE = "0" })
   check(
     "stable: the first value is taken as it is and fires nothing",

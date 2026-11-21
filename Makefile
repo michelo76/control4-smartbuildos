@@ -159,6 +159,53 @@ venueflow-test: ## Run only the VenueFlow suites (simulator and shim; no control
 venueflow-dev: ## Serve the VenueFlow pages on the simulator at http://localhost:47861
 	python3 tools/venueflow-dev.py --port 47861
 
+# ─── Logic Blocks (the Logic Pack) ────────────────────────────────────────────
+#
+# The Logic Pack's per-slot Composer surface is generated into its driver.xml
+# and its dealer page is embedded in a Lua module. `make logic-blocks` builds
+# ONLY smartbuildos-logic-pack.c4z into dist/oss. Like `make venueflow` it
+# never formats the repository and never copies anything into Composer's
+# driver folder (the full `make build` does both): a development build is
+# imported by hand, on a system that has been checked to be the bench.
+
+LOGICPACK     := smartbuildos-logic-pack
+LOGICPACK_DIR := build/oss/drivers/$(LOGICPACK)
+
+.PHONY: logic-blocks-gen logic-blocks logic-blocks-test logic-blocks-page-test logic-blocks-dev
+logic-blocks-gen: ## Regenerate the Logic Pack's per-slot driver.xml surface and embed its page
+	luajit tools/logic-blocks-xml.lua
+	luajit tools/embed-pages.lua
+
+logic-blocks: check-deps $(PACKAGER) ## Build only smartbuildos-logic-pack.c4z into dist/oss (not copied to Composer)
+	luajit tools/logic-blocks-xml.lua --check
+	luajit tools/embed-pages.lua --check
+	./tools/preprocess.py --oss
+	cd $(LOGICPACK_DIR) && luajit ../../../../tools/gen-squishy.lua
+	$(VENV_PY) tools/package.py xml-set $(LOGICPACK_DIR)/driver.xml version "$$(date -u +'%Y%m%d.%H%M%S')"
+	$(VENV_PY) tools/package.py xml-set $(LOGICPACK_DIR)/driver.xml modified "$$(date +'%m/%d/%Y %I:%M %p')"
+	$(VENV_PY) tools/docs.py md2html $(LOGICPACK_DIR)/www/documentation/index.md $(LOGICPACK_DIR)/www/documentation
+	mkdir -p dist/oss
+	cd $(LOGICPACK_DIR) && "$(abspath $(VENV_PY))" "$(abspath $(PACKAGER))" . "$(CURDIR)/dist/oss" driver.c4zproj
+	@ls -l dist/oss/$(LOGICPACK).c4z
+	@echo "Built dist/oss/$(LOGICPACK).c4z. It was NOT copied to Composer's driver folder."
+
+logic-blocks-test: ## Run only the Logic Pack suites (shim; no controller)
+	@mkdir -p build
+	@for f in test/test_logic_*.lua; do \
+		echo "==> $$f"; \
+		LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
+			luajit -e "require('c4_shim')" "$$f" > build/logic-blocks-test.out 2>&1; \
+		code=$$?; \
+		grep -E "FAIL|passed, " build/logic-blocks-test.out; \
+		[ $$code -eq 0 ] || exit 1; \
+	done
+
+logic-blocks-page-test: ## Browser test of the dealer page on the development host (needs Node and Playwright)
+	node test/app/logic_blocks_page.test.mjs
+
+logic-blocks-dev: ## Serve the dealer page on the development host at http://localhost:47871
+	python3 tools/logic-blocks-dev.py --port 47871
+
 .PHONY: gen-squishy
 gen-squishy: ## Auto-generate squishy files from .c4zproj
 	@for build in $(DISTRIBUTIONS); do \
