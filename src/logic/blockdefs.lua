@@ -1069,9 +1069,20 @@ function M.wiring(def, slot)
   local label = M.slotLabel(slot)
   local t = M.TYPES[def.type]
   local inputs, outputs = {}, {}
+  -- A value input that is read from a device variable takes no command.
+  local commandFed = false
+  for _, input in ipairs(def.inputs or {}) do
+    if input.device_id == nil then
+      commandFed = true
+    end
+  end
   for _, command in ipairs(t.commands) do
     local text = COMMAND_TEXT[command]
-    if not (command == "trigger" and def.type == "conditions" and def.settings.evaluation ~= "gate") then
+    local skip = command == "trigger" and def.type == "conditions" and def.settings.evaluation ~= "gate"
+    if t.inputs > 0 and not commandFed then
+      skip = skip or command == "input" or command == "input_unavailable" or (command == "set" and def.type == "threshold")
+    end
+    if not skip then
       inputs[#inputs + 1] = { command = text[1], block = label, does = text[2] }
     end
   end

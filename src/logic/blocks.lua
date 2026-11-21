@@ -2724,7 +2724,8 @@ function Blocks:restore(doc)
           report.notes[#report.notes + 1] = Defs.slotLabel(slot) .. " " .. block.name .. ": " .. text
         end
         if saved.pending_deadline ~= nil then
-          local text = "A change was waiting to hold when the controller stopped. It was dropped."
+          local text =
+            "A change was waiting to hold when the controller stopped. It was dropped; the value the source has now is taken as the starting state and nothing fires."
           self:_note(slot, "missed", text, { origin = "restored" })
           report.notes[#report.notes + 1] = Defs.slotLabel(slot) .. " " .. block.name .. ": " .. text
         end
@@ -2955,7 +2956,7 @@ function Blocks:view(slot)
       view.last_pass_at = last
       local eligible = last + block.settings.interval_ms / 1000
       if eligible > now then
-        view.deadline = { at = eligible, remaining = eligible - now, what = "eligible again" }
+        view.deadline = { at = eligible, remaining = eligible - now, what = "is eligible again" }
       end
     end
   elseif block.type == "stable" and rt.pending ~= nil then
