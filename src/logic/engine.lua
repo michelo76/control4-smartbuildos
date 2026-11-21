@@ -32,6 +32,14 @@
 ---     refused with "read-only" and nothing changes; reads still answer.
 ---   • BOUNDS: at most 200 keys per kind; beyond that a new key is refused.
 ---
+--- Logic Blocks (logic/blocks.lua) runs its blocks on a SECOND instance of
+--- this engine, with its own timers and its own persisted document, so a
+--- block and a free-form key can never be the same thing. The additions that
+--- serve it are all additive: an optional per-call ceiling on DEBOUNCE and
+--- THROTTLE windows (a programming command still gets LIMITS.ms_max), and
+--- cancelDebounce / forgetThrottle / forgetOnce. Nothing a command reaches
+--- changed.
+---
 --- deps = { now = fn():seconds, schedule = fn(id, ms, fn), cancel = fn(id),
 ---          emit = fn(kind, fields), localDay = fn(seconds):string "YYYY-MM-DD" }
 
@@ -285,20 +293,26 @@ end
 
 -- ── Debounce / throttle ─────────────────────────────────────────────────────
 
-local function boundedMs(ms)
+local function boundedMs(ms, cap)
   local n = tonumber(ms)
-  if n == nil or n < 0 then
+  if n == nil or n < 0 or n ~= n then
     return nil
   end
-  return math.min(math.floor(n), M.LIMITS.ms_max)
+  local ceiling = tonumber(cap)
+  if ceiling == nil or ceiling <= 0 then
+    ceiling = M.LIMITS.ms_max
+  end
+  return math.min(math.floor(n), ceiling)
 end
 
-function Engine:debounce(raw, ms)
+--- `cap` (optional, ms) raises the window ceiling for this call; a caller
+--- that passes nothing keeps LIMITS.ms_max.
+function Engine:debounce(raw, ms, cap)
   local key, why = self:_guard(raw, self.debouncePending)
   if key == nil then
     return self:_refuse(why)
   end
-  local delay = boundedMs(ms)
+  local delay = boundedMs(ms, cap)
   if delay == nil then
     return self:_refuse("MILLISECONDS must be 0 or more")
   end
@@ -318,12 +332,33 @@ function Engine:debounce(raw, ms)
   return true
 end
 
-function Engine:throttle(raw, ms)
+--- Stops a pending debounce: nothing fires. Returns true, wasPending.
+function Engine:cancelDebounce(raw)
+  local key, why = self:_guard(raw)
+  if key == nil then
+    return self:_refuse(why)
+  end
+  if self.debouncePending[key] == nil then
+    return true, false
+  end
+  self.debouncePending[key] = nil
+  self.deps.cancel("lp:d:" .. key)
+  return true, true
+end
+
+function Engine:debouncePendingFor(raw)
+  local key = M.key(raw)
+  return key ~= nil and self.debouncePending[key] == true
+end
+
+--- `cap` (optional, ms) raises the window ceiling for this call; a caller
+--- that passes nothing keeps LIMITS.ms_max.
+function Engine:throttle(raw, ms, cap)
   local key, why = self:_guard(raw, self.throttleLast)
   if key == nil then
     return self:_refuse(why)
   end
-  local window = boundedMs(ms)
+  local window = boundedMs(ms, cap)
   if window == nil then
     return self:_refuse("MILLISECONDS must be 0 or more")
   end
@@ -337,6 +372,24 @@ function Engine:throttle(raw, ms)
   self.counts.throttle_fired = self.counts.throttle_fired + 1
   self.deps.emit("throttled", { key = key })
   return true, true
+end
+
+--- When the key last fired (seconds), or nil.
+function Engine:throttleLastAt(raw)
+  local key = M.key(raw)
+  return key and self.throttleLast[key] or nil
+end
+
+--- Forgets a throttle key's last fire: the next call passes. Returns true,
+--- hadOne.
+function Engine:forgetThrottle(raw)
+  local key, why = self:_guard(raw)
+  if key == nil then
+    return self:_refuse(why)
+  end
+  local had = self.throttleLast[key] ~= nil
+  self.throttleLast[key] = nil
+  return true, had
 end
 
 -- ── Once per day ────────────────────────────────────────────────────────────
@@ -360,6 +413,24 @@ end
 function Engine:onceDoneToday(raw)
   local key = M.key(raw)
   return key ~= nil and self.once[key] == self.deps.localDay(self.deps.now())
+end
+
+--- The day a key last passed ("YYYY-MM-DD" from localDay), or nil.
+function Engine:onceDay(raw)
+  local key = M.key(raw)
+  return key and self.once[key] or nil
+end
+
+--- Forgets a key's pass: the next call today passes again. Returns true,
+--- hadOne.
+function Engine:forgetOnce(raw)
+  local key, why = self:_guard(raw)
+  if key == nil then
+    return self:_refuse(why)
+  end
+  local had = self.once[key] ~= nil
+  self.once[key] = nil
+  return true, had
 end
 
 --- Forgets passes from earlier days (keeps the table small).
@@ -413,6 +484,16 @@ function Engine:cancelTimer(raw)
   self.deps.cancel("lp:t:" .. key)
   self.counts.timers_cancelled = self.counts.timers_cancelled + 1
   return true, true
+end
+
+--- The running timer's record { expires_at, seconds }, or nil.
+function Engine:timerInfo(raw)
+  local key = M.key(raw)
+  local t = key and self.timers[key]
+  if t == nil then
+    return nil
+  end
+  return { expires_at = t.expires_at, seconds = t.seconds }
 end
 
 function Engine:timerRunning(raw)
