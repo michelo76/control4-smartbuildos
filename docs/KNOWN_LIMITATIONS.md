@@ -39,3 +39,28 @@ Verified against the v7.2.105 official spec, not assumed.
   NOT_ENTITLED, CLOUD_VALIDATION_REQUIRED...) and visible in properties,
   but every driver continues to operate under any status. Enforcement
   policies arrive per-driver, per-release (charter D3).
+
+## Agent pairing across updates
+
+- **Pairing Backup may not survive on hardware.** The Agent keeps its device
+  token in encrypted persist, which has not always survived driver updates,
+  and mirrors the pairing into the **Pairing Backup** property. That property
+  is a password-type (masked) property written from Lua with
+  `C4:UpdateProperty`. Whether Director and Composer keep such a driver-written
+  value in the project across an update is unverified on real hardware. One
+  field run (2026-11-20) did not settle it: after an in-place update the
+  Composer grid showed XML defaults (`Not paired`, empty backup, empty Driver
+  Version and Driver Status) while the platform kept receiving heartbeats from
+  the same controller reporting the OLD build, so the grid did not show a lost
+  pairing. The Agent now rewrites the backup from persist at every start while
+  paired, which helps only if such writes persist at all. **What settles it:**
+  pair with a fresh code, reopen Composer and check that **Pairing Code** is
+  empty (the Agent clears it from Lua after a successful pair); then update the
+  Agent in place and check that **Driver Version** shows the new build,
+  **Connection Status** is still paired, and the platform's heartbeats report
+  the new version. If **Pairing Code** still shows the spent code, driver
+  writes to password properties are not persisting and the backup needs
+  another home.
+- **Removing and re-adding the Agent always loses the pairing.** A re-added
+  instance has a new device id (empty persist) and default property values
+  (empty backup). Pair it again with a new code.
