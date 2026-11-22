@@ -7341,7 +7341,10 @@ function EC.TEST_CONNECTION()
     setConnected(false, "Not paired")
     return
   end
-  send("heartbeat", { kind = "test" }, "connection test")
+  -- The platform claims the queued commands for ANY heartbeat, this one
+  -- included, and marks them delivered: an answer nobody reads here would
+  -- lose them (a module's result among them). Run and acknowledge them.
+  send("heartbeat", { kind = "test" }, "connection test", collectCommands)
 end
 
 function EC.SEND_HEARTBEAT()
