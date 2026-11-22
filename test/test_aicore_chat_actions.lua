@@ -39,7 +39,8 @@ print("[1] the capability and `actions`")
 local reg = table.concat(V.registeredCommands(), ",")
 check("chat_actions_v1 declared next to chat_v2", reg:find("chat_v2,chat_actions_v1", 1, true) ~= nil, reg)
 check("…and is not an operation", Operations.parse("chat_actions_v1", {}) == nil)
-local good = { ref = REF_A, title = "Turn off the patio lights", detail = "All 4 patio lights", expires_in = 600 }
+local good =
+  { ref = REF_A, title = "Turn off the patio lights", detail = "All 4 patio lights", expires_in = 600, tap_in = 300 }
 local a, d = ChatActions.actions({ good })
 check("a valid item kept, normalised", a and a[1].ref == REF_A and a[1].expires_in == 600 and d == 0)
 check("…as a JSON string too", ChatActions.actions(JSON:encode({ good })) ~= nil)
@@ -54,6 +55,9 @@ local function bad(change)
   if change.ref == false then
     x.ref = nil
   end
+  if change.tap_in == false then
+    x.tap_in = nil
+  end
   local out, n = ChatActions.actions({ x })
   return out == nil and n == 1
 end
@@ -64,16 +68,26 @@ check("markup in the title dropped", bad({ title = "<b>x</b>" }))
 check("a title over 80 code points dropped", bad({ title = string.rep("é", 81) }))
 check(
   "an 80-code-point title kept",
-  ChatActions.actions({ { ref = REF_A, title = string.rep("é", 80), expires_in = 60 } }) ~= nil
+  ChatActions.actions({ { ref = REF_A, title = string.rep("é", 80), expires_in = 60, tap_in = 300 } }) ~= nil
 )
 check("a detail over 300 code points dropped", bad({ detail = string.rep("a", 301) }))
 check("a zero-width character dropped", bad({ title = "Lights\226\128\139 off" }))
-check("expires_in 0 dropped", bad({ expires_in = 0 }))
-check("expires_in over 1800 dropped", bad({ expires_in = 1801 }))
+check("expires_in 0 dropped", bad({ expires_in = 0, tap_in = 300 }))
+check("expires_in over 1800 dropped", bad({ expires_in = 1801, tap_in = 300 }))
 check("expires_in not whole dropped", bad({ expires_in = 1.5 }))
+check("tap_in missing: dropped (required)", bad({ tap_in = false }))
+check("tap_in over 300 dropped", bad({ tap_in = 301 }))
+check("tap_in negative dropped", bad({ tap_in = -1 }))
+check("tap_in not whole dropped", bad({ tap_in = 2.5 }))
+check("tap_in as text dropped", bad({ tap_in = "300" }))
+check(
+  "tap_in 0 kept (the PIN flow from the start)",
+  (ChatActions.actions({ { ref = REF_A, title = "Scene", expires_in = 60, tap_in = 0 } }) or {})[1] ~= nil
+)
 local four = {}
 for i = 1, 4 do
-  four[i] = { ref = string.format("%08d-2222-4333-8444-555555555555", i), title = "A" .. i, expires_in = 60 }
+  four[i] =
+    { ref = string.format("%08d-2222-4333-8444-555555555555", i), title = "A" .. i, expires_in = 60, tap_in = 300 }
 end
 a, d = ChatActions.actions(four)
 check("four items: three kept, one counted", a and #a == 3 and d == 1)
@@ -149,7 +163,7 @@ local DEPS = {
     end
   end,
   cloud = function(o, body, cb)
-    cloud[#cloud + 1] = { op = o, body = body }
+    cloud[#cloud + 1] = { op = o, body = body, at = clock }
     if o == "ask" then
       lastJob = "job-" .. #cloud
       cb(refuseAsk and refuseAsk(body) or { status = "ok", result = { accepted = true, job_id = lastJob } })
@@ -229,10 +243,11 @@ local function offered(list)
   unlock(s)
   http("POST", "/ask", s, { question = "Turn off the patio lights?" })
   ui:deliver(nil, "I can do that.", lastJob, {
-    actions = list or {
-      { ref = REF_A, title = "Turn off the patio lights", detail = "4 lights", expires_in = 600 },
-      { ref = REF_B, title = "Set the den to 21 degrees", expires_in = 600 },
-    },
+    actions = list
+      or {
+        { ref = REF_A, title = "Turn off the patio lights", detail = "4 lights", expires_in = 600, tap_in = 300 },
+        { ref = REF_B, title = "Set the den to 21 degrees", expires_in = 600, tap_in = 300 },
+      },
   })
   return s
 end
@@ -339,7 +354,12 @@ unlock(s2)
 http("POST", "/ask", s2, { question = "Lights?" })
 local job2 = lastJob
 http("POST", "/chat/lock", s2)
-ui:deliver(nil, "Answer while locked.", job2, { actions = { { ref = REF_A, title = "T", expires_in = 60 } } })
+ui:deliver(
+  nil,
+  "Answer while locked.",
+  job2,
+  { actions = { { ref = REF_A, title = "T", expires_in = 60, tap_in = 300 } } }
+)
 clock = clock + 61
 unlock(s2)
 local e2 = state(s2).chat.conversation[1]
@@ -349,7 +369,7 @@ check("…counted as dropped", ui.counters.actions_dropped == 1)
 fresh("open")
 local s3 = open()
 http("POST", "/ask", s3, { question = "Lights?" })
-ui:deliver(nil, "Open answer.", lastJob, { actions = { { ref = REF_A, title = "T", expires_in = 60 } } })
+ui:deliver(nil, "Open answer.", lastJob, { actions = { { ref = REF_A, title = "T", expires_in = 60, tap_in = 300 } } })
 check("an open (not unlocked) answer gets no card", state(s3).chat.conversation[1].actions == nil)
 -- every kind of lock removes the cards
 local locks = {
@@ -511,29 +531,140 @@ check(
 s = sent({ state = "expired", reason = "expired", message = "The proposal expired." })
 step(2, s)
 check("expired = Failed with its sentence", card(s, REF_A).state == "failed")
+-- The schedule: 2, 5, 9, 15, 22, 30 s after the decision, then given up.
+local function detailTimes(from)
+  local out = {}
+  for i = from, #cloud do
+    if cloud[i].op == "approval_detail" then
+      out[#out + 1] = cloud[i].at
+    end
+  end
+  return out
+end
+local function tick(seconds, ...)
+  local list = { ... }
+  for _ = 1, seconds do
+    clock = clock + 1
+    for _, x in ipairs(list) do
+      state(x)
+    end
+  end
+end
 s = sent({ state = "pending" })
-step(10, s)
-check("execution pending: still Sent", card(s, REF_A).state == "sent")
-local polls = count("approval_detail")
-step(1, s)
-check("…polled at most every 2 s", count("approval_detail") - polls <= 1)
-s = sent(nil)
-step(31, s)
+local t0, from = clock, #cloud + 1
+tick(45, s)
+local offsets = {}
+for _, at in ipairs(detailTimes(from)) do
+  offsets[#offsets + 1] = at - t0
+end
+check(
+  "never terminal: polled at 2, 5, 9, 15, 22 and 30 s after the decision, six at most",
+  table.concat(offsets, ",") == "2,5,9,15,22,30",
+  table.concat(offsets, ",")
+)
 c = card(s, REF_A)
 check(
-  "no execution within 30 s: 'No confirmation from the controller yet', never Done",
+  "…then 'No confirmation from the controller yet', nothing to press, never Done",
   c.state == "unconfirmed" and c.message == "No confirmation from the controller yet."
 )
-local nPolls = count("approval_detail")
-step(10, s)
-check("…and polling stops", count("approval_detail") == nPolls)
-check("at most 15 polls per card", nPolls <= 2 + 15)
--- a late execution after its arrival in time
+from = #cloud + 1
+tick(30, s)
+check("…and no poll after that", #detailTimes(from) == 0)
 s = sent({ state = "completed" }, 6)
-step(4, s)
-check("execution reported late: Sent until then", card(s, REF_A).state == "sent")
-step(4, s)
-check("…then Done", card(s, REF_A).state == "done")
+t0, from = clock, #cloud + 1
+tick(45, s)
+offsets = {}
+for _, at in ipairs(detailTimes(from)) do
+  offsets[#offsets + 1] = at - t0
+end
+check(
+  "a terminal state stops the polls (completed from 6 s: polls at 2, 5, 9, then Done)",
+  table.concat(offsets, ",") == "2,5,9" and card(s, REF_A).state == "done",
+  table.concat(offsets, ",")
+)
+-- a rate_limited answer to a poll stops that card at once
+s = sent(nil)
+DETAIL[REF_A] = function()
+  return { status = "error", error_code = "rate_limited", result = { reason = "rate_limited" } }
+end
+from = #cloud + 1
+tick(45, s)
+check(
+  "a poll answered rate_limited: no confirmation line, polling stops",
+  #detailTimes(from) == 1 and card(s, REF_A).state == "unconfirmed"
+)
+-- ONE poller for every card of every session: one poll every 2 s at most,
+-- 10 a minute at most, and no card left waiting forever.
+fresh("open")
+DETAIL = {}
+local function pending(body)
+  return {
+    status = "ok",
+    result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "pending" } },
+  }
+end
+local sA = offered({
+  { ref = REF_A, title = "A", expires_in = 600, tap_in = 300 },
+  { ref = REF_B, title = "B", expires_in = 600, tap_in = 300 },
+  { ref = REF_C, title = "C", expires_in = 600, tap_in = 300 },
+})
+clock = clock + 16
+local sB = offered({ { ref = "dddddddd-7777-4888-9999-aaaaaaaaaaaa", title = "D", expires_in = 600, tap_in = 300 } })
+local poll = function(body)
+  if count("approval_decide") >= 4 then
+    return pending(body)
+  end
+  return { status = "ok", result = { ref = body.ref, risk = "low", args_hash = HASH } }
+end
+for _, r0 in ipairs({ REF_A, REF_B, REF_C, "dddddddd-7777-4888-9999-aaaaaaaaaaaa" }) do
+  DETAIL[r0] = poll
+end
+from = #cloud + 1
+for _, r0 in ipairs({ REF_A, REF_B, REF_C }) do
+  http("POST", "/chat/action", sA, { ref = r0, decision = "approve" })
+end
+http("POST", "/chat/action", sB, { ref = "dddddddd-7777-4888-9999-aaaaaaaaaaaa", decision = "approve" })
+local decides = 0
+for i = from, #cloud do
+  decides = decides + (cloud[i].op == "approval_decide" and 1 or 0)
+end
+check("(four cards sent in two sessions)", decides == 4)
+from = #cloud + 1
+tick(90, sA, sB)
+local times = detailTimes(from)
+local gapOk, minuteOk = true, true
+for i = 2, #times do
+  gapOk = gapOk and times[i] - times[i - 1] >= 2
+end
+for i = 1, #times do
+  local n = 0
+  for j = i, #times do
+    n = n + ((times[j] - times[i] < 60) and 1 or 0)
+  end
+  minuteOk = minuteOk and n <= 10
+end
+check("the shared poller: never two outcome polls within 2 s", gapOk)
+check("…never more than 10 in a minute (all cards, all sessions)", minuteOk, #times)
+local stuck = 0
+for _, pair in ipairs({ { sA, REF_A }, { sA, REF_B }, { sA, REF_C }, { sB, "dddddddd-7777-4888-9999-aaaaaaaaaaaa" } }) do
+  stuck = stuck + (card(pair[1], pair[2]).state == "sent" and 1 or 0)
+end
+check("…and no card is left at Sent: each ends with the no-confirmation line", stuck == 0)
+-- polls are not interaction: an unattended screen still locks on time
+s = sent({ state = "pending" })
+local lockedAt
+for i = 1, Webui.LIMITS.unlock_idle_seconds + 30 do
+  clock = clock + 1
+  local st0 = state(s)
+  if lockedAt == nil and st0.chat.elevated == false then
+    lockedAt = i
+  end
+end
+check(
+  "outcome polls never extend the idle lock: locked 5 minutes after the last tap",
+  lockedAt ~= nil and lockedAt <= Webui.LIMITS.unlock_idle_seconds + 1,
+  lockedAt
+)
 -- Cancel
 fresh("open")
 s = offered()
@@ -572,7 +703,7 @@ local function refusedWith(reason, code, onDetail)
   http("POST", "/chat/action", x, { ref = REF_A, decision = "approve" })
   return x, card(x, REF_A)
 end
-for _, reason in ipairs({ "session_risk_too_high", "session_proposal_too_old" }) do
+for _, reason in ipairs({ "session_risk_too_high", "session_needs_pin", "session_proposal_too_old" }) do
   local _, cc = refusedWith(reason)
   check(
     reason .. ": its sentence and Use PIN",
@@ -598,24 +729,37 @@ end
 beforeD = count("approval_decide")
 http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
 check("a medium-risk detail: no decision, Use PIN", count("approval_decide") == beforeD and card(s, REF_A).needs_pin)
--- 300 s after the answer: Confirm becomes Use PIN (the card stays until it expires)
+-- tap_in: Confirm only while the platform's one-tap window lasts
 fresh("open")
-s = offered()
-step(ChatActions.LIMITS.one_tap_seconds - 20, s)
+s = offered({ { ref = REF_A, title = "Lights", expires_in = 600, tap_in = 120 } })
+check("tap_in 120: Confirm, with the seconds left", card(s, REF_A).needs_pin == nil and card(s, REF_A).tap_in == 120)
+step(100, s)
 http("POST", "/chat/touch", s)
-check("before 300 s: Confirm", card(s, REF_A).needs_pin == nil)
+check("…still Confirm at 100 s", card(s, REF_A).needs_pin == nil)
 step(21, s)
 c = card(s, REF_A)
-check("after 300 s: Use PIN, the card still offered", c.needs_pin and c.state == "offered" and c.expires_in > 0)
+check("…after 120 s: Use PIN, the card still offered", c.needs_pin and c.state == "offered" and c.expires_in > 0)
 beforeD = count("approval_detail")
 r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
 check(
   "…a tap on approve then sends nothing",
   r.ok == false and r.reason == "action_needs_pin" and count("approval_detail") == beforeD
 )
+fresh("open")
+s = offered({ { ref = REF_A, title = "Movie Night", expires_in = 600, tap_in = 0 } })
+c = card(s, REF_A)
+check("tap_in 0 (a scene): Use PIN from the start", c.needs_pin and c.state == "offered" and c.tap_in == nil)
+beforeD = count("approval_detail")
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("…Confirm is refused locally, nothing sent", r.ok == false and count("approval_detail") == beforeD)
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
+check(
+  "…Cancel (decline) is still sent with the session verification",
+  r.ok and lastOf("approval_decide").decision == "decline"
+)
 -- expiry
 fresh("open")
-s = offered({ { ref = REF_C, title = "Short", expires_in = 30 } })
+s = offered({ { ref = REF_C, title = "Short", expires_in = 30, tap_in = 300 } })
 step(31, s)
 check("the countdown runs out: expired", card(s, REF_C).state == "expired" and card(s, REF_C).expires_in == nil)
 check(

@@ -7,7 +7,7 @@
 ---               ownerProofFor), on every ask at any non-Basic detail.
 ---   deliver_result
 ---               optional `actions`: up to 3 { ref, title, detail,
----               expires_in } — proposals the platform built for this
+---               expires_in, tap_in } — proposals the platform built for this
 ---               answer. Validated here; an invalid item is dropped and
 ---               counted, never the answer.
 ---   confirm     one tap: approval_detail for the ref (its args_hash) then
@@ -34,13 +34,20 @@ M.LIMITS = {
   detail = 300, -- code points (as an approval's description)
   expires_min = 1, -- seconds
   expires_max = 1800,
-  one_tap_seconds = 300, -- the platform accepts one tap only this long after the proposal; then Use PIN
-  poll_seconds = 2, -- approval_detail while the outcome is awaited
-  outcome_wait_seconds = 30, -- then "No confirmation from the controller yet"
-  polls = 15, -- at most per action (30 / 2)
+  tap_max = 300, -- `tap_in`: seconds left for a one-tap confirm (0 = the PIN flow from the start)
+  -- The outcome: approval_detail at these seconds after the approved
+  -- decision (6 polls at most per card), stopping at the first terminal
+  -- execution state. The platform's RPC budget is 30 requests a minute per
+  -- module, shared with asks and approvals, so ONE poller for every card of
+  -- every session sends at most one poll every `poll_gap_seconds` and at
+  -- most `polls_per_minute` in all.
+  poll_schedule = { 2, 5, 9, 15, 22, 30 },
+  poll_gap_seconds = 2,
+  polls_per_minute = 10,
+  outcome_give_up_seconds = 40, -- a last slot the shared cap delayed this long: given up
 }
 
-local ITEM_KEYS = { ref = true, title = true, detail = true, expires_in = true }
+local ITEM_KEYS = { ref = true, title = true, detail = true, expires_in = true, tap_in = true }
 local UUID = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
 
 local function closed(t, allowed)
@@ -72,7 +79,13 @@ local function item(a)
   if e == nil or e ~= math.floor(e) or e < L.expires_min or e > L.expires_max then
     return nil
   end
-  return { ref = a.ref:lower(), title = title, detail = detail, expires_in = e }
+  -- REQUIRED: how long the platform still takes a one-tap confirm, counted
+  -- by the platform from the proposal's creation. 0: Use PIN from the start.
+  local tap = a.tap_in
+  if type(tap) ~= "number" or tap ~= math.floor(tap) or tap < 0 or tap > L.tap_max then
+    return nil
+  end
+  return { ref = a.ref:lower(), title = title, detail = detail, expires_in = e, tap_in = tap }
 end
 
 --- deliver_result `actions` (native, or a JSON-encoded string) → items
@@ -132,6 +145,7 @@ end
 ---   withdraw  the sentence, and the card's buttons go
 M.REFUSAL = {
   session_risk_too_high = "use_pin", -- approve only
+  session_needs_pin = "use_pin", -- approve only
   session_proposal_too_old = "use_pin", -- approve only, after 300 s
   rate_limited = "use_pin", -- 20 per controller per hour
   session_not_bound = "withdraw",

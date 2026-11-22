@@ -56,7 +56,7 @@ local challenges = {} -- [challenge_id] = { verified }
 local ACT = {
   lights = "aaaaaaaa-1111-4111-8111-111111111111", -- Confirm → Sent → Done
   den = "bbbbbbbb-2222-4222-8222-222222222222", -- Confirm → Sent → Failed
-  scene = "cccccccc-3333-4333-8333-333333333333", -- Confirm → refused: needs a PIN
+  scene = "cccccccc-3333-4333-8333-333333333333", -- tap_in 0: Use PIN from the start
 }
 local decided = {} -- [ref] = clock when approved
 
@@ -70,11 +70,11 @@ local function answerFor(q, ownerProof)
   q = q:lower()
   -- Actions are proposed only to an owner-unlocked ask (owner_proof), as on
   -- the platform.
-  local function action(ref, title, detail)
+  local function action(ref, title, detail, tapIn)
     if ownerProof == nil then
       return nil
     end
-    return { { ref = ref, title = title, detail = detail, expires_in = 600 } }
+    return { { ref = ref, title = title, detail = detail, expires_in = 600, tap_in = tapIn or 300 } }
   end
   if q:find("patio") then
     return ownerProof and "I can turn off the 4 patio lights. Confirm below."
@@ -86,8 +86,9 @@ local function answerFor(q, ownerProof)
       { actions = action(ACT.den, "Set the den to 21 °C", "Den thermostat, heat set point") }
   end
   if q:find("movie") then
-    return "I can start the Movie Night scene in the media room. Confirm below.",
-      { actions = action(ACT.scene, "Start Movie Night", "Media room: lights down, screen and projector on") }
+    return "I can start the Movie Night scene in the media room. Scenes need your PIN.",
+      -- a scene: the PIN flow from the start (tap_in 0)
+      { actions = action(ACT.scene, "Start Movie Night", "Media room: lights down, screen and projector on", 0) }
   end
   if q:find("temperat") or q:find("warm") or q:find("cellar") or q:find("climate") then
     return "The house is comfortable. The cellar is right on target and every room is within a degree of its set point.",
@@ -203,8 +204,8 @@ local ui = Webui.new({
       return
     end
     if op == "approval_decide" then
-      if body.ref == ACT.scene and body.decision == "approve" then
-        cb({ status = "error", error_code = "not_permitted", result = { reason = "session_risk_too_high" } })
+      if body.ref == ACT.scene and body.decision == "approve" and body.verification.method == "pin_lock_session" then
+        cb({ status = "error", error_code = "not_permitted", result = { reason = "session_needs_pin" } })
         return
       end
       if body.decision == "approve" then

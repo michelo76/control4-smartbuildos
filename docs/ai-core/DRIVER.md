@@ -790,7 +790,10 @@ platform shape are in `src/aicore/chatactions.lua`.
   detail). An Open-mode session that is not owner-unlocked never carries
   it. It is one of the optional keys of the shared single retry.
 - *deliver_result `actions`.* 1–3 items `{ref (action uuid), title (≤ 80),
-  detail? (≤ 300), expires_in (1–1800 s)}`, closed keys, the chat v2
+  detail? (≤ 300), expires_in (1–1800 s), tap_in (required, 0–300 s: how
+  long the platform still takes a one-tap confirm, counted from the
+  proposal's creation; 0 = the PIN flow from the start, e.g. every scene)}`,
+  closed keys, the chat v2
   plain-text rules; an invalid item is dropped and counted, never the
   answer. Kept only for an exchange asked while owner-unlocked whose
   session is still unlocked when the answer arrives; shown only to that
@@ -808,18 +811,27 @@ platform shape are in `src/aicore/chatactions.lua`.
   ref must match, the hash be 64 hex, and for Confirm the risk `low`, else
   Use PIN), then `approval_decide` with that hash. A card is decided once;
   a second tap answers `action_busy` and sends nothing; a session locked
-  between the two calls decides nothing. Confirm is replaced by Use PIN
-  300 s after the answer arrived (the platform takes one tap only that
-  long); the card stays until `expires_in` runs out.
+  between the two calls decides nothing. Confirm is shown only while the
+  card's `tap_in` (ticking on the controller and on the page) is above
+  zero; then, or from the start when `tap_in` is 0, the card shows "This
+  one needs your PIN." with Use PIN and Cancel, and stays until
+  `expires_in` runs out.
 - *Outcome.* After `approval_decide` answers `queued` the card says Sent; a
-  session-verified `approval_detail` is polled every 2 s (at most 15, one
-  in flight, run from the relay's sweep) and the card shows Done only for
+  session-verified `approval_detail` is polled at 2, 5, 9, 15, 22 and 30 s
+  after the decision (6 at most, one in flight, stopping at the first
+  terminal state), through ONE poller for all cards of all sessions: at most
+  one outcome poll every 2 s and 10 a minute (the platform allows 30 RPC a
+  minute per module, shared with asks and approvals). It runs from the
+  relay's sweep and is never interaction (the idle lock still runs). A
+  `rate_limited` answer, six polls without a terminal state, or a last slot
+  delayed past 40 s end it with "No confirmation from the controller yet."
+  The card shows Done only for
   `execution.state = completed`, Failed with `execution.message` verbatim
-  for `failed` / `expired`; a detail without `execution` is still pending;
-  after 30 s "No confirmation from the controller yet."
+  for `failed` / `expired`; a detail without `execution` is still pending.
 - *Refusals* (`not_permitted` / `rate_limited`, `result.reason`):
-  `session_risk_too_high`, `session_proposal_too_old` and `rate_limited`
-  show their sentence and Use PIN; `session_not_bound` and `session_stale`
+  `session_risk_too_high`, `session_needs_pin`, `session_proposal_too_old`
+  and `rate_limited` show their sentence and Use PIN (a decline with the
+  session verification is still allowed); `session_not_bound` and `session_stale`
   show their sentence and withdraw the card. Use PIN calls
   `/approvals/next {ref}`: the existing review, an `approval` challenge
   bound to that ref, one PIN for that item, method `pin_lock`.

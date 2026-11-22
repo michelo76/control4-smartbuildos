@@ -555,7 +555,7 @@ var AIC = (function () {
     var st = a && a.state;
     if (st === 'offered') {
       return { text: A.countdown(a.expires_in), tone: '', buttons: a.needs_pin ? 'pin' : 'decide', ticking: true,
-        note: a.needs_pin ? 'This one needs the owner PIN for this item.' : '' };
+        note: a.needs_pin ? 'This one needs your PIN.' : '' };
     }
     if (st === 'checking' || st === 'sending') { return { text: 'Sending…', tone: 'info', buttons: '' }; }
     if (st === 'sent') { return { text: 'Sent… waiting for the controller', tone: 'info', buttons: '' }; }
@@ -607,7 +607,7 @@ var AIC = (function () {
       });
       box.appendChild(row);
     }
-    return { el: box, line: st.ticking ? line : null, buttons: btns, expires_in: a.expires_in };
+    return { el: box, line: st.ticking ? line : null, buttons: btns, expires_in: a.expires_in, tap_in: a.tap_in, action: a };
   };
   // What changed enough to rebuild the thread (not the thinking seconds).
   A.signature = function (chat) {
@@ -789,11 +789,20 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   // The countdowns tick between polls (the controller's expiry still rules).
   if (typeof setInterval === 'function') setInterval(function () {
     var gone = (Date.now() - countdownsAt) / 1000;
+    var redraw = false;
     countdowns.forEach(function (c) {
       var left = Math.max(0, (Number(c.expires_in) || 0) - gone);
       c.line.textContent = AIC.countdown(left);
       if (left <= 0) { c.buttons.forEach(function (b) { b.disabled = true; }); }
+      // The platform's one-tap window ran out: Confirm becomes Use PIN now,
+      // not at the next poll.
+      if (c.tap_in !== undefined && c.tap_in !== null && !c.action.needs_pin && c.tap_in - gone <= 0) {
+        c.action.needs_pin = true;
+        c.action.tap_in = null;
+        redraw = true;
+      }
     });
+    if (redraw && last && last.chat) { sig = ''; drawThread(last.chat); }
   }, 1000);
   function askNow(body) {
     notice('');

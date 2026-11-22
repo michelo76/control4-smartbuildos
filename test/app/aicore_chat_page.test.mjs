@@ -217,7 +217,7 @@ try {
     await shot(page, `action-card-${view}`);
     await card.locator('button[data-act="approve"]').click();
     check(view + ": after the tap both buttons are disabled at once", await card.locator("button").first().isDisabled().catch(() => true));
-    await page.waitForFunction(() => /Sent…/.test(document.getElementById("thread").innerText), null, { timeout: 5000 });
+    await page.waitForFunction(() => /Sent…/.test(document.getElementById("thread").innerText), null, { timeout: 5000 })
     check(view + ": Sent… (not Done) until the controller reports", !/Done/.test(await page.locator(".b-action").last().innerText()));
     await shot(page, `action-sent-${view}`);
     await dev(base, "/__dev/advance", { seconds: 6 });
@@ -236,10 +236,8 @@ try {
     await dev(base, "/__dev/advance", { seconds: 61 });
     await ask(page, "Start the movie scene");
     await page.waitForFunction(() => /Start Movie Night/.test(Array.from(document.querySelectorAll(".b-action")).pop()?.innerText || ""), null, { timeout: 8000 });
-    await page.locator(".b-action").last().locator('button[data-act="approve"]').click();
-    await page.waitForFunction(() => /Use PIN/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 5000 });
     const pinCard = page.locator(".b-action").last();
-    check(view + ": a refusal that needs a PIN: its sentence and Use PIN, enabled", /needs the owner PIN/.test(await pinCard.innerText()) && !(await pinCard.locator('button[data-act="pin"]').isDisabled()));
+    check(view + ": tap_in 0: Use PIN from the start, no Confirm, its line", /needs your PIN/.test(await pinCard.innerText()) && (await pinCard.locator('button[data-act="approve"]').count()) === 0 && !(await pinCard.locator('button[data-act="pin"]').isDisabled()));
     await shot(page, `action-needs-pin-${view}`);
     await page.click("#lock");
     await page.waitForSelector("#ownerBox.hidden", { state: "attached" });

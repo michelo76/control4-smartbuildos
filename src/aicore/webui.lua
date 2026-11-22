@@ -174,6 +174,7 @@ M.TEXT = {
   action_locked = "Unlock with the owner PIN to confirm actions.",
   -- chat actions (the platform's session-verification refusals)
   session_risk_too_high = "This action needs the owner PIN for this item. Use PIN.",
+  session_needs_pin = "This one needs your PIN. Use PIN.",
   session_proposal_too_old = "This suggestion is too old for one tap. Use PIN.",
   session_not_bound = "This unlock does not cover that action any more. Ask again.",
   session_stale = "The owner unlock is too old for that action. Unlock again and ask again.",
@@ -480,6 +481,11 @@ function M.new(deps)
   -- refused as unknown: never sent again in this driver run
   -- (UI:retryWithoutRefusedKeys). unlockNotAccepted mirrors `unlock`.
   self.refusedAskKeys = {}
+  -- The ONE outcome poller of chat actions (pollActions): when the last
+  -- poll left, and the polls of the last minute, for every card of every
+  -- session together.
+  self.lastOutcomePoll = nil
+  self.outcomePolls = {}
   self.presetRev = math.floor(tonumber(deps.now()) or 0)
   self.presetSig = nil
   self.counters = {
@@ -518,7 +524,8 @@ function M.new(deps)
     actions_done = 0,
     actions_failed = 0,
     actions_refused = 0, -- the platform (or this driver) refused the one-tap decision
-    actions_unconfirmed = 0, -- no execution state within 30 s
+    actions_unconfirmed = 0, -- no execution state within the polls
+    outcome_polls = 0, -- approval_detail sent to follow an outcome (shared cap)
     unlock_sent = 0, -- asks that carried `unlock`
     unlock_retried = 0, -- asks sent again without it (the platform did not know the field)
   }
@@ -1510,7 +1517,8 @@ function UI:offerActions(s, entry, list, dropped)
       title = a.title,
       detail = a.detail,
       expires_at = t + a.expires_in,
-      offered_at = t, -- one tap only for ChatActions.LIMITS.one_tap_seconds after this
+      tap_until = t + a.tap_in, -- Confirm only before this (the platform's tap_in); then Use PIN
+      needs_pin = a.tap_in == 0 or nil,
       state = "offered",
     }
     c.actions_offered = c.actions_offered + 1
@@ -1553,8 +1561,8 @@ function UI:actionsView(e)
   for _, a in ipairs(e.actions) do
     if a.state == "offered" and t >= a.expires_at then
       a.state, a.message = "expired", M.text("action_expired")
-    elseif a.state == "offered" and t - a.offered_at >= ChatActions.LIMITS.one_tap_seconds then
-      -- The platform takes one tap only in the first 300 s: then Use PIN.
+    elseif a.state == "offered" and t >= a.tap_until then
+      -- The platform's one-tap window (tap_in) is over: Use PIN.
       a.needs_pin = true
     end
     out[#out + 1] = {
@@ -1565,6 +1573,7 @@ function UI:actionsView(e)
       message = a.message,
       needs_pin = a.needs_pin == true or nil, -- "Use PIN" (Confirm is not offered then)
       expires_in = a.state == "offered" and math.max(0, a.expires_at - t) or nil,
+      tap_in = a.state == "offered" and not a.needs_pin and math.max(0, a.tap_until - t) or nil,
     }
   end
   return out
@@ -1622,7 +1631,7 @@ function UI:decideAction(s, ref, decision)
     a.state, a.message = "expired", M.text("action_expired")
     return false, "action_expired"
   end
-  if decision == "approve" and (a.needs_pin or self:now() - a.offered_at >= ChatActions.LIMITS.one_tap_seconds) then
+  if decision == "approve" and (a.needs_pin or self:now() >= a.tap_until) then
     a.needs_pin = true
     return false, "action_needs_pin"
   end
@@ -1697,7 +1706,6 @@ function UI:actionDecided(s, a, answer)
     -- reports (pollActions); never assumed.
     a.state = "sent"
     a.sent_at = self:now()
-    a.next_poll = self:now() + ChatActions.LIMITS.poll_seconds
     a.polls = 0
     self.counters.actions_confirmed = self.counters.actions_confirmed + 1
   else
@@ -1708,46 +1716,85 @@ function UI:actionDecided(s, a, answer)
   notify(self)
 end
 
---- Follows sent decisions of `s`: approval_detail every 2 s (one in flight
---- per card, at most 15), "No confirmation from the controller yet" after
---- 30 s. Run on every /state (the page polls every second while a card is
---- in progress) and on the driver's tick.
+--- A sent card that will not be confirmed here: the line, nothing else to
+--- press, no more polls.
+local function unconfirmed(self, a)
+  a.state, a.message = "unconfirmed", "No confirmation from the controller yet."
+  self.counters.actions_unconfirmed = self.counters.actions_unconfirmed + 1
+end
+
+--- Whether the shared poller may send one outcome poll now (one every
+--- poll_gap_seconds, polls_per_minute in all); takes it when it may.
+function UI:outcomePollSlot()
+  local t = self:now()
+  local L = ChatActions.LIMITS
+  if self.lastOutcomePoll ~= nil and t - self.lastOutcomePoll < L.poll_gap_seconds then
+    return false
+  end
+  if not windowTake(self.outcomePolls, t, L.polls_per_minute) then
+    return false
+  end
+  self.lastOutcomePoll = t
+  return true
+end
+
+--- Follows the sent decisions of `s` (run from the sweep, before every
+--- request and on the driver's tick; never counted as interaction, so an
+--- unattended screen still locks on time). Each card is polled at
+--- poll_schedule seconds after its decision, through the shared slot; a
+--- terminal execution state ends it, so do six polls without one, a
+--- `rate_limited` answer, or a last slot delayed past
+--- outcome_give_up_seconds: then "No confirmation from the controller yet".
 function UI:pollActions(s)
   local t = self:now()
   local L = ChatActions.LIMITS
   for _, e in ipairs(s.conversation) do
     for _, a in ipairs(e.actions or {}) do
-      if a.state == "sent" and t - a.sent_at >= L.outcome_wait_seconds and not a.inflight then
-        a.state, a.message = "unconfirmed", "No confirmation from the controller yet."
-        self.counters.actions_unconfirmed = self.counters.actions_unconfirmed + 1
-      elseif a.state == "sent" and not a.inflight and t >= a.next_poll and a.polls < L.polls then
-        local proof = proofFor(self, s, "chat_view", s.sid)
-        if proof ~= nil then
-          a.inflight, a.polls, a.next_poll = true, a.polls + 1, t + L.poll_seconds
-          self.deps.cloud(
-            "approval_detail",
-            M.detailBody(self.deps.newRequestId(), a.ref, proof, ChatActions.SESSION_METHOD),
-            function(answer)
-              a.inflight = false
-              if findAction(s, a.ref) ~= a or a.state ~= "sent" then
-                return
+      if a.state == "sent" and not a.inflight then
+        local due = L.poll_schedule[a.polls + 1]
+        if due == nil or t - a.sent_at >= L.outcome_give_up_seconds then
+          unconfirmed(self, a)
+        elseif t - a.sent_at >= due then
+          local proof = proofFor(self, s, "chat_view", s.sid)
+          if proof ~= nil and self:outcomePollSlot() then
+            a.inflight, a.polls = true, a.polls + 1
+            self.counters.outcome_polls = self.counters.outcome_polls + 1
+            self.deps.cloud(
+              "approval_detail",
+              M.detailBody(self.deps.newRequestId(), a.ref, proof, ChatActions.SESSION_METHOD),
+              function(answer)
+                self:outcomePolled(s, a, answer)
               end
-              local r = type(answer) == "table" and answer.status == "ok" and answer.result or nil
-              local st, msg = ChatActions.executionOf(r)
-              if st == "done" then
-                a.state, a.message = "done", nil
-                self.counters.actions_done = self.counters.actions_done + 1
-              elseif st == "failed" then
-                a.state, a.message = "failed", msg or M.OUTCOME_TEXT.failed
-                self.counters.actions_failed = self.counters.actions_failed + 1
-              end
-              notify(self)
-            end
-          )
+            )
+          end
         end
       end
     end
   end
+end
+
+function UI:outcomePolled(s, a, answer)
+  a.inflight = false
+  if findAction(s, a.ref) ~= a or a.state ~= "sent" then
+    return
+  end
+  answer = type(answer) == "table" and answer or {}
+  if answer.error_code == "rate_limited" then
+    unconfirmed(self, a) -- never retried into a full budget
+    notify(self)
+    return
+  end
+  local st, msg = ChatActions.executionOf(answer.status == "ok" and answer.result or nil)
+  if st == "done" then
+    a.state, a.message = "done", nil
+    self.counters.actions_done = self.counters.actions_done + 1
+  elseif st == "failed" then
+    a.state, a.message = "failed", msg or M.OUTCOME_TEXT.failed
+    self.counters.actions_failed = self.counters.actions_failed + 1
+  elseif a.polls >= #ChatActions.LIMITS.poll_schedule then
+    unconfirmed(self, a)
+  end
+  notify(self)
 end
 
 --- Whether a deliver_result (its request id, its job id) answers a
@@ -2220,7 +2267,7 @@ function UI:chatLine()
     "%s declared; %d conversation(s) started, %d ask(s) sent again without a thread; "
       .. "%d answer(s) with blocks, %d block(s) shown, %d dropped; %d follow-up(s) shown, %d dropped; "
       .. "%s: %d ask(s) with owner_proof, %d card(s) offered, %d dropped, %d removed at lock, "
-      .. "%d confirmed, %d cancelled, %d done, %d failed, %d refused, %d unconfirmed",
+      .. "%d confirmed, %d cancelled, %d done, %d failed, %d refused, %d unconfirmed, %d outcome poll(s)",
     ChatV2.CAPABILITY,
     c.threads_minted,
     c.thread_retries,
@@ -2239,7 +2286,8 @@ function UI:chatLine()
     c.actions_done,
     c.actions_failed,
     c.actions_refused,
-    c.actions_unconfirmed
+    c.actions_unconfirmed,
+    c.outcome_polls
   )
 end
 
