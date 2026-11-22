@@ -46,6 +46,34 @@ check("the first ok reply means joined", c:handleFrame(reply).type == "joined")
 check("a second reply is noise, not a rejoin", c:handleFrame(reply).type == "noise")
 check("joined state tracks", c:isJoined() == true)
 
+local refusing = client()
+refusing:joinFrame("c4ping:abc-123")
+local refusal = refusing:handleFrame(JSON:encode({
+  topic = "realtime:c4ping:abc-123",
+  event = "phx_reply",
+  payload = { status = "error", response = { reason = "Unauthorized: public channels are disabled" } },
+  ref = "1",
+}))
+check(
+  "a refused join is reported with the server's reason, not swallowed as noise",
+  refusal.type == "join_error" and refusal.reason == "Unauthorized: public channels are disabled",
+  refusal.type
+)
+check("and it is not joined", refusing:isJoined() == false)
+local bare = client()
+bare:joinFrame("c4ping:abc-123")
+check(
+  "a refusal without a reason still reads as one",
+  bare:handleFrame(
+    JSON:encode({ topic = "realtime:c4ping:abc-123", event = "phx_reply", payload = { status = "error" } })
+  ).reason == "refused"
+)
+check(
+  "an error reply after the join is noise (a keepalive's, say)",
+  c:handleFrame(JSON:encode({ topic = "realtime:c4ping:abc-123", event = "phx_reply", payload = { status = "error" } })).type
+    == "noise"
+)
+
 local ping =
   JSON:encode({ topic = "realtime:c4ping:abc-123", event = "broadcast", payload = { event = "ping", payload = {} } })
 check("a ping is a ping", c:handleFrame(ping).type == "ping")

@@ -96,6 +96,10 @@ ModuleBus = require("sbos.modulebus")
 -- The Agent's own "AI Core" property, painted from this registry (ruling 20).
 -- Global for the same reason.
 AgentAiCore = require("sbos.agentaicore")
+-- Fast answers: a short heartbeat burst while a module's cloud job is
+-- pending (sbos.fastanswers). Global for the same reason; the instance is
+-- built where its clock and glue live, below the heartbeat.
+FastAnswers = require("sbos.fastanswers")
 SlProtocol = require("systemlink.protocol")
 -- Send Push Notification: the message variables are the Notification
 -- Router's own module, so ${1} and ${Room->Device::VARIABLE} read the same in
@@ -446,7 +450,26 @@ local REALTIME_PING_TIMER = "SmartBuildOSRealtimePing"
 --- The doorbell socket. `config` is what the platform last offered; comparing
 --- against it is how a changed channel or key reconnects and an unchanged one
 --- does not. `backoff` doubles 15s→300s across failures and resets on join.
-local gRealtime = { ws = nil, client = nil, config = nil, backoff = 15 }
+--- `gen` moves on every stop, silencing the old socket's callbacks; `state`
+--- is idle | connecting | joining | joined | waiting (a retry is scheduled)
+--- | closing (the old socket is being deleted before a reconnect). The
+--- rest is what AgentDoorbellStatus() prints.
+local gRealtime = {
+  ws = nil,
+  client = nil,
+  config = nil,
+  backoff = 15,
+  gen = 0,
+  state = "idle",
+  joined = false,
+  connectAt = nil,
+  joinedAt = nil,
+  lastFrameAt = nil,
+  pings = 0,
+  lastPingAt = nil,
+  reconnects = 0,
+  lastIssue = nil,
+}
 --- One-shot fast flush: armed by the first queued event of a burst, so a
 --- keypad press reaches the platform in seconds while the 45s cycle remains
 --- the backstop. Re-arming on every event would STARVE the flush during a
@@ -3325,9 +3348,14 @@ function AgentStudioHeartbeatDelivered(blocks)
 end
 
 --- Sends a heartbeat: proof of life plus a small health summary.
-local function sendHeartbeat()
+--- @param burst any `true` only from the fast-answers burst (timers pass
+--- their own arguments here, so anything else is an ordinary heartbeat).
+local function sendHeartbeat(burst)
   -- The backstop for the midnight timer: see AgentRollDay.
   pcall(AgentRollDay)
+  -- Every heartbeat, whoever sent it, is one the fast-answers burst spaces
+  -- itself from and never doubles while it is in flight.
+  pcall(AgentFastAnswersBeatStarted, burst == true)
   -- Studio G1 blocks. Each is nil (absent) when there is nothing to say.
   local okG1, studio = pcall(AgentStudioHeartbeatBlocks)
   if not okG1 or type(studio) ~= "table" then
@@ -3514,7 +3542,13 @@ local function sendHeartbeat()
     -- Delivery (any 2xx), not a parseable body: the G1 blocks it carried are
     -- now the platform's, so they are not repeated.
     function()
+      pcall(AgentFastAnswersBeatEnded, true)
       AgentStudioHeartbeatDelivered(studio)
+    end,
+    -- Any failure (transport, non-2xx, unpaired): a burst ends, and a 429
+    -- keeps the next one away for the platform's window.
+    function(_, code)
+      pcall(AgentFastAnswersBeatEnded, false, code)
     end
   )
 end
@@ -4150,12 +4184,120 @@ function ModuleBusCloudPost(body, done)
         end)
         decoded = okD and value or nil
       end
+      -- A job accepted now is answered later, as a queued MODULE_COMMAND:
+      -- check in early until it arrives (sbos.fastanswers). Before the
+      -- module hears the answer, so a module that reacts inside Director's
+      -- SendToDevice already finds the burst running.
+      pcall(AgentFastAnswersAccepted, decoded, response and response.headers)
       finish({ ok = true, http_status = tonumber(response and response.code) or 200, body = decoded })
     end,
     function(reason, code)
       finish({ ok = false, http_status = tonumber(code), reason = reason })
     end
   )
+end
+
+-- ─── Fast answers (sbos.fastanswers) ────────────────────────────────────────
+--
+-- Globals, not locals: the main chunk is at Lua's 200-local ceiling. The
+-- state is the one AgentFastAnswers instance; these are its glue (clock,
+-- pairing, the timer, the heartbeat).
+
+AgentFastAnswers = FastAnswers.new({
+  now = function()
+    local ok, ms = pcall(function()
+      return tonumber(C4:GetTickCount())
+    end)
+    if ok and ms ~= nil then
+      return ms
+    end
+    return os.time() * 1000
+  end,
+})
+
+--- The burst's timer: one heartbeat when the cadence allows, nothing while
+--- one is in flight, and the timer cancelled the moment the burst is over.
+function AgentFastAnswersTick()
+  local action, why = AgentFastAnswers:tick({ paired = isPaired() })
+  if action == "stop" then
+    CancelTimer(FastAnswers.TIMER)
+    if why ~= "idle" then
+      log:info("Fast answers: burst ended (%s)", tostring(why))
+    end
+    return
+  end
+  if action == "beat" then
+    log:debug("Fast answers: checking in for a pending result")
+    sendHeartbeat(true)
+  end
+end
+
+--- A modules/rpc answer arrived. An accepted job starts (or joins) the burst.
+--- An idempotent replay is an old job whose result may be long delivered.
+function AgentFastAnswersAccepted(body, headers)
+  if type(headers) == "table" then
+    for k, v in pairs(headers) do
+      if tostring(k):lower() == "x-sbos-idempotent-replay" and tostring(v) == "1" then
+        return
+      end
+    end
+  end
+  local jobId = FastAnswers.pendingJob(body)
+  if jobId == nil then
+    return
+  end
+  local outcome = AgentFastAnswers:expect(jobId, { paired = isPaired(), failing = gFailures > 0 })
+  if outcome == "started" then
+    log:info(
+      "Fast answers: a cloud job is pending; checking in every %ds for up to %ds",
+      FastAnswers.CADENCE_SECONDS,
+      FastAnswers.CAP_SECONDS
+    )
+    SetTimer(FastAnswers.TIMER, FastAnswers.TICK_SECONDS * ONE_SECOND, AgentFastAnswersTick, true)
+  elseif outcome ~= "joined" then
+    log:debug("Fast answers: no burst (%s)", outcome)
+  end
+end
+
+--- A deliver_result reached the Agent: that job is no longer pending.
+function AgentFastAnswersDelivered(jobId)
+  jobId = FastAnswers.jobKey(jobId)
+  if jobId ~= nil and AgentFastAnswers:delivered(jobId) then
+    CancelTimer(FastAnswers.TIMER)
+    log:info("Fast answers: result delivered; back to the normal heartbeat")
+  end
+end
+
+--- Whether a heartbeat is in flight or left under CADENCE_SECONDS ago.
+function AgentFastAnswersBusy()
+  local ok, busy = pcall(function()
+    return AgentFastAnswers:busy()
+  end)
+  return ok and busy == true
+end
+
+function AgentFastAnswersBeatStarted(burst)
+  AgentFastAnswers:beatStarted(burst)
+end
+
+function AgentFastAnswersBeatEnded(ok, status)
+  if AgentFastAnswers:beatEnded(ok, status) then
+    CancelTimer(FastAnswers.TIMER)
+    log:info("Fast answers: a heartbeat failed (%s); burst ended", tostring(status or "no answer"))
+  end
+end
+
+--- The doorbell rang: it works, and its own heartbeat fetches the result.
+function AgentFastAnswersRang()
+  if AgentFastAnswers:rang() then
+    CancelTimer(FastAnswers.TIMER)
+    log:info("Fast answers: the doorbell rang; burst ended")
+  end
+end
+
+function AgentFastAnswersStop(reason)
+  AgentFastAnswers:stop(reason)
+  CancelTimer(FastAnswers.TIMER)
 end
 
 --- Authenticates a contract v2 frame and hands it to the bus. Frames
@@ -4627,6 +4769,12 @@ function ModuleCommandDispatch(payload)
   local moduleId = tostring(payload.module_id or "")
   local command = tostring(payload.command or "")
   local requestId = tostring(payload.request_id or "")
+  -- A job's result has reached this Agent, whatever happens to it next
+  -- (refused, expired, forwarded): it will not come again, so the
+  -- fast-answers burst stops waiting for it.
+  if command == "deliver_result" and type(payload.args) == "table" then
+    pcall(AgentFastAnswersDelivered, payload.args.job_id)
+  end
   if requestId == "" then
     error("module command needs a request_id")
   end
@@ -4895,6 +5043,12 @@ function scheduleTimers()
       gHeartbeatTick.lag_ms = math.max(0, (nowMs - gHeartbeatTick.last_ms) - heartbeat * 1000)
     end
     gHeartbeatTick.last_ms = nowMs
+    -- A heartbeat already in flight, or one that left under 5 s ago (a
+    -- fast-answers burst, a doorbell ring), already IS this check-in.
+    if AgentFastAnswersBusy() then
+      log:debug("Heartbeat skipped: another left moments ago")
+      return
+    end
     sendHeartbeat()
   end, true)
   -- Hourly CHECK, server-tuned ACTION: the tick refreshes entitlements only
@@ -7057,6 +7211,10 @@ function OnDriverDestroyed()
   if gBus ~= nil then
     pcall(gBus.stop, gBus)
   end
+  -- No orphan burst timer, and the doorbell socket closed rather than left
+  -- connected on a binding the next instance cannot see.
+  pcall(AgentFastAnswersStop, "driver destroyed")
+  pcall(AgentDoorbellStop)
   CancelTimer(HEARTBEAT_TIMER)
   CancelTimer(DEVICE_POLL_TIMER)
   CancelTimer(FULL_SYNC_TIMER)
@@ -7350,16 +7508,42 @@ function EC.SEND_HEARTBEAT()
 end
 
 --- Closes the doorbell socket and stops its timers.
-local function realtimeStop()
+---
+--- ⚠ The vendor WebSocket caches its instances BY URL until a delete has
+--- COMPLETED, and delete completes on a 3 s close timer that then unhooks
+--- the network callbacks and blanks the binding. A `WebSocket:new(url)` in
+--- between returns the very socket being deleted, which goes deaf three
+--- seconds later with nothing left to report it. That is how every
+--- reconnect used to end: the doorbell rang until its first reconnect and
+--- never again, while `gRealtime.ws` stayed set and so every later offer
+--- was taken as "already connected". A reconnect therefore opens its new
+--- socket from `onClosed`, once the old one is gone.
+--- @param onClosed fun()|nil called once the old socket is fully deleted
+--- (at once when there is none)
+local function realtimeStop(onClosed)
   CancelTimer(REALTIME_HB_TIMER)
   CancelTimer(REALTIME_RECONNECT_TIMER)
-  if gRealtime.ws ~= nil then
-    pcall(function()
-      gRealtime.ws:delete()
-    end)
-  end
+  -- Every callback of the old socket carries the generation it was born
+  -- in, and goes quiet once this moves on.
+  gRealtime.gen = gRealtime.gen + 1
+  local ws = gRealtime.ws
   gRealtime.ws = nil
   gRealtime.client = nil
+  gRealtime.joined = false
+  if ws == nil then
+    gRealtime.state = "idle"
+    if onClosed ~= nil then
+      onClosed()
+    end
+    return
+  end
+  gRealtime.state = "closing"
+  local ok = pcall(function()
+    ws:delete(onClosed)
+  end)
+  if not ok and onClosed ~= nil then
+    onClosed()
+  end
 end
 
 --- Connects (or reconnects) the doorbell to the platform-offered channel.
@@ -7367,10 +7551,23 @@ end
 --- The socket is an ACCELERATOR, never a dependency: every failure path ends
 --- in a scheduled retry while the heartbeat timers carry on regardless, so
 --- the worst a dead Realtime service can do is return command latency to one
---- heartbeat interval — exactly where it was before this existed.
+--- heartbeat interval — exactly where it was before this existed (and, for a
+--- module's pending cloud job, to the fast-answers burst).
 local function realtimeConnect()
   local cfg = gRealtime.config
-  if cfg == nil or not gMonitor then
+  if cfg == nil then
+    return
+  end
+  if gRealtime.ws ~= nil then
+    -- A reconnect: the old socket goes first, completely (see realtimeStop).
+    -- The generation realtimeStop is about to move to: anything that moves
+    -- it again (a withdrawn offer, an unpair) cancels this reopening.
+    local gen = gRealtime.gen + 1
+    realtimeStop(function()
+      if gRealtime.gen == gen and gRealtime.config ~= nil and gRealtime.ws == nil then
+        realtimeConnect()
+      end
+    end)
     return
   end
   realtimeStop()
@@ -7389,55 +7586,156 @@ local function realtimeConnect()
     end,
   })
 
+  local gen = gRealtime.gen
   local ws = WebSocket:new(url)
   if ws == nil then
-    log:warn("Realtime: could not create the socket; retrying in %ds", gRealtime.backoff)
-    SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
-    gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+    AgentDoorbellRetry(gen, "could not create the socket")
+    return
+  end
+  if ws.deleteAfterClosing then
+    -- Still the old instance (an earlier stop has not completed): never
+    -- adopt it, it is about to go deaf.
+    AgentDoorbellRetry(gen, "previous socket still closing")
     return
   end
 
   gRealtime.ws = ws
   gRealtime.client = client
+  gRealtime.state = "connecting"
+  gRealtime.connectAt = os.time()
+  gRealtime.lastFrameAt = nil
 
   ws:SetEstablishedFunction(function()
+    if gen ~= gRealtime.gen then
+      return
+    end
+    gRealtime.state = "joining"
     ws:Send(client:joinFrame(cfg.channel))
-    -- Phoenix reaps silent sockets; ~30s keeps this one alive.
-    SetTimer(REALTIME_HB_TIMER, 30 * ONE_SECOND, function()
+  end)
+
+  ws:SetProcessMessageFunction(function(_, data)
+    if gen ~= gRealtime.gen then
+      return
+    end
+    gRealtime.lastFrameAt = os.time()
+    local event = client:handleFrame(data)
+    if event.type == "joined" then
+      gRealtime.backoff = 15
+      gRealtime.joined = true
+      gRealtime.joinedAt = os.time()
+      gRealtime.state = "joined"
+      log:info("Realtime doorbell connected")
+    elseif event.type == "ping" then
+      -- The doorbell rang. The REACTION is the ordinary authenticated
+      -- heartbeat — the socket itself is never trusted with instructions.
+      gRealtime.pings = gRealtime.pings + 1
+      gRealtime.lastPingAt = os.time()
+      log:info("Realtime doorbell rang; checking in")
+      pcall(AgentFastAnswersRang)
+      SetTimer(REALTIME_PING_TIMER, 2 * ONE_SECOND, function()
+        sendHeartbeat()
+      end)
+    elseif event.type == "closed" then
+      AgentDoorbellRetry(gen, "channel closed by the server")
+    elseif event.type == "join_error" then
+      AgentDoorbellRetry(gen, "join refused (" .. tostring(event.reason) .. ")")
+    end
+  end)
+
+  ws:SetClosedByRemoteFunction(function()
+    AgentDoorbellRetry(gen, "socket closed by the server")
+  end)
+  -- A connection that drops WITHOUT a close frame (an address change, a NAT
+  -- timeout, the library's own missed-pong close) arrives only here; with no
+  -- handler it used to leave the doorbell deaf for good.
+  ws:SetOfflineFunction(function()
+    AgentDoorbellRetry(gen, "connection dropped")
+  end)
+
+  -- One watchdog from the moment of connecting, which also keeps the socket
+  -- alive: Phoenix reaps silent sockets, and answers every keepalive, so a
+  -- joined socket that hears nothing for 75 s is dead whatever Director
+  -- says, and one not joined within 60 s never will be.
+  SetTimer(REALTIME_HB_TIMER, 30 * ONE_SECOND, function()
+    if gen ~= gRealtime.gen then
+      return
+    end
+    if gRealtime.joined then
+      if os.time() - (gRealtime.lastFrameAt or 0) > 75 then
+        AgentDoorbellRetry(gen, "silent for over 75 s")
+        return
+      end
       if gRealtime.ws ~= nil and gRealtime.client ~= nil then
         pcall(function()
           gRealtime.ws:Send(gRealtime.client:heartbeatFrame())
         end)
       end
-    end, true)
-  end)
-
-  ws:SetProcessMessageFunction(function(_, data)
-    local event = client:handleFrame(data)
-    if event.type == "joined" then
-      gRealtime.backoff = 15
-      log:info("Realtime doorbell connected (channel %s)", tostring(cfg.channel))
-    elseif event.type == "ping" then
-      -- The doorbell rang. The REACTION is the ordinary authenticated
-      -- heartbeat — the socket itself is never trusted with instructions.
-      log:debug("Realtime ping; checking in")
-      SetTimer(REALTIME_PING_TIMER, 2 * ONE_SECOND, function()
-        sendHeartbeat()
-      end)
-    elseif event.type == "closed" then
-      log:warn("Realtime channel closed; reconnecting in %ds", gRealtime.backoff)
-      SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
-      gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+    elseif os.time() - (gRealtime.connectAt or 0) >= 60 then
+      AgentDoorbellRetry(gen, "not joined within 60 s")
     end
-  end)
-
-  ws:SetClosedByRemoteFunction(function()
-    log:warn("Realtime socket closed by remote; reconnecting in %ds", gRealtime.backoff)
-    SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, realtimeConnect)
-    gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
-  end)
+  end, true)
 
   ws:Start()
+end
+
+--- Schedules ONE reconnect after the current backoff (15 s doubling to
+--- 300 s, reset on join). `gen` is the generation of the socket reporting:
+--- a late callback from a socket already replaced changes nothing, and a
+--- second report while a retry is pending (closed-by-remote then offline)
+--- does not schedule another.
+function AgentDoorbellRetry(gen, why)
+  if gen ~= gRealtime.gen or gRealtime.config == nil or gRealtime.state == "waiting" then
+    return
+  end
+  CancelTimer(REALTIME_HB_TIMER)
+  gRealtime.joined = false
+  gRealtime.state = "waiting"
+  gRealtime.reconnects = gRealtime.reconnects + 1
+  gRealtime.lastIssue = why
+  log:warn("Realtime doorbell %s; reconnecting in %ds", why, gRealtime.backoff)
+  SetTimer(REALTIME_RECONNECT_TIMER, gRealtime.backoff * ONE_SECOND, function()
+    realtimeConnect()
+  end)
+  gRealtime.backoff = math.min(gRealtime.backoff * 2, 300)
+end
+
+--- Closes the doorbell for good (driver destroyed). Global because
+--- OnDriverDestroyed is written above this local.
+function AgentDoorbellStop()
+  gRealtime.config = nil
+  realtimeStop()
+end
+
+--- The doorbell and the fast-answers burst in one line, for the Lua tab:
+---   print(AgentDoorbellStatus())
+--- States and ages only: no URL, key or channel.
+function AgentDoorbellStatus()
+  local now = os.time()
+  local function ago(t)
+    return t ~= nil and string.format("%ds ago", now - t) or "never"
+  end
+  local doorbell
+  if gRealtime.config == nil then
+    doorbell = "no offer (it rides each heartbeat answer; none yet, or withdrawn)"
+  else
+    doorbell = string.format(
+      "%s; connect started %s; joined %s; last frame %s; %d ring(s), last %s; %d reconnect(s); last issue: %s",
+      gRealtime.state,
+      ago(gRealtime.connectAt),
+      gRealtime.joined and ago(gRealtime.joinedAt) or "no",
+      ago(gRealtime.lastFrameAt),
+      gRealtime.pings,
+      ago(gRealtime.lastPingAt),
+      gRealtime.reconnects,
+      gRealtime.lastIssue or "none"
+    )
+  end
+  return string.format(
+    "Doorbell: %s. Heartbeat every %ds. Fast answers: %s",
+    doorbell,
+    activeHeartbeatSeconds(),
+    AgentFastAnswers:status()
+  )
 end
 
 --- Accepts (or drops) the platform's doorbell offer from a heartbeat response.
@@ -7455,11 +7753,17 @@ function applyRealtimeConfig(offer)
     and gRealtime.config.url == next.url
     and gRealtime.config.key == next.key
     and gRealtime.config.channel == next.channel
-  if unchanged and gRealtime.ws ~= nil then
+  -- Unchanged and alive, retrying or closing: the socket's own machinery
+  -- owns it. (A socket that died silently is the watchdog's to find.)
+  if unchanged and (gRealtime.ws ~= nil or gRealtime.state == "closing") then
     return
   end
   gRealtime.config = next
   gRealtime.backoff = 15
+  if gRealtime.state == "closing" then
+    -- The pending close opens the new socket with this config.
+    return
+  end
   realtimeConnect()
 end
 
@@ -8579,6 +8883,7 @@ function EC.UNPAIR()
   UpdateProperty("Pairing Backup", "", true)
   gRealtime.config = nil
   realtimeStop()
+  pcall(AgentFastAnswersStop, "unpaired")
   persist:delete(PROPERTY_KEY)
   -- ⚠ Must be cleared too. `isPaired()` is satisfied by EITHER id, so a
   -- surviving system id would leave the driver claiming to be paired with no

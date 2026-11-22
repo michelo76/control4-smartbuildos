@@ -2908,6 +2908,10 @@ end
 function FakeWS:SetClosedByRemoteFunction(f)
   self._closed = f
 end
+-- The vendor module has it (a drop without a close frame); the glue uses it.
+function FakeWS:SetOfflineFunction(f)
+  self._offline = f
+end
 function FakeWS:Start()
   if self._established then
     self._established()

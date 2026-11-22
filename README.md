@@ -311,8 +311,44 @@ the catalogue, a network scan), a licence re-check, notices, and a fixed list of
 operations on SmartBuildOS module drivers (pause, resume, apply settings) are
 not limited by this property: they do not operate equipment. A command the Agent
 does not know is refused by name. Commands arrive on the next check-in, so
-**Heartbeat Interval** is also how long a command can wait. Lowering the tier
-takes effect at once.
+**Heartbeat Interval** is also how long a command can wait, unless the doorbell
+or a fast-answers burst brings it sooner (below). Lowering the tier takes effect
+at once.
+
+## How fast commands and answers arrive
+
+The Agent has no inbound connection: what SmartBuildOS queues for it (a command,
+a module's result such as an AI Core answer) rides back on the answer to a
+request the Agent makes. Three things decide how soon that is:
+
+- **The heartbeat**, every **Heartbeat Interval** (default `1m`). Always on.
+- **The doorbell.** Each heartbeat answer offers a Realtime channel. The Agent
+  keeps a socket open on it, and when SmartBuildOS queues something it sends a
+  contentless ring; the Agent checks in 2 seconds later. The ring carries no
+  data and nothing on the socket is acted on. A socket that closes, drops, goes
+  silent for 75 seconds, or has not joined within 60 seconds is reopened, 15
+  seconds after the first problem, doubling to 5 minutes.
+- **Fast answers.** When a module's cloud request is accepted as a job whose
+  result comes later (an AI Core question, for example), the Agent checks in
+  every 5 seconds until that result has arrived, the doorbell rings, or 90
+  seconds have passed, then returns to the heartbeat. Several pending jobs share
+  one burst. It never sends a heartbeat within 5 seconds of another or while one
+  is in flight (its own timer skips a beat for the same reason, so a burst
+  replaces ordinary check-ins rather than adding to them), and does nothing
+  while unpaired, after a failed delivery, or for 60 seconds after SmartBuildOS
+  answers `429`.
+
+To see the doorbell and the last bursts, run in the Agent's Lua tab:
+
+```lua
+print(AgentDoorbellStatus())
+```
+
+It prints the socket's state (`joined`, `connecting`, `joining`, `waiting`,
+`closing`, or `no offer`), when it last heard from the server, how many rings
+and reconnects there have been and the last problem, the heartbeat interval in
+force, and the fast-answers count and how the last burst ended. It prints no
+address, key or channel.
 
 ## Notices, restarts and service mode
 
@@ -622,6 +658,16 @@ If a driver stays on *Checking...*, run *Print SmartBuildOS Drivers* on the
 Agent: a driver that is not listed has not reached it. *Print Entitlements*
 shows what SmartBuildOS issued per SKU.
 
+If answers or commands take about one **Heartbeat Interval** to arrive, run
+`print(AgentDoorbellStatus())` in the Lua tab (see
+[How fast commands and answers arrive](#how-fast-commands-and-answers-arrive)).
+`no offer` means SmartBuildOS is not offering the doorbell; `waiting` with a
+last problem such as `join refused (…)` names what the server said; `joined`
+with no rings after a question means the ring is not arriving, and fast answers
+carry the result meanwhile. With **Log Level** `3 - Info` the Lua output shows
+`Realtime doorbell connected`, `Realtime doorbell rang; checking in`, and each
+`Fast answers:` burst starting and ending.
+
 ## What is not claimed
 
 - **Director's own notices.** Earlier builds never registered for them, so
@@ -647,6 +693,12 @@ shows what SmartBuildOS issued per SKU.
 - **Remote commands** to keypads, lights, thermostats, scenes, locks, garage
   doors and security panels follow Control4's published protocols and have not
   been confirmed on hardware. Scene activation is the least certain.
+- **The doorbell and fast answers** are covered by the driver's tests against
+  the shipped WebSocket library and a scripted server, not on a controller.
+  Earlier builds reopened the doorbell on the socket that was being closed, so
+  after its first reconnect it never rang again; this build opens a new one.
+  Whether Director reports a dropped connection to the library, and how long a
+  ring takes to arrive, have not been measured.
 - **Enforcement** is off unless SmartBuildOS turns it on for a driver.
 - **Controller load and memory** are sent only where the controller lets a
   driver read them.
