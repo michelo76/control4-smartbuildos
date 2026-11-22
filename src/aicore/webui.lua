@@ -66,6 +66,8 @@ M.LIMITS = {
   approvals_stale_seconds = 60, -- refreshed when older, while a page is open
   pin_check_seconds = 30, -- pinlock.availability at most this often
   redeem_wait_seconds = 30, -- a redeem PIN Lock never answered is reported after this
+  orphan_seconds = 3600, -- an ask nobody waits for any more: its answer is dropped for this long
+  orphans = 64, -- ids remembered for that (oldest forgotten first)
   title = 80,
   description = 300,
 }
@@ -398,6 +400,8 @@ function M.new(deps)
   self.deps = deps
   self.sessions = {} -- [token] = session
   self.asks = {} -- [request_id] = { token, entry }
+  self.orphans = {} -- [request id or job id] = until when its answer is dropped
+  self.orphanOrder = {}
   self.askTimes = {}
   self.challengeTimes = {}
   self.pinState = { available = false, reason = "checking", at = nil, inflight = false }
@@ -480,6 +484,51 @@ function UI:lockAll()
   end
 end
 
+--- Stops waiting for an ask's answer (its page closed or went away, its
+--- conversation was cleared, the accept answer was lost).
+--- The answer may still arrive: the ask's ids stay known for orphan_seconds
+--- so it is DROPPED then, never published as a Composer answer
+--- (AI_LAST_RESPONSE, AI Response Ready) where no PIN guards it.
+local function abandon(self, requestId)
+  local a = self.asks[requestId]
+  self.asks[requestId] = nil
+  local ends = self:now() + M.LIMITS.orphan_seconds
+  for _, id in ipairs({ requestId, a ~= nil and a.entry.job_id ~= nil and tostring(a.entry.job_id) or false }) do
+    if id then
+      if self.orphans[id] == nil then
+        self.orphanOrder[#self.orphanOrder + 1] = id
+      end
+      self.orphans[id] = ends
+    end
+  end
+  while #self.orphanOrder > M.LIMITS.orphans do
+    self.orphans[table.remove(self.orphanOrder, 1)] = nil
+  end
+end
+
+local function orphaned(self, id)
+  local ends = id ~= nil and self.orphans[tostring(id)] or nil
+  return ends ~= nil and self:now() < ends
+end
+
+--- The ask a deliver_result answers: by the ask's own request id, else by
+--- the job id its accept answer named. The platform's deliver_result names
+--- the job (job_id) and the id of the Agent's relay request, which is NOT
+--- the ask's request id, so the job id is what matches on a real system.
+local function findAsk(self, requestId, jobId)
+  if requestId ~= nil and self.asks[requestId] ~= nil then
+    return requestId, self.asks[requestId]
+  end
+  if jobId ~= nil then
+    for id, a in pairs(self.asks) do
+      if a.entry.job_id ~= nil and tostring(a.entry.job_id) == tostring(jobId) then
+        return id, a
+      end
+    end
+  end
+  return nil, nil
+end
+
 local function dropSession(self, token)
   local s = self.sessions[token]
   if s == nil then
@@ -487,7 +536,7 @@ local function dropSession(self, token)
   end
   for id, a in pairs(self.asks) do
     if a.token == token then
-      self.asks[id] = nil
+      abandon(self, id)
     end
   end
   self.sessions[token] = nil
@@ -498,6 +547,13 @@ end
 --- unlocks end, idle conversations are cleared, stale proofs go.
 function UI:sweep()
   local t = self:now()
+  for i = #self.orphanOrder, 1, -1 do
+    local id = self.orphanOrder[i]
+    if self.orphans[id] == nil or t >= self.orphans[id] then
+      self.orphans[id] = nil
+      table.remove(self.orphanOrder, i)
+    end
+  end
   for token, s in pairs(self.sessions) do
     if t - s.seen >= M.LIMITS.session_gone_seconds then
       dropSession(self, token)
@@ -526,14 +582,15 @@ function UI:sweep()
       end
       for _, e in ipairs(s.conversation) do
         if e.state == "pending" and t - e.at >= M.LIMITS.answer_wait_seconds then
+          -- Said on the page; the ask is still held, so an answer that
+          -- arrives later is shown to this session (never published).
           e.state, e.message = "failed", M.text("cloud_unreachable")
-          self.asks[e.id] = nil
         end
       end
       if #s.conversation > 0 and t - s.touched >= M.LIMITS.conversation_idle_seconds then
         for id, a in pairs(self.asks) do
           if a.token == token then
-            self.asks[id] = nil
+            abandon(self, id)
           end
         end
         s.conversation = {}
@@ -1004,14 +1061,17 @@ local function ask(self, s, body)
       self.refusals.ask = nil
       return
     end
-    self.asks[requestId] = nil
     if r.outcome == "completed" then
+      self.asks[requestId] = nil
       entry.state = "failed"
       entry.message = M.text("unavailable")
     elseif r.outcome == "unreachable" or r.outcome == "unavailable" then
+      -- The accept answer was lost; the platform may hold a job all the same.
+      abandon(self, requestId)
       entry.state = "failed"
       entry.message = M.text("cloud_unreachable")
     else
+      self.asks[requestId] = nil
       entry.state = "refused"
       entry.message = M.text(cloudReason(answer))
       self:refused("ask", answer)
@@ -1021,23 +1081,28 @@ local function ask(self, s, body)
   return true, requestId
 end
 
---- deliver_result for a touchscreen ask. Returns true when it was one (the
---- driver then keeps it out of AI_LAST_RESPONSE and its persisted copy).
---- An answer for a locked session is HELD (never sent until the next
---- unlock); one whose session or conversation is gone is dropped.
-function UI:deliver(requestId, text)
-  local a = requestId and self.asks[requestId] or nil
+--- deliver_result for a touchscreen ask (matched by request id or job id,
+--- findAsk). Returns true when it was one (the driver then keeps it out of
+--- AI_LAST_RESPONSE and its persisted copy). An answer for a locked session
+--- is HELD (never sent until the next unlock); one nobody waits for any more
+--- (abandon) is dropped.
+function UI:deliver(requestId, text, jobId)
+  local id, a = findAsk(self, requestId, jobId)
   if a == nil then
+    if orphaned(self, requestId) or orphaned(self, jobId) then
+      self.counters.answers_dropped = self.counters.answers_dropped + 1
+      return true
+    end
     return false
   end
-  self.asks[requestId] = nil
+  self.asks[id] = nil
   local s = self.sessions[a.token]
   if s == nil then
     self.counters.answers_dropped = self.counters.answers_dropped + 1
     return true
   end
   a.entry.a = Commands.cutBytes(tostring(text or ""), M.LIMITS.answer_bytes)
-  a.entry.state = "answered"
+  a.entry.state, a.entry.message = "answered", nil
   if not self:unlocked(s) then
     self.counters.answers_held = self.counters.answers_held + 1
   end
@@ -1045,9 +1110,24 @@ function UI:deliver(requestId, text)
   return true
 end
 
---- Whether a deliver_result request id belongs to a touchscreen ask.
-function UI:owns(requestId)
-  return requestId ~= nil and self.asks[requestId] ~= nil
+--- Whether a deliver_result (its request id, its job id) answers a
+--- touchscreen ask: one still waited for, or one abandoned within the hour.
+function UI:owns(requestId, jobId)
+  local _, a = findAsk(self, requestId, jobId)
+  return a ~= nil or orphaned(self, requestId) or orphaned(self, jobId)
+end
+
+--- Touchscreen asks waiting for an answer: how many, and the oldest's age.
+function UI:waiting()
+  local n, oldest = 0, nil
+  for _, a in pairs(self.asks) do
+    n = n + 1
+    local age = self:now() - a.entry.at
+    if oldest == nil or age > oldest then
+      oldest = age
+    end
+  end
+  return n, oldest
 end
 
 -- the state document --------------------------------------------------------------

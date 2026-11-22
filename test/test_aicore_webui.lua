@@ -27,6 +27,10 @@
 --   [17] the `command` of every cloud body is one the platform accepts (the
 --        scripted cloud refuses any other, as the platform does), and what
 --        a refusal said can be read on the controller as codes only
+--   [18] the answer as the platform really sends it: deliver_result names
+--        the job and the RELAY's request id (not the ask's), so it is
+--        matched by job id; an answer nobody waits for any more is dropped,
+--        never published in AI_LAST_RESPONSE
 --
 -- Run from the driver root: make test
 
@@ -1552,6 +1556,113 @@ check(
   "once the list is read again the property stops saying it",
   tostring(H.prop("Touchscreen Approvals")):find("not available", 1, true) == nil,
   H.prop("Touchscreen Approvals")
+)
+
+-- ── [18] ─────────────────────────────────────────────────────────────────────
+print("[18] the answer as the platform sends it: job id and the relay's request id")
+-- What the platform puts in deliver_result (jobs.ts deliverJob): job_id = the
+-- job the accept answer named, request_id = the request_id of the FRAME the
+-- Agent relayed (the module client's per-attempt id) — never the ask's own
+-- request id, which travels as idempotency_key and body.request_id.
+local function askAndFrame(session, question)
+  local r = post(session, "/ask", { question = question })
+  local op = lastCloud("ask")
+  return r, op, "job-" .. #H.agent.cloudCalls
+end
+local function platformAnswer(op, jobId, text, n)
+  return H.operation("deliver_result", {
+    response_id = "resp-18-" .. n,
+    job_id = jobId,
+    request_id = op.request_id,
+    text = text,
+    kind = "answer",
+    pending_approvals = 0,
+  })
+end
+H.advance(61000)
+local z = open()
+unlock(z)
+local resp18, fired18 = H.vars.AI_LAST_RESPONSE, H.firedCount(1)
+local r18, op18, job18 = askAndFrame(z, "Is the pool heater on?")
+check(
+  "(the relay's request id is not the ask's id; the ask's id is the idempotency key and body.request_id)",
+  r18.ok == true and op18.request_id ~= r18.id and op18.idempotency_key == r18.id and op18.body.request_id == r18.id,
+  tostring(op18.request_id) .. " / " .. tostring(r18.id)
+)
+check(
+  "deliver_result with the job id and the relay's request id: Completed",
+  H.finalState(platformAnswer(op18, job18, "The pool heater is off.", 1)) == "Completed"
+)
+st = state(z)
+local e18 = st.chat.conversation[#st.chat.conversation]
+check(
+  "…the answer reaches the page that asked",
+  e18.state == "answered" and e18.a == "The pool heater is off.",
+  JSON:encode(e18)
+)
+check(
+  "…and is NOT published as a Composer answer (AI_LAST_RESPONSE, AI Response Ready)",
+  H.vars.AI_LAST_RESPONSE == resp18 and H.firedCount(1) == fired18,
+  H.vars.AI_LAST_RESPONSE
+)
+-- The wait runs out, then the answer arrives: shown to the session, late.
+H.advance(61000)
+post(z, "/chat/touch")
+r18, op18, job18 = askAndFrame(z, "Is the spa covered?")
+wait(290000, z)
+post(z, "/chat/touch")
+wait(15000, z)
+st = state(z)
+e18 = st.chat.conversation[#st.chat.conversation]
+check(
+  "after 5 minutes without an answer the page says so",
+  e18.state == "failed" and e18.message == Webui.TEXT.cloud_unreachable,
+  JSON:encode(e18)
+)
+platformAnswer(op18, job18, "The spa is covered.", 2)
+st = state(z)
+e18 = st.chat.conversation[#st.chat.conversation]
+check(
+  "an answer that arrives after that is still shown to the session that asked",
+  e18.state == "answered" and e18.a == "The spa is covered." and e18.message == nil,
+  JSON:encode(e18)
+)
+check("…never as a Composer answer", H.vars.AI_LAST_RESPONSE == resp18 and H.firedCount(1) == fired18)
+-- The page closes while its question is out: the answer is dropped.
+H.advance(61000)
+post(z, "/chat/touch")
+r18, op18, job18 = askAndFrame(z, "Did the gate close?")
+post(z, "/session/close")
+check(
+  "a closed page's answer: deliver_result Completed",
+  H.finalState(platformAnswer(op18, job18, "The gate is closed.", 3)) == "Completed"
+)
+check(
+  "…dropped: not in AI_LAST_RESPONSE, no AI Response Ready, not persisted",
+  H.vars.AI_LAST_RESPONSE == resp18
+    and H.firedCount(1) == fired18
+    and JSON:encode(H.persisted):find("gate is closed", 1, true) == nil,
+  H.vars.AI_LAST_RESPONSE
+)
+before17 = #printed
+EC.PRINT_DIAGNOSTICS()
+diag17 = table.concat(printed, "\n", before17 + 1)
+check(
+  "Print Diagnostics counts the touchscreen asks (sent, waiting, dropped), no text of any",
+  diag17:find("touchscreen asks: %d+ sent, 0 waiting for an answer, %d+ answered while locked, 1 dropped") ~= nil
+    and diag17:find("gate", 1, true) == nil
+    and diag17:find("spa", 1, true) == nil,
+  diag17:match("touchscreen asks[^\n]*")
+)
+H.operation("deliver_result", {
+  response_id = "resp-18-c",
+  job_id = "job-unknown",
+  request_id = "some-relay-id",
+  text = "A Composer answer, later.",
+})
+check(
+  "an answer for no touchscreen ask is still a Composer answer",
+  H.vars.AI_LAST_RESPONSE == "A Composer answer, later."
 )
 
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)

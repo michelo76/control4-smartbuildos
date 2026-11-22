@@ -65,8 +65,16 @@ d.http = function(req, dev)
   end
   if path == "/api/integrations/control4/modules/rpc" then
     local body = type(req.body) == "string" and json.decode(req.body) or req.body
-    rpc[#rpc + 1] =
-      { op = body.op, body = body.body, raw = type(req.body) == "string" and req.body or json.encode(req.body) }
+    rpc[#rpc + 1] = {
+      op = body.op,
+      body = body.body,
+      -- The frame around the body, as the Agent relays it: its request_id is
+      -- the module client's per-attempt id, NOT the body's request_id.
+      frame_request_id = body.request_id,
+      idempotency_key = body.idempotency_key,
+      job_id = body.op == "ask" and ("job-" .. (#rpc + 1)) or nil,
+      raw = type(req.body) == "string" and req.body or json.encode(req.body),
+    }
     local b = body.body or {}
     local result = { accepted = true }
     local okAnswer = true
@@ -315,13 +323,24 @@ check(
   askOp and askOp.body.channel == "touchscreen" and askOp.body.detail == "standard" and askOp.body.request_id == r.id,
   askOp and json.encode(askOp.body)
 )
-moduleCommand(
-  "deliver_result",
-  { response_id = "resp-1", job_id = "job-x", request_id = r.id, text = "The garage door is closed." }
+check(
+  "…the frame's request_id is the relay's own, not the ask's (which is the idempotency key)",
+  askOp and askOp.frame_request_id ~= nil and askOp.frame_request_id ~= r.id and askOp.idempotency_key == r.id,
+  askOp and (tostring(askOp.frame_request_id) .. " / " .. tostring(askOp.idempotency_key))
 )
+-- As the platform sends it (jobs.ts deliverJob): the job's id and the
+-- FRAME's request_id.
+moduleCommand("deliver_result", {
+  response_id = "resp-1",
+  job_id = askOp.job_id,
+  request_id = askOp.frame_request_id,
+  text = "The garage door is closed.",
+  kind = "answer",
+  pending_approvals = 0,
+})
 st = state()
 check(
-  "the answer arrived through deliver_result",
+  "the answer arrived through deliver_result (matched by its job id)",
   st.chat.conversation[1] and st.chat.conversation[1].a == "The garage door is closed.",
   json.encode(st.chat.conversation)
 )
