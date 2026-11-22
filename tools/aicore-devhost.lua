@@ -77,7 +77,7 @@ local function answerFor(q)
             },
           },
         },
-        suggestions = { "Why is the gym cooler?", "What is the cellar humidity?", "Set the gym to 20 °C later?" },
+        suggestions = { "Why is the gym cooler?", "What is the cellar humidity?", "Is the gym heating working?" },
       }
   end
   if q:find("working") or q:find("attention") or q:find("door") or q:find("lock") then

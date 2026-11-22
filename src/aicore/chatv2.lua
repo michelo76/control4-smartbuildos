@@ -73,12 +73,23 @@ function M.mintThread(newHex)
 end
 
 --- The optional keys among `sent` (a table: key -> value) that a refused
---- ask names: invalid_args with the key among the field names the
---- platform's validator listed (`thread`, or a path ending in `.thread`).
---- Sorted list; empty when the refusal is about something else.
+--- ask names as UNKNOWN: a platform that predates them. The exact shape,
+--- traced from the platform (rpc/ops.ts validateOpBody → jobOp invalid() →
+--- refusalPayload, HTTP 200) through the Agent (sbos/modulebus cloudAnswer,
+--- sbos/modulerpc onCloudResponse) is
+---   { status = "error", error_code = "invalid_args",
+---     result = { reason = "unknown_fields", fields = { "thread" } } }
+--- Only `reason = "unknown_fields"` counts: a key the platform KNOWS and
+--- refuses (`invalid_thread`, `thread_requires_touchscreen`,
+--- `invalid_fields`) is this driver's bug, not a version gap, so it is not
+--- retried and is shown as refused (and kept in Print Diagnostics).
+--- Field names may be paths (`body.thread`). Sorted list; empty otherwise.
 function M.refusedKeys(answer, sent)
   local out = {}
   if type(answer) ~= "table" or answer.error_code ~= "invalid_args" or type(sent) ~= "table" then
+    return out
+  end
+  if type(answer.result) ~= "table" or answer.result.reason ~= "unknown_fields" then
     return out
   end
   local r = type(answer.result) == "table" and answer.result or {}

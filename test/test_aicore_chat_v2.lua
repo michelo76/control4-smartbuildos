@@ -340,15 +340,26 @@ check("a driver restart: nothing remembered (new module state)", next(ui2.sessio
 
 print("[6] the retry without a refused key")
 clock = clock + 61
+-- FIXTURE: the envelope AI Core receives when TODAY's platform refuses a
+-- body key it does not know. Platform rpc/ops.ts validateOpBody (line 361 of
+-- the 2026-11-21 snapshot): { ok:false, reason:"unknown_fields", fields }
+-- → jobOp invalid(): refusalPayload("invalid_args", { reason, fields }),
+-- HTTP 200 → the Agent's modulebus.cloudAnswer passes invalid_args and the
+-- result through → modulerpc.onCloudResponse hands AI Core this table.
+local function oldPlatformRefusal(requestId)
+  return {
+    status = "error",
+    http_status = 200,
+    error_code = "invalid_args",
+    result = { reason = "unknown_fields", fields = { "thread" } },
+    request_id = requestId,
+  }
+end
 local refusedOnce = 0
 cloudAnswer = function(_, body)
   if body.thread ~= nil then
     refusedOnce = refusedOnce + 1
-    return {
-      status = "error",
-      error_code = "invalid_args",
-      result = { reason = "invalid_fields", fields = { "thread" } },
-    }
+    return oldPlatformRefusal("relay-1")
   end
 end
 local before = asksSent()
@@ -384,11 +395,50 @@ http("POST", "/ask", s2, { question = "Other refusal" })
 check("a refusal about another field is not retried", asksSent() == before + 1)
 st = state(s2)
 check("…shown as refused", st.chat.conversation[1].state == "refused")
+-- The new platform KNOWS `thread`: its refusals of it are our bug, surfaced.
+for _, reason in ipairs({ "invalid_thread", "thread_requires_touchscreen", "invalid_fields" }) do
+  cloudAnswer = function(_, body)
+    if body.thread ~= nil then
+      return { status = "error", error_code = "invalid_args", result = { reason = reason, fields = { "thread" } } }
+    end
+  end
+  clock = clock + 61
+  local s3 = open()
+  unlock(s3)
+  before = asksSent()
+  local retriesBefore = ui.counters.thread_retries
+  http("POST", "/ask", s3, { question = "Bad thread?" })
+  st = state(s3)
+  check(
+    reason .. " (thread named): NOT retried, shown as refused, follow-ups stay on",
+    asksSent() == before + 1
+      and ui.counters.thread_retries == retriesBefore
+      and st.chat.conversation[1].state == "refused"
+      and st.chat.followups == true,
+    asksSent() - before
+  )
+  check("…and kept for Print Diagnostics (codes only)", (ui:refusalLines()[1] or ""):find(reason, 1, true) ~= nil)
+end
 cloudAnswer = nil
 check(
-  "ChatV2.refusedKeys reads a dotted path and only keys that were sent",
-  #ChatV2.refusedKeys({ error_code = "invalid_args", result = { fields = { "body.thread" } } }, { thread = "x" }) == 1
-    and #ChatV2.refusedKeys({ error_code = "invalid_args", result = { fields = { "thread" } } }, {}) == 0
+  "ChatV2.refusedKeys: the real old-platform envelope names thread",
+  table.concat(ChatV2.refusedKeys(oldPlatformRefusal("r"), { thread = "x" }), ",") == "thread"
+)
+check(
+  "…a dotted path counts, a key that was not sent does not",
+  #ChatV2.refusedKeys(
+        { error_code = "invalid_args", result = { reason = "unknown_fields", fields = { "body.thread" } } },
+        { thread = "x" }
+      )
+      == 1
+    and #ChatV2.refusedKeys(oldPlatformRefusal("r"), {}) == 0
+)
+check(
+  "…unknown_fields under another error code does not",
+  #ChatV2.refusedKeys(
+      { error_code = "not_permitted", result = { reason = "unknown_fields", fields = { "thread" } } },
+      { thread = "x" }
+    ) == 0
 )
 
 print("[7] open chat: no PIN, the privacy floor, Explain")

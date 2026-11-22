@@ -723,12 +723,21 @@ declares it).
   (Owner PIN mode: at each unlock; Open mode: at the first question, and
   again at every unlock, every end of an unlock, after 5 idle minutes and
   when the page is hidden), never shown to the page, gone on a driver
-  restart. Only touchscreen asks carry it. If the cloud refuses an ask with
-  `invalid_args` naming an optional key it carried (`fields` containing
-  `thread` or `….thread`), the ask is sent ONCE more without it under a new
-  request id, and the session never sends that key again
-  (`UI:optionalAskKeys` / `UI:retryWithoutRefusedKeys`, written so a second
-  optional key reuses it). The page is told `followups:false` then.
+  restart. Only touchscreen asks carry it. A platform that does not know
+  the key refuses the ask with exactly this answer (platform
+  `rpc/ops.ts` `validateOpBody` → `refusalPayload("invalid_args", {reason,
+  fields})`, HTTP 200, passed through by the Agent's `modulebus.cloudAnswer`
+  and `modulerpc.onCloudResponse`):
+  `{status:"error", error_code:"invalid_args", result:{reason:"unknown_fields",
+  fields:["thread"]}}`. On that answer only (`fields` naming an optional
+  key the ask carried, `thread` or `….thread`) the ask is sent ONCE more
+  without it under a new request id (the platform replays a stored answer
+  for a repeated idempotency key), and the session never sends that key
+  again (`UI:optionalAskKeys` / `UI:retryWithoutRefusedKeys`, written so a
+  second optional key reuses it); the page is told `followups:false`. A
+  platform that knows `thread` and refuses it (`invalid_thread`,
+  `thread_requires_touchscreen`, `invalid_fields`) is not retried: the
+  question shows as refused and the codes stay in Print Diagnostics.
 - *deliver_result.* Two optional args, accepted by `operations.lua`
   (`ARGS.deliver_result`) as native values or a JSON-encoded string, and
   validated again by `src/aicore/chatv2.lua` (and once more when the page
@@ -1215,7 +1224,7 @@ validation plan). Owed on a bench:
 * `read_device_state` (§7c): whether `C4:GetDeviceVariables` on the id the platform sends (often the protocol driver's) returns the proxy's variables, the real variable names of locks, partitions, batteries and appliance sensors (every signature list is a candidate), the read's wall time on a large project, the controller clock behind `read_at`, queue + doorbell + bus latency against the platform's 15 s wait;
 * persistence across a real power cut (Director's flush timing);
 * the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size, and how a preset button wraps a 120-character question (KI-70);
-* the chat v2 page and open chat on a real Navigator (`KNOWN-ISSUES.md` KI-78 to KI-85): whether the T-series web view shows its own keyboard at all, and that the in-page keyboard's read-only input keeps it closed; `100dvh` and the pinned input bar; the 1-second polling while an answer is pending; the keyboard key size and the thread at 1024×600; `visibilitychange` actually reaching the page when the tile closes (it clears an Open conversation).
+* the chat v2 page and open chat on a real Navigator (`KNOWN-ISSUES.md` KI-79 to KI-86): whether the T-series web view shows its own keyboard at all, and that the in-page keyboard's read-only input keeps it closed; `100dvh` and the pinned input bar; the 1-second polling while an answer is pending; the keyboard key size and the thread at 1024×600; `visibilitychange` actually reaching the page when the tile closes (it clears an Open conversation).
 
 ## 15. Deviations from the brief / architecture
 
