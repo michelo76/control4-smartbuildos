@@ -39,6 +39,7 @@
 local uirelay = require("atmosphere.uirelay")
 local Commands = require("aicore.commands")
 local ChatV2 = require("aicore.chatv2")
+local ChatActions = require("aicore.chatactions")
 JSON = JSON or require("JSON")
 
 local M = {}
@@ -165,6 +166,28 @@ M.TEXT = {
   verification_replayed = "That PIN entry was already used. Enter the PIN again.",
   not_for_this_controller = "That item belongs to another system. Use the SmartBuildOS portal.",
   not_pending = "That item was already decided.",
+  -- chat actions (local)
+  action_gone = "That action is no longer offered. Ask again.",
+  action_expired = "That action has expired. Ask again.",
+  action_busy = "That action was already chosen.",
+  action_needs_pin = "This one needs the owner PIN for this item. Use PIN.",
+  action_locked = "Unlock with the owner PIN to confirm actions.",
+  action_replaced = "Replaced by a newer suggestion below.",
+  action_already_confirmed = "Already confirmed — see above.",
+  action_already_cancelled = "Already cancelled — see above.",
+  action_cancel_failed = "Could not cancel this. It expires on its own, or decline it in Approvals.",
+  approvals_unknown = "Checking whether approving from this screen is switched on. Try again in a moment.",
+  action_uncertain = "Could not confirm the request went through. Checking…",
+  action_not_sent = "That did not go through. You can try again.",
+  action_unconfirmed = "No confirmation from the controller yet.",
+  action_unconfirmed_check = "No confirmation from the controller yet. Check Approvals before asking again.",
+  approvals_checking = "Checking which items this screen may approve. Try Use PIN again in a moment.",
+  -- chat actions (the platform's session-verification refusals)
+  session_risk_too_high = "This action needs the owner PIN for this item. Use PIN.",
+  session_needs_pin = "This one needs your PIN. Use PIN.",
+  session_proposal_too_old = "This suggestion is too old for one tap. Use PIN.",
+  session_not_bound = "This unlock does not cover that action any more. Ask again.",
+  session_stale = "The owner unlock is too old for that action. Unlock again and ask again.",
   portal_only = "That item can only be approved in the SmartBuildOS portal.",
   above_ceiling = "That item is above what a PIN may approve. Use the SmartBuildOS portal.",
   approval_mismatch = "That item changed after it was shown. Review it again.",
@@ -306,7 +329,10 @@ M.RESULT_CHANNEL = "touchscreen"
 --- `unlock` and `thread` are the ask's OPTIONAL keys: UI:optionalAskKeys
 --- decides them once per ask, and one retry drops whichever a platform that
 --- does not know them refuses (UI:retryWithoutRefusedKeys).
-function M.askBody(requestId, question, detail, unlock, thread)
+--- @param ownerProof table|nil chat actions v1: M.verification(the session's
+---   live owner proof) on every ask from an owner-unlocked session
+---   (ownerProofFor); also an optional key of the shared retry.
+function M.askBody(requestId, question, detail, unlock, thread, ownerProof)
   local body = {
     command = M.COMMANDS.ask,
     request_id = requestId,
@@ -318,29 +344,40 @@ function M.askBody(requestId, question, detail, unlock, thread)
   if unlock ~= nil then
     body[M.UNLOCK.field] = unlock
   end
+  if ownerProof ~= nil then
+    body[ChatActions.OWNER_PROOF_FIELD] = ownerProof
+  end
   return body
 end
 
-function M.verification(proof)
-  return { nonce = proof.nonce, verified_at = proof.verified_at, role = proof.role, method = "pin_lock" }
+--- `method` defaults to "pin_lock" (a PIN entered for this item); a chat
+--- action's one tap sends ChatActions.SESSION_METHOD (the session's owner
+--- unlock).
+function M.verification(proof, method)
+  return { nonce = proof.nonce, verified_at = proof.verified_at, role = proof.role, method = method or "pin_lock" }
 end
 
 function M.pendingBody(requestId)
   return { command = M.COMMANDS.approvals, request_id = requestId }
 end
 
-function M.detailBody(requestId, ref, proof)
-  return { command = M.COMMANDS.approval, request_id = requestId, ref = ref, verification = M.verification(proof) }
+function M.detailBody(requestId, ref, proof, method)
+  return {
+    command = M.COMMANDS.approval,
+    request_id = requestId,
+    ref = ref,
+    verification = M.verification(proof, method),
+  }
 end
 
-function M.decideBody(requestId, ref, decision, argsHash, proof)
+function M.decideBody(requestId, ref, decision, argsHash, proof, method)
   return {
     command = M.COMMANDS.approval,
     request_id = requestId,
     ref = ref,
     decision = decision,
     args_hash = argsHash,
-    verification = M.verification(proof),
+    verification = M.verification(proof, method),
   }
 end
 
@@ -454,6 +491,11 @@ function M.new(deps)
   -- refused as unknown: never sent again in this driver run
   -- (UI:retryWithoutRefusedKeys). unlockNotAccepted mirrors `unlock`.
   self.refusedAskKeys = {}
+  -- The ONE outcome poller of chat actions (pollActions): when the last
+  -- poll left, and the polls of the last minute, for every card of every
+  -- session together.
+  self.lastOutcomePoll = nil
+  self.outcomePolls = {}
   self.presetRev = math.floor(tonumber(deps.now()) or 0)
   self.presetSig = nil
   self.counters = {
@@ -482,6 +524,20 @@ function M.new(deps)
     elevated_asks = 0, -- asks from an owner-unlocked session
     elevated_purged = 0, -- exchanges removed when an owner unlock ended (open mode)
     open_cleared = 0, -- open conversations cleared (5 minutes without a question, page hidden)
+    -- chat actions v1 (counts only)
+    owner_proof_sent = 0, -- asks that carried owner_proof
+    actions_offered = 0, -- action cards shown
+    actions_dropped = 0, -- items dropped by validation, or offered to a session no longer unlocked
+    actions_removed = 0, -- cards removed when the owner unlock ended
+    actions_confirmed = 0,
+    actions_declined = 0,
+    actions_done = 0,
+    actions_failed = 0,
+    actions_refused = 0, -- the platform (or this driver) refused the one-tap decision
+    actions_unconfirmed = 0, -- no execution state within the polls
+    actions_uncertain = 0, -- a decision whose answer was lost (followed, never shown as refused)
+    actions_cancel_failed = 0, -- a decline that timed out or was refused (never shown as cancelled)
+    outcome_polls = 0, -- approval_detail sent to follow an outcome (shared cap)
     unlock_sent = 0, -- asks that carried `unlock`
     unlock_retried = 0, -- asks sent again without it (the platform did not know the field)
   }
@@ -663,6 +719,7 @@ function UI:sweep()
       end
     end
   end
+  self:pollAllActions()
 end
 
 function UI:openSession()
@@ -798,6 +855,9 @@ end
 function UI:relock(s, hidden)
   local wasUnlocked = s.proofs.chat_view ~= nil
   lockSession(s)
+  -- Chat action cards exist only while the owner unlock does, in BOTH
+  -- modes: an Owner PIN session keeps its exchanges, never its cards.
+  self:removeActions(s)
   if not self:openMode() then
     return
   end
@@ -1053,6 +1113,7 @@ function UI:refreshApprovals(force)
       end
     end
     self.approvals = {
+      known = true, -- an answer was read (approvalsOff)
       enabled = r.enabled == true,
       count = math.max(0, math.floor(tonumber(r.count) or 0)),
       eligible = eligible,
@@ -1191,6 +1252,21 @@ end
 --- attested and answers stay as they were —, only from this session's live
 --- chat_view proof, whose role is owner (redeem creates no other), and not
 --- once the platform has said it does not know the field.
+--- The `owner_proof` an ask from `s` carries (chat actions v1), or nil: the
+--- same wall as unlockFor — only this session's live chat_view proof, role
+--- owner — but at any detail where the chat is on (not Household only).
+--- An Open-mode session that is not owner-unlocked never has one.
+local function ownerProofFor(self, s)
+  if self.refusedAskKeys[ChatActions.OWNER_PROOF_FIELD] or self.deps.detail() == "basic" then
+    return nil
+  end
+  local proof = proofFor(self, s, "chat_view", s.sid)
+  if proof == nil or proof.role ~= "owner" then
+    return nil
+  end
+  return M.verification(proof)
+end
+
 local function unlockFor(self, s)
   if self.unlockNotAccepted or self.deps.detail() ~= "household" then
     return nil
@@ -1261,6 +1337,8 @@ local function ask(self, s, body)
     at = self:now(),
     conv = s.conv,
     elevated = elevated, -- removed with its answer when the owner unlock ends (open mode)
+    -- the owner proof it was asked under: its cards need the SAME proof live
+    proof_nonce = elevated and proofFor(self, s, "chat_view", s.sid).nonce or nil,
     detail = self:askDetail(s), -- fixed at the moment of asking (the privacy floor)
   }
   addEntry(s, entry)
@@ -1285,15 +1363,23 @@ end
 --- driver run.
 function UI:sendAsk(s, entry, requestId)
   local sent = {}
+  -- A retry can only REMOVE keys: the attestations go when the session no
+  -- longer holds the proof they came from (locked while the ask was out).
+  local live = proofFor(self, s, "chat_view", s.sid)
+  local attest = { unlock = true, [ChatActions.OWNER_PROOF_FIELD] = true }
   for k, v in pairs(entry.optional or {}) do
-    if not self.refusedAskKeys[k] then
+    if not self.refusedAskKeys[k] and not (attest[k] and (live == nil or live.nonce ~= entry.proof_nonce)) then
       sent[k] = v
     end
   end
   if sent.unlock ~= nil then
     self.counters.unlock_sent = self.counters.unlock_sent + 1
   end
-  local body = M.askBody(requestId, entry.q, entry.detail, sent.unlock, sent.thread)
+  if sent[ChatActions.OWNER_PROOF_FIELD] ~= nil then
+    self.counters.owner_proof_sent = self.counters.owner_proof_sent + 1
+  end
+  local body =
+    M.askBody(requestId, entry.q, entry.detail, sent.unlock, sent.thread, sent[ChatActions.OWNER_PROOF_FIELD])
   self.deps.cloud("ask", body, function(answer)
     self:answered(s, entry, requestId, sent, answer)
   end)
@@ -1309,6 +1395,7 @@ function UI:optionalAskKeys(s)
     out.thread = s.thread
   end
   out.unlock = unlockFor(self, s)
+  out[ChatActions.OWNER_PROOF_FIELD] = ownerProofFor(self, s)
   return out
 end
 
@@ -1415,11 +1502,498 @@ function UI:deliver(requestId, text, jobId, extra)
     c.display_blocks = c.display_blocks + #display
   end
   c.suggestions_kept = c.suggestions_kept + (suggestions ~= nil and #suggestions or 0)
+  self:offerActions(s, a.entry, extra.actions, extra.actions_dropped)
   if not self:unlocked(s) then
     self.counters.answers_held = self.counters.answers_held + 1
   end
   notify(self)
   return true
+end
+
+-- chat actions v1 ---------------------------------------------------------------
+
+--- Whether the homeowner's touchscreen approvals are KNOWN to be off (the
+--- last approvals_pending said so). While they are, no card is shown and
+--- none can be decided. A refresh in progress keeps the last known value.
+function UI:approvalsOff()
+  return self.approvals.known == true and not self.approvals.enabled
+end
+
+--- The action cards of an answer (deliver_result `actions`, validated by
+--- aicore.chatactions). Kept only for an exchange asked under an owner
+--- unlock whose session is still unlocked NOW, under the SAME owner proof
+--- (a re-unlock between the question and the answer drops them): a card is
+--- never shown to a session that is not elevated. The same ref offered
+--- again replaces the older card.
+function UI:offerActions(s, entry, list, dropped)
+  local c = self.counters
+  c.actions_dropped = c.actions_dropped + (tonumber(dropped) or 0)
+  local items, d2 = ChatActions.actions(list)
+  c.actions_dropped = c.actions_dropped + d2
+  if items == nil then
+    return
+  end
+  local proof = proofFor(self, s, "chat_view", s.sid)
+  if not entry.elevated or proof == nil or proof.nonce ~= entry.proof_nonce then
+    c.actions_dropped = c.actions_dropped + #items
+    return
+  end
+  local t = self:now()
+  entry.actions = {}
+  for _, a in ipairs(items) do
+    -- The same ref offered before: an older card still open is replaced;
+    -- one already chosen (in flight or finished) stays authoritative and
+    -- this one is inert.
+    local chosen = nil
+    for _, e in ipairs(s.conversation) do
+      for _, old in ipairs(e ~= entry and e.actions or {}) do
+        if old.ref == a.ref and not old.replaced then
+          if old.state == "offered" or old.state == "refused" then
+            old.replaced = true
+            old.state, old.message = "replaced", M.text("action_replaced")
+          else
+            chosen = old
+          end
+        end
+      end
+    end
+    if chosen ~= nil then
+      entry.actions[#entry.actions + 1] = {
+        ref = a.ref,
+        title = a.title,
+        detail = a.detail,
+        replaced = true, -- never live: findAction skips it
+        state = "duplicate",
+        message = M.text(chosen.decision == "decline" and "action_already_cancelled" or "action_already_confirmed"),
+        expires_at = t,
+        tap_window = 0,
+      }
+    else
+      entry.actions[#entry.actions + 1] = {
+        ref = a.ref,
+        title = a.title,
+        detail = a.detail,
+        expires_at = t + a.expires_in,
+        -- Confirm only before this: the platform's tap_in, less a margin for
+        -- the time the answer spent in transit (the platform counts from the
+        -- proposal's creation); then Use PIN.
+        tap_window = math.max(0, a.tap_in - ChatActions.LIMITS.tap_margin),
+        tap_seen_at = t,
+        needs_pin = a.tap_in <= ChatActions.LIMITS.tap_margin or nil,
+        state = "offered",
+      }
+      c.actions_offered = c.actions_offered + 1
+    end
+  end
+end
+
+--- Every card of `s` goes (its owner unlock ended). A decision already
+--- sent may still be carried out by the platform; the page just stops
+--- following it.
+function UI:removeActions(s)
+  for _, e in ipairs(s.conversation) do
+    if e.actions ~= nil then
+      self.counters.actions_removed = self.counters.actions_removed + #e.actions
+      e.actions = nil
+    end
+  end
+end
+
+--- The LIVE card for `ref` in `s`: the newest one (an older card for the
+--- same ref was replaced).
+local function findAction(s, ref)
+  for i = #s.conversation, 1, -1 do
+    for _, a in ipairs(s.conversation[i].actions or {}) do
+      if a.ref == ref and not a.replaced then
+        return a
+      end
+    end
+  end
+  return nil
+end
+
+--- Seconds left of a card's one-tap window, counted from the time the
+--- card has existed, not from wall-clock readings: the driver has no
+--- monotonic clock, so each reading adds only the FORWARD step since the
+--- last one (a clock set back adds nothing and never reopens the window; a
+--- clock set forward only closes it sooner). It can only ever decrease.
+function UI:tapLeft(a)
+  local t = self:now()
+  if a.tap_seen_at ~= nil and t > a.tap_seen_at then
+    a.tap_elapsed = (a.tap_elapsed or 0) + (t - a.tap_seen_at)
+  end
+  a.tap_seen_at = t
+  return math.max(0, a.tap_window - (a.tap_elapsed or 0))
+end
+
+--- The page's view of an exchange's cards.
+function UI:actionsView(e)
+  if e.actions == nil then
+    return nil
+  end
+  if self:approvalsOff() then
+    return nil -- the homeowner switched touchscreen approvals off: no stale card
+  end
+  local t = self:now()
+  local out = {}
+  for _, a in ipairs(e.actions) do
+    if a.state == "offered" and t >= a.expires_at then
+      a.state, a.message = "expired", M.text("action_expired")
+    elseif a.state == "offered" and self:tapLeft(a) <= 0 then
+      -- The platform's one-tap window (tap_in) is over: Use PIN.
+      a.needs_pin = true
+    end
+    out[#out + 1] = {
+      ref = a.ref,
+      title = a.title,
+      detail = a.detail,
+      state = a.state,
+      message = a.message,
+      needs_pin = a.needs_pin == true or nil, -- "Use PIN" (Confirm is not offered then)
+      can_decline = (a.state == "offered" or a.state == "refused") and not a.decline_sent, -- Cancel (one decline per card)
+      expires_in = a.state == "offered" and math.max(0, a.expires_at - t) or nil,
+      tap_in = a.state == "offered" and not a.needs_pin and self:tapLeft(a) or nil,
+    }
+  end
+  return out
+end
+
+--- "Use PIN" (/approvals/next {ref}): the ref, when this session's live card
+--- needs a PIN AND the platform lists it as eligible for this screen; else
+--- nil and the reason. Use PIN never widens what the screen may review: a
+--- ref the list does not hold is for the homeowner portal (the card says
+--- so and offers no PIN); a stale list is refreshed first.
+function UI:pinRefFor(s, ref)
+  if type(ref) ~= "string" then
+    return nil, "nothing_to_review"
+  end
+  local a = findAction(s, ref:lower())
+  if a == nil or not a.needs_pin or a.decline_sent then
+    return nil, "nothing_to_review"
+  end
+  local ap = self.approvals
+  if ap.at == nil or self:now() - ap.at >= M.LIMITS.approvals_stale_seconds then
+    self:refreshApprovals(true)
+    return nil, "approvals_checking"
+  end
+  for _, e in ipairs(ap.eligible) do
+    if e.ref == a.ref then
+      return a.ref
+    end
+  end
+  a.state, a.needs_pin, a.message = "portal", nil, M.text("portal_only")
+  return nil, "portal_only"
+end
+
+--- Whether a failed step was a REAL refusal by the platform (it answered
+--- and said no) rather than a transport failure (deadline, unreachable, an
+--- Agent restart): only a real refusal may be shown as refused — the other
+--- may have run.
+local REFUSAL_CODES =
+  { not_permitted = true, invalid_args = true, rate_limited = true, payload_too_large = true, unsupported = true }
+local function platformRefused(answer)
+  return type(answer) == "table" and answer.status ~= "ok" and REFUSAL_CODES[answer.error_code] == true
+end
+
+--- A refused step of a card: the platform's sentence, and Use PIN when the
+--- reason says a PIN is needed.
+local function actionRefused(self, a, answer)
+  local reason = cloudReason(answer)
+  local kind = ChatActions.REFUSAL[reason]
+  a.state = kind == "withdraw" and "withdrawn" or "refused"
+  a.needs_pin = kind == "use_pin"
+  a.message = M.text(reason)
+  self.counters.actions_refused = self.counters.actions_refused + 1
+  self:refused("approval_decide", answer)
+end
+
+--- One tap on a card: approve ("Confirm") or decline ("Cancel"). The same
+--- plumbing as the approvals review — approval_detail for the args_hash,
+--- then approval_decide — with the session's LIVE owner proof as a
+--- "pin_lock_session" verification, read again at each step. A card is
+--- approved at most once and declined at most once (a decline is terminal
+--- whatever the answer); a second tap is refused (action_busy).
+function UI:decideAction(s, ref, decision)
+  if decision ~= M.DECISIONS[1] and decision ~= M.DECISIONS[2] then
+    return false, "bad_decision"
+  end
+  if type(ref) ~= "string" then
+    return false, "action_gone"
+  end
+  local proof = proofFor(self, s, "chat_view", s.sid)
+  if proof == nil then
+    return false, "action_locked"
+  end
+  if not self.approvals.known then
+    -- Never read: unknown counts as off for deciding. Ask now; a tap after
+    -- the answer decides (a synchronous answer decides this one).
+    self:refreshApprovals(true)
+    if not self.approvals.known then
+      return false, "approvals_unknown"
+    end
+  end
+  if self:approvalsOff() then
+    return false, "approvals_off"
+  end
+  local a = findAction(s, ref:lower())
+  if a == nil then
+    return false, "action_gone"
+  end
+  if a.state == "expired" then
+    return false, "action_expired"
+  end
+  if a.decline_sent or (a.state ~= "offered" and not (a.state == "refused" and decision == "decline")) then
+    return false, "action_busy"
+  end
+  if self:now() >= a.expires_at then
+    a.state, a.message = "expired", M.text("action_expired")
+    return false, "action_expired"
+  end
+  if decision == "approve" and (a.needs_pin or self:tapLeft(a) <= 0) then
+    a.needs_pin = true
+    return false, "action_needs_pin"
+  end
+  if not self.deps.take() then
+    return false, "rate_limited"
+  end
+  a.prior = { state = a.state, message = a.message, needs_pin = a.needs_pin }
+  a.state = "checking"
+  a.decision = decision
+  if decision == "decline" then
+    a.decline_sent = true -- one decline per card, whatever happens next
+  end
+  self.deps.cloud(
+    "approval_detail",
+    M.detailBody(self.deps.newRequestId(), a.ref, proof, ChatActions.SESSION_METHOD),
+    function(answer)
+      self:actionDetailed(s, a, answer)
+    end
+  )
+  return true
+end
+
+--- A decline's outcome: terminal whatever it was. `ok`: the platform took
+--- it ("Cancelled"); else the card must not claim it was cancelled.
+local function declineEnded(self, a, ok, message)
+  if ok then
+    a.state, a.needs_pin, a.message = "declined", nil, message
+    self.counters.actions_declined = self.counters.actions_declined + 1
+  else
+    a.state, a.needs_pin = "cancel_failed", nil
+    a.message = M.text("action_cancel_failed") .. (message and (" " .. message) or "")
+    self.counters.actions_cancel_failed = self.counters.actions_cancel_failed + 1
+  end
+end
+
+function UI:actionDetailed(s, a, answer)
+  if findAction(s, a.ref) ~= a or a.state ~= "checking" then
+    return -- the card went (the unlock ended, or it was replaced)
+  end
+  answer = type(answer) == "table" and answer or {}
+  local r = type(answer.result) == "table" and answer.result or {}
+  if answer.status ~= "ok" then
+    if a.decision == "decline" then
+      declineEnded(self, a, false, platformRefused(answer) and M.text(cloudReason(answer)) or nil)
+    elseif platformRefused(answer) then
+      actionRefused(self, a, answer)
+    else
+      -- Nothing was decided yet: the card is as it was, with a line.
+      a.state, a.message, a.needs_pin = a.prior.state, M.text("cloud_unreachable"), a.prior.needs_pin
+    end
+    notify(self)
+    return
+  end
+  local argsHash = type(r.args_hash) == "string" and r.args_hash:lower() or ""
+  if r.ref ~= a.ref or not argsHash:match("^[0-9a-f]+$") or #argsHash ~= 64 then
+    if a.decision == "decline" then
+      declineEnded(self, a, false, nil)
+    else
+      a.state, a.message = "refused", M.text("unavailable")
+      self.counters.actions_refused = self.counters.actions_refused + 1
+    end
+    notify(self)
+    return
+  end
+  if a.decision == "approve" and r.risk ~= "low" then
+    -- One tap is for low-risk actions only, whatever the platform offered.
+    a.state, a.needs_pin, a.message = "refused", true, M.text("action_needs_pin")
+    self.counters.actions_refused = self.counters.actions_refused + 1
+    notify(self)
+    return
+  end
+  local proof = proofFor(self, s, "chat_view", s.sid)
+  if proof == nil then
+    return -- locked meanwhile: nothing is decided
+  end
+  a.state = "sending"
+  self.deps.cloud(
+    "approval_decide",
+    M.decideBody(self.deps.newRequestId(), a.ref, a.decision, argsHash, proof, ChatActions.SESSION_METHOD),
+    function(ans)
+      self:actionDecided(s, a, ans)
+    end
+  )
+  notify(self)
+end
+
+--- Starts following an outcome (pollActions).
+local function follow(self, a, uncertain)
+  a.state = "sent"
+  a.uncertain = uncertain or nil
+  a.message = uncertain and M.text("action_uncertain") or nil
+  a.sent_at = self:now()
+  a.polls = 0
+end
+
+function UI:actionDecided(s, a, answer)
+  if findAction(s, a.ref) ~= a or a.state ~= "sending" then
+    return
+  end
+  answer = type(answer) == "table" and answer or {}
+  local r = type(answer.result) == "table" and answer.result or {}
+  if a.decision == "decline" then
+    if answer.status == "ok" then
+      declineEnded(self, a, true, M.OUTCOME_TEXT.denied)
+    else
+      declineEnded(self, a, false, platformRefused(answer) and M.text(cloudReason(answer)) or nil)
+    end
+  elseif answer.status ~= "ok" then
+    if platformRefused(answer) then
+      actionRefused(self, a, answer)
+    else
+      -- No answer (a deadline, the cloud unreachable, an Agent restart):
+      -- the decision may have run. Never "refused": follow it like a sent
+      -- one and learn from the platform what happened.
+      follow(self, a, true)
+      self.counters.actions_uncertain = self.counters.actions_uncertain + 1
+    end
+  elseif r.status == "queued" then
+    -- Sent. Done or Failed only from the execution state approval_detail
+    -- reports (pollActions); never assumed.
+    follow(self, a, false)
+    self.counters.actions_confirmed = self.counters.actions_confirmed + 1
+  else
+    a.state, a.message = "failed", M.OUTCOME_TEXT[r.status] or M.FALLBACK_TEXT
+    self.counters.actions_failed = self.counters.actions_failed + 1
+  end
+  -- The list changed: ask again. The last known `enabled` stands meanwhile
+  -- (approvalsOff reads `known`, not `at`).
+  self.approvals.at = nil
+  notify(self)
+end
+
+--- A sent card that will not be confirmed here: the line, nothing else to
+--- press, no more polls.
+local function unconfirmed(self, a)
+  a.state = "unconfirmed"
+  a.message = M.text(a.uncertain and "action_unconfirmed_check" or "action_unconfirmed")
+  self.counters.actions_unconfirmed = self.counters.actions_unconfirmed + 1
+end
+
+--- Whether the shared poller may send one outcome poll now (one every
+--- poll_gap_seconds, polls_per_minute in all); takes it when it may.
+function UI:outcomePollSlot()
+  local t = self:now()
+  local L = ChatActions.LIMITS
+  if self.lastOutcomePoll ~= nil and t - self.lastOutcomePoll < L.poll_gap_seconds then
+    return false
+  end
+  if not windowTake(self.outcomePolls, t, L.polls_per_minute) then
+    return false
+  end
+  self.lastOutcomePoll = t
+  return true
+end
+
+--- Follows every sent decision of every session (run at the end of the
+--- sweep, before every request and on the driver's tick; never counted as
+--- interaction, so an unattended screen still locks on time). Each card is
+--- polled at poll_schedule seconds after its decision through ONE shared
+--- slot (one poll every poll_gap_seconds, polls_per_minute in all); when
+--- several are due, the card whose decision is OLDEST goes first. A
+--- terminal execution state ends a card, so do its last poll without one, a
+--- `rate_limited` answer, or a last slot delayed past
+--- outcome_give_up_seconds: then "No confirmation from the controller yet".
+--- A poll that never answers is given up after poll_lost_seconds.
+function UI:pollAllActions()
+  local t = self:now()
+  local L = ChatActions.LIMITS
+  local best, bestS
+  for _, s in pairs(self.sessions) do
+    for _, e in ipairs(s.conversation) do
+      for _, a in ipairs(e.actions or {}) do
+        if a.state == "sent" and a.inflight and t - a.inflight >= L.poll_lost_seconds then
+          a.inflight = nil -- lost: the next slot asks again
+        end
+        if a.state == "sent" and not a.inflight then
+          local due = L.poll_schedule[a.polls + 1]
+          if due == nil or t - a.sent_at >= L.outcome_give_up_seconds then
+            unconfirmed(self, a)
+          elseif t - a.sent_at >= due and (best == nil or a.sent_at < best.sent_at) then
+            best, bestS = a, s
+          end
+        end
+      end
+    end
+  end
+  if best == nil then
+    return
+  end
+  local proof = proofFor(self, bestS, "chat_view", bestS.sid)
+  if proof == nil or not self:outcomePollSlot() then
+    return
+  end
+  local a, s = best, bestS
+  a.inflight, a.polls = t, a.polls + 1
+  local poll = a.polls
+  self.counters.outcome_polls = self.counters.outcome_polls + 1
+  self.deps.cloud(
+    "approval_detail",
+    M.detailBody(self.deps.newRequestId(), a.ref, proof, ChatActions.SESSION_METHOD),
+    function(answer)
+      self:outcomePolled(s, a, answer, poll)
+    end
+  )
+end
+
+--- One session's view of the poller (kept for callers that follow one
+--- session; the poller itself is shared).
+function UI:pollActions(_)
+  self:pollAllActions()
+end
+
+function UI:outcomePolled(s, a, answer, poll)
+  if poll ~= a.polls then
+    return -- an answer to a poll given up as lost
+  end
+  a.inflight = nil
+  if findAction(s, a.ref) ~= a or a.state ~= "sent" then
+    return
+  end
+  answer = type(answer) == "table" and answer or {}
+  if answer.error_code == "rate_limited" then
+    unconfirmed(self, a) -- never retried into a full budget
+    notify(self)
+    return
+  end
+  local result = answer.status == "ok" and type(answer.result) == "table" and answer.result or nil
+  local st, msg = ChatActions.executionOf(result)
+  if st == "done" then
+    a.state, a.message = "done", nil
+    self.counters.actions_done = self.counters.actions_done + 1
+  elseif st == "failed" then
+    a.state, a.message = "failed", msg or M.OUTCOME_TEXT.failed
+    self.counters.actions_failed = self.counters.actions_failed + 1
+  elseif a.uncertain and result ~= nil and result.ref == a.ref and ChatActions.stillWaiting(result) then
+    -- The detail SAYS the item still waits for a decision (an explicit
+    -- status, never just a missing `execution`): the decision never landed
+    -- and the buttons come back (one tap if its window is still open).
+    a.state, a.uncertain, a.message = "offered", nil, M.text("action_not_sent")
+    a.needs_pin = self:tapLeft(a) <= 0 or a.prior.needs_pin or nil
+  elseif a.polls >= #ChatActions.LIMITS.poll_schedule then
+    unconfirmed(self, a)
+  end
+  notify(self)
 end
 
 --- Whether a deliver_result (its request id, its job id) answers a
@@ -1519,6 +2093,7 @@ local function chatView(self, s)
         elevated = e.elevated == true, -- asked under an owner unlock (the page marks where that began)
         display = e.display,
         suggestions = e.suggestions,
+        actions = p ~= nil and self:actionsView(e) or nil,
       }
     end
   end
@@ -1623,6 +2198,7 @@ local POSTS = {
   ["/pin/done"] = true,
   ["/pin/cancel"] = true,
   ["/ask"] = true,
+  ["/chat/action"] = true,
   ["/approvals/refresh"] = true,
   ["/approvals/next"] = true,
   ["/approvals/decide"] = true,
@@ -1634,6 +2210,8 @@ M.POSTS = POSTS
 local BODY_KEYS = {
   ["/pin/done"] = { challenge_id = true },
   ["/chat/lock"] = { hidden = true },
+  ["/chat/action"] = { ref = true, decision = true },
+  ["/approvals/next"] = { ref = true },
   ["/ask"] = { question = true, suggestion_id = true, explain = true },
   ["/approvals/decide"] = { decision = true },
 }
@@ -1787,6 +2365,14 @@ function UI:route(req, token)
     interacted(self, s)
     return reply(200, { ok = true, id = idOrWhy })
   end
+  if path == "/chat/action" then
+    local ok, why = self:decideAction(s, body.ref, body.decision)
+    if not ok then
+      return refusal(200, why)
+    end
+    interacted(self, s)
+    return reply(200, { ok = true })
+  end
   if path == "/approvals/refresh" then
     self:refreshApprovals(true)
     return reply(200, { ok = true })
@@ -1798,7 +2384,18 @@ function UI:route(req, token)
     if not self.approvals.enabled then
       return refusal(200, "approvals_off")
     end
-    local ref = nextRef(self, s)
+    -- `ref`: a chat action card that needs a fresh PIN ("Use PIN"); only a
+    -- ref this session was offered and the platform said needs a PIN.
+    local ref
+    if body.ref ~= nil then
+      local why
+      ref, why = self:pinRefFor(s, body.ref)
+      if ref == nil then
+        return refusal(200, why)
+      end
+    else
+      ref = nextRef(self, s)
+    end
     if ref == nil then
       return refusal(200, "nothing_to_review")
     end
@@ -1871,7 +2468,9 @@ function UI:chatLine()
   local c = self.counters
   return string.format(
     "%s declared; %d conversation(s) started, %d ask(s) sent again without a thread; "
-      .. "%d answer(s) with blocks, %d block(s) shown, %d dropped; %d follow-up(s) shown, %d dropped",
+      .. "%d answer(s) with blocks, %d block(s) shown, %d dropped; %d follow-up(s) shown, %d dropped; "
+      .. "%s: %d ask(s) with owner_proof, %d card(s) offered, %d dropped, %d removed at lock, "
+      .. "%d confirmed, %d cancelled, %d done, %d failed, %d refused, %d unconfirmed, %d outcome poll(s)",
     ChatV2.CAPABILITY,
     c.threads_minted,
     c.thread_retries,
@@ -1879,7 +2478,19 @@ function UI:chatLine()
     c.display_blocks,
     c.display_dropped,
     c.suggestions_kept,
-    c.suggestions_dropped
+    c.suggestions_dropped,
+    ChatActions.CAPABILITY,
+    c.owner_proof_sent,
+    c.actions_offered,
+    c.actions_dropped,
+    c.actions_removed,
+    c.actions_confirmed,
+    c.actions_declined,
+    c.actions_done,
+    c.actions_failed,
+    c.actions_refused,
+    c.actions_unconfirmed,
+    c.outcome_polls
   )
 end
 

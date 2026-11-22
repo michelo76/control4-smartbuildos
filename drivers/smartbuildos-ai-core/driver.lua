@@ -81,10 +81,10 @@ local Diagnostic = require("aicore.diagnostic")
 local Reports = require("aicore.reports")
 local DeviceState = require("aicore.devicestate")
 local Webui = require("aicore.webui")
-local ChatV2 = require("aicore.chatv2")
 local pagedata = require("aicore.page")
 local RelayHost = require("lib.relayhost")
-local _pinned = { require("atmosphere.uirelay") } -- transitive (webui), pinned for the squish step
+-- transitive (webui, operations), pinned for the squish step
+local _pinned = { require("atmosphere.uirelay"), require("aicore.chatv2"), require("aicore.chatactions") }
 
 gInitialized = false
 
@@ -1668,6 +1668,8 @@ function OPS.deliver_result(op)
       suggestions = op.suggestions,
       display_dropped = op.display_dropped,
       suggestions_dropped = op.suggestions_dropped,
+      actions = op.actions,
+      actions_dropped = op.actions_dropped,
     })
     if op.pending_approvals ~= nil then
       gLast.pending_approvals = op.pending_approvals

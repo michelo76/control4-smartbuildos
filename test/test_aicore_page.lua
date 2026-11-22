@@ -115,7 +115,7 @@ check(
 )
 check(
   "the page polls every second while an answer is pending",
-  html:find("if (A.pending(st)) { return 1000; }", 1, true) ~= nil
+  html:find("if (A.pending(st) || A.actionBusy(st)) { return 1000; }", 1, true) ~= nil
 )
 check("no 'no follow-ups' sentence any more", not html:find("there are no follow-ups", 1, true))
 check(
@@ -336,6 +336,69 @@ assert.strictEqual(AIC.kbLabel('layer', { layer: 'abc' }), '123');
 assert.strictEqual(AIC.counterText(399), '');
 assert.strictEqual(AIC.counterText(432), '432 / 500');
 assert.strictEqual(AIC.minutesLeft(240), '4 min');
+
+// chat action cards: text only, Confirm/Cancel, one tap, outcomes
+var acted = [], tapped = {}, cds = [];
+root = new El('div');
+AIC.renderConversation(doc, root, { conversation: [{ id: 'x', q: 'Q', a: 'I can do that.', state: 'answered', actions: [
+  { ref: 'r1', title: evil, detail: 'All 4 lights', state: 'offered', expires_in: 125 },
+  { ref: 'r2', title: 'Den to 21', state: 'offered', expires_in: 90, needs_pin: true }
+] }] }, function () {}, { onAction: function (ref, what) { acted.push([ref, what]); }, tapped: tapped, countdowns: cds });
+assert.strictEqual(htmlWrites, 0);
+var cardsEls = all(root, 'b-action');
+assert.strictEqual(cardsEls.length, 2, 'one card per action, inside the answer');
+assert.strictEqual(all(cardsEls[0], 'at')[0].textContent, evil, 'the title is text, verbatim');
+assert.strictEqual(all(cardsEls[0], 'ast')[0].textContent, 'Expires in 2:05', 'a countdown');
+assert.strictEqual(cds.length, 2, 'both countdowns tick');
+var b1 = all(cardsEls[0], 'aact')[0].children;
+assert.deepStrictEqual(b1.map(function (b) { return b.textContent; }), ['Confirm', 'Cancel']);
+var b2 = all(cardsEls[1], 'aact')[0].children;
+assert.deepStrictEqual(b2.map(function (b) { return b.textContent; }), ['Use PIN', 'Cancel'], 'past one tap: Use PIN instead of Confirm');
+b1[0].on();
+assert.deepStrictEqual(acted[0], ['r1', 'approve']);
+assert.ok(b1[0].disabled && b1[1].disabled, 'both buttons disabled after a tap');
+b1[0].on(); b1[1].on();
+assert.strictEqual(acted.length, 1, 'a double tap is ignored');
+b2[0].on();
+assert.deepStrictEqual(acted[1], ['r2', 'pin']);
+assert.ok(!b2[1].disabled, 'Use PIN does not use up the card (a cancelled PIN pad leaves it)');
+// a re-render in the same state keeps the buttons disabled
+root = new El('div');
+AIC.renderConversation(doc, root, { conversation: [{ id: 'x', q: 'Q', a: 'A', state: 'answered', actions: [{ ref: 'r1', title: 'T', state: 'offered', expires_in: 100 }] }] }, function () {}, { onAction: function () {}, tapped: tapped, countdowns: [] });
+assert.ok(all(root, 'aact')[0].children[0].disabled, 'still disabled after a poll');
+// outcomes: never Done unless the controller said so
+function statusOf(a) { return AIC.actionStatus(a); }
+assert.strictEqual(statusOf({ state: 'sent' }).text, 'Sent… waiting for the controller');
+assert.strictEqual(statusOf({ state: 'sent' }).buttons, '');
+assert.strictEqual(statusOf({ state: 'checking' }).text, 'Sending…');
+assert.strictEqual(statusOf({ state: 'done' }).text, 'Done');
+assert.strictEqual(statusOf({ state: 'failed', message: 'The lights did not answer.' }).text, 'Failed: The lights did not answer.');
+assert.strictEqual(statusOf({ state: 'unconfirmed', message: 'No confirmation from the controller yet.' }).text, 'No confirmation from the controller yet.');
+assert.strictEqual(statusOf({ state: 'refused', message: 'Use PIN.', needs_pin: true }).buttons, 'pin', 'a refusal that needs a PIN offers Use PIN');
+assert.strictEqual(statusOf({ state: 'refused', message: 'No.' }).buttons, '');
+assert.strictEqual(statusOf({ state: 'withdrawn', message: 'Gone.' }).buttons, '');
+assert.strictEqual(statusOf({ state: 'expired' }).text, 'Expired');
+assert.strictEqual(AIC.countdown(0), 'Expired', 'the countdown runs out');
+root = new El('div');
+AIC.renderConversation(doc, root, { conversation: [{ id: 'x', q: 'Q', a: 'A', state: 'answered', actions: [
+  { ref: 'r5', title: 'T', state: 'refused', message: 'Needs a PIN.', needs_pin: true, can_decline: false },
+  { ref: 'r6', title: 'T', state: 'replaced', message: 'Replaced by a newer suggestion below.' },
+  { ref: 'r7', title: 'T', state: 'portal', message: 'Use the portal.' }
+] }] }, function () {}, { onAction: function () {}, tapped: {}, countdowns: [] });
+var cs5 = all(root, 'b-action');
+assert.deepStrictEqual(all(cs5[0], 'aact')[0].children.map(function (b) { return b.textContent; }), ['Use PIN'], 'one decline per card: no Cancel once it was sent');
+assert.strictEqual(all(cs5[1], 'aact').length, 0, 'a replaced card has no buttons');
+assert.strictEqual(all(cs5[2], 'aact').length, 0, 'a portal-only card offers no PIN');
+assert.strictEqual(all(cs5[1], 'ast')[0].textContent, 'Replaced by a newer suggestion below.');
+assert.strictEqual(AIC.countdown(61), 'Expires in 1:01');
+var tw = AIC.tapKey({ ref: 'r', state: 'offered' }), tr = AIC.tapKey({ ref: 'r', state: 'refused', needs_pin: true });
+assert.notStrictEqual(tw, tr, 'a new state of the card brings its buttons back');
+root = new El('div');
+AIC.renderConversation(doc, root, { conversation: [{ id: 'x', q: 'Q', a: 'A', state: 'answered', actions: [{ ref: 'r9', state: 'withdrawn', message: 'This unlock does not cover that action any more.' }] }] }, function () {});
+assert.strictEqual(all(root, 'at').length, 0, 'a withdrawn card shows only its sentence');
+assert.strictEqual(AIC.pollDelay({ ok: true, chat: { conversation: [{ state: 'answered', actions: [{ state: 'sent' }] }] } }), 1000, 'polls every second while an action is followed');
+assert.strictEqual(AIC.pollDelay({ ok: true, chat: { conversation: [{ state: 'answered', actions: [{ state: 'offered' }] }] } }), 30000, 'an offered card ticks locally');
+assert.strictEqual(htmlWrites, 0);
 
 // verify_url: PIN Lock's port on THIS host only
 assert.ok(AIC.validVerifyUrl('http://192.168.1.20:47831/verify', '192.168.1.20'));

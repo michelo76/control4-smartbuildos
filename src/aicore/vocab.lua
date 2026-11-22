@@ -73,7 +73,10 @@ M.OPERATIONS = {
 --- and operations.lua refuses them as operations.
 ---   chat_v2  the touchscreen ask may carry `thread`, and deliver_result
 ---            `display` and `suggestions` (src/aicore/chatv2.lua).
-M.DECLARED = { "chat_v2" }
+---   chat_actions_v1  the ask may carry `owner_proof`, deliver_result
+---            `actions`; one-tap decisions by session verification
+---            (src/aicore/chatactions.lua).
+M.DECLARED = { "chat_v2", "chat_actions_v1" }
 
 --- The registration's `commands`: OPERATIONS, then DECLARED.
 function M.registeredCommands()
