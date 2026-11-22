@@ -293,9 +293,11 @@ var AIC = (function () {
     var s = Math.max(0, Math.floor(Number(seconds) || 0));
     return s <= 60 ? 'PIN entry is locked for ' + s + ' s' : 'PIN entry is locked for ' + Math.ceil(s / 60) + ' min';
   };
-  A.leftText = function (seconds) {
+  // fixed: the 30 minutes after the PIN end the unlock, whatever the use.
+  A.leftText = function (seconds, fixed) {
     var s = Math.max(0, Math.floor(Number(seconds) || 0));
-    return s >= 60 ? 'Locks again after ' + Math.ceil(s / 60) + ' min without use' : 'Locks again in ' + s + ' s';
+    if (s < 60) { return 'Locks again in ' + s + ' s'; }
+    return fixed ? 'Locks again in ' + Math.ceil(s / 60) + ' min (30 minutes after the PIN)' : 'Locks again after ' + Math.ceil(s / 60) + ' min without use';
   };
   A.shortLeft = function (seconds) {
     var s = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -718,7 +720,10 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
     show('elevate', mode === 'open' && !!chat.can_elevate);
     $('elevate').disabled = !!progress;
     $('lockIn').textContent = mode === 'elevated' ? AIC.minutesLeft(chat.locks_in) : '';
-    $('lock').setAttribute('title', mode === 'elevated' ? AIC.leftText(chat.locks_in) : '');
+    // whichever comes first: 5 minutes without use, or 30 minutes after the PIN (locks_fixed)
+    $('lock').setAttribute('title', mode === 'elevated' ? AIC.leftText(chat.locks_in, chat.locks_fixed) : '');
+    $('ownerPill').setAttribute('title', mode === 'elevated' ? AIC.leftText(chat.locks_in, chat.locks_fixed) : '');
+    $('ownerBox').classList.toggle('fixed', mode === 'elevated' && !!chat.locks_fixed);
     if (on) {
       drawThread(chat);
     } else {

@@ -73,7 +73,7 @@
   <li>A <em>Lock</em> button. The chat relocks after <strong>five minutes without use</strong>, on <em>Lock</em>, when the page closes or goes silent for 75 seconds, when the driver restarts, and on every screen at once when PIN Lock stops being available.</li>
 </ul></td></tr>
 </tbody></table></div>
-<p>What a touchscreen answer may draw on is set twice: the homeowner's portal switch for household activity (below) and the dealer's <strong>Touchscreen Detail</strong> property, which can only lower it. With the switch off, answers use equipment status and recent events only.</p>
+<p>What a touchscreen answer may draw on is set twice: the homeowner's portal switch for household activity (below) and the dealer's <strong>Touchscreen Detail</strong> property, which can only lower it. With the switch off, answers use equipment status and recent events only. One exception, by owner decision (21 November 2026): with <strong>Touchscreen Detail</strong> at <em>Household</em>, an owner PIN lets the chat answer about the current <em>state</em> of devices whatever that switch says (the table below); the switch still decides activity patterns.</p>
 
 <h2 id="ch8-device-answers">Round two: what the touchscreen can be told about a device</h2>
 <div class="status" data-status="secondRound"></div>
@@ -83,7 +83,7 @@
 <tbody><tr><td>
 <ul>
   <li>Can be told: <strong>temperature, humidity, battery, signal quality, online status and the temperature scale</strong>, through reviewed allow-lists on the controller; anything else a device reports is withheld and only counted.</li>
-  <li>Refused before anything is read out: <strong>locks, security, doors, motion, contacts, relays, lights and cameras</strong> (lights, media and room state count as occupancy). An owner PIN alone does not change this (owner decision 26).</li>
+  <li>Refused before anything is read out: <strong>locks, security, doors, motion, contacts, relays, lights and cameras</strong> (lights, media and room state count as occupancy). With <strong>Touchscreen Detail</strong> at <em>Household</em>, <strong>an owner PIN changes this</strong> (owner decision of 21 November 2026, replacing decision 26): the chat can then tell the current state of doors, garage, gates, locks, the alarm, motion and contact sensors, relays and lights, and other short plain values a device exposes, and they go to SmartBuildOS and the AI provider. Cameras stay refused; secret- and personal-looking values stay withheld. At <em>Standard</em> a PIN changes nothing here. The chat locks 30 minutes after the PIN.</li>
 </ul></td><td>
 <ul>
   <li>The existing household rules decide, as for every other household answer.</li>

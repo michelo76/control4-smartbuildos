@@ -64,7 +64,7 @@ All read-only except **Log Level**, **Log Mode**, **Touchscreen Detail** and
 | `Last Synchronization` | last time the platform was heard (config applied, restricted operation, accepted cloud answer, Sync Now) | driver |
 | `Last Test Result` | result line of Test Agent Link / Test AI Connection | actions |
 | `Last Error` | last error or refusal, ≤ 240 bytes (cut between UTF-8 characters), `none` when clear | driver |
-| `Touchscreen Detail` (editable) | `Basic (status and approvals only)`, `Standard (no household activity)` (default), `Household (only if the homeowner allows it)`: the `detail` a touchscreen ask carries (`basic` also switches the chat off). It can only LOWER what the homeowner allowed: household activity is answered only when the homeowner's portal switch is on (the cloud decides, ruling 8) | dealer |
+| `Touchscreen Detail` (editable) | `Basic (status and approvals only)`, `Standard (no household activity)` (default), `Household (only if the homeowner allows it)`: the `detail` a touchscreen ask carries (`basic` also switches the chat off). For household **activity** it can only LOWER what the homeowner allowed: activity is answered only when the homeowner's portal switch is on (the cloud decides, ruling 8). At `Household` an ask from an owner-PIN session also carries `unlock`, which lets the chat answer about the current **state** of devices at scope `full` whatever that switch says (§7b); at `Standard` nothing is attested. The three list values are stored in projects and never change | dealer |
 | `Touchscreen Approvals` | one line: PIN Lock ready or why not (`unavailable (<reason>): chat and approvals off, use the portal`), the chat's detail and that it needs an owner PIN to view, whether the homeowner switched approvals on in the portal (from the last `approvals_pending`), how many page sessions are open | `webui:summary()` |
 | `Webview Address` | `http://<controller>:47871/app (home network only)`, `Controller address unknown: set App Relay Address`, or `Not listening (port 47871 unavailable)` | relay |
 | `App Relay Address` (editable) | `Auto` or the controller's LAN address (`lib.relayhost`, as PIN Lock and Atmosphere) | dealer |
@@ -430,7 +430,9 @@ delivered is logged, not stored (KNOWN-ISSUES KI-44).
 
 **What a touchscreen can be told, in short.** The touchscreen chat reads at
 scope `system` unless the homeowner's portal switch for household answers is
-on (an owner PIN alone does not widen it). At `system` only temperature,
+on, **or the ask carries `unlock`** (Touchscreen Detail = Household and an
+owner PIN: owner decision of 21 November 2026, which replaces "an owner PIN
+alone does not widen it"; §7b). At `system` only temperature,
 humidity, battery, signal quality, online status and the temperature scale
 (`SCALE`) leave the home, through the allow-lists below; locks, security,
 doors (opening), motion, contacts, relays, lights and cameras are refused
@@ -732,9 +734,12 @@ declares it).
   fields:["thread"]}}`. On that answer only (`fields` naming an optional
   key the ask carried, `thread` or `….thread`) the ask is sent ONCE more
   without it under a new request id (the platform replays a stored answer
-  for a repeated idempotency key), and the session never sends that key
-  again (`UI:optionalAskKeys` / `UI:retryWithoutRefusedKeys`, written so a
-  second optional key reuses it); the page is told `followups:false`. A
+  for a repeated idempotency key), and the key is not sent again for the
+  rest of the driver run; the page is told `followups:false`. This is the
+  SAME mechanism as for `unlock` below (`UI:optionalAskKeys` decides both
+  keys once per ask; `UI:retryWithoutRefusedKeys` strips every key the one
+  refusal names): an old platform that knows neither names both in one
+  answer, and the ask is retried once without both, never twice. A
   platform that knows `thread` and refuses it (`invalid_thread`,
   `thread_requires_touchscreen`, `invalid_fields`) is not retried: the
   question shows as refused and the codes stay in Print Diagnostics.
@@ -792,6 +797,56 @@ Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
+
+**An owner PIN unlocks fuller device answers (`unlock`).** With Touchscreen
+Detail at `Household`, every ask carries `unlock`: `{ nonce, verified_at,
+role: "owner", method: "pin_lock" }`, built from the session's own
+`chat_view` proof (`webui.verification`, the four keys of an approval's
+verification; never a PIN). The platform then reads **device state** at scope
+`full` for that one ask, whatever the homeowner's household switch and the
+learning switch say; household activity (history filtering, usage, memories,
+driver queries) stays behind the homeowner's switch. At `Standard` or `Basic`
+nothing is attested and answers are as before. What leaves the home at `full`
+is §7c's table: doors, garage, gates, motion, contacts, relays and lights with
+every variable that passes the name and value rules; locks and security
+through their own allow-lists; cameras never. The platform cannot verify a
+PIN: it takes this driver's word, bounded by the age of `verified_at`.
+
+*The 30-minute lock.* A chat unlock now ends 5 minutes after the last
+interaction **and** 30 minutes after the PIN whatever the activity
+(`LIMITS.unlock_max_seconds = 1800`, counted from PIN Lock's `verified_at`).
+The platform refuses the grant, not the ask, when `verified_at` is older than
+1800 s plus 60 s of skew or more than 60 s ahead; the parity tests of both
+repositories hold the field name, the two values and the 1800. The page says
+"Locks again in N min (30 minutes after the PIN)" once that end, not
+idleness, is the nearer one (`locks_fixed` in `/state`).
+
+*The page's channel.* The answer to an ask that carried `unlock` comes back
+as `deliver_result` with `channel: "touchscreen"`. Such an answer is shown to
+the session that asked, held while it is locked, or **dropped** (counted)
+when no ask here owns it — after a driver restart, or when the accept answer
+was lost. It never sets `AI_LAST_RESPONSE`, is never persisted and never
+fires *AI Response Ready*. An unknown `channel` value refuses the operation.
+
+*An older platform.* A platform that does not know `unlock` refuses the whole
+ask (`invalid_args`, `unknown_fields`, fields `unlock`). The driver sends
+that question once more without `unlock`, under a new request id, and does
+not send `unlock` again for the rest of the driver run: one extra round trip,
+answers at the usual scope. With chat v2 the same single retry also strips
+`thread` when the refusal names it too (one mechanism, `webui.lua`
+`UI:retryWithoutRefusedKeys`; `test_aicore_chat_v2.lua` [6]).
+
+*Open chat and `unlock`.* `unlockFor` (Household AND this session's live
+owner proof) is the only check between an ask and full device scope. An ask
+from an Open-mode session that is not owner-unlocked never carries `unlock`
+and always carries `detail:"standard"`, whatever the properties
+(`test_aicore_chat_v2.lua` [7]). The elevation in Open mode ends on the same
+two clocks (5 minutes without use, 30 minutes after the PIN), with the same
+wipe ([8]). *Print Diagnostics* prints `touchscreen unlock: N
+ask(s) carried it, M sent again without it, …`. **Release order: the platform
+that accepts `unlock` must be deployed before this driver is released.**
+Tests: `test_aicore_webui.lua` [19]; parity `test_aicore_platform_parity.lua`
+[8b].
 
 **The `command` of a touchscreen body.** `AI_TOUCHSCREEN_ASK`,
 `AI_TOUCHSCREEN_APPROVALS` and `AI_TOUCHSCREEN_APPROVAL` (`webui.COMMANDS`).

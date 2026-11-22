@@ -38,6 +38,9 @@ local ARGS = {
     -- counted, never a reason to refuse the answer.
     display = true,
     suggestions = true,
+    -- Only on the answer to an ask that carried `unlock` (webui.UNLOCK): the
+    -- answer belongs to the touchscreen page and is never a Composer answer.
+    channel = true,
   },
   raise_event = {
     event = true,
@@ -95,6 +98,8 @@ local function validCorrelation(s)
 end
 
 M.RESULT_KINDS = { answer = true, analysis = true, report = true, scene_suggestion = true, diagnostic = true }
+--- deliver_result's `channel` (the platform's AI_CORE_RESULT_CHANNELS).
+M.RESULT_CHANNELS = { touchscreen = true }
 
 local function validId(s)
   return type(s) == "string" and #s >= 1 and #s <= 128 and s:match("^[%w][%w%-_:%.]*$") ~= nil
@@ -291,6 +296,12 @@ function M.parse(command, args)
     end
     op.display, op.display_dropped = ChatV2.display(args.display)
     op.suggestions, op.suggestions_dropped = ChatV2.suggestions(args.suggestions)
+    if args.channel ~= nil then
+      if type(args.channel) ~= "string" or not M.RESULT_CHANNELS[args.channel] then
+        return nil, "channel must be touchscreen"
+      end
+      op.channel = args.channel
+    end
   elseif command == "raise_event" then
     if type(args.event) ~= "string" or not V.RAISABLE[args.event] then
       return nil, "event '" .. tostring(args.event) .. "' is not in the closed list"

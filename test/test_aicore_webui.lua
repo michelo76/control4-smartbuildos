@@ -27,12 +27,16 @@
 --   [17] the `command` of every cloud body is one the platform accepts (the
 --        scripted cloud refuses any other, as the platform does), and what
 --        a refusal said can be read on the controller as codes only
---   [19] chat v2 through the driver: thread, display, suggestions,
---        Print Diagnostics (open chat is test_aicore_chat_v2.lua)
 --   [18] the answer as the platform really sends it: deliver_result names
 --        the job and the RELAY's request id (not the ask's), so it is
 --        matched by job id; an answer nobody waits for any more is dropped,
 --        never published in AI_LAST_RESPONSE
+--   [19] an owner PIN and device answers: `unlock` only at Household from a
+--        live owner unlock; the lock 30 minutes after the PIN; an answer
+--        marked for the page never becomes a Composer answer (a restart
+--        included); a platform that does not know `unlock` costs one retry
+--   [20] chat v2 through the driver: thread, display, suggestions,
+--        Print Diagnostics (open chat is test_aicore_chat_v2.lua)
 --
 -- Run from the driver root: make test
 
@@ -179,6 +183,8 @@ local CLOUD = {
   detail = {},
   refuse = {}, -- op -> reason
   refuseResult = {}, -- op -> the whole result of the refusal (with refuse[op])
+  oldPlatform = false, -- true: a platform that does not know `unlock` ([19])
+  unlockRefused = 0,
   decideStatus = "queued",
   commandRefused = 0,
 }
@@ -200,6 +206,17 @@ A.cloud = function(op, body)
     local result = op == "ask" and { reason = "invalid_fields", fields = { "command" } }
       or { reason = "invalid_args", detail = "invalid_fields", fields = { "command" } }
     return { status = "error", http_status = "200", error_code = "invalid_args", result = result }
+  end
+  if CLOUD.oldPlatform and body.unlock ~= nil then
+    -- What a platform older than `unlock` answers (rpc/ops.ts: an unknown
+    -- key refuses the whole body).
+    CLOUD.unlockRefused = CLOUD.unlockRefused + 1
+    return {
+      status = "error",
+      http_status = "200",
+      error_code = "invalid_args",
+      result = { reason = "unknown_fields", fields = { "unlock" } },
+    }
   end
   if CLOUD.refuse[op] then
     local reason = CLOUD.refuse[op]
@@ -1671,7 +1688,303 @@ check(
 )
 
 -- ── [19] ─────────────────────────────────────────────────────────────────────
-print("[19] chat v2 through the driver: thread, display, suggestions, diagnostics")
+print("[19] an owner PIN and device answers: unlock, the 30-minute lock, the page's channel, an older platform")
+local HOUSEHOLD = "Household (only if the homeowner allows it)"
+local STANDARD = "Standard (no household activity)"
+local function keys(t)
+  local out = {}
+  for k in pairs(t or {}) do
+    out[#out + 1] = k
+  end
+  table.sort(out)
+  return table.concat(out, ",")
+end
+local function askAs(session, question)
+  local r = post(session, "/ask", { question = question })
+  return r, lastCloud("ask"), "job-" .. #H.agent.cloudCalls
+end
+check(
+  "the field, its values and the session lifetime the platform is pinned to",
+  Webui.UNLOCK.field == "unlock"
+    and Webui.UNLOCK.role == "owner"
+    and Webui.UNLOCK.method == "pin_lock"
+    and Webui.LIMITS.unlock_max_seconds == 1800
+    and Webui.RESULT_CHANNEL == "touchscreen"
+)
+-- (a) attested only at Household, from this session's live owner unlock.
+Properties["Touchscreen Detail"] = STANDARD
+H.advance(61000)
+local o = open()
+local nCh19 = #framesOf("pinlock.challenge")
+unlock(o)
+local nonce19 = framesOf("pinlock.challenge")[nCh19 + 1].args.nonce
+local r19, op19 = askAs(o, "Is the front door locked?")
+check(
+  "Standard: the ask carries no unlock (answers stay as they were)",
+  r19.ok == true and op19.body.unlock == nil,
+  keys(op19.body)
+)
+Properties["Touchscreen Detail"] = HOUSEHOLD
+H.advance(16000)
+post(o, "/chat/touch")
+r19, op19 = askAs(o, "Is the garage door closed?")
+local u19 = op19.body.unlock
+check("Household: the ask carries unlock", r19.ok == true and type(u19) == "table", keys(op19.body))
+check("…exactly the four keys of an approval's verification", keys(u19) == "method,nonce,role,verified_at", keys(u19))
+check(
+  "…owner, pin_lock, this session's own unlock (its challenge nonce, PIN Lock's verified_at)",
+  u19.role == "owner"
+    and u19.method == "pin_lock"
+    and u19.nonce == nonce19
+    and type(u19.verified_at) == "number"
+    and math.abs(os.time() - u19.verified_at) < 120,
+  JSON:encode(u19)
+)
+check(
+  "…and still detail household, channel touchscreen",
+  op19.body.detail == "household" and op19.body.channel == "touchscreen"
+)
+check("…no PIN anywhere in the body", JSON:encode(op19.body):find(OWNER_PIN, 1, true) == nil)
+local oo = open()
+check(
+  "another session, not unlocked, cannot ask at all (no ask, so nothing attested)",
+  post(oo, "/ask", { question = "x" }).reason == "chat_locked"
+)
+local asks19 = #H.cloudOps("ask")
+post(o, "/chat/lock")
+check(
+  "a locked session cannot ask either",
+  post(o, "/ask", { question = "Is the gate open?" }).reason == "chat_locked" and #H.cloudOps("ask") == asks19
+)
+
+-- (a') defence in depth, on the pure module: only an OWNER proof attests.
+-- (redeem creates no other proof; this holds the rule if that ever changes.)
+do
+  local sentPure, n, t0 = {}, 0, os.time()
+  local ui = Webui.new({
+    now = function()
+      return t0
+    end,
+    newHex = function()
+      n = n + 1
+      return string.format("%032x", n)
+    end,
+    newRequestId = function()
+      n = n + 1
+      return "aic-" .. string.format("%032x", n)
+    end,
+    facts = function()
+      return { licensed = true, provider_configured = true, online = true, learning_active = false }
+    end,
+    detail = function()
+      return "household"
+    end,
+    relayHost = function()
+      return "controller.test"
+    end,
+    pinAvailability = function(cb)
+      cb({ available = true, reason = "ready" })
+    end,
+    pinRequest = function() end,
+    cloud = function(op, body)
+      if op == "ask" then
+        sentPure[#sentPure + 1] = body
+      end
+    end,
+    take = function()
+      return true
+    end,
+    appHtml = function()
+      return ""
+    end,
+  })
+  local sp = ui:openSession()
+  for _, role in ipairs({ "staff", "guest", "owner" }) do
+    sp.proofs.chat_view = {
+      purpose = "chat_view",
+      subject = sp.sid,
+      nonce = string.rep("b", 32),
+      verified_at = t0,
+      role = role,
+      ends = t0 + 300,
+      max = t0 + 1800,
+    }
+    ui:route({
+      method = "POST",
+      path = "/ask",
+      query = { k = "K", s = sp.token },
+      body = JSON:encode({ question = "Is the door locked?" }),
+    }, "K")
+  end
+  check(
+    "a session proof whose role is not owner attests nothing; an owner proof does",
+    #sentPure == 3 and sentPure[1].unlock == nil and sentPure[2].unlock == nil and type(sentPure[3].unlock) == "table",
+    #sentPure
+  )
+end
+
+-- (b) the chat locks 30 minutes after the PIN, whatever the activity.
+H.advance(61000)
+local m = open()
+unlock(m)
+local stillOpen = true
+for _ = 1, 7 do
+  wait(240000, m) -- 4 minutes, polling
+  post(m, "/chat/touch") -- interaction every 4 minutes: the 5-minute idle lock never fires
+  stillOpen = stillOpen and state(m).chat.locked == false
+end
+st = state(m)
+check("28 minutes of steady use after the PIN: still unlocked", stillOpen and st.chat.locked == false)
+check(
+  "…and the page is told the 30 minutes end it (not the idle rule)",
+  st.chat.locks_fixed == true and st.chat.locks_in > 0 and st.chat.locks_in <= 120,
+  JSON:encode({ fixed = st.chat.locks_fixed, left = st.chat.locks_in })
+)
+wait(60000, m)
+post(m, "/chat/touch")
+wait(61000, m)
+st = state(m)
+check(
+  "30 minutes after the PIN the chat is locked although it was in use",
+  st.chat.locked == true and st.chat.conversation == nil
+)
+asks19 = #H.cloudOps("ask")
+check(
+  "…and a question now is refused (nothing is sent, so nothing can be attested with an old PIN)",
+  post(m, "/ask", { question = "Is the garage door closed?" }).reason == "chat_locked" and #H.cloudOps("ask") == asks19
+)
+
+-- (c) an answer marked for the page is never a Composer answer.
+H.advance(61000)
+local c = open()
+unlock(c)
+local resp19, fired19 = H.vars.AI_LAST_RESPONSE, H.firedCount(1)
+local _, opC, jobC = askAs(c, "Is the back door locked?")
+check("(the ask carried unlock)", type(opC.body.unlock) == "table")
+local function marked(op, jobId, text, n, channel)
+  return H.operation("deliver_result", {
+    response_id = "resp-19-" .. n,
+    job_id = jobId,
+    request_id = op.request_id,
+    text = text,
+    kind = "answer",
+    pending_approvals = 0,
+    channel = channel,
+  })
+end
+check(
+  "a marked answer for a waiting ask: Completed",
+  H.finalState(marked(opC, jobC, "The back door is locked.", 1, "touchscreen")) == "Completed"
+)
+st = state(c)
+check(
+  "…shown to the session that asked, not published",
+  st.chat.conversation[#st.chat.conversation].a == "The back door is locked."
+    and H.vars.AI_LAST_RESPONSE == resp19
+    and H.firedCount(1) == fired19
+)
+H.advance(16000)
+post(c, "/chat/touch")
+_, opC, jobC = askAs(c, "Is the alarm armed?")
+H.load("restart")
+H.advance(31000)
+K = tokenFromUrls()
+resp19, fired19 = H.vars.AI_LAST_RESPONSE, H.firedCount(1)
+local statesC = marked(opC, jobC, "The alarm is armed away.", 2, "touchscreen")
+check(
+  "after a driver restart a marked answer is dropped: Completed, said so",
+  H.finalState(statesC) == "Completed"
+    and tostring(statesC[#statesC].detail):find("dropped (no page waiting)", 1, true) ~= nil,
+  statesC[#statesC] and statesC[#statesC].detail
+)
+check(
+  "…never AI_LAST_RESPONSE, no AI Response Ready, not persisted",
+  H.vars.AI_LAST_RESPONSE == resp19
+    and tostring(H.vars.AI_LAST_RESPONSE):find("alarm", 1, true) == nil
+    and H.firedCount(1) == fired19
+    and JSON:encode(H.persisted):find("armed away", 1, true) == nil,
+  H.vars.AI_LAST_RESPONSE
+)
+before17 = #printed
+EC.PRINT_DIAGNOSTICS()
+diag17 = table.concat(printed, "\n", before17 + 1)
+check(
+  "…counted as dropped",
+  diag17:find("1 dropped (nobody waiting)", 1, true) ~= nil,
+  diag17:match("touchscreen asks[^\n]*")
+)
+check(
+  "a channel the driver does not know is refused whole (Failed), never published",
+  H.finalState(marked(opC, jobC, "x", 3, "composer")) == "Failed" and H.vars.AI_LAST_RESPONSE == resp19
+)
+marked(opC, "job-unknown-19", "A Composer answer after the restart.", 4, nil)
+check(
+  "an unmarked answer nobody owns is still a Composer answer (as before; KI-77 for touchscreen asks without unlock)",
+  H.vars.AI_LAST_RESPONSE == "A Composer answer after the restart."
+)
+
+-- (d) a platform that does not know `unlock`: one retry, then not sent again.
+CLOUD.oldPlatform = true
+Properties["Touchscreen Detail"] = HOUSEHOLD -- the restart above reloaded the default
+H.advance(61000)
+local p = open()
+unlock(p)
+local asksBefore19 = #H.cloudOps("ask")
+r19 = post(p, "/ask", { question = "Is the garage door closed?" })
+local sent = H.cloudOps("ask")
+check(
+  "the first ask goes twice: with unlock, refused; then once without it",
+  #sent == asksBefore19 + 2 and CLOUD.unlockRefused == 1,
+  #sent - asksBefore19
+)
+check(
+  "…the retry is the same question, without unlock, under a new request id",
+  sent[#sent].body.unlock == nil
+    and type(sent[#sent - 1].body.unlock) == "table"
+    and sent[#sent].body.question == sent[#sent - 1].body.question
+    and sent[#sent].body.detail == "household"
+    and sent[#sent].body.request_id ~= sent[#sent - 1].body.request_id,
+  keys(sent[#sent].body)
+)
+st = state(p)
+local e19 = st.chat.conversation[#st.chat.conversation]
+check(
+  "…and the page just sees a question waiting for its answer",
+  r19.ok == true and e19.state == "pending" and st.notice == nil,
+  JSON:encode(e19)
+)
+check(
+  "…whose answer arrives as from any platform (matched by job id, no channel argument)",
+  H.finalState(marked(sent[#sent], "job-" .. #H.agent.cloudCalls, "The garage door is closed.", 5, nil)) == "Completed"
+    and state(p).chat.conversation[#state(p).chat.conversation].a == "The garage door is closed."
+)
+H.advance(16000)
+post(p, "/chat/touch")
+asksBefore19 = #H.cloudOps("ask")
+post(p, "/ask", { question = "Is the front door locked?" })
+sent = H.cloudOps("ask")
+check(
+  "the next ask goes ONCE, without unlock (one extra round trip per driver run, not per ask)",
+  #sent == asksBefore19 + 1 and sent[#sent].body.unlock == nil and CLOUD.unlockRefused == 1,
+  #sent - asksBefore19
+)
+before17 = #printed
+EC.PRINT_DIAGNOSTICS()
+diag17 = table.concat(printed, "\n", before17 + 1)
+check(
+  "Print Diagnostics counts it",
+  diag17:find(
+    "touchscreen unlock: 1 ask(s) carried it, 1 sent again without it, not sent for the rest of this run",
+    1,
+    true
+  ) ~= nil,
+  diag17:match("touchscreen unlock[^\n]*")
+)
+CLOUD.oldPlatform = false
+Properties["Touchscreen Detail"] = STANDARD
+
+-- ── [20] ─────────────────────────────────────────────────────────────────────
+print("[20] chat v2 through the driver: thread, display, suggestions, diagnostics")
 H.advance(61000)
 local v2 = open()
 unlock(v2)

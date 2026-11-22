@@ -171,7 +171,7 @@ Read-only except **Log Level**, **Log Mode**, **Touchscreen Detail**,
 | Last Synchronization               | The last time SmartBuildOS was heard from                                                                                                                                                                |
 | Last Test Result                   | The result of *Test Agent Link* or *Test AI Connection*                                                                                                                                                  |
 | Last Error                         | The last error or refusal                                                                                                                                                                                |
-| Touchscreen Detail (editable)      | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (no household activity) or *Household* (only if the homeowner allows it in the portal). It can only lower what the homeowner allowed |
+| Touchscreen Detail (editable)      | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (equipment status) or *Household* (with an owner PIN, also the current state of devices; activity only when the homeowner allows it) |
 | Touchscreen Chat Access (editable) | *Open* (default): anyone at the screen can ask, at Standard detail; an owner PIN unlocks more. *Owner PIN*: the chat needs an owner PIN to view and to ask                                               |
 | Touchscreen Approvals              | The touchscreen chat and approvals in plain words: whether PIN Lock can check an owner PIN here, and whether the homeowner switched approvals on                                                         |
 | Webview Address                    | Where the AI Core page is served on the home network (port 47871)                                                                                                                                        |
@@ -256,20 +256,26 @@ fallback. Three parts:
 - **Chat**: a conversation thread with an input bar, an on-screen keyboard (for
   screens without one), suggested questions and follow-ups. With **Touchscreen
   Chat Access** set to *Open* (the default) anyone at the screen can ask and
-  read the answers of their own page, without a PIN, at *Standard* detail (no
-  household activity), whatever **Touchscreen Detail** says. An **owner** PIN
-  from the **SmartBuildOS PIN Lock** driver (*Unlock for more*) unlocks the
-  configured detail and *Explain what just happened*; it locks again after 5
-  minutes without use, when the page is hidden or closes, when the driver
-  restarts and when someone presses *Lock*, and what was asked while unlocked is
-  removed from the screen. An open conversation starts over 5 minutes after the
-  last question and whenever the page is hidden. With *Owner PIN* the chat stays
-  locked until an owner PIN is entered, as before. Answers stay on the page that
-  asked: they never go to `AI_LAST_RESPONSE` and never fire *AI Response Ready*.
-  The chat offers the three built-in questions and, up to 6 **preset questions**
-  your integrator set in System Studio. Pressing a preset asks exactly that
-  question; after the list changes, an old button is refused rather than
-  answered as another question. *Basic* detail switches the chat off.
+  read the answers of their own page, without a PIN, at *Standard* detail
+  (equipment status, no household activity), whatever **Touchscreen Detail**
+  says. An **owner** PIN from the **SmartBuildOS PIN Lock** driver (*Unlock for
+  more*) unlocks the configured detail and *Explain what just happened*. With
+  **Touchscreen Detail** at *Household*, an owner PIN also lets the chat answer
+  about the current state of devices (doors, locks, lights, sensors), and those
+  values go to SmartBuildOS and the AI provider whatever the homeowner's
+  household switch in the portal says; that switch still decides activity
+  patterns. At *Standard* a PIN unlocks nothing more. The unlock ends after 5
+  minutes without use, 30 minutes after the PIN whatever the use, when the page
+  is hidden or closes, when the driver restarts and when someone presses *Lock*,
+  and what was asked while unlocked is removed from the screen. An open
+  conversation starts over 5 minutes after the last question and whenever the
+  page is hidden. With *Owner PIN* the chat stays locked until an owner PIN is
+  entered. Answers stay on the page that asked: they never go to
+  `AI_LAST_RESPONSE` and never fire *AI Response Ready*. The chat offers the
+  three built-in questions and up to 6 **preset questions** your integrator set
+  in System Studio. Pressing a preset asks exactly that question; after the list
+  changes, an old button is refused rather than answered as another question.
+  *Basic* detail switches the chat off.
 - **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
   then shows the item's title, description and risk; *Approve* or *Decline*
   within 60 seconds. Only low- and medium-risk action proposals can be decided

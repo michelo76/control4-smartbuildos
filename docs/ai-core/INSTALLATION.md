@@ -204,39 +204,47 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    Relay Address** to the controller's LAN address — and the **same** value
    on PIN Lock. After changing it, run *Republish App URL* and close and
    reopen the tile (Navigator does not change the address of an open page).
-2. **Add PIN Lock (required for the chat and approvals).** Install
+2. **Add PIN Lock (required for approvals and the owner unlock; for the chat
+   only when Touchscreen Chat Access is *Owner PIN*).** Install
    **SmartBuildOS PIN Lock** in the same project, licence it, and create an
    **owner** code with a PIN on its own page. Leave its *AI Core PIN
    Verification* property on. Only owner PINs work on the AI Core tile; staff,
    vendor and guest codes never do. Wrong PINs count against PIN Lock's own
    lockout (*Clear Lockouts* on PIN Lock clears it). Without PIN Lock the tile
-   still shows the status and the number of items awaiting approval, and says
-   to use the SmartBuildOS portal for the rest. **Touchscreen Approvals**
+   still shows the status and the number of items awaiting approval and, with
+   **Touchscreen Chat Access** at *Open* (the default), answers questions at
+   Standard detail; it says to use the SmartBuildOS portal for the rest. **Touchscreen Approvals**
    says in plain words what is missing.
 3. **The homeowner's two switches (SmartBuildOS portal).** Nothing here turns
    them on: the homeowner does, in the portal. *Approvals at the touchscreen*
    (off by default) lets an owner PIN approve or decline low- and medium-risk
    action proposals on the tile; everything else stays portal only.
    *Household answers at the touchscreen* (off by default) lets the chat use
-   household activity. **Touchscreen Detail** can only lower this: *Basic*
-   switches the chat off, *Standard* never asks for household activity,
-   *Household* asks for it but the cloud answers with it only when the
-   homeowner's switch is on.
+   household activity. For activity, **Touchscreen Detail** can only lower
+   this: *Basic* switches the chat off, *Standard* never asks for household
+   activity, *Household* asks for it but the cloud answers with it only when
+   the homeowner's switch is on. At *Household* an owner PIN also lets the
+   chat answer about the current state of devices (item 7), whatever that
+   switch says; choose *Standard* to keep device answers to equipment status.
 4. **What works only on the home network.** The whole page: a touch screen or
    a phone on the home Wi-Fi reaches the controller; a phone away from home
    does not (the page says *Available on the home network only*). There is
    no cloud fallback.
-5. **Check it.** Open the tile: the status shows *Online* and *PIN Lock is
-   ready for this screen*. Press *Unlock with owner PIN*, enter the owner
-   PIN, ask a question; the answer appears on that page only. The chat locks
-   again after 5 minutes without use, when the tile is closed, and on *Lock*.
+5. **Check it.** Open the tile: the status shows *Online*. With
+   **Touchscreen Chat Access** at *Open* (the default) the chat and its input
+   bar are there at once: ask a question; the answer appears on that page only.
+   *Unlock for more* (owner PIN) unlocks the configured detail; it locks again
+   after 5 minutes without use, 30 minutes after the PIN, when the tile is
+   closed, and on *Lock*, and what was asked while unlocked is removed. With
+   *Owner PIN* the tile shows *Unlock with owner PIN* first.
 6. **Preset questions (optional; round two).** In System Studio, the AI Core settings
    take up to **6** preset questions for the touchscreen chat (3–120
    characters each, plain text, no links). They reach the controller with
    the AI Core configuration, and only once the controller runs the AI Core
    driver of this release (an older driver is not sent them). They appear on
-   the tile **only after an owner PIN unlocks the chat**, as buttons before
-   the three built-in questions; a locked tile shows none. Pressing one asks
+   the tile as buttons before the three built-in questions, in an Open chat at
+   once, and with *Owner PIN* only after an owner PIN unlocks the chat (a
+   locked tile shows none). Pressing one asks
    exactly that question. Changing the list in System Studio replaces the
    buttons at the next page refresh; a button from the old list is refused
    (*That suggestion is not available*), never answered as another question.
@@ -250,9 +258,14 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    default), the chat can tell a device's temperature, humidity, battery,
    signal quality, online status and temperature scale; it refuses locks,
    security, doors, motion, contacts, relays, lights and cameras before
-   anything is read out — an owner PIN alone does not change that. With the
-   switch on, the homeowner's usual household rules decide. Cameras are
-   always refused. There is no energy data, and the chat says so rather than
+   anything is read out. **With Touchscreen Detail at *Household*, an owner
+   PIN changes that**: the chat can then tell the current state of doors,
+   garage, gates, locks, the alarm, motion and contact sensors, relays and
+   lights, and other short plain values a device exposes, and those values
+   go to SmartBuildOS and the AI provider — whatever the homeowner's switch
+   says (it still decides activity patterns). The chat locks 30 minutes after
+   the PIN. At *Standard* a PIN changes nothing here. With the switch on, the
+   homeowner's usual household rules decide. Cameras are always refused. There is no energy data, and the chat says so rather than
    guess. A live read needs the round-two Agent **and** the round-two AI Core
    on the controller; until both run, the platform answers that the
    controller cannot do it yet.

@@ -192,6 +192,36 @@ check(
   "invalid ones never refuse the answer: text kept, both dropped and counted",
   op ~= nil and op.text == "Hi." and op.display == nil and op.display_dropped == 1 and op.suggestions_dropped == 1
 )
+for _, combo in ipairs({
+  { channel = "touchscreen" },
+  { channel = "touchscreen", display = good },
+  { channel = "touchscreen", suggestions = { "Why?" } },
+  { channel = "touchscreen", display = good, suggestions = { "Why?" } },
+  { display = good, suggestions = { "Why?" } },
+}) do
+  local args = { response_id = "r-c", text = "T." }
+  local names = {}
+  for k, v in pairs(combo) do
+    args[k] = v
+    names[#names + 1] = k
+  end
+  table.sort(names)
+  local x = Operations.parse("deliver_result", args)
+  check(
+    "deliver_result with " .. table.concat(names, " + ") .. ": accepted, each kept",
+    x ~= nil
+      and x.channel == combo.channel
+      and (combo.display == nil) == (x.display == nil)
+      and (combo.suggestions == nil) == (x.suggestions == nil)
+  )
+end
+check(
+  "chat v2 validation applies whatever the channel",
+  Operations.parse(
+    "deliver_result",
+    { response_id = "r-v", text = "T.", channel = "touchscreen", display = { { t = "html" } } }
+  ).display == nil
+)
 op = Operations.parse("deliver_result", { response_id = "r-3", text = "Plain." })
 check("an answer with neither key: text only", op and op.display == nil and op.suggestions == nil)
 
@@ -395,7 +425,121 @@ http("POST", "/ask", s2, { question = "Other refusal" })
 check("a refusal about another field is not retried", asksSent() == before + 1)
 st = state(s2)
 check("…shown as refused", st.chat.conversation[1].state == "refused")
+-- One mechanism for every optional key (`thread` here, `unlock` from the
+-- owner-PIN change): an OLD platform names every key it does not know in ONE
+-- refusal; the driver strips them all in ONE retry and remembers each for the
+-- rest of the run. Each case on a fresh relay (= a fresh driver run).
+local function oldPlatform(knows)
+  return function(_, body)
+    local unknown = {}
+    for _, k in ipairs({ "thread", "unlock" }) do
+      if body[k] ~= nil and not knows[k] then
+        unknown[#unknown + 1] = k
+      end
+    end
+    if #unknown > 0 then
+      return {
+        status = "error",
+        http_status = 200,
+        error_code = "invalid_args",
+        result = { reason = "unknown_fields", fields = unknown },
+      }
+    end
+  end
+end
+local function run(knows, label)
+  mode = "owner_pin"
+  detail = "household"
+  clock = clock + 61
+  ui = Webui.new(DEPS)
+  cloudAnswer = oldPlatform(knows)
+  local x = open()
+  unlock(x)
+  local first = #cloud + 1
+  local b = asksSent()
+  local r1 = http("POST", "/ask", x, { question = "First?" })
+  local sentN = asksSent() - b
+  local firstBody, retryBody
+  for i = first, #cloud do
+    if cloud[i].op == "ask" then
+      if firstBody == nil then
+        firstBody = cloud[i].body
+      else
+        retryBody = cloud[i].body
+      end
+    end
+  end
+  local st1 = state(x)
+  clock = clock + 16
+  local b2 = asksSent()
+  http("POST", "/ask", x, { question = "Second?" })
+  local second = lastAsk()
+  cloudAnswer = nil
+  return {
+    sentN = sentN,
+    first = firstBody,
+    retry = retryBody,
+    pending = st1.chat.conversation[1].state == "pending",
+    id = r1.id,
+    secondSends = asksSent() - b2,
+    second = second,
+    label = label,
+  }
+end
+local both = run({}, "both unknown")
+check(
+  "an old platform refusing BOTH keys in one answer: one retry, both stripped",
+  both.sentN == 2
+    and both.first.thread ~= nil
+    and both.first.unlock ~= nil
+    and both.retry.thread == nil
+    and both.retry.unlock == nil,
+  both.sentN
+)
+check("…the question waits for its answer under the retry's id", both.pending and both.id == both.retry.request_id)
+check(
+  "…both remembered: the next ask goes once, with neither",
+  both.secondSends == 1 and both.second.thread == nil and both.second.unlock == nil
+)
+check(
+  "…counted once each",
+  ui.counters.thread_retries == 1 and ui.counters.unlock_retried == 1 and ui.unlockNotAccepted
+)
+local onlyU = run({ thread = true }, "unlock unknown")
+check(
+  "a platform that knows thread but not unlock: one retry without unlock, thread kept",
+  onlyU.sentN == 2 and onlyU.retry.unlock == nil and onlyU.retry.thread == onlyU.first.thread,
+  onlyU.sentN
+)
+check(
+  "…next ask: thread, no unlock, one send",
+  onlyU.secondSends == 1 and onlyU.second.thread ~= nil and onlyU.second.unlock == nil
+)
+local onlyT = run({ unlock = true }, "thread unknown")
+check(
+  "a platform that knows unlock but not thread: one retry without thread, unlock kept",
+  onlyT.sentN == 2 and onlyT.retry.thread == nil and type(onlyT.retry.unlock) == "table",
+  onlyT.sentN
+)
+check(
+  "…next ask: unlock, no thread, one send",
+  onlyT.secondSends == 1 and onlyT.second.unlock ~= nil and onlyT.second.thread == nil
+)
+local fine = run({ thread = true, unlock = true }, "new platform")
+check(
+  "a platform that knows both: one send, both carried",
+  fine.sentN == 1 and fine.first.thread ~= nil and fine.first.unlock ~= nil
+)
+check(
+  "a refused key the ask did not carry is not a reason to retry",
+  #ChatV2.refusedKeys(
+      { error_code = "invalid_args", result = { reason = "unknown_fields", fields = { "unlock" } } },
+      { thread = "x" }
+    ) == 0
+)
 -- The new platform KNOWS `thread`: its refusals of it are our bug, surfaced.
+mode = "owner_pin"
+ui = Webui.new(DEPS)
 for _, reason in ipairs({ "invalid_thread", "thread_requires_touchscreen", "invalid_fields" }) do
   cloudAnswer = function(_, body)
     if body.thread ~= nil then
@@ -465,6 +609,24 @@ for _, dl in ipairs({ "household", "standard" }) do
   check("…" .. dl .. " configured: a built-in asks at standard", lastAsk().detail == "standard")
 end
 check("…and a thread is minted lazily for the open conversation", ChatV2.validThread(lastAsk().thread))
+-- Never `unlock` from an open session that is not owner-unlocked, whatever
+-- the properties (unlockFor needs a live owner proof).
+for _, dl in ipairs({ "household", "standard" }) do
+  for _, pinOk in ipairs({ true, false }) do
+    detail = dl
+    pinReady = pinOk
+    clock = clock + 61
+    ui:checkPin(true)
+    http("POST", "/ask", s, { question = "Unlock me?" })
+    check(
+      "open, not unlocked, " .. dl .. ", PIN Lock " .. (pinOk and "ready" or "missing") .. ": never unlock, standard",
+      lastAsk().unlock == nil and lastAsk().detail == "standard"
+    )
+  end
+end
+pinReady = false
+ui:checkPin(true)
+detail = "household"
 r = http("POST", "/ask", s, { explain = true })
 check("Explain is refused without the owner PIN, in words", r.ok == false and r.message == Webui.TEXT.explain_needs_pin)
 detail = "basic"
@@ -538,6 +700,33 @@ check(
   "the unlock timer relocks: the elevated exchange is gone",
   st.chat.elevated == false and not JSON:encode(st):find("Elevated again", 1, true)
 )
+-- the 30 minutes after the PIN end the elevation whatever the use, with
+-- the same wipe
+unlock(s)
+local hardThread = ui.sessions[s].thread
+local inflightJob
+local t0 = clock
+local hard
+while clock - t0 < Webui.LIMITS.unlock_max_seconds - 200 do
+  clock = clock + 61
+  http("POST", "/chat/touch", s)
+  http("POST", "/ask", s, { question = "Busy " .. (clock - t0) })
+  inflightJob = lastJob
+  hard = state(s)
+end
+check("in steady use the elevation stays past 5 minutes", hard.chat.elevated == true)
+check(
+  "…the timer counts toward the 30-minute end (locks_fixed when it is the nearer one)",
+  hard.chat.locks_fixed == true and hard.chat.locks_in <= 200,
+  hard.chat.locks_in
+)
+wait(Webui.LIMITS.unlock_max_seconds - (clock - t0) + 1, s)
+hard = state(s)
+check("30 minutes after the PIN: locked, however busy", hard.chat.elevated == false)
+check("…every elevated exchange removed", not JSON:encode(hard):find("Busy", 1, true))
+check("…a new thread", ui.sessions[s].thread ~= hardThread)
+check("…the last elevated answer in flight is dropped", ui:deliver("x", "Late busy answer", inflightJob) == true)
+check("…and never shown", not JSON:encode(state(s)):find("Late busy", 1, true))
 -- open idle: 5 minutes after the last question
 clock = clock + 61
 http("POST", "/ask", s, { question = "An open question" })
