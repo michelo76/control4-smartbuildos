@@ -528,18 +528,18 @@ local function sent(execution, afterDelta)
 end
 s = sent({ state = "completed" })
 check("(sent)", card(s, REF_A).state == "sent")
-step(2, s)
+step(3, s)
 check("Done only from execution completed", card(s, REF_A).state == "done", card(s, REF_A).state)
 check("…every poll is a session-verified detail", lastOf("approval_detail").verification.method == "pin_lock_session")
 s = sent({ state = "failed", reason = "device_not_found", message = "The patio lights did not answer." })
-step(2, s)
+step(3, s)
 local c = card(s, REF_A)
 check(
   "Failed with the platform's sentence, verbatim",
   c.state == "failed" and c.message == "The patio lights did not answer."
 )
 s = sent({ state = "expired", reason = "expired", message = "The proposal expired." })
-step(2, s)
+step(3, s)
 check("expired = Failed with its sentence", card(s, REF_A).state == "failed")
 -- The schedule: 2, 5, 9, 15, 22, 30 s after the decision, then given up.
 local function detailTimes(from)
@@ -568,8 +568,8 @@ for _, at in ipairs(detailTimes(from)) do
   offsets[#offsets + 1] = at - t0
 end
 check(
-  "never terminal: polled at 2, 5, 9, 15, 22 and 30 s after the decision, six at most",
-  table.concat(offsets, ",") == "2,5,9,15,22,30",
+  "never terminal: polled at 3, 8, 16 and 30 s after the decision, four at most",
+  table.concat(offsets, ",") == "3,8,16,30",
   table.concat(offsets, ",")
 )
 c = card(s, REF_A)
@@ -588,8 +588,8 @@ for _, at in ipairs(detailTimes(from)) do
   offsets[#offsets + 1] = at - t0
 end
 check(
-  "a terminal state stops the polls (completed from 6 s: polls at 2, 5, 9, then Done)",
-  table.concat(offsets, ",") == "2,5,9" and card(s, REF_A).state == "done",
+  "a terminal state stops the polls (completed from 6 s: polls at 3, 8, then Done)",
+  table.concat(offsets, ",") == "3,8" and card(s, REF_A).state == "done",
   table.concat(offsets, ",")
 )
 -- a rate_limited answer to a poll stops that card at once
@@ -651,10 +651,10 @@ for i = 1, #times do
   for j = i, #times do
     n = n + ((times[j] - times[i] < 60) and 1 or 0)
   end
-  minuteOk = minuteOk and n <= 10
+  minuteOk = minuteOk and n <= 16
 end
 check("the shared poller: never two outcome polls within 2 s", gapOk)
-check("…never more than 10 in a minute (all cards, all sessions)", minuteOk, #times)
+check("…never more than 16 in a minute (all cards, all sessions)", minuteOk, #times)
 local stuck = 0
 for _, pair in ipairs({ { sA, REF_A }, { sA, REF_B }, { sA, REF_C }, { sB, "dddddddd-7777-4888-9999-aaaaaaaaaaaa" } }) do
   stuck = stuck + (card(pair[1], pair[2]).state == "sent" and 1 or 0)
@@ -879,15 +879,27 @@ s = timedOut(function(body)
     result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "completed" } },
   }
 end)
-step(2, s)
+step(3, s)
 check("…the execution appears: Done", card(s, REF_A).state == "done")
 s = timedOut(function(body)
   return { status = "ok", result = { ref = body.ref, risk = "low", args_hash = HASH } }
 end)
-step(2, s)
+for _ = 1, 45 do
+  clock = clock + 1
+  state(s)
+end
 c = card(s, REF_A)
 check(
-  "…the item still waiting: the buttons come back",
+  "…a detail merely WITHOUT `execution` never reopens the card: it ends 'Check Approvals'",
+  c.state == "unconfirmed" and c.message == Webui.TEXT.action_unconfirmed_check
+)
+s = timedOut(function(body)
+  return { status = "ok", result = { ref = body.ref, risk = "low", args_hash = HASH, status = "pending_approval" } }
+end)
+step(3, s)
+c = card(s, REF_A)
+check(
+  "…a detail that SAYS the item still waits (status pending_approval): the buttons come back",
   c.state == "offered" and c.message == Webui.TEXT.action_not_sent
 )
 s = timedOut(function(body)
@@ -948,8 +960,11 @@ r = http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
 check("a decline of a PIN-needing item is allowed once", r.ok and count("approval_decide") == d0 + 1)
 c = card(s, REF_A)
 check(
-  "…refused by the platform: its sentence, terminal, no buttons",
-  c.state == "declined" and not c.needs_pin and not c.can_decline
+  "…refused by the platform: NOT 'Cancelled' — its own terminal state and sentence, no buttons",
+  c.state == "cancel_failed"
+    and c.message:find(Webui.TEXT.action_cancel_failed, 1, true) == 1
+    and not c.needs_pin
+    and not c.can_decline
 )
 for _ = 1, 5 do
   http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
@@ -1155,6 +1170,189 @@ check("(the decide is out)", #q == 2 and q[2].o == "approval_decide" and q[2].bo
 http("POST", "/chat/lock", s)
 q[2].cb({ status = "ok", result = { ref = REF_A, status = "queued" } })
 check("the decide answers after Lock: the card stays gone, nothing polled", cards(s) == nil and #q == 2)
+
+print("[8] the re-review's low items")
+-- 1. a decline that timed out is not "Cancelled"
+fresh("open")
+s = offered()
+DECIDE[REF_A] = function()
+  return { status = "error", error_code = "deadline_exceeded" }
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
+c = card(s, REF_A)
+check(
+  "a decline that timed out: 'Could not cancel this…', terminal, never 'Cancelled'",
+  c.state == "cancel_failed" and c.message == Webui.TEXT.action_cancel_failed and not c.can_decline
+)
+check(
+  "…and nothing more can be sent",
+  http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" }).ok == false
+)
+-- 3. approvals never read: unknown is off for deciding
+fresh("open")
+local pendingAnswer = "error"
+local realCloud = DEPS.cloud
+DEPS.cloud = function(o, body, cb)
+  if o == "approvals_pending" and pendingAnswer == "error" then
+    cloud[#cloud + 1] = { op = o, body = body, at = clock }
+    cb({ status = "error", error_code = "deadline_exceeded" })
+    return
+  end
+  realCloud(o, body, cb)
+end
+s = offered()
+check("(approvals_pending never answered)", ui.approvals.known ~= true)
+beforeD = count("approval_detail")
+local p0 = count("approvals_pending")
+clock = clock + 31
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check(
+  "state unknown: /chat/action asks approvals_pending first and refuses with a sentence",
+  r.ok == false
+    and r.reason == "approvals_unknown"
+    and count("approvals_pending") > p0
+    and count("approval_detail") == beforeD
+)
+pendingAnswer = "ok"
+approvalsOn = false
+clock = clock + 31
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("…learned off: refused (approvals_off)", r.ok == false and r.reason == "approvals_off")
+approvalsOn = true
+ui.approvals.at = nil
+clock = clock + 31
+state(s)
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("…learned on: the tap goes through", r.ok == true)
+DEPS.cloud = realCloud
+-- 4. the validator's gaps
+local function ok4(t)
+  return ChatActions.actions({ { ref = REF_A, title = t, expires_in = 60, tap_in = 300 } }) ~= nil
+end
+for _, case in ipairs({
+  { "Lamp\225\160\139", "U+180B Mongolian selector" },
+  { "Lamp\225\158\180", "U+17B4" },
+  { "Lamp\240\157\133\179", "U+1D173 musical format" },
+  { "Lamp\239\191\185", "U+FFF9 annotation anchor" },
+  { "\204\129\204\129", "combining marks only (no letter)" },
+  { "\216\168\217\142\217\145\217\143\216\170", "Arabic with three marks in a row" },
+  { "\215\169\214\188\214\176\214\183\215\156", "Hebrew with three points in a row" },
+  { "\208\176\210\131\210\132\210\133", "Cyrillic with three marks in a row" },
+}) do
+  check("dropped: " .. case[2], not ok4(case[1]))
+end
+for _, case in ipairs({
+  { "\217\133\216\181\216\168\216\167\216\173 \216\167\217\132\217\133\216\183\216\168\216\174", "Arabic (no marks)" },
+  {
+    "\217\133\217\143\216\173\217\142\217\133\217\142\217\145\216\175",
+    "Arabic with ordinary harakat (shadda + fatha)",
+  },
+  { "\215\161\214\184\215\156\215\149\215\185\215\159", "Hebrew with ordinary points" },
+  {
+    "\224\164\176\224\164\184\224\165\139\224\164\136 \224\164\149\224\165\128 \224\164\172\224\164\164\224\165\141\224\164\164\224\165\128",
+    "Hindi (vowel signs, virama)",
+  },
+}) do
+  check("kept: " .. case[2], ok4(case[1]))
+end
+-- 5. several cards in flight all reach Done (oldest decision first)
+local function completeAt(seconds)
+  local decidedAt = {}
+  return function(body)
+    local res = { ref = body.ref, risk = "low", args_hash = HASH }
+    if decidedAt[body.ref] == nil then
+      decidedAt[body.ref] = clock
+      return { status = "ok", result = res }
+    end
+    res.execution = { state = clock - decidedAt[body.ref] >= seconds and "completed" or "pending" }
+    return { status = "ok", result = res }
+  end
+end
+fresh("open")
+local refs3 = { REF_A, REF_B, REF_C }
+s = offered({
+  { ref = REF_A, title = "A", expires_in = 600, tap_in = 300 },
+  { ref = REF_B, title = "B", expires_in = 600, tap_in = 300 },
+  { ref = REF_C, title = "C", expires_in = 600, tap_in = 300 },
+})
+for _, r0 in ipairs(refs3) do
+  DETAIL[r0] = completeAt(25)
+  http("POST", "/chat/action", s, { ref = r0, decision = "approve" })
+end
+for _ = 1, 60 do
+  clock = clock + 1
+  state(s)
+end
+local done3 = 0
+for _, r0 in ipairs(refs3) do
+  done3 = done3 + (card(s, r0).state == "done" and 1 or 0)
+end
+check("3 cards in one session completing at 25 s: all Done under the shared cap", done3 == 3, done3)
+fresh("open")
+local four = {}
+for i = 1, 4 do
+  local ref = string.format("%08d-1111-4111-8111-111111111111", i)
+  local x = offered({ { ref = ref, title = "Lamp " .. i, expires_in = 600, tap_in = 300 } })
+  DETAIL[ref] = completeAt(25)
+  four[#four + 1] = { x, ref }
+  clock = clock + 1
+end
+for _, p4 in ipairs(four) do
+  http("POST", "/chat/action", p4[1], { ref = p4[2], decision = "approve" })
+end
+for _ = 1, 60 do
+  clock = clock + 1
+  for _, p4 in ipairs(four) do
+    state(p4[1])
+  end
+end
+local done4 = 0
+for _, p4 in ipairs(four) do
+  done4 = done4 + (card(p4[1], p4[2]).state == "done" and 1 or 0)
+end
+check("4 sessions x 1 card completing at 25 s: all Done", done4 == 4, done4)
+-- 6. a wall clock set back never reopens the one-tap window
+fresh("open")
+s = offered({ { ref = REF_A, title = "Lamp", expires_in = 1800, tap_in = 60 } })
+step(40, s)
+local left1 = card(s, REF_A).tap_in
+clock = clock - 600
+http("POST", "/chat/touch", s)
+local left2 = card(s, REF_A).tap_in
+check(
+  "the clock set back 10 min: tap_in does not grow",
+  left1 == 10 and left2 ~= nil and left2 <= left1,
+  tostring(left1) .. " -> " .. tostring(left2)
+)
+step(11, s)
+check("…and Use PIN still comes 10 s of real time later", card(s, REF_A).needs_pin == true)
+-- 7. the same ref re-offered while its decision is in flight
+fresh("open")
+s = offered({ { ref = REF_A, title = "Lamp", expires_in = 600, tap_in = 300 } })
+DETAIL[REF_A] = function(body)
+  return {
+    status = "ok",
+    result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "pending" } },
+  }
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("(the first card is in flight)", card(s, REF_A).state == "sent")
+clock = clock + 16
+http("POST", "/ask", s, { question = "Again?" })
+ui:deliver(nil, "Again.", lastJob, { actions = { { ref = REF_A, title = "Lamp", expires_in = 600, tap_in = 300 } } })
+local st8 = state(s)
+local older = st8.chat.conversation[#st8.chat.conversation - 1].actions[1]
+local newer = st8.chat.conversation[#st8.chat.conversation].actions[1]
+check(
+  "the in-flight card stays authoritative; the newer one says 'Already confirmed — see above', no buttons",
+  older.state == "sent"
+    and newer.state == "duplicate"
+    and newer.message == Webui.TEXT.action_already_confirmed
+    and not newer.can_decline
+)
+beforeD = count("approval_decide")
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("…a tap on that ref decides nothing new", r.ok == false and count("approval_decide") == beforeD)
 
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then

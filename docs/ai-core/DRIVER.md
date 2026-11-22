@@ -817,11 +817,12 @@ platform shape are in `src/aicore/chatactions.lua`.
   one needs your PIN." with Use PIN and Cancel, and stays until
   `expires_in` runs out.
 - *Outcome.* After `approval_decide` answers `queued` the card says Sent; a
-  session-verified `approval_detail` is polled at 2, 5, 9, 15, 22 and 30 s
-  after the decision (6 at most, one in flight, stopping at the first
-  terminal state), through ONE poller for all cards of all sessions: at most
-  one outcome poll every 2 s and 10 a minute (the platform allows 30 RPC a
-  minute per module, shared with asks and approvals). It runs from the
+  session-verified `approval_detail` is polled at 3, 8, 16 and 30 s after
+  the decision (4 at most, one in flight, stopping at the first terminal
+  state), through ONE poller for all cards of all sessions: at most one
+  outcome poll every 2 s and 16 a minute, the card whose decision is oldest
+  first (the platform allows 30 RPC a minute per module, shared with asks
+  and approvals). It runs from the
   relay's sweep and is never interaction (the idle lock still runs). A
   `rate_limited` answer, six polls without a terminal state, or a last slot
   delayed past 40 s end it with "No confirmation from the controller yet."
@@ -844,13 +845,30 @@ platform shape are in `src/aicore/chatactions.lua`.
     A decide that timed out or never reached the platform (deadline,
     unreachable, an Agent restart) may have run: the card says "Could not
     confirm the request went through. Checking…" and follows the same
-    outcome polls — an execution state is shown, an item the detail shows
-    still waiting gets its buttons back ("That did not go through"), and
+    outcome polls — an execution state is shown; the buttons come back
+    ("That did not go through") only when the detail SAYS the item still
+    waits (an explicit `status` of `pending_approval` / `proposed`; the
+    platform's contract has no such field today, so in practice this never
+    happens — a detail merely without `execution` is not taken as "never
+    decided"); and
     nothing learned ends with "No confirmation from the controller yet.
     Check Approvals before asking again." A poll that never answers is taken
     as lost after 15 s.
   - A card sends at most ONE decline, and a decline is terminal whatever
-    the answer (a refusal shows its sentence, no buttons). Declining an item
+    the answer: taken, "Cancelled"; timed out or refused, "Could not cancel
+    this. It expires on its own, or decline it in Approvals." (never
+    "Cancelled"), no buttons.
+  - While `approvals_pending` has never answered, the state is unknown and
+    counts as off for deciding: `/chat/action` asks it first and refuses
+    ("Checking whether approving from this screen is switched on…") until
+    it answers on.
+  - The same ref offered while an earlier card for it is chosen (in flight
+    or finished): the earlier card stays authoritative and the newer one
+    says "Already confirmed — see above." (or "Already cancelled") with no
+    buttons.
+  - The one-tap countdown counts only forward steps of the wall clock (the
+    driver has no monotonic clock): a clock set back never reopens the
+    window; the page's countdowns likewise only decrease. Declining an item
     that needs a PIN to approve stays allowed.
   - The shared retry can only remove keys: when the session no longer holds
     the owner proof an ask was sent under (locked, or unlocked again), its
@@ -869,9 +887,11 @@ platform shape are in `src/aicore/chatactions.lua`.
   - The shared text validator (`chatv2.plain`, so `display`, `suggestions`
     and cards) also refuses U+00A0, U+034F, Hangul fillers, the Unicode
     spaces other than ASCII's, U+2800, variation selectors (U+FE00–FE0F,
-    U+E0100–E01EF; an emoji written with U+FE0F is refused, one without it
-    passes), U+FFFC/FFFD, private use and more than two combining marks in
-    a row. A card's title must contain a letter or a digit.
+    U+E0100–E01EF, U+180B–180E; an emoji written with U+FE0F is refused,
+    one without it passes), U+17B4/17B5, U+1D173–1D17A, U+FFF9–FFFD,
+    private use and more than two combining marks in a row in any script
+    (Latin, Cyrillic, Hebrew, Arabic, Indic, Thai, Lao). A card's title
+    must contain a letter or a digit that is not a combining mark.
   - Confirm turns into Use PIN 10 s before the card's `tap_in` runs out
     (`tap_margin`), since the platform counts it from the proposal's
     creation and the answer took time to arrive; a platform that still

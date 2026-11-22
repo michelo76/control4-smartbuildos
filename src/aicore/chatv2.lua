@@ -174,7 +174,10 @@ end
 ---   U+202A..U+202E and U+2066..U+2069 bidi; U+2060..U+2064; U+2800 braille
 ---   blank; U+FE00..U+FE0F and U+E0100..U+E01EF variation selectors (so an
 ---   emoji written with U+FE0F is refused; one without it passes);
----   U+FEFF; U+FF00..U+FFEF full-width / half-width forms; U+FFFC, U+FFFD;
+---   U+FEFF; U+FF00..U+FFEF full-width / half-width forms; U+FFF9..U+FFFD
+---   (interlinear annotation, U+FFFC, U+FFFD); U+17B4, U+17B5 (Khmer
+---   inherent vowels); U+180B..U+180E (Mongolian selectors, vowel
+---   separator); U+1D173..U+1D17A (musical format controls);
 ---   private use (U+E000..U+F8FF, planes 15 and 16); tags U+E0000..U+E007F.
 local function forbidden(cp)
   return cp < 0x20
@@ -185,6 +188,9 @@ local function forbidden(cp)
     or cp == 0x115F
     or cp == 0x1160
     or cp == 0x1680
+    or cp == 0x17B4
+    or cp == 0x17B5
+    or (cp >= 0x180B and cp <= 0x180E)
     or (cp >= 0x2000 and cp <= 0x200F)
     or (cp >= 0x2028 and cp <= 0x202F)
     or (cp >= 0x205F and cp <= 0x2064)
@@ -196,20 +202,60 @@ local function forbidden(cp)
     or (cp >= 0xFE00 and cp <= 0xFE0F)
     or cp == 0xFEFF
     or (cp >= 0xFF00 and cp <= 0xFFEF)
-    or cp == 0xFFFC
-    or cp == 0xFFFD
+    or (cp >= 0xFFF9 and cp <= 0xFFFD)
+    or (cp >= 0x1D173 and cp <= 0x1D17A)
     or (cp >= 0xE0000 and cp <= 0xE01EF)
     or cp >= 0xF0000
 end
 M.forbidden = forbidden
 
---- Combining marks (the blocks used for diacritics).
+--- Combining marks, in every script a device name is written in: the
+--- generic diacritic blocks, Cyrillic, Hebrew points, Arabic harakat, the
+--- Indic vowel signs and viramas (one layout per 0x80 block from U+0900 to
+--- U+0DFF), Thai and Lao. Used to refuse stacks of more than two in a row
+--- and to keep a mark from counting as a letter.
+local INDIC_MARKS = { { 0x00, 0x03 }, { 0x3A, 0x3C }, { 0x3E, 0x4F }, { 0x51, 0x57 }, { 0x62, 0x63 } }
 function M.combining(cp)
-  return (cp >= 0x300 and cp <= 0x36F)
+  if
+    (cp >= 0x300 and cp <= 0x36F)
+    or (cp >= 0x483 and cp <= 0x489)
+    or (cp >= 0x591 and cp <= 0x5BD)
+    or cp == 0x5BF
+    or cp == 0x5C1
+    or cp == 0x5C2
+    or cp == 0x5C4
+    or cp == 0x5C5
+    or cp == 0x5C7
+    or (cp >= 0x610 and cp <= 0x61A)
+    or (cp >= 0x64B and cp <= 0x65F)
+    or cp == 0x670
+    or (cp >= 0x6D6 and cp <= 0x6DC)
+    or (cp >= 0x6DF and cp <= 0x6E4)
+    or cp == 0x6E7
+    or cp == 0x6E8
+    or (cp >= 0x6EA and cp <= 0x6ED)
+    or cp == 0xE31
+    or (cp >= 0xE34 and cp <= 0xE3A)
+    or (cp >= 0xE47 and cp <= 0xE4E)
+    or cp == 0xEB1
+    or (cp >= 0xEB4 and cp <= 0xEBC)
+    or (cp >= 0xEC8 and cp <= 0xECD)
     or (cp >= 0x1AB0 and cp <= 0x1AFF)
     or (cp >= 0x1DC0 and cp <= 0x1DFF)
     or (cp >= 0x20D0 and cp <= 0x20FF)
     or (cp >= 0xFE20 and cp <= 0xFE2F)
+  then
+    return true
+  end
+  if cp >= 0x900 and cp <= 0xDFF then
+    local o = (cp - 0x900) % 0x80
+    for _, r in ipairs(INDIC_MARKS) do
+      if o >= r[1] and o <= r[2] then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 --- Whether `s` looks like a link: a URL, a www. address or a bare domain
@@ -259,7 +305,8 @@ local function plain(v, max)
   return v
 end
 
---- Whether `s` (well-formed UTF-8) holds at least one letter or digit: an
+--- Whether `s` (well-formed UTF-8) holds at least one letter or digit (a
+--- combining mark never counts): an
 --- ASCII one, or a code point in the letter blocks of the scripts a device
 --- name is written in (Latin, Greek, Cyrillic, Armenian, Hebrew, Arabic,
 --- Indic, Thai, Lao, Hangul, kana, CJK).
@@ -285,7 +332,7 @@ function M.hasWordChar(s)
     if (cp >= 0x30 and cp <= 0x39) or (cp >= 0x41 and cp <= 0x5A) or (cp >= 0x61 and cp <= 0x7A) then
       return true
     end
-    if cp ~= 0xD7 and cp ~= 0xF7 then
+    if cp ~= 0xD7 and cp ~= 0xF7 and not M.combining(cp) then
       for _, r in ipairs(LETTER_RANGES) do
         if cp >= r[1] and cp <= r[2] then
           return true

@@ -366,8 +366,8 @@ var AIC = (function () {
   // or bare domain, at most `max` characters.
   // Control, invisible, blank, bidirectional, variation-selector, tag,
   // full-width and private-use characters (as src/aicore/chatv2.lua).
-  var CTRL = /[\u0000-\u001f\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u2000-\u200f\u2028-\u202f\u205f-\u2064\u2066-\u2069\u2800\u3000\u3164\ue000-\uf8ff\ufe00-\ufe0f\ufeff\uff00-\uffef\ufffc\ufffd\u{e0000}-\u{e01ef}\u{f0000}-\u{10ffff}]/u;
-  var MARKS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]{3,}/u;
+  var CTRL = /[\u0000-\u001f\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u17b4\u17b5\u180b-\u180e\u2000-\u200f\u2028-\u202f\u205f-\u2064\u2066-\u2069\u2800\u3000\u3164\ue000-\uf8ff\ufe00-\ufe0f\ufeff\uff00-\uffef\ufff9-\ufffd\u{1d173}-\u{1d17a}\u{e0000}-\u{e01ef}\u{f0000}-\u{10ffff}]/u;
+  var MARKS = /\p{M}{3,}/u; // more than two combining marks in a row, any script
   var LINK = /[a-z][a-z0-9+.\-]*:\/\/|www\.|mailto:|[a-z0-9\-]*[a-z][a-z0-9\-]*\.[a-z]{2,}/i;
   A.plain = function (v, max) {
     if (typeof v !== 'string' || !v || v !== v.trim()) { return null; }
@@ -805,12 +805,16 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
     var gone = (Date.now() - countdownsAt) / 1000;
     var redraw = false;
     countdowns.forEach(function (c) {
-      var left = Math.max(0, (Number(c.expires_in) || 0) - gone);
+      // Countdowns only ever go down: a clock set back never reopens them.
+      var left = Math.min(c.minLeft === undefined ? Infinity : c.minLeft, Math.max(0, (Number(c.expires_in) || 0) - gone));
+      c.minLeft = left;
       c.line.textContent = AIC.countdown(left);
       if (left <= 0) { c.buttons.forEach(function (b) { b.disabled = true; }); }
       // The platform's one-tap window ran out: Confirm becomes Use PIN now,
       // not at the next poll.
-      if (c.tap_in !== undefined && c.tap_in !== null && !c.action.needs_pin && c.tap_in - gone <= 0) {
+      var tap = Math.min(c.minTap === undefined ? Infinity : c.minTap, (Number(c.tap_in) || 0) - gone);
+      c.minTap = tap;
+      if (c.tap_in !== undefined && c.tap_in !== null && !c.action.needs_pin && tap <= 0) {
         c.action.needs_pin = true;
         c.action.tap_in = null;
         redraw = true;

@@ -37,14 +37,14 @@ M.LIMITS = {
   tap_max = 300, -- `tap_in`: seconds left for a one-tap confirm (0 = the PIN flow from the start)
   tap_margin = 10, -- the last seconds of tap_in already need a PIN (delivery lag)
   -- The outcome: approval_detail at these seconds after the approved
-  -- decision (6 polls at most per card), stopping at the first terminal
+  -- decision (4 polls at most per card), stopping at the first terminal
   -- execution state. The platform's RPC budget is 30 requests a minute per
   -- module, shared with asks and approvals, so ONE poller for every card of
   -- every session sends at most one poll every `poll_gap_seconds` and at
   -- most `polls_per_minute` in all.
-  poll_schedule = { 2, 5, 9, 15, 22, 30 },
+  poll_schedule = { 3, 8, 16, 30 },
   poll_gap_seconds = 2,
-  polls_per_minute = 10,
+  polls_per_minute = 16,
   outcome_give_up_seconds = 40, -- a last slot the shared cap delayed this long: given up
   poll_lost_seconds = 15, -- a poll with no answer this long is taken as lost
 }
@@ -173,6 +173,18 @@ function M.executionOf(result)
     return "failed", ChatV2.plain(ex.message, 300)
   end
   return "pending", nil
+end
+
+--- Whether a session-verified detail SAYS the item still waits for a
+--- decision. The platform's contract has no such field today (a waiting
+--- item's detail is today's fields without `execution`, and a missing
+--- `execution` cannot tell "never decided" from an unreadable answer), so
+--- only an explicit status counts: `status` = "pending_approval" or
+--- "proposed". Until the platform sends one, an uncertain decision is never
+--- reopened; it ends "Check Approvals before asking again".
+local WAITING = { pending_approval = true, proposed = true }
+function M.stillWaiting(result)
+  return type(result) == "table" and result.execution == nil and WAITING[result.status] == true
 end
 
 return M
