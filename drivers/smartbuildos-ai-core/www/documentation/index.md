@@ -171,7 +171,7 @@ Relay Address**.
 | Last Synchronization           | The last time SmartBuildOS was heard from                                                                                                                                                                |
 | Last Test Result               | The result of *Test Agent Link* or *Test AI Connection*                                                                                                                                                  |
 | Last Error                     | The last error or refusal                                                                                                                                                                                |
-| Touchscreen Detail (editable)  | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (no household activity) or *Household* (only if the homeowner allows it in the portal). It can only lower what the homeowner allowed |
+| Touchscreen Detail (editable)  | What the touchscreen chat may answer: *Basic* (no chat), *Standard* (equipment status) or *Household* (with an owner PIN, also the current state of devices; activity only when the homeowner allows it) |
 | Touchscreen Approvals          | The touchscreen chat and approvals in plain words: whether PIN Lock can check an owner PIN here, and whether the homeowner switched approvals on                                                         |
 | Webview Address                | Where the AI Core page is served on the home network (port 47871)                                                                                                                                        |
 | App Relay Address (editable)   | *Auto*, or the controller's LAN address when **Webview Address** says it is unknown (set the same value on PIN Lock)                                                                                     |
@@ -254,15 +254,20 @@ fallback. Three parts:
   whether PIN Lock can check a PIN on this screen.
 - **Chat** (owner PIN to open it and to ask): locked until someone enters an
   **owner** PIN from the **SmartBuildOS PIN Lock** driver. It locks again after
-  5 minutes without use, when the page closes, when the driver restarts, and
-  when someone presses *Lock*. Each question is answered on its own (no
-  follow-ups). Answers stay on that page only: they never go to
-  `AI_LAST_RESPONSE` and never fire *AI Response Ready*. Once unlocked, the chat
-  offers the three built-in questions and, before them, up to 6 **preset
-  questions** your integrator set in System Studio (they arrive with the AI Core
-  configuration). A locked chat shows none. Pressing a preset asks exactly that
-  question; after the list changes, an old button is refused rather than
-  answered as another question.
+  5 minutes without use, 30 minutes after the PIN whatever the use, when the
+  page closes, when the driver restarts, and when someone presses *Lock*. With
+  **Touchscreen Detail** at *Household*, an owner PIN also lets the chat answer
+  about the current state of devices (doors, locks, lights, sensors), and those
+  values go to SmartBuildOS and the AI provider whatever the homeowner's
+  household switch in the portal says; that switch still decides activity
+  patterns. At *Standard* a PIN opens the chat and nothing more. Each question
+  is answered on its own (no follow-ups). Answers stay on that page only: they
+  never go to `AI_LAST_RESPONSE` and never fire *AI Response Ready*. Once
+  unlocked, the chat offers the three built-in questions and, before them, up to
+  6 **preset questions** your integrator set in System Studio (they arrive with
+  the AI Core configuration). A locked chat shows none. Pressing a preset asks
+  exactly that question; after the list changes, an old button is refused rather
+  than answered as another question.
 - **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
   then shows the item's title, description and risk; *Approve* or *Decline*
   within 60 seconds. Only low- and medium-risk action proposals can be decided

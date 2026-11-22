@@ -52,6 +52,7 @@ M.LIMITS = {
   sessions = 4, -- page sessions held at once (least recently seen evicted)
   session_gone_seconds = 75, -- no request for this long: the page is gone
   unlock_idle_seconds = 300, -- the chat locks after 5 minutes without interaction
+  unlock_max_seconds = 1800, -- …and 30 minutes after the PIN, whatever the activity (= the platform's age cap for `unlock`)
   conversation = 10, -- exchanges kept per session
   conversation_idle_seconds = 900, -- cleared after 15 minutes without interaction
   answer_wait_seconds = 300, -- an unanswered question is shown as failed after this
@@ -273,14 +274,33 @@ M.COMMANDS = {
 M.COMMAND_PATTERN = "^AI_[A-Z_]+$"
 M.COMMAND_NAME = { min = 2, max = 40 } -- characters after "AI_"
 
-function M.askBody(requestId, question, detail)
-  return {
+--- `unlock` (owner decision: an owner PIN at the touchscreen unlocks fuller
+--- DEVICE answers): the ask says its session was unlocked with an owner PIN,
+--- as PIN Lock's redeem established it — the four keys of an approval's
+--- verification (nonce, verified_at, role, method), never a PIN. Sent only
+--- while Touchscreen Detail is Household (unlockFor). The platform then reads
+--- device state at scope `full` for that one ask, whatever the homeowner's
+--- household switch says; household ACTIVITY stays behind that switch. The
+--- platform cannot verify a PIN: it takes this driver's word, bounded by the
+--- age of verified_at (LIMITS.unlock_max_seconds on both sides; the parity
+--- tests of both repositories hold the name, the values and the number).
+M.UNLOCK = { field = "unlock", role = "owner", method = "pin_lock" }
+--- deliver_result's `channel` for an answer that belongs to this page.
+M.RESULT_CHANNEL = "touchscreen"
+
+--- @param unlock table|nil M.verification(the session's chat_view proof)
+function M.askBody(requestId, question, detail, unlock)
+  local body = {
     command = M.COMMANDS.ask,
     request_id = requestId,
     question = clean(question, M.LIMITS.question),
     channel = M.CHANNEL,
     detail = M.DETAILS[detail] and detail or "standard",
   }
+  if unlock ~= nil then
+    body[M.UNLOCK.field] = unlock
+  end
+  return body
 end
 
 function M.verification(proof)
@@ -409,6 +429,9 @@ function M.new(deps)
   self.approvalsInflight = false
   self.approvalsReason = nil
   self.refusals = {} -- [op] = the last refused cloud answer, codes only (refusalCodes)
+  -- The platform answered `unknown_fields: unlock` (it is older than this
+  -- driver): `unlock` is not sent again for the rest of this driver run.
+  self.unlockNotAccepted = false
   self.presetRev = math.floor(tonumber(deps.now()) or 0)
   self.presetSig = nil
   self.counters = {
@@ -424,6 +447,8 @@ function M.new(deps)
     decisions = 0,
     refused_locked = 0,
     pin_bodies_refused = 0,
+    unlock_sent = 0, -- asks that carried `unlock`
+    unlock_retried = 0, -- asks sent again without it (the platform did not know the field)
   }
   return self
 end
@@ -660,7 +685,8 @@ local function interacted(self, s)
   s.touched = t
   local chat = proofFor(self, s, "chat_view", s.sid)
   if chat ~= nil then
-    chat.ends = t + M.LIMITS.unlock_idle_seconds
+    -- Activity extends the unlock, never past 30 minutes after the PIN.
+    chat.ends = math.min(t + M.LIMITS.unlock_idle_seconds, chat.max)
   end
 end
 
@@ -816,7 +842,11 @@ local function redeem(self, s, challengeId)
       if p.subject ~= s.sid then
         return
       end
-      proof.ends = t + M.LIMITS.unlock_idle_seconds
+      -- Two ends: 5 minutes without interaction (extended by use), and 30
+      -- minutes after the PIN whatever the use — counted from PIN Lock's own
+      -- verified_at, which is the time the platform's age cap reads.
+      proof.max = math.min(t, r.verified_at) + M.LIMITS.unlock_max_seconds
+      proof.ends = math.min(t + M.LIMITS.unlock_idle_seconds, proof.max)
       s.proofs.chat_view = proof
       s.touched = t
       s.notice = nil
@@ -1003,6 +1033,85 @@ local function suggestionQuestion(self, id)
   return nil
 end
 
+--- The `unlock` an ask from session `s` carries, or nil (M.UNLOCK). Only
+--- while the dealer's Touchscreen Detail is Household — at Standard nothing is
+--- attested and answers stay as they were —, only from this session's live
+--- chat_view proof, whose role is owner (redeem creates no other), and not
+--- once the platform has said it does not know the field.
+local function unlockFor(self, s)
+  if self.unlockNotAccepted or self.deps.detail() ~= "household" then
+    return nil
+  end
+  local proof = proofFor(self, s, "chat_view", s.sid)
+  if proof == nil or proof.role ~= M.UNLOCK.role then
+    return nil
+  end
+  return M.verification(proof)
+end
+
+--- Whether the platform refused an ask because it does not know `unlock`
+--- (a platform older than this driver: invalid_args, reason unknown_fields,
+--- fields naming it).
+local function unlockUnknown(answer)
+  answer = type(answer) == "table" and answer or {}
+  local r = type(answer.result) == "table" and answer.result or {}
+  if answer.status == "ok" or answer.error_code ~= "invalid_args" or r.reason ~= "unknown_fields" then
+    return false
+  end
+  for _, f in ipairs(type(r.fields) == "table" and r.fields or {}) do
+    if f == M.UNLOCK.field then
+      return true
+    end
+  end
+  return false
+end
+
+--- Sends one ask and reads its accept answer. `unlock` ~= nil: the body
+--- carries it (unlockFor).
+local function sendAsk(self, entry, requestId, question, detail, unlock)
+  if unlock ~= nil then
+    self.counters.unlock_sent = self.counters.unlock_sent + 1
+  end
+  self.deps.cloud("ask", M.askBody(requestId, question, detail, unlock), function(answer)
+    local r = Commands.interpret(answer)
+    if r.outcome == "accepted" then
+      entry.job_id = r.job_id
+      self.refusals.ask = nil
+      return
+    end
+    if unlock ~= nil and unlockUnknown(answer) and self.asks[requestId] ~= nil then
+      -- An older platform refuses the whole ask for the key it does not
+      -- know. ONCE: the same question again without `unlock` (answered at the
+      -- scope it always had), and never `unlock` again in this driver run,
+      -- so an old platform costs one extra round trip, not one per ask. A
+      -- NEW request id: the refusal is stored against the old one.
+      self.unlockNotAccepted = true
+      self.counters.unlock_retried = self.counters.unlock_retried + 1
+      local again = self.deps.newRequestId()
+      self.asks[again], self.asks[requestId] = self.asks[requestId], nil
+      entry.id = again
+      sendAsk(self, entry, again, question, detail, nil)
+      return
+    end
+    if r.outcome == "completed" then
+      self.asks[requestId] = nil
+      entry.state = "failed"
+      entry.message = M.text("unavailable")
+    elseif r.outcome == "unreachable" or r.outcome == "unavailable" then
+      -- The accept answer was lost; the platform may hold a job all the same.
+      abandon(self, requestId)
+      entry.state = "failed"
+      entry.message = M.text("cloud_unreachable")
+    else
+      self.asks[requestId] = nil
+      entry.state = "refused"
+      entry.message = M.text(cloudReason(answer))
+      self:refused("ask", answer)
+    end
+    notify(self)
+  end)
+end
+
 local function ask(self, s, body)
   local ok, why = self:chatAvailable()
   if not ok then
@@ -1054,30 +1163,7 @@ local function ask(self, s, body)
   addEntry(s, entry)
   self.asks[requestId] = { token = s.token, entry = entry }
   self.counters.asks = self.counters.asks + 1
-  self.deps.cloud("ask", M.askBody(requestId, question, self.deps.detail()), function(answer)
-    local r = Commands.interpret(answer)
-    if r.outcome == "accepted" then
-      entry.job_id = r.job_id
-      self.refusals.ask = nil
-      return
-    end
-    if r.outcome == "completed" then
-      self.asks[requestId] = nil
-      entry.state = "failed"
-      entry.message = M.text("unavailable")
-    elseif r.outcome == "unreachable" or r.outcome == "unavailable" then
-      -- The accept answer was lost; the platform may hold a job all the same.
-      abandon(self, requestId)
-      entry.state = "failed"
-      entry.message = M.text("cloud_unreachable")
-    else
-      self.asks[requestId] = nil
-      entry.state = "refused"
-      entry.message = M.text(cloudReason(answer))
-      self:refused("ask", answer)
-    end
-    notify(self)
-  end)
+  sendAsk(self, entry, requestId, question, self.deps.detail(), unlockFor(self, s))
   return true, requestId
 end
 
@@ -1115,6 +1201,13 @@ end
 function UI:owns(requestId, jobId)
   local _, a = findAsk(self, requestId, jobId)
   return a ~= nil or orphaned(self, requestId) or orphaned(self, jobId)
+end
+
+--- A deliver_result marked for this page (channel touchscreen) that no ask
+--- here owns — the driver restarted, or the accept answer was lost: dropped
+--- and counted. It is never a Composer answer.
+function UI:dropUnowned()
+  self.counters.answers_dropped = self.counters.answers_dropped + 1
 end
 
 --- Touchscreen asks waiting for an answer: how many, and the oldest's age.
@@ -1195,6 +1288,8 @@ local function chatView(self, s)
   return {
     locked = false,
     locks_in = math.max(0, p.ends - self:now()),
+    -- true: the 30 minutes after the PIN end it, and using the chat no longer extends it
+    locks_fixed = p.ends >= p.max,
     conversation = list,
     suggestions = sug,
     explain = true,

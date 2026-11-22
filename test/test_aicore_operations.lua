@@ -70,6 +70,26 @@ check("deliver_result with a malformed response_id", refused("deliver_result", {
 check("deliver_result text over 4000", refused("deliver_result", { response_id = "r", text = string.rep("x", 4001) }))
 check("deliver_result unknown kind", refused("deliver_result", { response_id = "r", text = "x", kind = "command" }))
 check("count out of range", refused("deliver_result", { response_id = "r", text = "x", pending_approvals = -1 }))
+-- `channel`: the answer to an ask that carried `unlock` belongs to the
+-- touchscreen page (closed list, the platform's AI_CORE_RESULT_CHANNELS).
+check(
+  "deliver_result channel touchscreen is kept",
+  O.parse("deliver_result", { response_id = "r", text = "x", channel = "touchscreen" }).channel == "touchscreen"
+)
+check(
+  "deliver_result without a channel has none",
+  O.parse("deliver_result", { response_id = "r", text = "x" }).channel == nil
+)
+for _, bad in ipairs({ "composer", "portal", "Touchscreen", "", 1, true }) do
+  check(
+    "deliver_result channel " .. tostring(bad) .. " refuses it",
+    refused("deliver_result", { response_id = "r", text = "x", channel = bad })
+  )
+end
+check(
+  "the closed channel list",
+  O.RESULT_CHANNELS.touchscreen == true and next(O.RESULT_CHANNELS, "touchscreen") == nil
+)
 check("set_learning active not boolean", refused("set_learning", { active = "on" }))
 check("set_learning config_version negative", refused("set_learning", { active = true, config_version = -1 }))
 check("set_learning config_version fractional", refused("set_learning", { active = true, config_version = 1.5 }))
