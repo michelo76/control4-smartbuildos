@@ -45,17 +45,35 @@ function check(name, ok, detail) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let server = null;
+// A dev server left over from an earlier, interrupted run answers on the
+// same ports (the page only ever posts a PIN to 47831): the test would then
+// drive the OLD server (another access mode, other state). Refuse to start
+// over one, and kill ours however this process ends.
+async function answers(url) {
+  try { await fetch(url, { signal: AbortSignal.timeout(1000) }); return true; } catch (e) { return false; }
+}
+function stop() { if (server) { server.kill(); server = null; } }
+process.on("exit", stop);
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { stop(); process.exit(130); });
 async function serve(access, port) {
-  if (server) { server.kill(); await sleep(400); }
+  if (server) {
+    const old = server;
+    stop();
+    await new Promise((r) => (old.exitCode !== null ? r() : old.once("exit", r)));
+  }
+  for (const url of ["http://127.0.0.1:" + port + "/ping", "http://127.0.0.1:47831/verify"]) {
+    if (await answers(url)) throw new Error("something already answers at " + url + ": a stale dev server? (pkill -f tools/aicore-dev.py)");
+  }
   server = spawn("python3", ["tools/aicore-dev.py", "--port", String(port)], {
     cwd: repo, env: { ...process.env, AIC_DEV_ACCESS: access, AIC_DEV_QUIET: "1", AIC_DEV_DELAY: "2" }, stdio: ["ignore", "pipe", "pipe"],
   });
-  const base = "http://127.0.0.1:" + port;
-  for (let i = 0; i < 80; i++) {
-    try { const r = await fetch(base + "/ping"); if (r.ok) return base; } catch (e) { /* not up yet */ }
-    await sleep(100);
-  }
-  throw new Error("dev server did not start on " + port);
+  // Ours is up when IT says so (its first line), not when a port answers.
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("dev server did not start on " + port)), 15000);
+    server.stdout.on("data", (d) => { if (/AI Core dev page/.test(String(d))) { clearTimeout(t); resolve(); } });
+    server.once("exit", (c) => { clearTimeout(t); reject(new Error("dev server exited (" + c + ")")); });
+  });
+  return "http://127.0.0.1:" + port;
 }
 const dev = (base, p, body) => fetch(base + p, { method: "POST", body: JSON.stringify(body || {}) }).then((r) => r.json());
 
@@ -125,10 +143,13 @@ try {
     await noHScroll(page, view + " empty"); await targets(page, view + " empty"); await clipped(page, view + " empty");
     await shot(page, `open-empty-${view}`);
 
-    // a text answer
+    // a text answer (held while the thinking bubble is checked: on a slow
+    // machine the answer could otherwise land before the check)
+    await dev(base, "/__dev/hold", { on: true });
     await ask(page, "What happened today?");
-    await page.waitForSelector(".thinking", { timeout: 4000 });
+    await page.waitForSelector(".thinking", { timeout: 8000 });
     check(view + ": thinking bubble with seconds", /Thinking… \d+ s/.test(await thread(page)));
+    await dev(base, "/__dev/hold", { on: false });
     await page.waitForSelector(".msg.a:not(.thinking)", { timeout: 8000 });
     check(view + ": the text answer arrives", /Today was quiet/.test(await thread(page)));
     await shot(page, `open-conversation-${view}`);
@@ -215,11 +236,13 @@ try {
     check(view + ": Confirm at least 44 px", bb.height >= 44 && bb.width >= 44, JSON.stringify(bb));
     await noHScroll(page, view + " action"); await clipped(page, view + " action");
     await shot(page, `action-card-${view}`);
+    await dev(base, "/__dev/execution", { hold: true }); // Sent… stays until released
     await card.locator('button[data-act="approve"]').click();
     check(view + ": after the tap both buttons are disabled at once", await card.locator("button").first().isDisabled().catch(() => true));
-    await page.waitForFunction(() => /Sent…/.test(document.getElementById("thread").innerText), null, { timeout: 5000 })
+    await page.waitForFunction(() => /Sent…/.test(document.getElementById("thread").innerText), null, { timeout: 8000 });
     check(view + ": Sent… (not Done) until the controller reports", !/Done/.test(await page.locator(".b-action").last().innerText()));
     await shot(page, `action-sent-${view}`);
+    await dev(base, "/__dev/execution", { hold: false });
     await dev(base, "/__dev/advance", { seconds: 6 });
     await page.waitForFunction(() => /Done/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 8000 });
     check(view + ": Done from the reported execution", true);
@@ -227,8 +250,10 @@ try {
     await dev(base, "/__dev/advance", { seconds: 61 });
     await ask(page, "Set the den to 21");
     await page.waitForFunction(() => /Set the den/.test(Array.from(document.querySelectorAll(".b-action")).pop()?.innerText || ""), null, { timeout: 8000 });
+    await dev(base, "/__dev/execution", { hold: true });
     await page.locator(".b-action").last().locator('button[data-act="approve"]').click();
-    await page.waitForFunction(() => /Sent…/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 5000 });
+    await page.waitForFunction(() => /Sent…/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 8000 });
+    await dev(base, "/__dev/execution", { hold: false });
     await dev(base, "/__dev/advance", { seconds: 6 });
     await page.waitForFunction(() => /Failed: The den thermostat did not accept the change\./.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 8000 });
     check(view + ": Failed with the platform's sentence", true);

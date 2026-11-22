@@ -835,6 +835,47 @@ platform shape are in `src/aicore/chatactions.lua`.
   show their sentence and withdraw the card. Use PIN calls
   `/approvals/next {ref}`: the existing review, an `approval` challenge
   bound to that ref, one PIN for that item, method `pin_lock`.
+- *Hardening (security review of the first build, 2026-11-21).*
+  - No card is shown and `/chat/action` refuses (`approvals_off`) while the
+    last `approvals_pending` said touchscreen approvals are off; a refresh
+    in progress keeps that last known value (`approvals.known`).
+  - Only a REAL platform refusal (`not_permitted`, `invalid_args`,
+    `rate_limited`, `payload_too_large`, `unsupported`) is shown as refused.
+    A decide that timed out or never reached the platform (deadline,
+    unreachable, an Agent restart) may have run: the card says "Could not
+    confirm the request went through. Checking…" and follows the same
+    outcome polls — an execution state is shown, an item the detail shows
+    still waiting gets its buttons back ("That did not go through"), and
+    nothing learned ends with "No confirmation from the controller yet.
+    Check Approvals before asking again." A poll that never answers is taken
+    as lost after 15 s.
+  - A card sends at most ONE decline, and a decline is terminal whatever
+    the answer (a refusal shows its sentence, no buttons). Declining an item
+    that needs a PIN to approve stays allowed.
+  - The shared retry can only remove keys: when the session no longer holds
+    the owner proof an ask was sent under (locked, or unlocked again), its
+    retry carries neither `unlock` nor `owner_proof`. In Owner PIN mode Lock
+    still does not abandon an ask in flight — its answer is held for the
+    next unlock, as ruling 17 has always done — so the retry goes out
+    without the attestations instead (`test_aicore_chat_actions.lua` [7]).
+  - Every card is bound to the owner proof it was asked under (its nonce):
+    an answer that arrives after a re-unlock offers no card.
+  - Use PIN starts a PIN challenge only for a ref the platform lists as
+    eligible for this screen (`approvals_pending`, refreshed first when
+    stale); any other card says to approve it in the homeowner portal and
+    offers no PIN.
+  - The same ref offered again replaces the older card ("Replaced by a newer
+    suggestion below."); only the newest is live.
+  - The shared text validator (`chatv2.plain`, so `display`, `suggestions`
+    and cards) also refuses U+00A0, U+034F, Hangul fillers, the Unicode
+    spaces other than ASCII's, U+2800, variation selectors (U+FE00–FE0F,
+    U+E0100–E01EF; an emoji written with U+FE0F is refused, one without it
+    passes), U+FFFC/FFFD, private use and more than two combining marks in
+    a row. A card's title must contain a letter or a digit.
+  - Confirm turns into Use PIN 10 s before the card's `tap_in` runs out
+    (`tap_margin`), since the platform counts it from the proposal's
+    creation and the answer took time to arrive; a platform that still
+    answers `session_proposal_too_old` gets Use PIN.
 - *Print Diagnostics* adds to the `touchscreen chat` line: asks with
   `owner_proof`, cards offered, dropped, removed at lock, confirmed,
   cancelled, done, failed, refused, unconfirmed (counts only).

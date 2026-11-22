@@ -379,6 +379,17 @@ assert.strictEqual(statusOf({ state: 'refused', message: 'No.' }).buttons, '');
 assert.strictEqual(statusOf({ state: 'withdrawn', message: 'Gone.' }).buttons, '');
 assert.strictEqual(statusOf({ state: 'expired' }).text, 'Expired');
 assert.strictEqual(AIC.countdown(0), 'Expired', 'the countdown runs out');
+root = new El('div');
+AIC.renderConversation(doc, root, { conversation: [{ id: 'x', q: 'Q', a: 'A', state: 'answered', actions: [
+  { ref: 'r5', title: 'T', state: 'refused', message: 'Needs a PIN.', needs_pin: true, can_decline: false },
+  { ref: 'r6', title: 'T', state: 'replaced', message: 'Replaced by a newer suggestion below.' },
+  { ref: 'r7', title: 'T', state: 'portal', message: 'Use the portal.' }
+] }] }, function () {}, { onAction: function () {}, tapped: {}, countdowns: [] });
+var cs5 = all(root, 'b-action');
+assert.deepStrictEqual(all(cs5[0], 'aact')[0].children.map(function (b) { return b.textContent; }), ['Use PIN'], 'one decline per card: no Cancel once it was sent');
+assert.strictEqual(all(cs5[1], 'aact').length, 0, 'a replaced card has no buttons');
+assert.strictEqual(all(cs5[2], 'aact').length, 0, 'a portal-only card offers no PIN');
+assert.strictEqual(all(cs5[1], 'ast')[0].textContent, 'Replaced by a newer suggestion below.');
 assert.strictEqual(AIC.countdown(61), 'Expires in 1:01');
 var tw = AIC.tapKey({ ref: 'r', state: 'offered' }), tr = AIC.tapKey({ ref: 'r', state: 'refused', needs_pin: true });
 assert.notStrictEqual(tw, tr, 'a new state of the card brings its buttons back');

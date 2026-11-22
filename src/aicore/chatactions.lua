@@ -35,6 +35,7 @@ M.LIMITS = {
   expires_min = 1, -- seconds
   expires_max = 1800,
   tap_max = 300, -- `tap_in`: seconds left for a one-tap confirm (0 = the PIN flow from the start)
+  tap_margin = 10, -- the last seconds of tap_in already need a PIN (delivery lag)
   -- The outcome: approval_detail at these seconds after the approved
   -- decision (6 polls at most per card), stopping at the first terminal
   -- execution state. The platform's RPC budget is 30 requests a minute per
@@ -45,6 +46,7 @@ M.LIMITS = {
   poll_gap_seconds = 2,
   polls_per_minute = 10,
   outcome_give_up_seconds = 40, -- a last slot the shared cap delayed this long: given up
+  poll_lost_seconds = 15, -- a poll with no answer this long is taken as lost
 }
 
 local ITEM_KEYS = { ref = true, title = true, detail = true, expires_in = true, tap_in = true }
@@ -73,7 +75,9 @@ local function item(a)
   local title = ChatV2.plain(a.title, L.title)
   local detail = a.detail ~= nil and ChatV2.plain(a.detail, L.detail) or nil
   local e = tonumber(a.expires_in)
-  if title == nil or (a.detail ~= nil and detail == nil) then
+  -- A title must say something: at least one letter or digit (a card with
+  -- a blank or symbol-only title never gets a live Confirm).
+  if title == nil or not ChatV2.hasWordChar(title) or (a.detail ~= nil and detail == nil) then
     return nil
   end
   if e == nil or e ~= math.floor(e) or e < L.expires_min or e > L.expires_max then

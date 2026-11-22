@@ -364,12 +364,14 @@ var AIC = (function () {
   // The platform's rules, checked again: a string, no leading or trailing
   // whitespace, no control or bidirectional characters, no markup, no URL
   // or bare domain, at most `max` characters.
-  // Control, invisible, bidirectional, tag and full-width characters.
-  var CTRL = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff\uff00-\uffef]|\udb40[\udc00-\udc7f]/;
+  // Control, invisible, blank, bidirectional, variation-selector, tag,
+  // full-width and private-use characters (as src/aicore/chatv2.lua).
+  var CTRL = /[\u0000-\u001f\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u2000-\u200f\u2028-\u202f\u205f-\u2064\u2066-\u2069\u2800\u3000\u3164\ue000-\uf8ff\ufe00-\ufe0f\ufeff\uff00-\uffef\ufffc\ufffd\u{e0000}-\u{e01ef}\u{f0000}-\u{10ffff}]/u;
+  var MARKS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]{3,}/u;
   var LINK = /[a-z][a-z0-9+.\-]*:\/\/|www\.|mailto:|[a-z0-9\-]*[a-z][a-z0-9\-]*\.[a-z]{2,}/i;
   A.plain = function (v, max) {
     if (typeof v !== 'string' || !v || v !== v.trim()) { return null; }
-    if (CTRL.test(v) || /[<>]/.test(v) || LINK.test(v) || Array.from(v).length > max) { return null; }
+    if (CTRL.test(v) || MARKS.test(v) || /[<>]/.test(v) || LINK.test(v) || Array.from(v).length > max) { return null; }
     return v;
   };
   function closed(o, keys) {
@@ -589,7 +591,8 @@ var AIC = (function () {
       var first = st.buttons === 'pin'
         ? { label: 'Use PIN', what: 'pin', cls: 'primary' }
         : { label: 'Confirm', what: 'approve', cls: 'primary' };
-      [first, { label: 'Cancel', what: 'decline', cls: '' }].forEach(function (b) {
+      var list = a.can_decline === false ? [first] : [first, { label: 'Cancel', what: 'decline', cls: '' }];
+      list.forEach(function (b) {
         var el = A.el(doc, 'button', b.cls, b.label);
         el.setAttribute('type', 'button');
         el.setAttribute('data-act', b.what);
@@ -600,7 +603,7 @@ var AIC = (function () {
             if (tapped) { tapped[key] = true; }
             btns.forEach(function (x) { x.disabled = true; });
           }
-          onAct(a.ref, b.what);
+          onAct(a.ref, b.what, key);
         });
         btns.push(el);
         row.appendChild(el);
@@ -779,10 +782,21 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   var tapped = {};
   var countdowns = [];
   var countdownsAt = 0;
-  function actionNow(ref, what) {
+  function actionNow(ref, what, key) {
     notice('');
-    if (what === 'pin') { act('/approvals/next', { ref: ref }); apprOpen = true; return; }
+    if (what === 'pin') {
+      apprOpen = true;
+      act('/approvals/next', { ref: ref }, false, function (j) {
+        apprOpen = false;
+        notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.');
+      });
+      return;
+    }
     act('/chat/action', { ref: ref, decision: what }, false, function (j) {
+      // Refused here (too many requests, the unlock ended…): the card did
+      // not change, so its buttons come back with the sentence.
+      if (key) { delete tapped[key]; }
+      sig = '';
       notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.');
     });
   }

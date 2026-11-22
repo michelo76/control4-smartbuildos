@@ -27,6 +27,7 @@
 ---   POST /__dev/hold     {on}        hold every answer (the thinking state)
 ---   POST /__dev/advance  {seconds}   move the clock forward
 ---   POST /__dev/presets  {list}      the dealer's preset questions
+---   POST /__dev/execution {hold}     keep every action's execution pending
 
 package.path = "src/?.lua;vendor/?.lua;test/?.lua;" .. package.path
 C4 = C4 or {}
@@ -59,6 +60,7 @@ local ACT = {
   scene = "cccccccc-3333-4333-8333-333333333333", -- tap_in 0: Use PIN from the start
 }
 local decided = {} -- [ref] = clock when approved
+local holdExecution = false -- /__dev/execution {hold}: execution stays pending
 
 local function newHex()
   seq = seq + 1
@@ -188,7 +190,7 @@ local ui = Webui.new({
       local r = { ref = body.ref, title = "Proposal", risk = "low", args_hash = string.rep("ab", 32) }
       local at = decided[body.ref]
       if at ~= nil and body.verification and body.verification.method == "pin_lock_session" then
-        if clock - at < 5 then
+        if holdExecution or clock - at < 5 then
           r.execution = { state = "pending" }
         elseif body.ref == ACT.den then
           r.execution = {
@@ -262,6 +264,8 @@ local function dev(path, body)
     hold = b.on == true
   elseif path == "/__dev/advance" then
     offset = offset + (tonumber(b.seconds) or 0)
+  elseif path == "/__dev/execution" then
+    holdExecution = b.hold == true
   elseif path == "/__dev/presets" then
     presets = type(b.list) == "table" and b.list or {}
   else

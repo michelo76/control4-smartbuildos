@@ -120,6 +120,8 @@ local clock = 1800000000
 local seq = 0
 local cloud = {}
 local mode, detail, pinReady, approvalsOn = "open", "standard", true, true
+local eligibleRefs = nil -- refs approvals_pending lists for this screen (nil: REF_A, REF_B, REF_C)
+local deferCloud = nil -- function(o, body, cb) -> true when it keeps the callback (asynchronous answers)
 local refuseAsk = nil -- function(body) -> answer
 local DETAIL = {} -- [ref] = function(body) -> answer
 local DECIDE = {} -- [ref] = function(body) -> answer
@@ -164,11 +166,18 @@ local DEPS = {
   end,
   cloud = function(o, body, cb)
     cloud[#cloud + 1] = { op = o, body = body, at = clock }
+    if deferCloud and deferCloud(o, body, cb) then
+      return
+    end
     if o == "ask" then
       lastJob = "job-" .. #cloud
       cb(refuseAsk and refuseAsk(body) or { status = "ok", result = { accepted = true, job_id = lastJob } })
     elseif o == "approvals_pending" then
-      cb({ status = "ok", result = { enabled = approvalsOn, count = 1, eligible = {} } })
+      local el = {}
+      for _, r0 in ipairs(eligibleRefs or { REF_A, REF_B, REF_C }) do
+        el[#el + 1] = { ref = r0, expires_at = clock + 3600 }
+      end
+      cb({ status = "ok", result = { enabled = approvalsOn, count = #el, eligible = el } })
     elseif o == "approval_detail" then
       local f = DETAIL[body.ref]
       cb(f and f(body) or {
@@ -233,6 +242,7 @@ local function step(seconds, s)
 end
 local function fresh(m)
   mode, detail, pinReady, approvalsOn = m or "open", "standard", true, true
+  eligibleRefs, deferCloud = nil, nil
   refuseAsk, DETAIL, DECIDE = nil, {}, {}
   clock = clock + 3600
   ui = Webui.new(DEPS)
@@ -729,16 +739,29 @@ end
 beforeD = count("approval_decide")
 http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
 check("a medium-risk detail: no decision, Use PIN", count("approval_decide") == beforeD and card(s, REF_A).needs_pin)
--- tap_in: Confirm only while the platform's one-tap window lasts
+-- tap_in: Confirm only while the platform's one-tap window lasts, less 10 s
+fresh("open")
+s = offered({ { ref = REF_A, title = "Lights", expires_in = 600, tap_in = 10 } })
+check("tap_in 10: inside the margin, Use PIN from the start", card(s, REF_A).needs_pin and card(s, REF_A).tap_in == nil)
+s = offered({ { ref = REF_B, title = "Lights", expires_in = 600, tap_in = 11 } })
+check("tap_in 11: Confirm for 1 s", card(s, REF_B).needs_pin == nil and card(s, REF_B).tap_in == 1)
 fresh("open")
 s = offered({ { ref = REF_A, title = "Lights", expires_in = 600, tap_in = 120 } })
-check("tap_in 120: Confirm, with the seconds left", card(s, REF_A).needs_pin == nil and card(s, REF_A).tap_in == 120)
+check(
+  "tap_in 120: Confirm, with the seconds left less the 10 s margin",
+  card(s, REF_A).needs_pin == nil and card(s, REF_A).tap_in == 110
+)
 step(100, s)
 http("POST", "/chat/touch", s)
 check("…still Confirm at 100 s", card(s, REF_A).needs_pin == nil)
-step(21, s)
+step(9, s)
+check("…still Confirm at 109 s", card(s, REF_A).needs_pin == nil)
+step(1, s)
 c = card(s, REF_A)
-check("…after 120 s: Use PIN, the card still offered", c.needs_pin and c.state == "offered" and c.expires_in > 0)
+check(
+  "…at 110 s (the last 10 s of tap_in): Use PIN, the card still offered",
+  c.needs_pin and c.state == "offered" and c.expires_in > 0
+)
 beforeD = count("approval_detail")
 r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
 check(
@@ -798,6 +821,340 @@ check(
   "Print Diagnostics line counts actions, no text",
   ui:chatLine():find("chat_actions_v1", 1, true) ~= nil and not ui:chatLine():find("patio", 1, true)
 )
+
+print("[7] the security review's findings")
+-- 1. approvals switched off: nothing can be decided (and a refresh in
+-- progress keeps the last known value)
+fresh("open")
+s = offered()
+approvalsOn = false
+ui.approvals.at = nil
+state(s)
+beforeD = count("approval_detail") + count("approval_decide")
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check(
+  "approvals off: /chat/action refused, nothing sent",
+  r.ok == false and r.reason == "approvals_off" and count("approval_detail") + count("approval_decide") == beforeD
+)
+fresh("open")
+s = offered()
+local sB2 = offered({ { ref = REF_C, title = "Other", expires_in = 600, tap_in = 300 } })
+approvalsOn = false
+ui.approvals.at = nil
+state(s) -- the list now says off
+http("POST", "/chat/action", sB2, { ref = REF_C, decision = "decline" }) -- refused (off): no refresh reset either
+ui.approvals.at = nil -- what a decision does: the list is asked again
+check("…a refresh in progress keeps the last known 'off'", cards(s) == nil and ui:approvalsOff())
+-- 2. a decide timeout is never "refused": followed, then the truth
+local function timedOut(detailAfter)
+  fresh("open")
+  local x = offered()
+  DECIDE[REF_A] = function()
+    return { status = "error", error_code = "deadline_exceeded" }
+  end
+  local d0 = count("approval_decide")
+  DETAIL[REF_A] = function(body)
+    if count("approval_decide") == d0 then
+      return { status = "ok", result = { ref = body.ref, risk = "low", args_hash = HASH } }
+    end
+    return detailAfter(body)
+  end
+  http("POST", "/chat/action", x, { ref = REF_A, decision = "approve" })
+  return x
+end
+s = timedOut(function(body)
+  return {
+    status = "ok",
+    result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "pending" } },
+  }
+end)
+c = card(s, REF_A)
+check(
+  "a decide timeout: not refused, 'could not confirm… checking'",
+  c.state == "sent" and c.message == Webui.TEXT.action_uncertain and not c.needs_pin
+)
+s = timedOut(function(body)
+  return {
+    status = "ok",
+    result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "completed" } },
+  }
+end)
+step(2, s)
+check("…the execution appears: Done", card(s, REF_A).state == "done")
+s = timedOut(function(body)
+  return { status = "ok", result = { ref = body.ref, risk = "low", args_hash = HASH } }
+end)
+step(2, s)
+c = card(s, REF_A)
+check(
+  "…the item still waiting: the buttons come back",
+  c.state == "offered" and c.message == Webui.TEXT.action_not_sent
+)
+s = timedOut(function(body)
+  return {
+    status = "ok",
+    result = { ref = body.ref, risk = "low", args_hash = HASH, execution = { state = "pending" } },
+  }
+end)
+for _ = 1, 45 do
+  clock = clock + 1
+  state(s)
+end
+check(
+  "…nothing learned: 'Check Approvals before asking again'",
+  card(s, REF_A).state == "unconfirmed" and card(s, REF_A).message == Webui.TEXT.action_unconfirmed_check
+)
+fresh("open")
+s = offered()
+DECIDE[REF_A] = function()
+  return { status = "error", error_code = "not_permitted", result = { reason = "session_stale" } }
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("a real platform refusal is still shown as refused", card(s, REF_A).state == "withdrawn")
+-- a lost poll (no answer at all) does not freeze the card
+fresh("open")
+s = offered()
+local held = 0
+local decidedBefore = count("approval_decide")
+deferCloud = function(o, body)
+  if o == "approval_detail" and count("approval_decide") > decidedBefore then
+    held = held + 1
+    return true
+  end
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+for _ = 1, 60 do
+  clock = clock + 1
+  state(s)
+end
+check(
+  "a poll that never answers: given up, the card ends unconfirmed",
+  held >= 2 and card(s, REF_A).state == "unconfirmed",
+  held .. " " .. tostring(card(s, REF_A).state)
+)
+-- 3. decline is one-shot, also after a risk refusal; terminal whatever the answer
+fresh("open")
+s = offered()
+DETAIL[REF_A] = function(body)
+  return { status = "ok", result = { ref = body.ref, risk = "medium", args_hash = HASH } }
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("(medium risk: Use PIN offered)", card(s, REF_A).needs_pin)
+DECIDE[REF_A] = function()
+  return { status = "error", error_code = "not_permitted", result = { reason = "session_not_bound" } }
+end
+local d0 = count("approval_decide")
+r = http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
+check("a decline of a PIN-needing item is allowed once", r.ok and count("approval_decide") == d0 + 1)
+c = card(s, REF_A)
+check(
+  "…refused by the platform: its sentence, terminal, no buttons",
+  c.state == "declined" and not c.needs_pin and not c.can_decline
+)
+for _ = 1, 5 do
+  http("POST", "/chat/action", s, { ref = REF_A, decision = "decline" })
+  http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+end
+check("…never sent again (repeated declines and approves)", count("approval_decide") == d0 + 1)
+check("…and Use PIN is gone too", http("POST", "/approvals/next", s, { ref = REF_A }).ok == false)
+-- 4. the shared retry after Lock: no attestation re-sent
+for _, m in ipairs({ "owner_pin", "open" }) do
+  fresh(m)
+  detail = "household"
+  local x = open()
+  unlock(x)
+  local pend
+  deferCloud = function(o, body, cb)
+    if o == "ask" and pend == nil then
+      pend = cb
+      return true
+    end
+  end
+  http("POST", "/ask", x, { question = "Lights?" })
+  check(
+    "(" .. m .. ": the ask carried both attestations)",
+    lastOf("ask").unlock ~= nil and lastOf("ask").owner_proof ~= nil
+  )
+  http("POST", "/chat/lock", x)
+  local n0 = count("ask")
+  pend({ status = "error", error_code = "invalid_args", result = { reason = "unknown_fields", fields = { "thread" } } })
+  local retried = count("ask") - n0
+  if m == "owner_pin" then
+    local b = lastOf("ask")
+    check(
+      "owner_pin: a retry after Lock strips unlock and owner_proof (and thread)",
+      retried == 1 and b.unlock == nil and b.owner_proof == nil and b.thread == nil and b.detail == "household"
+    )
+  else
+    check("open: the elevated ask was abandoned at Lock: no retry at all", retried == 0)
+  end
+end
+-- a re-unlock between the question and the answer: the cards are dropped
+fresh("owner_pin")
+s = open()
+unlock(s)
+http("POST", "/ask", s, { question = "Lights?" })
+local jobR = lastJob
+http("POST", "/chat/lock", s)
+clock = clock + 61
+unlock(s)
+ui:deliver(nil, "A", jobR, { actions = { { ref = REF_A, title = "Lights", expires_in = 600, tap_in = 300 } } })
+check("8. a re-unlock between ask and answer: no card (bound to the proof it was asked under)", cards(s) == nil)
+-- 5. invisible and blank text
+local function titleOk(t)
+  return ChatActions.actions({ { ref = REF_A, title = t, expires_in = 60, tap_in = 300 } }) ~= nil
+end
+for _, case in ipairs({
+  { "\227\133\164", "U+3164 Hangul filler" },
+  { "\226\128\128Lights", "U+2000 en quad" },
+  { "Lights\205\143off", "U+034F" },
+  { "Lights\239\184\143", "U+FE0F variation selector" },
+  { "\226\160\128", "U+2800 braille blank" },
+  { "Turn\194\160off", "U+00A0" },
+  { string.rep("a\204\129\204\129\204\129", 3), "three combining marks in a row" },
+  { "\239\191\188", "U+FFFC" },
+  { "\243\160\132\128x", "U+E0100 variation selector" },
+  { "\238\128\128", "U+E000 private use" },
+  { "\243\176\128\128x", "plane 15 private use" },
+  { "!!! ???", "no letter or digit" },
+  { "\240\159\143\160", "an emoji alone (no letter or digit)" },
+}) do
+  check("dropped: " .. case[2], not titleOk(case[1]))
+end
+for _, case in ipairs({
+  { "Zo\195\171's lamp", "accented Latin" },
+  { "\208\155\208\176\208\188\208\191\208\176", "Cyrillic" },
+  { "\227\131\170\227\131\147\227\131\179\227\130\176", "Japanese" },
+  { "Patio lights \240\159\143\160", "an emoji without a variation selector" },
+  { "Cafe\204\129 light", "one combining mark" },
+  { "Lamp 2", "a digit" },
+}) do
+  check("kept: " .. case[2], titleOk(case[1]))
+end
+local Cv2 = require("aicore.chatv2")
+check(
+  "the shared validator covers display and suggestions too",
+  Cv2.display({ { t = "note", text = "\227\133\164" } }) == nil and Cv2.suggestions({ "Why\226\128\128?" }) == nil
+)
+-- 2b. a second ELEVATED session posting another session's ref
+fresh("open")
+s = offered()
+local o2 = open()
+unlock(o2)
+beforeD = count("approval_detail")
+r = http("POST", "/chat/action", o2, { ref = REF_A, decision = "approve" })
+check(
+  "another elevated session cannot act on this session's card",
+  r.ok == false and count("approval_detail") == beforeD
+)
+-- 7. Use PIN only for a ref eligible for this screen
+fresh("open")
+eligibleRefs = { REF_B }
+x = select(1, refusedWith("session_risk_too_high"))
+eligibleRefs = { REF_B }
+ui.approvals.at = nil
+state(x)
+local chs = 0
+realPin = DEPS.pinRequest
+DEPS.pinRequest = function(cap, args, cb)
+  chs = chs + (cap == "pinlock.challenge" and 1 or 0)
+  realPin(cap, args, cb)
+end
+r = http("POST", "/approvals/next", x, { ref = REF_A })
+check(
+  "Use PIN for a ref not eligible here: no PIN challenge, the card says to use the portal",
+  r.ok == false
+    and r.reason == "portal_only"
+    and chs == 0
+    and card(x, REF_A).state == "portal"
+    and not card(x, REF_A).needs_pin
+)
+DEPS.pinRequest = realPin
+-- 6. the same ref in two answers: only the newest card is live
+fresh("open")
+s = offered({ { ref = REF_A, title = "First", expires_in = 600, tap_in = 300 } })
+clock = clock + 16
+http("POST", "/ask", s, { question = "Again?" })
+ui:deliver(nil, "Again.", lastJob, { actions = { { ref = REF_A, title = "Second", expires_in = 600, tap_in = 300 } } })
+local st7 = state(s)
+local first = st7.chat.conversation[#st7.chat.conversation - 1].actions[1]
+local second = st7.chat.conversation[#st7.chat.conversation].actions[1]
+check("the older card for the same ref says it was replaced", first.state == "replaced" and second.state == "offered")
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+st7 = state(s)
+check(
+  "…a tap acts on the newest card only",
+  st7.chat.conversation[#st7.chat.conversation].actions[1].state == "sent"
+    and st7.chat.conversation[#st7.chat.conversation - 1].actions[1].state == "replaced"
+)
+-- 9. /state and Print Diagnostics carry neither the nonce nor the proof
+fresh("open")
+s = offered()
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+local proof9 = ui.sessions[s].proofs.chat_view
+local raw = ui:route({ method = "GET", path = "/state", query = { k = TOKEN, s = s }, body = "" }, TOKEN).body
+check(
+  "/state carries neither the proof's nonce nor its verified_at",
+  not raw:find(proof9.nonce, 1, true) and not raw:find("verified_at", 1, true) and not raw:find("pin_lock", 1, true)
+)
+check(
+  "Print Diagnostics' chat line carries neither",
+  not ui:chatLine():find(proof9.nonce, 1, true) and not ui:chatLine():find(tostring(proof9.verified_at), 1, true)
+)
+-- a non-owner role from PIN Lock: no unlock, no owner_proof, no card
+fresh("open")
+local realPin2 = DEPS.pinRequest
+DEPS.pinRequest = function(cap, args, cb)
+  if cap == "pinlock.redeem" then
+    cb({ status = "ok", result = { verified = true, role = "guest", verified_at = clock } })
+    return
+  end
+  realPin2(cap, args, cb)
+end
+s = open()
+unlock(s)
+http("POST", "/ask", s, { question = "Lights?" })
+check(
+  "a non-owner role: not elevated, no owner_proof",
+  state(s).chat.elevated == false and lastOf("ask").owner_proof == nil
+)
+ui:deliver(nil, "A", lastJob, { actions = { { ref = REF_A, title = "Lights", expires_in = 600, tap_in = 300 } } })
+check("…and no card", cards(s) == nil)
+DEPS.pinRequest = realPin2
+-- in-flight ordering with asynchronous answers: detail, then a Lock, then decide
+fresh("open")
+s = offered()
+local q = {}
+deferCloud = function(o, body, cb)
+  if o == "approval_detail" or o == "approval_decide" then
+    q[#q + 1] = { o = o, body = body, cb = cb }
+    return true
+  end
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+check("(the detail is out)", #q == 1 and q[1].o == "approval_detail" and card(s, REF_A).state == "checking")
+check(
+  "a second tap while it is out: refused",
+  http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" }).ok == false
+)
+http("POST", "/chat/lock", s)
+q[1].cb({ status = "ok", result = { ref = REF_A, risk = "low", args_hash = HASH } })
+check("the detail answers after Lock: no decision is sent", #q == 1)
+fresh("open")
+s = offered()
+q = {}
+deferCloud = function(o, body, cb)
+  if o == "approval_detail" or o == "approval_decide" then
+    q[#q + 1] = { o = o, body = body, cb = cb }
+    return true
+  end
+end
+http("POST", "/chat/action", s, { ref = REF_A, decision = "approve" })
+q[1].cb({ status = "ok", result = { ref = REF_A, risk = "low", args_hash = HASH } })
+check("(the decide is out)", #q == 2 and q[2].o == "approval_decide" and q[2].body.args_hash == HASH)
+http("POST", "/chat/lock", s)
+q[2].cb({ status = "ok", result = { ref = REF_A, status = "queued" } })
+check("the decide answers after Lock: the card stays gone, nothing polled", cards(s) == nil and #q == 2)
 
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then
