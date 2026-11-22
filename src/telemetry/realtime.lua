@@ -72,6 +72,7 @@ end
 ---   { type = "joined" }       the subscription is live
 ---   { type = "ping" }         the platform rang the doorbell
 ---   { type = "closed" }       the channel was closed server-side
+---   { type = "join_error", reason = string }  the server refused the join
 ---   { type = "noise" }        anything else — replies, presence, keepalives
 ---
 --- Anything malformed is noise, never an error: a hostile or garbled frame
@@ -87,6 +88,14 @@ function Realtime:handleFrame(raw)
     if status == "ok" and not self._joined then
       self._joined = true
       return { type = "joined" }
+    end
+    -- A refused join was noise too, which made it invisible: the socket sat
+    -- open, never joined, and nothing said why. Reported, never acted on
+    -- beyond the caller's own retry; the reason is the server's short text.
+    if status == "error" and not self._joined then
+      local response = type(msg.payload.response) == "table" and msg.payload.response or {}
+      local reason = response.reason
+      return { type = "join_error", reason = type(reason) == "string" and reason:sub(1, 120) or "refused" }
     end
     return { type = "noise" }
   end

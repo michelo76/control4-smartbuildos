@@ -680,6 +680,21 @@ just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
 (4 a minute).
 
+**How soon the answer arrives.** The answer is a queued `deliver_result`,
+and the Agent collects queued commands only from the answers to its own
+requests. With nothing else it waits for the Agent's next heartbeat
+(`Heartbeat Interval`, default 1 minute). Two things shorten that, both in
+the Agent (`drivers/smartbuildos`, Agent docs "How fast commands and answers
+arrive"): the Realtime doorbell (the platform rings it after queuing the
+answer; the Agent checks in 2 s later), and fast answers (`sbos.fastanswers`:
+any module cloud request answered `{accepted, job_id}` without a `state`
+makes the Agent check in every 5 s until a `deliver_result` with that
+`job_id` arrives, the doorbell rings, or 90 s pass). Agent builds up to
+20261121 lost the doorbell after its first reconnect (they reopened it on the
+socket being deleted), the likeliest reason, not confirmed there, that
+answers took about a minute on the first real controller. Nothing changes in
+this driver. `KNOWN-ISSUES.md` KI-78.
+
 **The `command` of a touchscreen body.** `AI_TOUCHSCREEN_ASK`,
 `AI_TOUCHSCREEN_APPROVALS` and `AI_TOUCHSCREEN_APPROVAL` (`webui.COMMANDS`).
 The platform accepts a `command` only when it is shaped like a Composer
