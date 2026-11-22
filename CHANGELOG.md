@@ -56,6 +56,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- **Agent: Report Diagnostics runs to the end on a real controller.** Each
+  finished line was handed to the logger as a format string, so any text with a
+  `%` in it (the controller vitals line "mem 71.8% used", a host or device name,
+  a URL-encoded value) threw and stopped the report right after
+  `controller vitals`: clock offset, Director identity, LOCATIONS, hierarchy and
+  the per-device lines never ran. The three reports (diagnostics, telemetry
+  survey, capability probe) now share one helper that prints the line as data
+  and keeps a bad format as text, and the Director identity read and each
+  device's bindings are guarded like the other probes.
 - **AI Core: the configuration System Studio publishes is now accepted, so
   learning can be switched on.** The platform's document had a different shape
   from the driver's schema 1 and was refused whole, which kept learning off.

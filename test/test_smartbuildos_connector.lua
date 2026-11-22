@@ -4039,5 +4039,58 @@ local function studioG1Checks()
 end
 studioG1Checks()
 
+-- ── Diagnostics survive text containing "%" (hardware, 2026-11-21) ────────────
+--
+-- On a real controller /proc/meminfo is readable, so the "controller vitals"
+-- probe answers "mem 71.8% used". `note` used to hand that ALREADY-FORMATTED
+-- line to `log:print` as a format string; the real logger always runs
+-- string.format on its first argument, "% u" became a conversion with no
+-- value, and the throw aborted diagnose() before clock offset, director
+-- identity, LOCATIONS, hierarchy and every dev[...] line. The suite never saw
+-- it because this host has no /proc: vitals read "not readable on this OS",
+-- which has no "%" in it. The logger here is the real lib/logging.
+local function diagnosticsPercentChecks()
+  print("\n[G1-diag] Report Diagnostics completes when a probe's text contains '%'")
+  local savedRead, savedHostname = ReadProcFile, nextHostname
+  ReadProcFile = function(path)
+    if path == "/proc/meminfo" then
+      return "MemTotal:        1000000 kB\nMemFree:          100000 kB\nMemAvailable:     282000 kB\n"
+    end
+    if path == "/proc/loadavg" then
+      return "0.42 0.30 0.25 1/180 4242\n"
+    end
+    return nil
+  end
+  -- A host name is integrator-typed text: "%s" in it must be data, not a format.
+  nextHostname = "Lab%sController"
+  pair()
+  reset()
+  local ok, err = pcall(EC.REPORT_DIAGNOSTICS)
+  ReadProcFile, nextHostname = savedRead, savedHostname
+
+  local details = {}
+  for _, r in ipairs(requests) do
+    if r.data and r.data.kind == "event" and tostring(r.data.name or ""):find("^diagnostics ") then
+      details[#details + 1] = tostring(r.data.detail)
+    end
+  end
+  local function any(pattern)
+    for _, d in ipairs(details) do
+      if d:find(pattern, 1, true) then
+        return true
+      end
+    end
+    return false
+  end
+  check("REPORT_DIAGNOSTICS does not throw", ok, tostring(err))
+  check("the vitals line carries the percent sign verbatim", any("mem 71.8% used"), table.concat(details, " | "))
+  check("the host name with '%s' in it is reported verbatim", any("Lab%sController"))
+  check("no 'diagnose() itself failed' line", not any("diagnose() itself failed"), table.concat(details, " | "))
+  check("diagnostics continue past controller vitals to the clock offset", any("project? clock offset"))
+  check("diagnostics reach the LOCATIONS probe", any("GetProjectItems(LOCATIONS) head"))
+  check("diagnostics reach the per-device dev[...] lines", any("dev["))
+end
+diagnosticsPercentChecks()
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
