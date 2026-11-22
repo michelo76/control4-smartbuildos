@@ -594,11 +594,11 @@ cloud and the facts. **Nothing here has run on a controller or a Navigator.**
 | `GET /ping` | — | `{ok, service:"ai-core"}` |
 | `GET /app` | — | the page, its CSP completed for this controller |
 | `POST /session` | — | `{ok, s}` (≤ 4 sessions; the least recently seen is evicted) |
-| `GET /state` | — | `{ok, status:{licensed, provider_configured, online, learning_active, text}, approvals:{count, screen_count, portal_only_count, enabled, can_review, text, message?}, pin:{available, reason, message, retry_in?}, chat:{available, locked, message?, …}, prompt?, review?, notice?}`; `chat` carries `conversation`, `suggestions`, `explain`, `locks_in`, `detail` **only for an unlocked session** |
+| `GET /state` | — | `{ok, status:{licensed, provider_configured, online, learning_active, text}, approvals:{count, screen_count, portal_only_count, enabled, can_review, text, message?}, pin:{available, reason, message, retry_in?}, chat:{available, locked, message?, …}, prompt?, review?, notice?}`; `chat` carries `mode` (`open`/`owner_pin`), `elevated`, `can_elevate`, `conversation` (each exchange with `conv`, `age`, `elevated`, `display?`, `suggestions?`), `suggestions`, `explain`, `locks_in` (elevated only), `conv`, `followups`, `detail` **only when the session may see its conversation** (Open mode, or an owner unlock) |
 | `POST /chat/unlock` | `{}` | `{ok, waiting}` — asks PIN Lock for a `chat_view` challenge |
 | `POST /pin/done` | `{challenge_id}` | `{ok}` — redeems the challenge (`pinlock.redeem`) |
 | `POST /pin/cancel` | `{}` | drops the PIN prompt |
-| `POST /chat/lock` | `{}` | locks this session now |
+| `POST /chat/lock` | `{}` or `{hidden:true}` | ends the owner unlock now; `hidden` (the page was hidden) also clears an Open conversation |
 | `POST /chat/touch` | `{}` | interaction: the unlock stays 5 more minutes |
 | `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` (a built-in id or a current preset id `p<index>-<rev>`) or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` (`unknown_suggestion` for a stale or unknown id) |
 | `POST /approvals/refresh` | `{}` | asks `approvals_pending` (≤ 1 per 30 s) |
@@ -613,7 +613,44 @@ reads it; every other unknown key is refused too. Business refusals are HTTP
 closed table `webui.TEXT` (an unknown reason becomes a generic sentence that
 says to use the portal, never the code).
 
-**The chat lock (ruling 17), enforced in `webui.lua`.** A session is unlocked
+**Touchscreen Chat Access: Open chat (owner decision 2026-11-21).** This
+reverses ruling 17's "all conversation content needs a `chat_view` proof"
+(`program/ARCHITECTURE.md` §5a) for the dealer property **Touchscreen Chat
+Access** = `Open` (the default); `Owner PIN` keeps ruling 17 exactly as
+described below. Basic detail switches the chat off in both modes. In Open
+mode:
+
+- Anyone at the screen asks and reads the answers of **their own page
+  session**, without a PIN and without PIN Lock. An answer is only ever
+  shown to the session that asked; it never reaches `AI_LAST_RESPONSE` or
+  any Composer variable or event.
+- **The privacy floor.** An ask from a session that is not owner-unlocked
+  when it asks carries `detail:"standard"` (`webui.OPEN_DETAIL`), whatever
+  Touchscreen Detail says; the cloud only lowers the detail, so no household
+  activity is answered without an owner PIN. The detail is fixed per
+  exchange at the moment of asking.
+- **The owner PIN is an elevation** ("Unlock for more", shown only while PIN
+  Lock is usable): the same `chat_view` challenge, 5-minute idle timer, Lock
+  button and relock on hide as below. Elevated asks carry the configured
+  detail. *Explain what just happened* (a question about recent house
+  activity) is offered and accepted only while elevated
+  (`explain_needs_pin`); the dealer presets and the built-in questions are
+  open.
+- **Elevation never mixes content.** An unlock starts a new thread. When it
+  ends (Lock, the timer, the page hidden, PIN Lock gone) every exchange
+  asked while elevated is removed from the session and the page, an answer
+  still in flight for one is dropped (never shown later), and a new thread
+  starts. `chatView` also never shows an elevated exchange to a session that
+  is not unlocked (a mode switch included).
+- **Open conversations start over** 5 minutes after the last question
+  (`open_idle_seconds`) and whenever the page is hidden (`/chat/lock
+  {hidden:true}`) or closed: cleared, answers in flight dropped, new thread.
+- The limits are unchanged: 4 sessions, 4 asks a minute (plus the shared
+  bucket), 90 requests a minute per session; a refused ask is shown as a
+  sentence at the end of the thread.
+
+**The chat lock (ruling 17; Owner PIN mode, and the elevation in Open
+mode), enforced in `webui.lua`.** A session is unlocked
 only by a `chat_view` proof: AI Core mints a nonce, asks PIN Lock for a
 challenge (`purpose:"chat_view"`, `subject` = the session's own 32-hex id,
 which is not its token), hands the page `challenge_id` and `verify_url`
@@ -675,6 +712,73 @@ accept answer was lost) keeps its ids for an hour so that its answer is
 dropped (counted), not published. *Print Diagnostics* prints how many
 touchscreen asks were sent, how many wait (and the oldest's age), how many
 were answered while locked and how many dropped.
+**Chat v2 (contract with the platform, 2026-11-21).** The module declares
+`chat_v2` in its registration `commands`, after the nine operations
+(`vocab.DECLARED`; not an operation: the Agent never forwards it, and the
+platform sends the keys below only when every live ai_core instance
+declares it).
+
+- *Ask.* A touchscreen ask carries an optional `thread` (8–64 of
+  `[A-Za-z0-9_-]`; the driver sends 32 random hex): minted per conversation
+  (Owner PIN mode: at each unlock; Open mode: at the first question, and
+  again at every unlock, every end of an unlock, after 5 idle minutes and
+  when the page is hidden), never shown to the page, gone on a driver
+  restart. Only touchscreen asks carry it. If the cloud refuses an ask with
+  `invalid_args` naming an optional key it carried (`fields` containing
+  `thread` or `….thread`), the ask is sent ONCE more without it under a new
+  request id, and the session never sends that key again
+  (`UI:optionalAskKeys` / `UI:retryWithoutRefusedKeys`, written so a second
+  optional key reuses it). The page is told `followups:false` then.
+- *deliver_result.* Two optional args, accepted by `operations.lua`
+  (`ARGS.deliver_result`) as native values or a JSON-encoded string, and
+  validated again by `src/aicore/chatv2.lua` (and once more when the page
+  renders them): `display`, up to **6** blocks, the whole value ≤ **4096**
+  bytes serialised, closed set `{t:"stat", label, value, unit?, tone?}`,
+  `{t:"list", title?, items:[{label, value?, tone?}] (1–12)}`,
+  `{t:"note", text, tone?}`, `tone` ∈ `ok|warn|bad|info`, closed keys per
+  block and item; `suggestions`, up to **3** follow-up questions. Every
+  value is a string of ≤ 120 characters (`note.text` ≤ 300, a suggestion ≤
+  80) — limits in Unicode **code points**, counted by the driver's own
+  UTF-8 decoder (`chatv2.length`; Control4's Lua has no `utf8`), a value
+  over its limit dropped, never cut — with no leading or trailing
+  whitespace, no control, invisible (U+00AD, U+200B–U+200F, U+2060–U+2064,
+  U+FEFF), bidirectional, tag (U+E0000–U+E007F) or full-width
+  (U+FF00–U+FFEF) character, no malformed UTF-8, no markup (`<`, `>`), no
+  URL, `www.` or bare domain; a suggestion must end with `?`. The platform
+  also refuses non-ASCII digits and normalises with NFKC; the driver does
+  not repeat those. A block,
+  item list or suggestion that fails is dropped and only counted; the text
+  answer is always shown, and an answer with neither key renders exactly as
+  text. The blocks and follow-ups are stored with the exchange behind the
+  same visibility as its text. The page renders them with text nodes only
+  (stat: a large value with label and unit; list: rows with a tone dot and
+  a right-aligned value; note: a tinted line; follow-ups: chips under the
+  last answer that ask their own text). Nothing from the cloud is executed;
+  no route was added.
+- *Print Diagnostics* prints one more line, counts only: `touchscreen chat:
+  chat_v2 declared; N conversation(s) started, N ask(s) sent again without
+  a thread; N answer(s) with blocks, N block(s) shown, N dropped; N
+  follow-up(s) shown, N dropped`.
+
+**The page.** Chat first: a compact header (status dot and word, tap for
+the full status lines; *Unlock for more* or the owner badge with its lock
+timer and *Lock*; *Approvals* with the pending count, opening the approvals
+sheet), the thread (question and answer bubbles, cards, follow-up chips,
+dividers where a new conversation starts, an animated thinking bubble with
+the elapsed seconds and, after 45 s, one line that it is still working;
+the page polls `/state` every second while an answer is pending, answers
+still matched by job id), an input bar pinned at the bottom (preset and
+built-in chips above it, a 500-character limit with a counter from 400, a
+Send button) and an **in-page keyboard** (letters, a numbers and symbols
+layer, shift, backspace, space, Send) opened by the keyboard button. While
+it is open the input is read-only with `inputmode="none"`, so the system
+keyboard cannot open over it; closed, the input behaves normally and the
+system keyboard (where there is one) works as before. The keyboard is in
+the page's flow, under the input: the thread shrinks and stays scrollable
+above it. Dark theme; layouts checked at 1280×800, 1024×600 and 390×844
+on the development host (`tools/aicore-dev.py`,
+`test/app/aicore_chat_page.test.mjs`), never on a real Navigator.
+
 Suggested questions are a closed list in `webui.SUGGESTIONS`; *Explain what
 just happened* is a fixed question (`webui.EXPLAIN_QUESTION`). Asks take from
 the shared Composer command bucket (10 a minute) and the page's own bucket
@@ -1110,7 +1214,8 @@ validation plan). Owed on a bench:
 * the report hub and driver queries / actions with real drivers on a controller (bus latency, memory with 48 reporting modules, the 20 s batch timer under Director load);
 * `read_device_state` (§7c): whether `C4:GetDeviceVariables` on the id the platform sends (often the protocol driver's) returns the proxy's variables, the real variable names of locks, partitions, batteries and appliance sensors (every signature list is a candidate), the read's wall time on a large project, the controller clock behind `read_at`, queue + doorbell + bus latency against the platform's 15 s wait;
 * persistence across a real power cut (Director's flush timing);
-* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size, and how a preset button wraps a 120-character question (KI-70).
+* the touchscreen page on a real Navigator (touch screen, T-series, the phone app): the tile, `URL_CHANGED`, the relay on 47871, the page's `fetch` to PIN Lock's `/verify` on another port (`KNOWN-ISSUES.md` KI-53), `pagehide`/`visibilitychange` delivery, the keypad at touchscreen size, and how a preset button wraps a 120-character question (KI-70);
+* the chat v2 page and open chat on a real Navigator (`KNOWN-ISSUES.md` KI-78 to KI-85): whether the T-series web view shows its own keyboard at all, and that the in-page keyboard's read-only input keeps it closed; `100dvh` and the pinned input bar; the 1-second polling while an answer is pending; the keyboard key size and the thread at 1024×600; `visibilitychange` actually reaching the page when the tile closes (it clears an Open conversation).
 
 ## 15. Deviations from the brief / architecture
 
@@ -1129,6 +1234,7 @@ validation plan). Owed on a bench:
 | `driver_reports` is sent without `command` (COMMON's optional key) | the batch is not a Composer command |
 | The touchscreen routes differ from §2.1's `/approvals/begin`, `/approvals/open` and `/approvals/decide {ref}`: `/chat/unlock`, `/pin/done`, `/approvals/next` and `/approvals/decide {decision}` | ruling 17 adds the chat PIN; "Review next item" lets the driver pick the ref, so refs never reach the page; the PIN Lock answer is collected by polling `/state`, the transport's contract (`uirelay`), never by holding a socket |
 | A touchscreen answer is kept out of `AI_LAST_RESPONSE`, its persisted copy and *AI Response Ready*; a touchscreen question is not recorded as an envelope | ruling 17: the chat requires a PIN to view; a Composer variable or a persisted value would show it unlocked |
+| Open chat (Touchscreen Chat Access = Open, the default): anyone at the screen may ask without a PIN, at Standard detail; the owner PIN elevates | owner decision 2026-11-21, reversing ruling 17 for that mode; `Owner PIN` keeps ruling 17 |
 | `App Relay Address` added beside the spec's `Webview Address` | `lib.relayhost` needs the dealer override every relay driver has; set the same value on PIN Lock |
 | Cloud request ids (`aic-` + 32 hex) come from the `C4:HMAC` recipe (UUID, clock, counter, `math.random`), no longer from `C4:UUID` alone | the request id is the cloud relay's idempotency key; the emulator's `C4:UUID` repeats, which made an `approval_detail` reuse an `approvals_pending` answer and, once the page drew extra ids, an `AI_ANALYZE_SYSTEM` reuse an earlier answer (KI-60) |
 | Agent liveness is a periodic directory request | DriverWorks gives no delivery acknowledgement; the directory request is the cheapest authenticated round trip the Agent answers |
