@@ -66,6 +66,27 @@ M.OPERATIONS = {
   "read_device_state",
 }
 
+--- What the module declares in the SAME `commands` list as its restricted
+--- operations, after them, without being one: the platform reads the list
+--- from the Agent's heartbeat to learn what this driver understands. The
+--- Agent never forwards these (MODULE_COMMANDS.ai_core does not list them)
+--- and operations.lua refuses them as operations.
+---   chat_v2  the touchscreen ask may carry `thread`, and deliver_result
+---            `display` and `suggestions` (src/aicore/chatv2.lua).
+M.DECLARED = { "chat_v2" }
+
+--- The registration's `commands`: OPERATIONS, then DECLARED.
+function M.registeredCommands()
+  local out = {}
+  for _, op in ipairs(M.OPERATIONS) do
+    out[#out + 1] = op
+  end
+  for _, d in ipairs(M.DECLARED) do
+    out[#out + 1] = d
+  end
+  return out
+end
+
 --- Cloud ops (Agent MODULE_CLOUD_OPS.ai_core).
 M.CLOUD_OPS = {
   ask = true,

@@ -16,6 +16,7 @@
 
 local V = require("aicore.vocab")
 local Commands = require("aicore.commands")
+local ChatV2 = require("aicore.chatv2")
 
 local M = {}
 
@@ -32,6 +33,11 @@ local ARGS = {
     kind = true,
     pending_approvals = true,
     recommendation_count = true,
+    -- Chat v2 (aicore.chatv2): blocks and follow-up questions for the
+    -- touchscreen page. Validated again here; what fails is dropped and
+    -- counted, never a reason to refuse the answer.
+    display = true,
+    suggestions = true,
   },
   raise_event = {
     event = true,
@@ -283,6 +289,8 @@ function M.parse(command, args)
     if not M.RESULT_KINDS[op.kind_of] then
       return nil, "kind must be one of answer, analysis, report, scene_suggestion, diagnostic"
     end
+    op.display, op.display_dropped = ChatV2.display(args.display)
+    op.suggestions, op.suggestions_dropped = ChatV2.suggestions(args.suggestions)
   elseif command == "raise_event" then
     if type(args.event) ~= "string" or not V.RAISABLE[args.event] then
       return nil, "event '" .. tostring(args.event) .. "' is not in the closed list"

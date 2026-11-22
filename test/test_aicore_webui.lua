@@ -27,6 +27,8 @@
 --   [17] the `command` of every cloud body is one the platform accepts (the
 --        scripted cloud refuses any other, as the platform does), and what
 --        a refusal said can be read on the controller as codes only
+--   [19] chat v2 through the driver: thread, display, suggestions,
+--        Print Diagnostics (open chat is test_aicore_chat_v2.lua)
 --   [18] the answer as the platform really sends it: deliver_result names
 --        the job and the RELAY's request id (not the ask's), so it is
 --        matched by job id; an answer nobody waits for any more is dropped,
@@ -251,6 +253,9 @@ local function lastCloud(op)
   return l[#l]
 end
 
+-- These suites hold the Owner PIN access mode (ruling 17, exactly as
+-- before open chat); open chat is test_aicore_chat_v2.lua.
+H.propertyOverrides = { ["Touchscreen Chat Access"] = "Owner PIN" }
 local function ready()
   H.agentPresent = true
   H.load("DIT_ADDING")
@@ -1664,6 +1669,77 @@ check(
   "an answer for no touchscreen ask is still a Composer answer",
   H.vars.AI_LAST_RESPONSE == "A Composer answer, later."
 )
+
+-- ── [19] ─────────────────────────────────────────────────────────────────────
+print("[19] chat v2 through the driver: thread, display, suggestions, diagnostics")
+H.advance(61000)
+local v2 = open()
+unlock(v2)
+local r19 = post(v2, "/ask", { question = "How warm is the cellar?" })
+local op19 = lastCloud("ask")
+check(
+  "the touchscreen ask carries a thread (chat v2)",
+  r19.ok and type(op19.body.thread) == "string" and #op19.body.thread == 32,
+  op19 and JSON:encode(op19.body)
+)
+H.operation("deliver_result", {
+  response_id = "resp-19",
+  job_id = "job-" .. #H.agent.cloudCalls,
+  request_id = op19.request_id,
+  text = "The cellar is at 13 degrees.",
+  display = JSON:encode({
+    { t = "stat", label = "Cellar", value = "13", unit = "°C", tone = "ok" },
+    { t = "bogus", text = "<script>" },
+  }),
+  suggestions = JSON:encode({ "Is the humidity right?" }),
+})
+st = state(v2)
+local e19 = st.chat.conversation[#st.chat.conversation]
+check(
+  "the answer reaches the page with its block and its follow-up",
+  e19.a == "The cellar is at 13 degrees."
+    and e19.display
+    and #e19.display == 1
+    and e19.display[1].value == "13"
+    and e19.suggestions[1] == "Is the humidity right?",
+  JSON:encode(e19)
+)
+check("…never in AI_LAST_RESPONSE", tostring(H.vars.AI_LAST_RESPONSE):find("cellar", 1, true) == nil)
+before17 = #printed
+EC.PRINT_DIAGNOSTICS()
+diag17 = table.concat(printed, "\n", before17 + 1)
+check(
+  "Print Diagnostics counts what chat v2 kept and dropped, no text of any",
+  diag17:find("touchscreen chat: chat_v2 declared", 1, true) ~= nil
+    and diag17:find("1 block(s) shown, 1 dropped", 1, true) ~= nil
+    and diag17:find("cellar", 1, true) == nil
+    and diag17:find("humidity", 1, true) == nil,
+  diag17:match("touchscreen chat[^\n]*")
+)
+post(v2, "/chat/lock")
+check("a locked session (Owner PIN mode) sees no block", state(v2).chat.conversation == nil)
+-- Open chat through the driver's property (its default): no PIN, and the
+-- privacy floor whatever Touchscreen Detail says.
+Properties["Touchscreen Chat Access"] = "Open"
+Properties["Touchscreen Detail"] = "Household (only if the homeowner allows it)"
+H.advance(61000)
+local o19 = open()
+local st19 = state(o19)
+check(
+  "Open (the driver.xml default): the chat is visible without a PIN",
+  st19.chat.locked == false and st19.chat.mode == "open"
+)
+local a19 = post(o19, "/ask", { question = "Who is home?" })
+check(
+  "an un-elevated ask through the driver carries standard, never household",
+  a19.ok and lastCloud("ask").body.detail == "standard",
+  lastCloud("ask").body.detail
+)
+unlock(o19)
+post(o19, "/ask", { question = "Who came home today?" })
+check("…an owner-unlocked ask carries the configured household", lastCloud("ask").body.detail == "household")
+Properties["Touchscreen Chat Access"] = "Owner PIN"
+Properties["Touchscreen Detail"] = "Standard (no household activity)"
 
 check("nothing reached equipment in the whole run", #H.equipment == 0, #H.equipment)
 
