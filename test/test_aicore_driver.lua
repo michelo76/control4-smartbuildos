@@ -95,9 +95,9 @@ check(
     and reg.params.event_types == "ai_core."
 )
 check(
-  "registers exactly the nine restricted operations, then the chat_v2 capability in the same list",
+  "registers exactly the nine restricted operations, then the chat_v2 and chat_actions_v1 capabilities in the same list",
   reg.params.commands
-    == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,run_driver_query,invoke_driver_action,read_device_state,chat_v2",
+    == "apply_config,refresh_status,deliver_result,raise_event,set_learning,run_diagnostic,run_driver_query,invoke_driver_action,read_device_state,chat_v2,chat_actions_v1",
   reg.params.commands
 )
 local manifest = JSON:decode(reg.params.manifest)

@@ -276,6 +276,14 @@ fallback. Three parts:
   in System Studio. Pressing a preset asks exactly that question; after the list
   changes, an old button is refused rather than answered as another question.
   *Basic* detail switches the chat off.
+- **Actions from the chat**: while the chat is unlocked with an owner PIN, an
+  answer can offer up to 3 actions as cards (lights, thermostat, scenes). One
+  tap on *Confirm* asks SmartBuildOS to carry it out; the card shows *Sent*,
+  then *Done* or *Failed* only from what the controller reports. Riskier actions
+  say *Use PIN* and open the approvals review for that item. Locks, garage doors
+  and security are never offered from the chat. The cards go when the chat
+  locks, and appear only when the homeowner has switched touchscreen approvals
+  on.
 - **Approvals** (one owner PIN per item): *Review next item* asks for the PIN,
   then shows the item's title, description and risk; *Approve* or *Decline*
   within 60 seconds. Only low- and medium-risk action proposals can be decided

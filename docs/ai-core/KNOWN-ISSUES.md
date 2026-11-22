@@ -203,6 +203,18 @@ blocks has been seen.
 | KI-85 | The controller drops a block or follow-up the platform would also refuse (markup, URL, bare domain, whitespace at either end, control, invisible, bidirectional, tag or full-width characters, over its limit in code points, a follow-up without `?`). It does not repeat the platform's NFKC normalisation or its non-ASCII-digit rule. The bare-domain test is a heuristic (`name.tld`, letters only after the dot), so a block such as "St.James" is dropped and counted; the text answer is still shown | by design | `src/aicore/chatv2.lua` `plain`; page `AIC.plain` |
 | KI-86 | `thread` ids, the conversation and the open/elevated split are memory only: a driver restart starts every conversation over (and, as KI-77, an answer for a question asked before the restart is taken for a Composer answer) | by design / open (KI-77) | `src/aicore/webui.lua` |
 
+## Driver: actions from the chat (chat actions v1, 2026-11-21)
+
+Unit tests, a fake-DOM page run and the development host only; no platform
+proposal, decision or execution has reached a controller.
+
+| # | Issue | Status | Source |
+| --- | --- | --- | --- |
+| KI-87 | One tap rests on the session's owner proof (`pin_lock_session`): the platform cannot verify a PIN and takes the driver's word that this session was unlocked with an owner PIN within 30 minutes, bounded by risk `low`, 300 s after the proposal, 20 decisions an hour per controller and the binding to the proof's nonce. A page left unlocked on a wall screen can be tapped by anyone for up to 5 minutes after the last use | by design (owner decision 2026-11-21) | `src/aicore/webui.lua` `decideAction` |
+| KI-88 | Following an outcome costs up to 16 `approval_detail` calls per card (1 + 15 polls over 30 s), outside the shared Composer command bucket (one in flight per card, at most 3 cards per answer). Whether the Agent's relay or the platform's own limits refuse such bursts on a real system is unmeasured; a refused poll leaves the card at Sent, then "No confirmation from the controller yet" | open (bench) | `src/aicore/webui.lua` `pollActions` |
+| KI-89 | The outcome is followed only while the page polls and the unlock lasts: Lock, the page hidden or the 30-minute end removes the card even when a decision was already sent, so the person does not see whether it ran (the platform still carries it out or not; the portal shows it) | by design | `src/aicore/webui.lua` `removeActions` |
+| KI-90 | A card's countdown ticks on the page between polls from the `expires_in` the last `/state` gave; the controller's clock decides expiry. The 300-second one-tap window is counted from when the answer reached the controller, not from when the platform created the proposal, so the platform may refuse a tap a few seconds earlier (`session_proposal_too_old` → Use PIN) | by design | `src/aicore/webui.lua` `actionsView` |
+
 ## Driver: the dealer's preset questions (round two, D-R2b)
 
 `touchscreen.presets` → the unlocked chat's suggestions (`DRIVER.md` §7b, §9).

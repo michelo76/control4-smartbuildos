@@ -50,6 +50,9 @@ h1 { font-size: 1.25rem; margin: 0; white-space: nowrap; }
 @media (max-width: 640px) {
   .hlabel { display: none; }
   header.elevated #statusText { display: none; }
+  h1 { font-size: 1.1rem; }
+  .hbtn { padding: 8px 10px; gap: 6px; }
+  #ownerPill { padding: 4px 9px; }
   header .wrap { gap: 6px; }
   #statusBtn { padding: 6px 10px; }
 }
@@ -104,6 +107,16 @@ main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -web
 .row .dot.tone-ok { background: var(--ok); } .row .dot.tone-warn { background: var(--warn); } .row .dot.tone-bad { background: var(--bad); } .row .dot.tone-info { background: var(--info); }
 .v.tone-ok { color: var(--ok); } .v.tone-warn { color: var(--warn); } .v.tone-bad { color: var(--bad); } .v.tone-info { color: var(--info); }
 
+/* action cards: confirm once while owner-unlocked */
+.b-action { flex: 1 1 100%; min-width: 0; margin-top: 12px; background: var(--panel2); border: 1px solid rgba(139, 131, 255, .45); border-radius: 16px; padding: 12px 14px; white-space: normal; }
+.b-action.gone { border-color: var(--line); }
+.b-action .at { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+.b-action .ad { color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.b-action .ast { margin-top: 8px; font-size: .95rem; color: var(--muted); overflow-wrap: anywhere; }
+.b-action .ast.tone-ok { color: var(--ok); font-weight: 700; } .b-action .ast.tone-bad { color: var(--bad); } .b-action .ast.tone-warn { color: var(--warn); } .b-action .ast.tone-info { color: var(--info); }
+.b-action .an { margin-top: 4px; font-size: .9rem; color: var(--warn); }
+.aact { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.aact button { flex: 1 1 140px; min-height: 52px; font-size: 1.05rem; }
 /* chips: questions to tap */
 .chips { display: flex; flex-wrap: wrap; gap: 10px; }
 .chip { min-height: 48px; max-width: 100%; padding: 10px 16px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
@@ -319,10 +332,20 @@ var AIC = (function () {
   A.pollDelay = function (st) {
     if (!st || !st.ok) { return 10000; }
     if (st.checking || (st.prompt && st.prompt.waiting)) { return 1000; }
-    if (A.pending(st)) { return 1000; }
+    if (A.pending(st) || A.actionBusy(st)) { return 1000; }
     if (st.prompt || (st.review && st.review.loading)) { return 3000; }
     return 30000;
   };
+  // A chat action being decided or followed: the outcome must appear when it lands.
+  A.actionBusy = function (st) {
+    var conv = (st && st.chat && st.chat.conversation) || [];
+    for (var i = 0; i < conv.length; i++) {
+      var acts = conv[i].actions || [];
+      for (var j = 0; j < acts.length; j++) { if (A.ACTION_BUSY[acts[j].state]) { return true; } }
+    }
+    return false;
+  };
+  A.ACTION_BUSY = { checking: 1, sending: 1, sent: 1 };
   A.el = function (doc, tag, cls, text) {
     var e = doc.createElement(tag);
     if (cls) { e.className = cls; }
@@ -468,7 +491,9 @@ var AIC = (function () {
   // The thread: questions, answers (text, then cards), the thinking bubble,
   // dividers where a new conversation started, follow-up chips under the
   // last answer. Returns the thinking bubbles by entry id (to tick them).
-  A.renderConversation = function (doc, root, chat, onPick) {
+  // opts (optional): { onAction(ref, what), tapped: {}, countdowns: [] }.
+  A.renderConversation = function (doc, root, chat, onPick, opts) {
+    opts = opts || {};
     A.clear(root);
     var list = (chat && chat.conversation) || [];
     var thinking = {};
@@ -499,6 +524,11 @@ var AIC = (function () {
       var a = A.el(doc, 'div', 'msg a', e.a);
       var cards = A.renderBlocks(doc, e.display);
       if (cards) { a.appendChild(cards); }
+      (e.actions || []).forEach(function (act) {
+        var card = A.renderAction(doc, act, opts.onAction || function () {}, opts.tapped);
+        a.appendChild(card.el);
+        if (card.line && opts.countdowns) { opts.countdowns.push(card); }
+      });
       root.appendChild(a);
       var sug = A.cleanSuggestions(e.suggestions);
       if (i === list.length - 1 && sug.length) {
@@ -512,10 +542,79 @@ var AIC = (function () {
     }
     return thinking;
   };
+  // ── action cards (chat actions v1) ──
+  A.countdown = function (seconds) {
+    var s = Math.max(0, Math.floor(Number(seconds) || 0));
+    var m = Math.floor(s / 60), r = s % 60;
+    return s > 0 ? 'Expires in ' + m + ':' + (r < 10 ? '0' : '') + r : 'Expired';
+  };
+  // What a card says and which buttons it has: 'decide' (Confirm, Cancel),
+  // 'pin' (Use PIN, Cancel) or none. Done and Failed only from the state
+  // the controller reports.
+  A.actionStatus = function (a) {
+    var st = a && a.state;
+    if (st === 'offered') {
+      return { text: A.countdown(a.expires_in), tone: '', buttons: a.needs_pin ? 'pin' : 'decide', ticking: true,
+        note: a.needs_pin ? 'This one needs the owner PIN for this item.' : '' };
+    }
+    if (st === 'checking' || st === 'sending') { return { text: 'Sending…', tone: 'info', buttons: '' }; }
+    if (st === 'sent') { return { text: 'Sent… waiting for the controller', tone: 'info', buttons: '' }; }
+    if (st === 'done') { return { text: 'Done', tone: 'ok', buttons: '' }; }
+    if (st === 'failed') { return { text: 'Failed: ' + (a.message || 'the controller did not carry it out.'), tone: 'bad', buttons: '' }; }
+    if (st === 'declined') { return { text: 'Cancelled', tone: '', buttons: '' }; }
+    if (st === 'expired') { return { text: 'Expired', tone: '', buttons: '' }; }
+    if (st === 'refused') { return { text: a.message || 'Not accepted.', tone: 'warn', buttons: a.needs_pin ? 'pin' : '' }; }
+    return { text: a.message || '', tone: 'warn', buttons: '' }; // withdrawn, unconfirmed
+  };
+  // One card, text nodes only. `onAct(ref, what)`: what = approve | decline | pin.
+  // `tapped[A.tapKey(a)]`: the person already chose in THIS state of the
+  // card: every button is disabled (a double tap is ignored). A new state
+  // (refused with Use PIN, say) brings the buttons back.
+  A.tapKey = function (a) { return a.ref + '|' + a.state + '|' + (a.needs_pin ? 1 : 0); };
+  A.renderAction = function (doc, a, onAct, tapped) {
+    var key = A.tapKey(a);
+    var box = A.el(doc, 'div', 'b-action');
+    if (a.state === 'withdrawn') { box.className = 'b-action gone'; }
+    else {
+      box.appendChild(A.el(doc, 'div', 'at', a.title));
+      if (a.detail) { box.appendChild(A.el(doc, 'div', 'ad', a.detail)); }
+    }
+    var st = A.actionStatus(a);
+    var line = A.el(doc, 'div', 'ast' + (st.tone ? ' tone-' + st.tone : ''), st.text);
+    box.appendChild(line);
+    if (st.note) { box.appendChild(A.el(doc, 'div', 'an', st.note)); }
+    var btns = [];
+    if (st.buttons) {
+      var row = A.el(doc, 'div', 'aact');
+      var first = st.buttons === 'pin'
+        ? { label: 'Use PIN', what: 'pin', cls: 'primary' }
+        : { label: 'Confirm', what: 'approve', cls: 'primary' };
+      [first, { label: 'Cancel', what: 'decline', cls: '' }].forEach(function (b) {
+        var el = A.el(doc, 'button', b.cls, b.label);
+        el.setAttribute('type', 'button');
+        el.setAttribute('data-act', b.what);
+        if (tapped && tapped[key]) { el.disabled = true; }
+        el.addEventListener('click', function () {
+          if (tapped && tapped[key]) { return; } // a double tap is ignored
+          if (b.what !== 'pin') { // Use PIN opens the PIN pad; a cancelled pad leaves the card as it was
+            if (tapped) { tapped[key] = true; }
+            btns.forEach(function (x) { x.disabled = true; });
+          }
+          onAct(a.ref, b.what);
+        });
+        btns.push(el);
+        row.appendChild(el);
+      });
+      box.appendChild(row);
+    }
+    return { el: box, line: st.ticking ? line : null, buttons: btns, expires_in: a.expires_in };
+  };
   // What changed enough to rebuild the thread (not the thinking seconds).
   A.signature = function (chat) {
     var list = (chat && chat.conversation) || [];
-    return JSON.stringify([chat && chat.conv, chat && chat.elevated, list.map(function (e) { return [e.id, e.state, e.conv]; })]);
+    return JSON.stringify([chat && chat.conv, chat && chat.elevated, list.map(function (e) {
+      return [e.id, e.state, e.conv, (e.actions || []).map(function (a) { return [a.ref, a.state, !!a.needs_pin, a.message || '']; })];
+    })]);
   };
   // Which screen the chat is: off (Basic, or unavailable), locked (Owner
   // PIN mode, no unlock yet), open (anyone may ask), elevated (owner
@@ -676,6 +775,26 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   function press(path, body) { notice(''); act(path, body); }
   // A question: its refusal (too many questions, too long, offline…) is a
   // sentence in the thread, and typed text comes back to the input.
+  // ── chat action cards: one tap while owner-unlocked ──
+  var tapped = {};
+  var countdowns = [];
+  var countdownsAt = 0;
+  function actionNow(ref, what) {
+    notice('');
+    if (what === 'pin') { act('/approvals/next', { ref: ref }); apprOpen = true; return; }
+    act('/chat/action', { ref: ref, decision: what }, false, function (j) {
+      notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.');
+    });
+  }
+  // The countdowns tick between polls (the controller's expiry still rules).
+  if (typeof setInterval === 'function') setInterval(function () {
+    var gone = (Date.now() - countdownsAt) / 1000;
+    countdowns.forEach(function (c) {
+      var left = Math.max(0, (Number(c.expires_in) || 0) - gone);
+      c.line.textContent = AIC.countdown(left);
+      if (left <= 0) { c.buttons.forEach(function (b) { b.disabled = true; }); }
+    });
+  }, 1000);
   function askNow(body) {
     notice('');
     sysNote = '';
@@ -777,7 +896,9 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
         thinking = {};
         root.appendChild(emptyState(chat));
       } else {
-        thinking = AIC.renderConversation(document, root, chat, askNow);
+        countdowns = [];
+        thinking = AIC.renderConversation(document, root, chat, askNow, { onAction: actionNow, tapped: tapped, countdowns: countdowns });
+        countdownsAt = Date.now();
       }
       drawSys();
       AIC.renderChips(document, $('strip'), list.length ? AIC.questionChips(chat) : [], askNow);

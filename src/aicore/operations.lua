@@ -17,6 +17,7 @@
 local V = require("aicore.vocab")
 local Commands = require("aicore.commands")
 local ChatV2 = require("aicore.chatv2")
+local ChatActions = require("aicore.chatactions")
 
 local M = {}
 
@@ -38,6 +39,9 @@ local ARGS = {
     -- counted, never a reason to refuse the answer.
     display = true,
     suggestions = true,
+    -- Chat actions v1 (aicore.chatactions): up to 3 proposals the person may
+    -- confirm on the page. Invalid items are dropped and counted.
+    actions = true,
     -- Only on the answer to an ask that carried `unlock` (webui.UNLOCK): the
     -- answer belongs to the touchscreen page and is never a Composer answer.
     channel = true,
@@ -296,6 +300,7 @@ function M.parse(command, args)
     end
     op.display, op.display_dropped = ChatV2.display(args.display)
     op.suggestions, op.suggestions_dropped = ChatV2.suggestions(args.suggestions)
+    op.actions, op.actions_dropped = ChatActions.actions(args.actions)
     if args.channel ~= nil then
       if type(args.channel) ~= "string" or not M.RESULT_CHANNELS[args.channel] then
         return nil, "channel must be touchscreen"

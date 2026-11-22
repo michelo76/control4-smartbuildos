@@ -52,14 +52,43 @@ local presets = { "Is the wine cellar at the right temperature?" }
 local due = {} -- answers waiting to be delivered: { at, job, text, extra }
 local challenges = {} -- [challenge_id] = { verified }
 
+-- Chat actions (stand-ins for the platform's proposals): one per scenario.
+local ACT = {
+  lights = "aaaaaaaa-1111-4111-8111-111111111111", -- Confirm → Sent → Done
+  den = "bbbbbbbb-2222-4222-8222-222222222222", -- Confirm → Sent → Failed
+  scene = "cccccccc-3333-4333-8333-333333333333", -- Confirm → refused: needs a PIN
+}
+local decided = {} -- [ref] = clock when approved
+
 local function newHex()
   seq = seq + 1
   return string.format("%08x%08x%08x%08x", seq, math.random(0, 0x7fffffff), math.random(0, 0x7fffffff), seq * 7919)
 end
 
 --- The scripted answers: chosen by the question's words.
-local function answerFor(q)
+local function answerFor(q, ownerProof)
   q = q:lower()
+  -- Actions are proposed only to an owner-unlocked ask (owner_proof), as on
+  -- the platform.
+  local function action(ref, title, detail)
+    if ownerProof == nil then
+      return nil
+    end
+    return { { ref = ref, title = title, detail = detail, expires_in = 600 } }
+  end
+  if q:find("patio") then
+    return ownerProof and "I can turn off the 4 patio lights. Confirm below."
+      or "Unlock with the owner PIN to change the lights from here.",
+      { actions = action(ACT.lights, "Turn off the patio lights", "Patio string lights and the 3 wall lanterns") }
+  end
+  if q:find("den") then
+    return "I can set the den thermostat to 21 °C. Confirm below.",
+      { actions = action(ACT.den, "Set the den to 21 °C", "Den thermostat, heat set point") }
+  end
+  if q:find("movie") then
+    return "I can start the Movie Night scene in the media room. Confirm below.",
+      { actions = action(ACT.scene, "Start Movie Night", "Media room: lights down, screen and projector on") }
+  end
   if q:find("temperat") or q:find("warm") or q:find("cellar") or q:find("climate") then
     return "The house is comfortable. The cellar is right on target and every room is within a degree of its set point.",
       {
@@ -154,13 +183,43 @@ local ui = Webui.new({
     end
   end,
   cloud = function(op, body, cb)
+    if op == "approval_detail" then
+      local r = { ref = body.ref, title = "Proposal", risk = "low", args_hash = string.rep("ab", 32) }
+      local at = decided[body.ref]
+      if at ~= nil and body.verification and body.verification.method == "pin_lock_session" then
+        if clock - at < 5 then
+          r.execution = { state = "pending" }
+        elseif body.ref == ACT.den then
+          r.execution = {
+            state = "failed",
+            reason = "controller_failed",
+            message = "The den thermostat did not accept the change.",
+          }
+        else
+          r.execution = { state = "completed" }
+        end
+      end
+      cb({ status = "ok", result = r })
+      return
+    end
+    if op == "approval_decide" then
+      if body.ref == ACT.scene and body.decision == "approve" then
+        cb({ status = "error", error_code = "not_permitted", result = { reason = "session_risk_too_high" } })
+        return
+      end
+      if body.decision == "approve" then
+        decided[body.ref] = clock
+      end
+      cb({ status = "ok", result = { ref = body.ref, status = body.decision == "approve" and "queued" or "denied" } })
+      return
+    end
     if op ~= "ask" then
       cb({ status = "ok", result = { enabled = true, count = 2, eligible = {}, portal_only_count = 2 } })
       return
     end
     seq = seq + 1
     local job = "job-" .. seq
-    local text, extra = answerFor(body.question or "")
+    local text, extra = answerFor(body.question or "", body.owner_proof)
     due[#due + 1] = { at = clock + DELAY, job = job, text = text, extra = extra }
     cb({ status = "ok", result = { accepted = true, job_id = job } })
   end,

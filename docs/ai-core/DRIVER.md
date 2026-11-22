@@ -604,7 +604,8 @@ cloud and the facts. **Nothing here has run on a controller or a Navigator.**
 | `POST /chat/touch` | `{}` | interaction: the unlock stays 5 more minutes |
 | `POST /ask` | `{question}` (≤ 500) or `{suggestion_id}` (a built-in id or a current preset id `p<index>-<rev>`) or `{explain:true}` | `{ok, id}` or `{ok:false, reason, message}` (`unknown_suggestion` for a stale or unknown id) |
 | `POST /approvals/refresh` | `{}` | asks `approvals_pending` (≤ 1 per 30 s) |
-| `POST /approvals/next` | `{}` | `{ok, waiting}` — an `approval` challenge for the first item this screen may review |
+| `POST /approvals/next` | `{}` or `{ref}` | `{ok, waiting}` — an `approval` challenge for the first item this screen may review; with `ref` ("Use PIN" on a chat action card) only a card of this session that needs a PIN |
+| `POST /chat/action` | `{ref, decision: approve\|decline}` | `{ok}` — one tap on a chat action card of this session while owner-unlocked (chat actions v1); the outcome follows in `/state` |
 | `POST /approvals/decide` | `{decision: approve\|decline}` | `{ok}` — the outcome follows in `/state` `notice` |
 | `POST /approvals/close` | `{}` | drops the item and its proof |
 | `POST /session/close` | `{}` | ends the session (the page sends it on `pagehide`) |
@@ -773,6 +774,58 @@ declares it).
   chat_v2 declared; N conversation(s) started, N ask(s) sent again without
   a thread; N answer(s) with blocks, N block(s) shown, N dropped; N
   follow-up(s) shown, N dropped`.
+
+**Chat actions v1 (owner decision 2026-11-21: "Yes, one tap").** Lights,
+thermostat and scenes may be confirmed with ONE tap while the chat is
+owner-unlocked; riskier actions keep a fresh PIN per item (the approvals
+flow, unchanged); locks, garage and security are never offered from the
+chat (the platform's rule); nothing runs without a person confirming on the
+screen, and a result is shown only from what the platform reports. The
+module declares `chat_actions_v1` after `chat_v2`. The parsers of every
+platform shape are in `src/aicore/chatactions.lua`.
+
+- *Ask.* Optional `owner_proof` = `{nonce, verified_at, role:"owner",
+  method:"pin_lock"}` from the session's live chat_view proof
+  (`ownerProofFor`, the same wall as `unlockFor` but at any non-Basic
+  detail). An Open-mode session that is not owner-unlocked never carries
+  it. It is one of the optional keys of the shared single retry.
+- *deliver_result `actions`.* 1–3 items `{ref (action uuid), title (≤ 80),
+  detail? (≤ 300), expires_in (1–1800 s)}`, closed keys, the chat v2
+  plain-text rules; an invalid item is dropped and counted, never the
+  answer. Kept only for an exchange asked while owner-unlocked whose
+  session is still unlocked when the answer arrives; shown only to that
+  session, only while it is unlocked, and not while the homeowner's
+  touchscreen approvals are off (from `approvals_pending`).
+- *Removal.* Every card of a session goes when its owner unlock ends —
+  Lock, 5 minutes without use, 30 minutes after the PIN, the page hidden,
+  PIN Lock gone — in both access modes (an Owner PIN session keeps its
+  exchanges, never its cards). A decision already sent may still be carried
+  out; the page stops following it.
+- *Confirm / Cancel* (`/chat/action`). The existing detail/decide plumbing
+  (`M.detailBody`, `M.decideBody`) with `verification = {nonce,
+  verified_at, role, method:"pin_lock_session"}` read from the session's
+  LIVE owner proof at each step: `approval_detail` for the `args_hash` (the
+  ref must match, the hash be 64 hex, and for Confirm the risk `low`, else
+  Use PIN), then `approval_decide` with that hash. A card is decided once;
+  a second tap answers `action_busy` and sends nothing; a session locked
+  between the two calls decides nothing. Confirm is replaced by Use PIN
+  300 s after the answer arrived (the platform takes one tap only that
+  long); the card stays until `expires_in` runs out.
+- *Outcome.* After `approval_decide` answers `queued` the card says Sent; a
+  session-verified `approval_detail` is polled every 2 s (at most 15, one
+  in flight, run from the relay's sweep) and the card shows Done only for
+  `execution.state = completed`, Failed with `execution.message` verbatim
+  for `failed` / `expired`; a detail without `execution` is still pending;
+  after 30 s "No confirmation from the controller yet."
+- *Refusals* (`not_permitted` / `rate_limited`, `result.reason`):
+  `session_risk_too_high`, `session_proposal_too_old` and `rate_limited`
+  show their sentence and Use PIN; `session_not_bound` and `session_stale`
+  show their sentence and withdraw the card. Use PIN calls
+  `/approvals/next {ref}`: the existing review, an `approval` challenge
+  bound to that ref, one PIN for that item, method `pin_lock`.
+- *Print Diagnostics* adds to the `touchscreen chat` line: asks with
+  `owner_proof`, cards offered, dropped, removed at lock, confirmed,
+  cancelled, done, failed, refused, unconfirmed (counts only).
 
 **The page.** Chat first: a compact header (status dot and word, tap for
 the full status lines; *Unlock for more* or the owner badge with its lock

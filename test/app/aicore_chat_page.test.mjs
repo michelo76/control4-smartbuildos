@@ -195,6 +195,59 @@ try {
     await ctx.close();
   }
 
+  // chat actions: one tap while owner-unlocked
+  for (const view of ["wall", "small", "phone"]) {
+    console.log(`[actions] ${view}`);
+    await dev(base, "/__dev/advance", { seconds: 61 });
+    const { ctx, page } = await open(base, view);
+    await page.waitForSelector("#composer:not(.hidden)", { timeout: 8000 });
+    await ask(page, "Turn off the patio lights");
+    await page.waitForSelector(".msg.a:not(.thinking)", { timeout: 8000 });
+    check(view + ": not unlocked: no action card", (await page.locator(".b-action").count()) === 0);
+    await page.click("#elevate");
+    await enterPin(page);
+    await dev(base, "/__dev/advance", { seconds: 61 });
+    await ask(page, "Turn off the patio lights");
+    await page.waitForSelector(".b-action", { timeout: 8000 });
+    const card = page.locator(".b-action").last();
+    check(view + ": the card: title, detail, countdown, Confirm and Cancel", /Turn off the patio lights/.test(await card.innerText()) && /Expires in \d+:\d\d/.test(await card.innerText()) && (await card.locator("button").count()) === 2);
+    const bb = await card.locator("button").first().boundingBox();
+    check(view + ": Confirm at least 44 px", bb.height >= 44 && bb.width >= 44, JSON.stringify(bb));
+    await noHScroll(page, view + " action"); await clipped(page, view + " action");
+    await shot(page, `action-card-${view}`);
+    await card.locator('button[data-act="approve"]').click();
+    check(view + ": after the tap both buttons are disabled at once", await card.locator("button").first().isDisabled().catch(() => true));
+    await page.waitForFunction(() => /Sent…/.test(document.getElementById("thread").innerText), null, { timeout: 5000 });
+    check(view + ": Sent… (not Done) until the controller reports", !/Done/.test(await page.locator(".b-action").last().innerText()));
+    await shot(page, `action-sent-${view}`);
+    await dev(base, "/__dev/advance", { seconds: 6 });
+    await page.waitForFunction(() => /Done/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 8000 });
+    check(view + ": Done from the reported execution", true);
+    await shot(page, `action-done-${view}`);
+    await dev(base, "/__dev/advance", { seconds: 61 });
+    await ask(page, "Set the den to 21");
+    await page.waitForFunction(() => /Set the den/.test(Array.from(document.querySelectorAll(".b-action")).pop()?.innerText || ""), null, { timeout: 8000 });
+    await page.locator(".b-action").last().locator('button[data-act="approve"]').click();
+    await page.waitForFunction(() => /Sent…/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 5000 });
+    await dev(base, "/__dev/advance", { seconds: 6 });
+    await page.waitForFunction(() => /Failed: The den thermostat did not accept the change\./.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 8000 });
+    check(view + ": Failed with the platform's sentence", true);
+    await shot(page, `action-failed-${view}`);
+    await dev(base, "/__dev/advance", { seconds: 61 });
+    await ask(page, "Start the movie scene");
+    await page.waitForFunction(() => /Start Movie Night/.test(Array.from(document.querySelectorAll(".b-action")).pop()?.innerText || ""), null, { timeout: 8000 });
+    await page.locator(".b-action").last().locator('button[data-act="approve"]').click();
+    await page.waitForFunction(() => /Use PIN/.test(Array.from(document.querySelectorAll(".b-action")).pop().innerText), null, { timeout: 5000 });
+    const pinCard = page.locator(".b-action").last();
+    check(view + ": a refusal that needs a PIN: its sentence and Use PIN, enabled", /needs the owner PIN/.test(await pinCard.innerText()) && !(await pinCard.locator('button[data-act="pin"]').isDisabled()));
+    await shot(page, `action-needs-pin-${view}`);
+    await page.click("#lock");
+    await page.waitForSelector("#ownerBox.hidden", { state: "attached" });
+    await page.waitForFunction(() => document.querySelectorAll(".b-action").length === 0);
+    check(view + ": Lock removes every card", true);
+    await ctx.close();
+  }
+
   // a refusal is a sentence in the thread (the 4-a-minute limit)
   {
     await dev(base, "/__dev/advance", { seconds: 61 });

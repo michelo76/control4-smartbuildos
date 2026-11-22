@@ -38,7 +38,7 @@ local reg = V.registeredCommands()
 check("chat_v2 is declared (vocab.DECLARED = chatv2.CAPABILITY)", V.DECLARED[1] == ChatV2.CAPABILITY)
 check(
   "registered after the nine operations, in the same list",
-  #reg == #V.OPERATIONS + 1 and reg[#reg] == "chat_v2" and reg[9] == "read_device_state",
+  #reg == #V.OPERATIONS + 2 and reg[10] == "chat_v2" and reg[11] == "chat_actions_v1" and reg[9] == "read_device_state",
   table.concat(reg, ",")
 )
 local isOp = false
