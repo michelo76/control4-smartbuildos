@@ -227,6 +227,9 @@ assert.strictEqual(AIC.dots('1234'), '••••'); assert.ok(!/[0-9]/.test(AI
 // texts and timing
 assert.strictEqual(AIC.lockText(30), 'PIN entry is locked for 30 s'); assert.strictEqual(AIC.lockText(299), 'PIN entry is locked for 5 min');
 assert.strictEqual(AIC.leftText(300), 'Locks again after 5 min without use'); assert.strictEqual(AIC.leftText(20), 'Locks again in 20 s');
+// The 30 minutes after the PIN end the unlock whatever the use: the page does not promise "without use".
+assert.strictEqual(AIC.leftText(120, true), 'Locks again in 2 min (30 minutes after the PIN)'); assert.strictEqual(AIC.leftText(20, true), 'Locks again in 20 s');
+assert.strictEqual(AIC.leftText(300, false), 'Locks again after 5 min without use');
 assert.strictEqual(AIC.riskText('medium'), 'Risk: medium'); assert.strictEqual(AIC.riskText('high'), '');
 assert.strictEqual(AIC.pollDelay({ ok: true, chat: {} }), 30000);
 assert.strictEqual(AIC.pollDelay({ ok: true, prompt: {} }), 3000);

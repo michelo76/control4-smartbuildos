@@ -402,6 +402,7 @@ local SAMPLE = {
   event = "pattern_detected",
   detail = "d",
   correlation_id = "0d6f9a2e-5b1c-4c8e-9f00-123456789abc",
+  channel = "touchscreen", -- deliver_result: the answer to an ask that carried `unlock`
   active = true,
   reason = "r",
   config_version = 3,
@@ -587,6 +588,10 @@ for _, e in ipairs(entries(anyLiteral(opsTs, "OP_BODIES"))) do
   -- A field given by a named constant (`verification: VERIFICATION`).
   for name in e.body:gmatch("([%w_]+):%s*VERIFICATION[,%s}]") do
     spec[name] = { kind = "object", required = true }
+  end
+  -- …and the optional `unlock: UNLOCK` of a touchscreen ask.
+  for name in e.body:gmatch("([%w_]+):%s*UNLOCK[,%s}]") do
+    spec[name] = { kind = "object", required = false }
   end
   bodies[e.name] = spec
 end
@@ -787,7 +792,9 @@ local Webui = require("aicore.webui")
 do
   local proof = { nonce = string.rep("a", 32), verified_at = 1800000000, role = "owner" }
   local ref = "11111111-2222-4333-8444-555555555555"
-  for k, v in pairs(Webui.askBody("aic-1", "q", "standard")) do
+  -- The fullest touchscreen ask: Touchscreen Detail at Household, so it
+  -- carries `unlock` (the session's owner-PIN unlock).
+  for k, v in pairs(Webui.askBody("aic-1", "q", "household", Webui.verification(proof))) do
     driverBodies.ask.full[k] = v
   end
   local details = {}
@@ -1084,6 +1091,53 @@ do
   check(
     "the platform refuses a whole batch for one bad item (validDriverReports: every) — reports.lua validates each item first",
     wireTs:find("v.every(validDriverReportItem)", 1, true) ~= nil
+  )
+end
+
+print("[8c] an owner PIN and device answers: `unlock`, the 30 minutes, the result channel")
+do
+  local Ops = require("aicore.operations")
+  local lit = protocolTs:match("export const AI_CORE_ASK_UNLOCK = Object%.freeze%((%b{})") or ""
+  local pin = {}
+  for k, v in lit:gmatch('([%a_]+):%s*"([^"]+)"') do
+    pin[k] = v
+  end
+  for k, v in lit:gmatch("([%a_]+):%s*(%d+)[,%s]") do
+    pin[k] = tonumber(v)
+  end
+  check("protocol.ts AI_CORE_ASK_UNLOCK is readable", pin.field ~= nil and pin.maxAgeSeconds ~= nil, lit)
+  check(
+    "the body key and the two values a grant requires are the driver's (webui.UNLOCK)",
+    pin.field == Webui.UNLOCK.field and pin.role == Webui.UNLOCK.role and pin.method == Webui.UNLOCK.method,
+    tostring(pin.field) .. " " .. tostring(pin.role) .. " " .. tostring(pin.method)
+  )
+  check(
+    "30 minutes on both sides: the session's lifetime after the PIN = the platform's age cap",
+    pin.maxAgeSeconds == Webui.LIMITS.unlock_max_seconds and pin.maxAgeSeconds == 1800,
+    tostring(pin.maxAgeSeconds) .. " / " .. tostring(Webui.LIMITS.unlock_max_seconds)
+  )
+  check("the ask body takes the key (OP_BODIES.ask)", bodies.ask ~= nil and bodies.ask[Webui.UNLOCK.field] ~= nil)
+  check(
+    "…as an optional object (an ask without it is as before)",
+    bodies.ask ~= nil
+      and (bodies.ask[Webui.UNLOCK.field] or {}).kind == "object"
+      and not (bodies.ask[Webui.UNLOCK.field] or {}).required
+  )
+  local uLit = opsTs:match("const UNLOCK: Field = (%b{})") or ""
+  local uFields = platformFields(uLit:match("fields:%s*(%b{})") or "{}")
+  local sent = Webui.verification({ nonce = string.rep("a", 32), verified_at = 1800000000, role = "owner" })
+  check("rpc/ops.ts UNLOCK is readable", next(uFields) ~= nil)
+  check(
+    "unlock: the driver sends exactly UNLOCK's fields",
+    same(keys(sent), keys(uFields)),
+    show(keys(sent), keys(uFields))
+  )
+  check("…with the role and method the grant requires", sent.role == pin.role and sent.method == pin.method)
+  local channels = set(strings(literal(protocolTs, "AI_CORE_RESULT_CHANNELS")))
+  check(
+    "deliver_result channel: the driver accepts exactly AI_CORE_RESULT_CHANNELS",
+    same(keys(channels), keys(Ops.RESULT_CHANNELS)) and channels[Webui.RESULT_CHANNEL] == true,
+    show(keys(Ops.RESULT_CHANNELS), keys(channels))
   )
 end
 

@@ -103,8 +103,12 @@ local WEB_RELAY_ID = "aicore-ui-relay"
 local WEB_TOKEN_KEY = "aicore_web_token_v1"
 local URL_TIMER = "AiCoreUrlRepublish"
 local C4Z_NAME = "smartbuildos-ai-core"
---- Touchscreen Detail (dealer property) → the `detail` an ask carries. It
---- can only lower what the homeowner allowed (the cloud enforces that).
+--- Touchscreen Detail (dealer property) → the `detail` an ask carries. For
+--- household ACTIVITY it can only lower what the homeowner allowed (the cloud
+--- enforces that). At Household an ask also carries `unlock` (webui.UNLOCK):
+--- an owner PIN then unlocks device STATE at full scope, whatever the
+--- homeowner's switch says; at Standard nothing is attested. The list values
+--- are stored in projects: their text never changes.
 local DETAIL_OF = {
   ["Basic (status and approvals only)"] = "basic",
   ["Standard (no household activity)"] = "standard",
@@ -1652,6 +1656,24 @@ function OPS.deliver_result(op)
     refresh("result")
     return "Completed", "touchscreen response " .. op.response_id
   end
+  if op.channel == Webui.RESULT_CHANNEL then
+    -- Marked for the touchscreen page (the answer to an ask that carried
+    -- `unlock`), and no ask here owns it: the driver restarted, or the accept
+    -- answer was lost. Dropped. It may hold device state read behind an owner
+    -- PIN, so it is never a Composer answer: no AI_LAST_RESPONSE, nothing
+    -- persisted, no AI Response Ready.
+    if gWeb.ui then
+      gWeb.ui:dropUnowned()
+    end
+    if op.pending_approvals ~= nil then
+      gLast.pending_approvals = op.pending_approvals
+    end
+    finishJob(op.job_id, op.request_id)
+    gCounters.results_delivered = gCounters.results_delivered + 1
+    saveLast()
+    refresh("result")
+    return "Completed", "touchscreen response " .. op.response_id .. " dropped (no page waiting)"
+  end
   local bounded, cut = Operations.boundResponse(op.text)
   gLast.response = bounded
   gLast.response_id = op.response_id
@@ -2366,6 +2388,16 @@ function EC.PRINT_DIAGNOSTICS()
       oldestAsk ~= nil and string.format(" (oldest %d s)", oldestAsk) or "",
       gWeb.ui.counters.answers_held,
       gWeb.ui.counters.answers_dropped
+    )
+    -- The owner-PIN attestation (`unlock`): how many asks carried it, and
+    -- whether the platform turned out not to know the field (then it is not
+    -- sent again in this driver run; answers stay at the usual scope).
+    log:print(
+      "  touchscreen unlock: %d ask(s) carried it, %d sent again without it, %s",
+      gWeb.ui.counters.unlock_sent,
+      gWeb.ui.counters.unlock_retried,
+      gWeb.ui.unlockNotAccepted and "not sent for the rest of this run (the platform does not know it)"
+        or "accepted so far"
     )
     for _, line in ipairs(gWeb.ui:refusalLines()) do
       log:print("  touchscreen %s", line)

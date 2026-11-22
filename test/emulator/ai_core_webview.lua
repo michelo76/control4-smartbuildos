@@ -346,7 +346,9 @@ check(
 )
 check(
   "…not in AI_LAST_RESPONSE",
-  tostring(aic.Variables and aic.Variables.AI_LAST_RESPONSE or ""):find("garage") == nil
+  aic.vars ~= nil
+    and aic.vars.byName.AI_LAST_RESPONSE ~= nil
+    and tostring(aic.vars.byName.AI_LAST_RESPONSE.value or ""):find("garage") == nil
 )
 for _ = 1, 13 do
   d:advance(25000)
@@ -533,6 +535,91 @@ check(
     and askOp.body.request_id == asked.id,
   askOp and json.encode(askOp.body)
 )
+post("/chat/lock")
+
+print("[6b] an owner PIN and device answers: `unlock` through the real Agent, the page's channel")
+-- AI Core's own variable, read the way Director holds it.
+local function aicVar(name)
+  local v = aic.vars and aic.vars.byName and aic.vars.byName[name]
+  return v and v.value or nil
+end
+check(
+  "(AI Core's AI_LAST_RESPONSE variable is readable here)",
+  aic.vars ~= nil and aic.vars.byName.AI_LAST_RESPONSE ~= nil
+)
+d:setProperty(aic, "Touchscreen Detail", "Household (only if the homeowner allows it)")
+d:advance(16000)
+post("/chat/unlock")
+d:advance(1000)
+vcode = enterPin(OWNER_PIN)
+asked = post("/ask", { question = "Is the garage door closed?" })
+d:advance(2000)
+askOp = lastOp("ask")
+local sentUnlock = askOp and askOp.body.unlock or nil
+check(
+  "at Household the ask the Agent relays carries unlock: owner, pin_lock, a nonce and PIN Lock's verified_at",
+  vcode == 200
+    and asked
+    and asked.ok == true
+    and type(sentUnlock) == "table"
+    and sentUnlock.role == "owner"
+    and sentUnlock.method == "pin_lock"
+    and type(sentUnlock.nonce) == "string"
+    and #sentUnlock.nonce == 32
+    and type(sentUnlock.verified_at) == "number"
+    and askOp.body.detail == "household",
+  askOp and json.encode(askOp.body)
+)
+check("…and nothing else new (no PIN)", askOp and not askOp.raw:find(OWNER_PIN, 1, true))
+local lastResponseBefore = aicVar("AI_LAST_RESPONSE")
+-- As the platform answers an ask that carried unlock: channel touchscreen.
+moduleCommand("deliver_result", {
+  response_id = "resp-u1",
+  job_id = askOp.job_id,
+  request_id = askOp.frame_request_id,
+  text = "The garage door is closed.",
+  kind = "answer",
+  pending_approvals = 0,
+  channel = "touchscreen",
+})
+st = state()
+local shown = st.chat.conversation and st.chat.conversation[#st.chat.conversation] or {}
+check(
+  "the marked answer passes the real Agent and is shown to the session that asked",
+  shown.a == "The garage door is closed." and shown.state == "answered",
+  json.encode(st.chat.conversation)
+)
+-- A marked answer no ask here owns (what a driver restart leaves behind).
+moduleCommand("deliver_result", {
+  response_id = "resp-u2",
+  job_id = "job-of-an-earlier-run",
+  request_id = "frame-of-an-earlier-run",
+  text = "The alarm is armed away.",
+  kind = "answer",
+  pending_approvals = 0,
+  channel = "touchscreen",
+})
+check(
+  "a marked answer nobody waits for is dropped: AI_LAST_RESPONSE is untouched",
+  aicVar("AI_LAST_RESPONSE") == lastResponseBefore
+    and not tostring(aicVar("AI_LAST_RESPONSE") or ""):find("alarm", 1, true),
+  tostring(aicVar("AI_LAST_RESPONSE"))
+)
+local ledgerRec = nil
+for _, id in ipairs(agent.env.gModuleCommandsOrder) do
+  local rec = agent.env.gModuleCommands[id]
+  if rec and rec.command == "deliver_result" then
+    ledgerRec = rec
+  end
+end
+check(
+  "…and the Agent's ledger says so (Completed, dropped, no page waiting)",
+  ledgerRec ~= nil
+    and ledgerRec.state == "Completed"
+    and tostring(ledgerRec.detail):find("dropped (no page waiting)", 1, true) ~= nil,
+  ledgerRec and (tostring(ledgerRec.state) .. " " .. tostring(ledgerRec.detail))
+)
+d:setProperty(aic, "Touchscreen Detail", "Standard (no household activity)")
 post("/chat/lock")
 
 print("[7] the PIN never reached AI Core, the bus or the cloud")

@@ -146,9 +146,11 @@ var AIC = (function () {
     var s = Math.max(0, Math.floor(Number(seconds) || 0));
     return s <= 60 ? 'PIN entry is locked for ' + s + ' s' : 'PIN entry is locked for ' + Math.ceil(s / 60) + ' min';
   };
-  A.leftText = function (seconds) {
+  // fixed: the 30 minutes after the PIN end the unlock, whatever the use.
+  A.leftText = function (seconds, fixed) {
     var s = Math.max(0, Math.floor(Number(seconds) || 0));
-    return s >= 60 ? 'Locks again after ' + Math.ceil(s / 60) + ' min without use' : 'Locks again in ' + s + ' s';
+    if (s < 60) { return 'Locks again in ' + s + ' s'; }
+    return fixed ? 'Locks again in ' + Math.ceil(s / 60) + ' min (30 minutes after the PIN)' : 'Locks again after ' + Math.ceil(s / 60) + ' min without use';
   };
   A.riskText = function (risk) { return risk === 'medium' ? 'Risk: medium' : risk === 'low' ? 'Risk: low' : ''; };
   // Poll fast while something is pending, slowly when idle. Fastest while
@@ -302,7 +304,7 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
     $('unlock').disabled = !!progress;
     show('chatOpen', chat.available && !chat.locked);
     if (chat.available && !chat.locked) {
-      $('lockIn').textContent = AIC.leftText(chat.locks_in);
+      $('lockIn').textContent = AIC.leftText(chat.locks_in, chat.locks_fixed);
       AIC.renderConversation(document, $('conversation'), chat.conversation);
       AIC.renderSuggestions(document, $('suggestions'), chat.suggestions, function (id) { press('/ask', { suggestion_id: id }); });
     } else {

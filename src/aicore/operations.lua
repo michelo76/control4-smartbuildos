@@ -32,6 +32,9 @@ local ARGS = {
     kind = true,
     pending_approvals = true,
     recommendation_count = true,
+    -- Only on the answer to an ask that carried `unlock` (webui.UNLOCK): the
+    -- answer belongs to the touchscreen page and is never a Composer answer.
+    channel = true,
   },
   raise_event = {
     event = true,
@@ -89,6 +92,8 @@ local function validCorrelation(s)
 end
 
 M.RESULT_KINDS = { answer = true, analysis = true, report = true, scene_suggestion = true, diagnostic = true }
+--- deliver_result's `channel` (the platform's AI_CORE_RESULT_CHANNELS).
+M.RESULT_CHANNELS = { touchscreen = true }
 
 local function validId(s)
   return type(s) == "string" and #s >= 1 and #s <= 128 and s:match("^[%w][%w%-_:%.]*$") ~= nil
@@ -282,6 +287,12 @@ function M.parse(command, args)
     op.kind_of = args.kind ~= nil and tostring(args.kind) or "answer"
     if not M.RESULT_KINDS[op.kind_of] then
       return nil, "kind must be one of answer, analysis, report, scene_suggestion, diagnostic"
+    end
+    if args.channel ~= nil then
+      if type(args.channel) ~= "string" or not M.RESULT_CHANNELS[args.channel] then
+        return nil, "channel must be touchscreen"
+      end
+      op.channel = args.channel
     end
   elseif command == "raise_event" then
     if type(args.event) ~= "string" or not V.RAISABLE[args.event] then

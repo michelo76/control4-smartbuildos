@@ -218,10 +218,12 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    (off by default) lets an owner PIN approve or decline low- and medium-risk
    action proposals on the tile; everything else stays portal only.
    *Household answers at the touchscreen* (off by default) lets the chat use
-   household activity. **Touchscreen Detail** can only lower this: *Basic*
-   switches the chat off, *Standard* never asks for household activity,
-   *Household* asks for it but the cloud answers with it only when the
-   homeowner's switch is on.
+   household activity. For activity, **Touchscreen Detail** can only lower
+   this: *Basic* switches the chat off, *Standard* never asks for household
+   activity, *Household* asks for it but the cloud answers with it only when
+   the homeowner's switch is on. At *Household* an owner PIN also lets the
+   chat answer about the current state of devices (item 7), whatever that
+   switch says; choose *Standard* to keep device answers to equipment status.
 4. **What works only on the home network.** The whole page: a touch screen or
    a phone on the home Wi-Fi reaches the controller; a phone away from home
    does not (the page says *Available on the home network only*). There is
@@ -250,9 +252,14 @@ phone yet** (`KNOWN-ISSUES.md` KI-53 to KI-60).
    default), the chat can tell a device's temperature, humidity, battery,
    signal quality, online status and temperature scale; it refuses locks,
    security, doors, motion, contacts, relays, lights and cameras before
-   anything is read out — an owner PIN alone does not change that. With the
-   switch on, the homeowner's usual household rules decide. Cameras are
-   always refused. There is no energy data, and the chat says so rather than
+   anything is read out. **With Touchscreen Detail at *Household*, an owner
+   PIN changes that**: the chat can then tell the current state of doors,
+   garage, gates, locks, the alarm, motion and contact sensors, relays and
+   lights, and other short plain values a device exposes, and those values
+   go to SmartBuildOS and the AI provider — whatever the homeowner's switch
+   says (it still decides activity patterns). The chat locks 30 minutes after
+   the PIN. At *Standard* a PIN changes nothing here. With the switch on, the
+   homeowner's usual household rules decide. Cameras are always refused. There is no energy data, and the chat says so rather than
    guess. A live read needs the round-two Agent **and** the round-two AI Core
    on the controller; until both run, the platform answers that the
    controller cannot do it yet.
