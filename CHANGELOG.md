@@ -32,6 +32,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   local copies of Control4's c4i drivers, and gives a proxy's constant event
   names (`PUSH`) the readable text of their description ("Button is pushed").
   The regenerated catalogue covers 229 drivers (was 187).
+
 - **Logic Pack: Logic Blocks** (`docs/smartbuildos-logic-blocks/DESIGN.md`). Up
   to 16 named rules, set up on the Properties and Actions tabs: cooldown, quiet
   period, restartable timer, once per day, flag, counter, all/any conditions,
