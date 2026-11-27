@@ -2,109 +2,253 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
 <title>AI Core</title>
 <style>
+/* Dark only: a wall touchscreen and the phone app's dark rooms. */
 :root {
-  --bg: #f3f4f8; --panel: #ffffff; --ink: #161a23; --muted: #5d6676; --line: #dfe3ec; --soft: #eef0f6;
-  --accent: #4f46e5; --accent-ink: #ffffff; --ok: #12804a; --warn: #a65a06; --bad: #c4291c;
+  --bg: #0b0e14; --panel: #161a23; --panel2: #1d2230; --ink: #eef1f7; --muted: #a3acbb; --line: #2b3242;
+  --accent: #8b83ff; --accent-ink: #0d0f1a; --qbub: #2d2a66; --qink: #f1f0ff;
+  --ok: #4cc38a; --warn: #f0b25a; --bad: #ff8a80; --info: #7cb4ff;
+  --gutter: 16px; --maxw: 980px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1017; --panel: #171b24; --ink: #eef1f7; --muted: #a3acbb; --line: #2a303c; --soft: #1e2330;
-    --accent: #8b83ff; --accent-ink: #0d0f1a; --ok: #4cc38a; --warn: #f0b25a; --bad: #ff8a80;
-  }
-}
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-body { padding: calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; }
-h1 { font-size: 1.5rem; margin: 0 0 4px; }
-h2 { font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin: 12px 0; }
-.muted { color: var(--muted); font-size: .95rem; margin: 6px 0; }
-.note { border-left: 4px solid var(--warn); padding: 6px 10px; margin: 8px 0; background: var(--soft); border-radius: 8px; }
-ul.lines { list-style: none; margin: 0; padding: 0; }
-ul.lines li { padding: 4px 0; }
+html { font-size: 17px; }
+@media (min-width: 900px) and (min-height: 520px) { html { font-size: 20px; } }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }
+body { overflow: hidden; }
+#app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter); }
 button, input { font: inherit; color: inherit; }
-button { min-height: 48px; min-width: 48px; padding: 8px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; margin: 4px 4px 4px 0; }
+button { min-height: 48px; min-width: 48px; padding: 8px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 650; }
+button.ghost { background: transparent; }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-input[type=text] { width: 100%; min-height: 48px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--soft); }
-/* Suggestions include the dealer's presets (up to 120 characters): a label
-   wraps inside its button, never widens the page. Unmeasured on a real
-   Navigator (KNOWN-ISSUES). */
-#suggestions button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
-.qa { border-top: 1px solid var(--line); padding: 10px 0; }
-.qa .q { font-weight: 650; }
-.qa .a { white-space: pre-wrap; word-break: break-word; margin-top: 4px; }
-.risk { font-weight: 700; }
+svg { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .hidden { display: none !important; }
-#pad { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; padding: 16px; }
-#pad .box { background: var(--panel); border-radius: 20px; padding: 18px; width: 100%; max-width: 360px; }
+.muted { color: var(--muted); }
+
+/* ── header ── */
+header { flex: none; border-bottom: 1px solid var(--line); background: var(--panel); }
+header .wrap { display: flex; align-items: center; gap: 10px; min-height: 64px; padding-top: 8px; padding-bottom: 8px; }
+h1 { font-size: 1.25rem; margin: 0; white-space: nowrap; }
+#statusBtn { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 48px; flex: 0 1 auto; border-radius: 999px; padding: 6px 14px; text-align: left; }
+#statusText { white-space: nowrap; font-size: .9rem; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.info { background: var(--info); }
+.spacer { flex: 1 1 0; min-width: 0; }
+.hbtn { display: flex; align-items: center; gap: 8px; padding: 8px 14px; white-space: nowrap; }
+.badge { min-width: 26px; height: 26px; padding: 0 7px; border-radius: 13px; background: var(--warn); color: #1a1205; font-weight: 750; font-size: .85rem; display: inline-flex; align-items: center; justify-content: center; }
+#ownerBox { display: flex; align-items: center; gap: 8px; }
+#ownerPill { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: rgba(139, 131, 255, .18); color: var(--ink); font-size: .9rem; white-space: nowrap; }
+#lockIn { font-size: .9rem; }
+@media (max-width: 640px) {
+  .hlabel { display: none; }
+  header.elevated #statusText { display: none; }
+  header .wrap { gap: 6px; }
+  #statusBtn { padding: 6px 10px; }
+}
+#statusPanel { border-top: 1px solid var(--line); }
+#statusPanel ul { list-style: none; margin: 0; padding: 10px 0; }
+#statusPanel li { padding: 4px 0; overflow-wrap: anywhere; }
+#notice { flex: none; background: rgba(240, 178, 90, .14); border-bottom: 1px solid rgba(240, 178, 90, .4); }
+#notice .wrap { padding-top: 10px; padding-bottom: 10px; overflow-wrap: anywhere; }
+
+/* ── the thread ── */
+main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+#thread { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; padding-bottom: 18px; }
+.center { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px var(--gutter); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 26px; width: 100%; max-width: 560px; text-align: center; }
+.card h2 { margin: 6px 0 8px; font-size: 1.35rem; }
+.card p { margin: 8px 0 18px; overflow-wrap: anywhere; }
+.card .big { width: 56px; height: 56px; color: var(--accent); }
+.card button { width: 100%; min-height: 56px; font-size: 1.05rem; }
+.msg { max-width: min(82%, 760px); padding: 12px 18px; border-radius: 22px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.msg.q { align-self: flex-end; background: var(--qbub); color: var(--qink); border-bottom-right-radius: 6px; }
+.msg.a { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; font-size: 1.05rem; }
+.msg.a.problem { border-color: rgba(240, 178, 90, .6); }
+.msg.a .note-t { color: var(--warn); }
+@media (max-width: 640px) { .msg { max-width: 92%; } }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .85rem; text-align: center; }
+.divider::before, .divider::after { content: ""; flex: 1 1 0; height: 1px; background: var(--line); }
+.divider span { max-width: 80%; overflow-wrap: anywhere; }
+.sys { align-self: center; max-width: 92%; text-align: center; color: var(--warn); background: rgba(240, 178, 90, .1); border-radius: 14px; padding: 8px 14px; overflow-wrap: anywhere; }
+.thinking { display: flex; align-items: center; gap: 12px; white-space: normal; }
+.dots { display: inline-flex; gap: 5px; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); display: block; animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+.still { display: block; margin-top: 6px; color: var(--muted); font-size: .92rem; }
+
+/* rich answers: cards inside the answer bubble (text nodes only) */
+.cards { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; white-space: normal; }
+.b-stat { flex: 1 1 120px; min-width: 0; background: var(--panel2); border-radius: 16px; padding: 12px 14px; border-top: 4px solid var(--line); }
+.b-stat .l { color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+.b-stat .v { font-size: 2rem; font-weight: 750; line-height: 1.15; overflow-wrap: anywhere; }
+.b-stat .u { font-size: 1rem; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.b-list { flex: 1 1 100%; min-width: 0; background: var(--panel2); border-radius: 16px; padding: 8px 14px; }
+.b-list .t { font-weight: 650; padding: 6px 0; overflow-wrap: anywhere; }
+.row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.b-list .t + .row { border-top: 1px solid var(--line); }
+.row .rl { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.row .rv { flex: 0 1 auto; max-width: 55%; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
+.b-note { flex: 1 1 100%; min-width: 0; border-left: 4px solid var(--info); background: rgba(124, 180, 255, .1); border-radius: 10px; padding: 10px 14px; overflow-wrap: anywhere; }
+.tone-ok { border-color: var(--ok) !important; } .tone-warn { border-color: var(--warn) !important; } .tone-bad { border-color: var(--bad) !important; } .tone-info { border-color: var(--info) !important; }
+.b-note.tone-ok { background: rgba(76, 195, 138, .1); } .b-note.tone-warn { background: rgba(240, 178, 90, .12); } .b-note.tone-bad { background: rgba(255, 138, 128, .12); }
+.row .dot.tone-ok { background: var(--ok); } .row .dot.tone-warn { background: var(--warn); } .row .dot.tone-bad { background: var(--bad); } .row .dot.tone-info { background: var(--info); }
+.v.tone-ok { color: var(--ok); } .v.tone-warn { color: var(--warn); } .v.tone-bad { color: var(--bad); } .v.tone-info { color: var(--info); }
+
+/* chips: questions to tap */
+.chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip { min-height: 48px; max-width: 100%; padding: 10px 16px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
+.chip.follow { border-color: rgba(139, 131, 255, .55); color: #d9d6ff; }
+.chips.after { align-self: flex-start; max-width: 92%; }
+.empty { display: flex; flex-direction: column; gap: 14px; padding: 6vh 0 12px; }
+.empty h2 { margin: 0; font-size: 1.5rem; }
+.empty p { margin: 0; }
+.empty .chips { flex-direction: column; align-items: stretch; }
+.empty .chip { border-radius: 16px; }
+@media (min-width: 900px) { .empty .chips { flex-direction: row; } .empty .chip { flex: 1 1 260px; } }
+
+/* ── the input bar ── */
+#composer { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
+#composer .wrap { padding-top: 10px; padding-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
+#strip { display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: none; }
+#strip::-webkit-scrollbar { display: none; }
+/* a strip that scrolls sideways fades at its edge, so a chip that runs on is seen to continue */
+#strip { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); padding-right: 40px; }
+#strip .chip { flex: none; max-width: 22rem; min-height: 44px; padding: 8px 14px; font-size: .92rem; }
+.bar { display: flex; align-items: center; gap: 10px; }
+.field { flex: 1 1 auto; min-width: 0; position: relative; display: flex; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 16px; }
+#question { flex: 1 1 auto; min-width: 0; min-height: 56px; padding: 10px 16px; border: 0; background: transparent; font-size: 1.05rem; outline: none; }
+.field:focus-within { border-color: var(--accent); }
+#counter { flex: none; padding-right: 14px; font-size: .85rem; color: var(--muted); }
+#counter.near { color: var(--warn); font-weight: 650; }
+#kbBtn { min-width: 56px; min-height: 56px; padding: 0; display: flex; align-items: center; justify-content: center; }
+#kbBtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+#send { min-height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 22px; }
+@media (max-width: 640px) { #send .hlabel { display: none; } #send { padding: 0 14px; } }
+
+/* ── the in-page keyboard: in the flow, never over the thread ── */
+#kb { flex: none; background: #10131b; border-top: 1px solid var(--line); padding: 8px 6px 10px; }
+#kb .rows { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 7px; }
+#kb .krow { display: flex; gap: 6px; justify-content: center; }
+#kb button { flex: 1 1 0; min-width: 0; min-height: 56px; padding: 0 2px; margin: 0; border-radius: 10px; background: #2a3040; border-color: #343b4e; font-size: 1.3rem; }
+#kb button.wide { flex: 1.6 1 0; font-size: 1rem; }
+#kb button.space { flex: 5 1 0; font-size: 1rem; }
+#kb button.go { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+#kb button.on { background: #e9ecf5; color: #10131b; }
+#kb button.spacer-key { visibility: hidden; flex: .5 1 0; }
+@media (max-height: 640px) { #kb button { min-height: 48px; } #kb .rows { gap: 5px; } }
+
+/* ── sheets: approvals, the PIN pad ── */
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+.sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 22px; width: 100%; max-width: 560px; max-height: 100%; overflow-y: auto; }
+.sheet h2 { font-size: 1.2rem; margin: 0 0 10px; }
+.sheet p { overflow-wrap: anywhere; }
+.sheet .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.sheet .actions button { flex: 1 1 140px; }
+.risk { font-weight: 700; color: var(--warn); }
+#pad { z-index: 20; }
+#pad .sheet { max-width: 380px; }
 #padDots { font-size: 2rem; letter-spacing: .4em; text-align: center; min-height: 2.6rem; }
-.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
 .keys button { min-height: 68px; font-size: 1.5rem; margin: 0; }
 </style>
 </head>
 <body>
-<h1>AI Core</h1>
-<p class="muted">Works only on the home network.</p>
+<div id="app">
+  <header>
+    <div class="wrap">
+      <h1>AI Core</h1>
+      <button id="statusBtn" class="ghost" type="button" aria-expanded="false" aria-controls="statusPanel"><span id="statusDot" class="dot"></span><span id="statusText">Connecting…</span></button>
+      <div class="spacer"></div>
+      <div id="ownerBox" class="hidden">
+        <span id="ownerPill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg><span class="hlabel">Owner · Locks in</span><span id="lockIn"></span></span>
+      </div>
+      <button id="elevate" class="hbtn hidden" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="hlabel">Unlock for more</span></button>
+      <button id="lock" class="hbtn hidden" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="hlabel">Lock</span></button>
+      <button id="apprBtn" class="hbtn" type="button" aria-label="Approvals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span class="hlabel">Approvals</span><span id="apprBadge" class="badge hidden"></span></button>
+    </div>
+    <div id="statusPanel" class="hidden">
+      <div class="wrap">
+        <ul id="status" aria-live="polite"></ul>
+        <p class="muted">Works only on the home network.</p>
+      </div>
+    </div>
+  </header>
 
-<section class="card" aria-labelledby="hStatus">
-  <h2 id="hStatus">Status</h2>
-  <ul class="lines" id="status" aria-live="polite"></ul>
-</section>
+  <div id="notice" class="hidden" role="status"><div class="wrap" id="noticeText"></div></div>
 
-<section class="card" aria-labelledby="hChat">
-  <h2 id="hChat">Chat</h2>
-  <div id="chatMsg" class="muted">Connecting to AI Core…</div>
-  <div id="chatLocked" class="hidden">
-    <button id="unlock" class="primary" type="button">Unlock with owner PIN</button>
+  <main id="scroller">
+    <div id="gate" class="center">
+      <div class="card">
+        <svg id="gateLock" class="big hidden" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        <svg id="gateInfo" class="big" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>
+        <h2 id="gateTitle">AI Core</h2>
+        <p id="chatMsg" class="muted">Connecting to AI Core…</p>
+        <div id="chatLocked" class="hidden">
+          <button id="unlock" class="primary" type="button">Unlock with owner PIN</button>
+        </div>
+      </div>
+    </div>
+    <div id="chatOpen" class="hidden">
+      <div class="wrap" id="thread" aria-live="polite"></div>
+    </div>
+  </main>
+
+  <div id="composer" class="hidden">
+    <div class="wrap">
+      <div id="strip" role="group" aria-label="Suggested questions"></div>
+      <div class="bar">
+        <button id="kbBtn" type="button" aria-pressed="false" aria-label="On-screen keyboard"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
+        <label class="field" for="question"><input id="question" type="text" maxlength="500" autocomplete="off" autocapitalize="sentences" enterkeyhint="send" placeholder="Ask AI Core…" aria-label="Your question"><span id="counter" class="hidden" aria-live="polite"></span></label>
+        <button id="ask" class="primary" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2-7z"/></svg><span class="hlabel">Send</span></button>
+      </div>
+    </div>
   </div>
-  <div id="chatOpen" class="hidden">
-    <p class="muted" id="lockIn"></p>
-    <button id="lock" type="button">Lock</button>
-    <p class="muted">Each question is answered on its own; there are no follow-ups.</p>
-    <label for="question">Your question</label>
-    <input id="question" type="text" maxlength="500" autocomplete="off">
-    <button id="ask" class="primary" type="button">Ask</button>
-    <button id="explain" type="button">Explain what just happened</button>
-    <div id="suggestions"></div>
-    <div id="conversation" aria-live="polite"></div>
+  <div id="kb" class="hidden" role="group" aria-label="On-screen keyboard"><div class="rows" id="kbRows"></div></div>
+</div>
+
+<div id="apprSheet" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="hAppr">
+  <div class="sheet">
+    <h2 id="hAppr">Approvals</h2>
+    <p id="apprCount"></p>
+    <p id="apprMsg" class="muted"></p>
+    <div id="item" class="hidden">
+      <p id="itemTitle"></p>
+      <p id="itemDesc" class="muted"></p>
+      <p id="itemRisk" class="risk"></p>
+      <p id="itemLeft" class="muted"></p>
+      <div class="actions">
+        <button id="approve" class="primary" type="button">Approve</button>
+        <button id="decline" type="button">Decline</button>
+        <button id="closeItem" type="button">Close item</button>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="review" class="primary hidden" type="button">Review next item</button>
+      <button id="apprClose" type="button">Done</button>
+    </div>
   </div>
-</section>
+</div>
 
-<section class="card" aria-labelledby="hAppr">
-  <h2 id="hAppr">Approvals</h2>
-  <p id="apprCount"></p>
-  <p id="apprMsg" class="muted"></p>
-  <button id="review" class="primary hidden" type="button">Review next item</button>
-  <div id="item" class="hidden">
-    <p id="itemTitle"></p>
-    <p id="itemDesc" class="muted"></p>
-    <p id="itemRisk" class="risk"></p>
-    <p id="itemLeft" class="muted"></p>
-    <button id="approve" class="primary" type="button">Approve</button>
-    <button id="decline" type="button">Decline</button>
-    <button id="closeItem" type="button">Close</button>
-  </div>
-</section>
-
-<div id="notice" class="note hidden" role="status"></div>
-
-<div id="pad" class="hidden" role="dialog" aria-modal="true" aria-labelledby="padTitle">
-  <div class="box">
+<div id="pad" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="padTitle">
+  <div class="sheet">
     <h2 id="padTitle"></h2>
     <p class="muted">Owner PINs only. The PIN goes to PIN Lock, not to AI Core.</p>
     <div id="padDots" aria-live="polite"></div>
     <div class="keys" id="keys"></div>
-    <button id="padCancel" type="button">Cancel</button>
-    <button id="padGo" class="primary" type="button">Enter</button>
+    <div class="actions">
+      <button id="padCancel" type="button">Cancel</button>
+      <button id="padGo" class="primary" type="button">Enter</button>
+    </div>
   </div>
 </div>
 
@@ -116,6 +260,9 @@ var AIC = (function () {
   var A = {};
   A.PINLOCK_PORT = 47831;
   A.MAX_PIN = 8;
+  A.MAX_Q = 500;
+  A.COUNTER_FROM = 400; // the counter shows from here
+  A.STILL_WORKING = 45; // seconds: one calm line that it is still working
   A.parseQuery = function (search) {
     var out = {};
     String(search || '').replace(/^\?/, '').split('&').forEach(function (kv) {
@@ -152,16 +299,28 @@ var AIC = (function () {
     if (s < 60) { return 'Locks again in ' + s + ' s'; }
     return fixed ? 'Locks again in ' + Math.ceil(s / 60) + ' min (30 minutes after the PIN)' : 'Locks again after ' + Math.ceil(s / 60) + ' min without use';
   };
+  A.shortLeft = function (seconds) {
+    var s = Math.max(0, Math.floor(Number(seconds) || 0));
+    return s >= 60 ? 'Locks in ' + Math.ceil(s / 60) + ' min' : 'Locks in ' + s + ' s';
+  };
+  A.minutesLeft = function (seconds) {
+    var s = Math.max(0, Math.floor(Number(seconds) || 0));
+    return s >= 60 ? Math.ceil(s / 60) + ' min' : s + ' s';
+  };
   A.riskText = function (risk) { return risk === 'medium' ? 'Risk: medium' : risk === 'low' ? 'Risk: low' : ''; };
-  // Poll fast while something is pending, slowly when idle. Fastest while
-  // PIN Lock is being asked for a PIN entry or is checking a PIN: the
-  // outcome must appear when it lands, not up to 30 s later.
+  A.pending = function (st) {
+    var conv = (st && st.chat && st.chat.conversation) || [];
+    for (var i = 0; i < conv.length; i++) { if (conv[i].state === 'pending') { return true; } }
+    return false;
+  };
+  // Poll fast while something is pending, slowly when idle. Every second
+  // while PIN Lock is asked or checking a PIN, and while an answer is
+  // awaited: the outcome must appear when it lands.
   A.pollDelay = function (st) {
     if (!st || !st.ok) { return 10000; }
     if (st.checking || (st.prompt && st.prompt.waiting)) { return 1000; }
+    if (A.pending(st)) { return 1000; }
     if (st.prompt || (st.review && st.review.loading)) { return 3000; }
-    var conv = (st.chat && st.chat.conversation) || [];
-    for (var i = 0; i < conv.length; i++) { if (conv[i].state === 'pending') { return 3000; } }
     return 30000;
   };
   A.el = function (doc, tag, cls, text) {
@@ -175,26 +334,238 @@ var AIC = (function () {
     A.clear(root);
     (lines || []).forEach(function (t) { if (t) { root.appendChild(A.el(doc, 'li', '', t)); } });
   };
-  A.renderConversation = function (doc, root, list) {
-    A.clear(root);
-    (list || []).slice().reverse().forEach(function (e) {
-      var box = A.el(doc, 'div', 'qa');
-      box.appendChild(A.el(doc, 'div', 'q', e.q));
-      var a = e.state === 'answered' ? e.a : e.state === 'pending' ? 'Waiting for the answer…' : (e.message || 'No answer.');
-      box.appendChild(A.el(doc, 'div', 'a', a));
-      root.appendChild(box);
-    });
+
+  // ── what the cloud may show (chat v2), checked again here ──
+  A.TONES = { ok: 1, warn: 1, bad: 1, info: 1 };
+  A.LIM = { blocks: 6, items: 12, text: 120, note: 300, suggestions: 3, suggestion: 80 };
+  // The platform's rules, checked again: a string, no leading or trailing
+  // whitespace, no control or bidirectional characters, no markup, no URL
+  // or bare domain, at most `max` characters.
+  // Control, invisible, bidirectional, tag and full-width characters.
+  var CTRL = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff\uff00-\uffef]|\udb40[\udc00-\udc7f]/;
+  var LINK = /[a-z][a-z0-9+.\-]*:\/\/|www\.|mailto:|[a-z0-9\-]*[a-z][a-z0-9\-]*\.[a-z]{2,}/i;
+  A.plain = function (v, max) {
+    if (typeof v !== 'string' || !v || v !== v.trim()) { return null; }
+    if (CTRL.test(v) || /[<>]/.test(v) || LINK.test(v) || Array.from(v).length > max) { return null; }
+    return v;
   };
-  A.renderSuggestions = function (doc, root, list, onPick) {
+  function closed(o, keys) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) { return false; }
+    return Object.keys(o).every(function (k) { return keys.indexOf(k) >= 0; });
+  }
+  function tone(v) { return v === undefined || v === null ? '' : (A.TONES[v] ? v : null); }
+  // One validator per block type: a new type (an action card later) is one
+  // more entry here and one more renderer in BLOCKS below.
+  A.CHECK = {
+    stat: function (b) {
+      if (!closed(b, ['t', 'label', 'value', 'unit', 'tone'])) { return null; }
+      var l = A.plain(b.label, A.LIM.text), v = A.plain(b.value, A.LIM.text), t = tone(b.tone);
+      var u = b.unit === undefined || b.unit === null ? '' : A.plain(b.unit, A.LIM.text);
+      if (!l || !v || t === null || u === null) { return null; }
+      return { t: 'stat', label: l, value: v, unit: u, tone: t };
+    },
+    list: function (b) {
+      if (!closed(b, ['t', 'title', 'items']) || !Array.isArray(b.items) || !b.items.length || b.items.length > A.LIM.items) { return null; }
+      var title = b.title === undefined || b.title === null ? '' : A.plain(b.title, A.LIM.text);
+      if (title === null) { return null; }
+      var items = [];
+      for (var i = 0; i < b.items.length; i++) {
+        var it = b.items[i];
+        if (!closed(it, ['label', 'value', 'tone'])) { return null; }
+        var l = A.plain(it.label, A.LIM.text), t = tone(it.tone);
+        var v = it.value === undefined || it.value === null ? '' : A.plain(it.value, A.LIM.text);
+        if (!l || t === null || v === null) { return null; }
+        items.push({ label: l, value: v, tone: t });
+      }
+      return { t: 'list', title: title, items: items };
+    },
+    note: function (b) {
+      if (!closed(b, ['t', 'text', 'tone'])) { return null; }
+      var x = A.plain(b.text, A.LIM.note), t = tone(b.tone);
+      if (!x || t === null) { return null; }
+      return { t: 'note', text: x, tone: t };
+    }
+  };
+  A.cleanBlocks = function (display) {
+    var out = [];
+    if (!Array.isArray(display)) { return out; }
+    display.forEach(function (b) {
+      if (out.length >= A.LIM.blocks || !b || typeof b.t !== 'string' || !Object.prototype.hasOwnProperty.call(A.CHECK, b.t)) { return; }
+      var c = A.CHECK[b.t](b);
+      if (c) { out.push(c); }
+    });
+    return out;
+  };
+  A.cleanSuggestions = function (list) {
+    var out = [];
+    if (!Array.isArray(list)) { return out; }
+    list.forEach(function (s) {
+      var c = A.plain(s, A.LIM.suggestion);
+      if (c && c.slice(-1) === '?' && out.length < A.LIM.suggestions && out.indexOf(c) < 0) { out.push(c); }
+    });
+    return out;
+  };
+  function toned(cls, t) { return t ? cls + ' tone-' + t : cls; }
+  A.BLOCKS = {
+    stat: function (doc, b) {
+      var box = A.el(doc, 'div', toned('b-stat', b.tone));
+      box.appendChild(A.el(doc, 'div', 'l', b.label));
+      var v = A.el(doc, 'div', toned('v', b.tone), b.value);
+      if (b.unit) { v.appendChild(A.el(doc, 'span', 'u', b.unit)); }
+      box.appendChild(v);
+      return box;
+    },
+    list: function (doc, b) {
+      var box = A.el(doc, 'div', 'b-list');
+      if (b.title) { box.appendChild(A.el(doc, 'div', 't', b.title)); }
+      b.items.forEach(function (it) {
+        var row = A.el(doc, 'div', 'row');
+        row.appendChild(A.el(doc, 'span', toned('dot', it.tone || 'none')));
+        row.appendChild(A.el(doc, 'span', 'rl', it.label));
+        if (it.value) { row.appendChild(A.el(doc, 'span', 'rv', it.value)); }
+        box.appendChild(row);
+      });
+      return box;
+    },
+    note: function (doc, b) { return A.el(doc, 'div', toned('b-note', b.tone), b.text); }
+  };
+  // The blocks of one answer as cards, or null when none survive.
+  A.renderBlocks = function (doc, display) {
+    var blocks = A.cleanBlocks(display);
+    if (!blocks.length) { return null; }
+    var box = A.el(doc, 'div', 'cards');
+    blocks.forEach(function (b) { box.appendChild(A.BLOCKS[b.t](doc, b)); });
+    return box;
+  };
+  // Tappable questions. Each item: { label, send } — send is what /ask gets.
+  A.renderChips = function (doc, root, list, onPick, cls) {
     A.clear(root);
     (list || []).forEach(function (s) {
-      var b = A.el(doc, 'button', '', s.label);
+      var b = A.el(doc, 'button', 'chip' + (cls ? ' ' + cls : ''), s.label);
       b.setAttribute('type', 'button');
-      b.addEventListener('click', function () { onPick(s.id); });
+      b.addEventListener('click', function () { onPick(s.send); });
       root.appendChild(b);
     });
   };
-  // What the chat card says while a PIN entry is in progress (null: nothing
+  // The questions offered: Explain (owner unlock only), the dealer's
+  // presets, the built-ins.
+  A.questionChips = function (chat) {
+    var out = [];
+    if (chat && chat.explain) { out.push({ label: 'Explain what just happened', send: { explain: true } }); }
+    ((chat && chat.suggestions) || []).forEach(function (s) { out.push({ label: s.label, send: { suggestion_id: s.id } }); });
+    return out;
+  };
+  A.thinkingText = function (age) {
+    var s = Math.max(0, Math.floor(Number(age) || 0));
+    return 'Thinking… ' + s + ' s';
+  };
+  A.stillWorking = function (age) { return (Number(age) || 0) >= A.STILL_WORKING; };
+  A.counterText = function (len) { return len >= A.COUNTER_FROM ? len + ' / ' + A.MAX_Q : ''; };
+  // What a divider says where a new conversation starts.
+  A.freshText = function (elevated) {
+    return elevated ? 'Owner unlocked · a new conversation' : 'New conversation · earlier messages are not remembered';
+  };
+  // The thread: questions, answers (text, then cards), the thinking bubble,
+  // dividers where a new conversation started, follow-up chips under the
+  // last answer. Returns the thinking bubbles by entry id (to tick them).
+  A.renderConversation = function (doc, root, chat, onPick) {
+    A.clear(root);
+    var list = (chat && chat.conversation) || [];
+    var thinking = {};
+    var prevConv = null;
+    list.forEach(function (e, i) {
+      if (prevConv !== null && e.conv !== prevConv) {
+        var d = A.el(doc, 'div', 'divider'); d.appendChild(A.el(doc, 'span', '', A.freshText(!!e.elevated))); root.appendChild(d);
+      }
+      prevConv = e.conv;
+      root.appendChild(A.el(doc, 'div', 'msg q', e.q));
+      if (e.state === 'pending') {
+        var b = A.el(doc, 'div', 'msg a thinking');
+        var dots = A.el(doc, 'span', 'dots'); dots.appendChild(A.el(doc, 'i')); dots.appendChild(A.el(doc, 'i')); dots.appendChild(A.el(doc, 'i'));
+        b.appendChild(dots);
+        var col = A.el(doc, 'span');
+        var t = A.el(doc, 'span', 'tt', A.thinkingText(e.age));
+        var still = A.el(doc, 'span', 'still' + (A.stillWorking(e.age) ? '' : ' hidden'), 'Still working on it. Some answers take a little longer.');
+        col.appendChild(t); col.appendChild(still);
+        b.appendChild(col);
+        root.appendChild(b);
+        thinking[e.id] = { text: t, still: still };
+        return;
+      }
+      if (e.state !== 'answered') {
+        root.appendChild(A.el(doc, 'div', 'msg a problem', e.message || 'No answer.'));
+        return;
+      }
+      var a = A.el(doc, 'div', 'msg a', e.a);
+      var cards = A.renderBlocks(doc, e.display);
+      if (cards) { a.appendChild(cards); }
+      root.appendChild(a);
+      var sug = A.cleanSuggestions(e.suggestions);
+      if (i === list.length - 1 && sug.length) {
+        var box = A.el(doc, 'div', 'chips after');
+        A.renderChips(doc, box, sug.map(function (q) { return { label: q, send: { question: q } }; }), onPick, 'follow');
+        root.appendChild(box);
+      }
+    });
+    if (list.length && chat && chat.conv !== undefined && prevConv !== chat.conv) {
+      var d2 = A.el(doc, 'div', 'divider'); d2.appendChild(A.el(doc, 'span', '', A.freshText(!!chat.elevated))); root.appendChild(d2);
+    }
+    return thinking;
+  };
+  // What changed enough to rebuild the thread (not the thinking seconds).
+  A.signature = function (chat) {
+    var list = (chat && chat.conversation) || [];
+    return JSON.stringify([chat && chat.conv, chat && chat.elevated, list.map(function (e) { return [e.id, e.state, e.conv]; })]);
+  };
+  // Which screen the chat is: off (Basic, or unavailable), locked (Owner
+  // PIN mode, no unlock yet), open (anyone may ask), elevated (owner
+  // unlocked). An "open" mode needs nothing more than this switch.
+  A.chatMode = function (st) {
+    var c = (st && st.chat) || {};
+    if (!st || !st.ok || !c.available) { return 'off'; }
+    if (c.locked) { return 'locked'; }
+    return c.elevated ? 'elevated' : 'open';
+  };
+  A.headerStatus = function (st) {
+    var s = (st && st.status) || {}, t = s.text || {};
+    if (!st || !st.ok) { return { tone: 'bad', text: 'Not connected' }; }
+    if (!s.licensed) { return { tone: 'warn', text: 'Not licensed' }; }
+    if (!s.online) { return { tone: 'warn', text: 'Offline' }; }
+    if (!s.provider_configured) { return { tone: 'warn', text: 'No AI provider yet' }; }
+    return { tone: 'ok', text: t.online || 'Online' };
+  };
+
+  // ── the in-page keyboard (pure: a key in, the new text out) ──
+  A.KB = {
+    abc: [['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'], ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'], ['shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'back'], ['layer', ',', 'space', '.', '?', 'send']],
+    sym: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['-', '/', ':', ';', '(', ')', '&', '@', '"', '\''], ['%', '+', '=', '#', '*', '!', '°', '$', 'back'], ['layer', ',', 'space', '.', '?', 'send']]
+  };
+  A.kbLabel = function (key, kb) {
+    if (key === 'shift') { return '⇧'; }
+    if (key === 'back') { return '⌫'; }
+    if (key === 'space') { return 'space'; }
+    if (key === 'layer') { return kb.layer === 'abc' ? '123' : 'ABC'; }
+    if (key === 'send') { return 'Send'; }
+    return kb.layer === 'abc' && kb.shift ? key.toUpperCase() : key;
+  };
+  // kb = { value, shift, layer }. Returns a new kb; `send: true` when the
+  // Send key was pressed. Never longer than MAX_Q characters.
+  A.kbPress = function (kb, key) {
+    var v = String(kb.value || ''), out = { value: v, shift: !!kb.shift, layer: kb.layer === 'sym' ? 'sym' : 'abc', send: false };
+    if (key === 'shift') { out.shift = !out.shift; return out; }
+    if (key === 'layer') { out.layer = out.layer === 'abc' ? 'sym' : 'abc'; out.shift = false; return out; }
+    if (key === 'back') { out.value = Array.from(v).slice(0, -1).join(''); out.shift = out.layer === 'abc' && out.value === ''; return out; }
+    if (key === 'send') { out.send = true; return out; }
+    var ch = key === 'space' ? ' ' : (out.layer === 'abc' && out.shift ? key.toUpperCase() : key);
+    if (Array.from(v).length >= A.MAX_Q) { return out; }
+    out.value = v + ch;
+    // one-shot shift; again after the end of a sentence
+    out.shift = out.layer === 'abc' && /[.?!]\s$/.test(out.value);
+    if (key !== 'space' && out.layer === 'abc') { out.shift = false; }
+    return out;
+  };
+
+  // What the gate card says while a PIN entry is in progress (null: nothing
   // in progress, the controller's own message stands).
   A.pinProgress = function (st) {
     if (!st || !st.ok) { return null; }
@@ -233,17 +604,29 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   var pin = '';
   var padFor = null;
   var touchedAt = 0;
+  var sig = '';
+  var thinking = {};
+  var sysNote = '';
+  var kb = { value: '', shift: true, layer: 'abc' };
+  var kbOpen = false;
+  var apprOpen = false;
 
   function show(id, on) { $(id).classList.toggle('hidden', !on); }
-  function notice(text) { $('notice').textContent = text || ''; show('notice', !!text); }
+  function notice(text) { $('noticeText').textContent = text || ''; show('notice', !!text); }
   // Not connected: say why, and never leave a control on screen that
   // cannot work.
   function offline(why) {
     notice(AIC.offlineText(why));
     $('chatMsg').textContent = 'Not connected.';
+    $('gateTitle').textContent = 'AI Core';
+    show('gate', true);
     show('chatLocked', false);
     show('chatOpen', false);
+    show('composer', false);
+    setKb(false);
     show('review', false);
+    $('statusText').textContent = 'Not connected';
+    $('statusDot').className = 'dot bad';
   }
   function url(path) { return path + '?k=' + encodeURIComponent(K) + '&s=' + encodeURIComponent(S); }
   function call(path, body, keepalive) {
@@ -252,7 +635,6 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
     }).then(function (r) { return r.json(); });
   }
-  function offLan() { offline('relay'); }
   function failed(e) { offline(e && e.why ? e.why : 'relay'); }
   function refused(why) { var e = new Error(why); e.why = why; return e; }
   function openSession() {
@@ -275,21 +657,37 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   // One action. Its outcome is always shown: a refusal's message, or why
   // the page could not ask. A session the controller forgot (a page that
   // slept longer than 75 s, a driver restart) is opened again and the
-  // action sent once more, instead of being dropped.
-  function act(path, body, retried) {
+  // action sent once more, instead of being dropped. `onRefused` shows a
+  // refusal somewhere else than the notice line (the thread, for /ask).
+  function act(path, body, retried, onRefused) {
     call(path, body).then(function (j) {
       if (j && j.reason === 'session' && !retried) {
-        return openSession().then(function () { act(path, body, true); });
+        return openSession().then(function () { act(path, body, true, onRefused); });
       }
       if (j && j.error === 'bad token') { offline('address'); return; }
-      if (j && j.ok === false) { notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.'); }
+      if (j && j.ok === false) {
+        if (onRefused) { onRefused(j); } else { notice(j.message || 'That did not work. Try again, or use the SmartBuildOS portal.'); }
+      }
       poll();
     }).catch(failed);
   }
   // A person pressed something: clear the last line first, so an outcome
   // that repeats it is still seen to arrive.
   function press(path, body) { notice(''); act(path, body); }
+  // A question: its refusal (too many questions, too long, offline…) is a
+  // sentence in the thread, and typed text comes back to the input.
+  function askNow(body) {
+    notice('');
+    sysNote = '';
+    drawSys();
+    act('/ask', body, false, function (j) {
+      sysNote = j.message || 'That question could not be sent. Try again in a moment.';
+      if (body.question && !$('question').value) { setText(body.question); }
+      drawSys();
+    });
+  }
 
+  // ── rendering ──
   function render(st) {
     last = st;
     if (!st || !st.ok) {
@@ -297,25 +695,53 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
       return;
     }
     AIC.renderLines(document, $('status'), AIC.statusLines(st));
+    var hs = AIC.headerStatus(st);
+    $('statusText').textContent = hs.text;
+    $('statusDot').className = 'dot ' + hs.tone;
     var chat = st.chat || {};
+    var mode = AIC.chatMode(st);
     var progress = AIC.pinProgress(st);
+    // the gate: off / locked
+    show('gate', mode === 'off' || mode === 'locked');
+    $('gateTitle').textContent = mode === 'locked' ? 'Owner PIN needed' : 'Chat unavailable';
     $('chatMsg').textContent = progress || chat.message || '';
-    show('chatLocked', chat.available && chat.locked);
+    show('chatLocked', mode === 'locked');
+    show('gateLock', mode === 'locked');
+    show('gateInfo', mode !== 'locked');
     $('unlock').disabled = !!progress;
-    show('chatOpen', chat.available && !chat.locked);
-    if (chat.available && !chat.locked) {
-      $('lockIn').textContent = AIC.leftText(chat.locks_in, chat.locks_fixed);
-      AIC.renderConversation(document, $('conversation'), chat.conversation);
-      AIC.renderSuggestions(document, $('suggestions'), chat.suggestions, function (id) { press('/ask', { suggestion_id: id }); });
+    // the chat: open / elevated
+    var on = mode === 'open' || mode === 'elevated';
+    show('chatOpen', on);
+    show('composer', on);
+    if (!on) { setKb(false); }
+    show('ownerBox', mode === 'elevated');
+    document.querySelector('header').classList.toggle('elevated', mode === 'elevated');
+    show('lock', mode === 'elevated');
+    show('elevate', mode === 'open' && !!chat.can_elevate);
+    $('elevate').disabled = !!progress;
+    $('lockIn').textContent = mode === 'elevated' ? AIC.minutesLeft(chat.locks_in) : '';
+    // whichever comes first: 5 minutes without use, or 30 minutes after the PIN (locks_fixed)
+    $('lock').setAttribute('title', mode === 'elevated' ? AIC.leftText(chat.locks_in, chat.locks_fixed) : '');
+    $('ownerPill').setAttribute('title', mode === 'elevated' ? AIC.leftText(chat.locks_in, chat.locks_fixed) : '');
+    $('ownerBox').classList.toggle('fixed', mode === 'elevated' && !!chat.locks_fixed);
+    if (on) {
+      drawThread(chat);
     } else {
-      AIC.clear($('conversation'));
-      AIC.clear($('suggestions'));
-      $('question').value = '';
+      sig = '';
+      thinking = {};
+      AIC.clear($('thread'));
+      AIC.clear($('strip'));
+      setText('');
     }
+    // approvals
     var ap = st.approvals || {};
     $('apprCount').textContent = ap.text || '';
     $('apprMsg').textContent = ap.message || '';
+    $('apprBadge').textContent = ap.count > 0 ? String(ap.count) : '';
+    show('apprBadge', ap.count > 0);
     var rv = st.review;
+    if (rv) { apprOpen = true; }
+    show('apprSheet', apprOpen && !padFor);
     show('item', !!rv);
     show('review', !!ap.can_review && !rv);
     if (rv) {
@@ -334,6 +760,137 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
       closePad();
     }
   }
+  function nearBottom() {
+    var m = $('scroller');
+    return !m.scrollHeight || m.scrollHeight - m.scrollTop - m.clientHeight < 120;
+  }
+  function toBottom() { var m = $('scroller'); m.scrollTop = m.scrollHeight || 0; }
+  function drawThread(chat) {
+    var s = AIC.signature(chat) + '|' + JSON.stringify(AIC.questionChips(chat).map(function (c) { return c.label; }));
+    if (s !== sig) {
+      var stick = nearBottom() || sig === '';
+      sig = s;
+      var list = chat.conversation || [];
+      var root = $('thread');
+      if (!list.length) {
+        AIC.clear(root);
+        thinking = {};
+        root.appendChild(emptyState(chat));
+      } else {
+        thinking = AIC.renderConversation(document, root, chat, askNow);
+      }
+      drawSys();
+      AIC.renderChips(document, $('strip'), list.length ? AIC.questionChips(chat) : [], askNow);
+      show('strip', !!list.length && !kbOpen);
+      if (stick) { toBottom(); }
+    }
+    var grew = false;
+    (chat.conversation || []).forEach(function (e) {
+      var t = thinking[e.id];
+      if (t) {
+        t.text.textContent = AIC.thinkingText(e.age);
+        var was = !t.still.classList.contains('hidden');
+        t.still.classList.toggle('hidden', !AIC.stillWorking(e.age));
+        grew = grew || (!was && AIC.stillWorking(e.age));
+      }
+    });
+    if (grew && nearBottom()) { toBottom(); }
+  }
+  function emptyState(chat) {
+    var box = AIC.el(document, 'div', 'empty');
+    box.appendChild(AIC.el(document, 'h2', '', chat.elevated ? 'Owner unlocked. Ask anything about the house.' : 'Ask AI Core about your home'));
+    box.appendChild(AIC.el(document, 'p', 'muted', chat.followups
+      ? 'Ask follow-up questions: AI Core remembers this conversation until it starts over.'
+      : 'Each question is answered on its own.'));
+    var chips = AIC.questionChips(chat);
+    if (chips.length) {
+      box.appendChild(AIC.el(document, 'p', 'muted', 'Try asking…'));
+      var c = AIC.el(document, 'div', 'chips');
+      AIC.renderChips(document, c, chips, askNow);
+      box.appendChild(c);
+    }
+    return box;
+  }
+  // A refusal of the last question, as a sentence at the end of the thread.
+  function drawSys() {
+    var root = $('thread');
+    var old = sysEl;
+    if (old && old.parentNode) { old.parentNode.removeChild(old); }
+    sysEl = null;
+    if (sysNote) { sysEl = AIC.el(document, 'div', 'sys', sysNote); root.appendChild(sysEl); toBottom(); }
+  }
+  var sysEl = null;
+
+  // ── the input ──
+  function setText(v) {
+    v = String(v || '');
+    $('question').value = v;
+    kb.value = v;
+    var n = Array.from(v).length;
+    $('counter').textContent = AIC.counterText(n);
+    $('counter').classList.toggle('near', n >= AIC.MAX_Q - 20);
+    show('counter', !!AIC.counterText(n));
+    $('ask').disabled = !v.trim();
+  }
+  function send() {
+    var q = $('question').value;
+    if (!q.trim()) { return; }
+    setText('');
+    kb.shift = true;
+    drawKb();
+    askNow({ question: q });
+  }
+  // ── the in-page keyboard: opened by the button, never over the thread ──
+  function setKb(open) {
+    kbOpen = !!open;
+    var input = $('question');
+    input.readOnly = kbOpen; // no system keyboard while ours is open
+    if (kbOpen) { input.setAttribute('inputmode', 'none'); if (input.blur) { input.blur(); } }
+    else { input.removeAttribute('inputmode'); }
+    $('kbBtn').setAttribute('aria-pressed', kbOpen ? 'true' : 'false');
+    show('kb', kbOpen);
+    show('strip', !kbOpen && !!(last && last.chat && (last.chat.conversation || []).length));
+    if (kbOpen) { drawKb(); toBottom(); }
+  }
+  var kbKeys = [];
+  function drawKb() {
+    var rows = $('kbRows');
+    AIC.clear(rows);
+    kbKeys = [];
+    AIC.KB[kb.layer].forEach(function (row, ri) {
+      var r = AIC.el(document, 'div', 'krow');
+      if (ri === 1 && kb.layer === 'abc') { r.appendChild(AIC.el(document, 'span', 'spacer-key')); }
+      row.forEach(function (key) {
+        var cls = key === 'space' ? 'space' : (key === 'shift' || key === 'back' || key === 'layer' || key === 'send') ? 'wide' : '';
+        if (key === 'send') { cls += ' go'; }
+        if (key === 'shift' && kb.shift) { cls += ' on'; }
+        var b = AIC.el(document, 'button', cls, AIC.kbLabel(key, kb));
+        b.setAttribute('type', 'button');
+        b.setAttribute('data-key', key);
+        if (key === 'back') { b.setAttribute('aria-label', 'Delete'); }
+        if (key === 'shift') { b.setAttribute('aria-label', 'Shift'); }
+        b.addEventListener('pointerdown', function (e) { if (e && e.preventDefault) { e.preventDefault(); } });
+        b.addEventListener('click', function () { kbKey(key); });
+        r.appendChild(b);
+        kbKeys.push(b);
+      });
+      if (ri === 1 && kb.layer === 'abc') { r.appendChild(AIC.el(document, 'span', 'spacer-key')); }
+      rows.appendChild(r);
+    });
+  }
+  function kbKey(key) {
+    kb.value = $('question').value;
+    var before = kb.layer + kb.shift;
+    var n = AIC.kbPress(kb, key);
+    kb.shift = n.shift; kb.layer = n.layer;
+    setText(n.value);
+    if (n.send) { send(); return; }
+    if (kb.layer + kb.shift !== before) { drawKb(); }
+  }
+  $('kbBtn').addEventListener('click', function () { setKb(!kbOpen); });
+  $('question').addEventListener('input', function () { setText($('question').value); });
+  $('question').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !padFor) { e.preventDefault(); send(); } });
+  $('ask').addEventListener('click', send);
 
   // ── the PIN pad: the PIN goes to PIN Lock's verify_url and nowhere else ──
   function drawDots() { $('padDots').textContent = AIC.dots(pin); }
@@ -341,11 +898,13 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
     padFor = p.challenge_id;
     pin = '';
     drawDots();
-    $('padTitle').textContent = p['for'] === 'chat' ? 'Owner PIN to open the chat' : 'Owner PIN to review one item';
+    setKb(false);
+    $('padTitle').textContent = p['for'] === 'chat' ? 'Owner PIN to unlock the chat' : 'Owner PIN to review one item';
+    show('apprSheet', false);
     show('pad', true);
     $('padGo').focus();
   }
-  function closePad() { pin = ''; padFor = null; drawDots(); show('pad', false); }
+  function closePad() { pin = ''; padFor = null; drawDots(); show('pad', false); show('apprSheet', apprOpen); }
   function submitPin() {
     var p = last && last.prompt;
     if (!p || p.challenge_id !== padFor || !AIC.validVerifyUrl(p.verify_url, location.hostname) || !pin) { return; }
@@ -380,14 +939,18 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
 
   // ── actions ──
   $('unlock').addEventListener('click', function () { press('/chat/unlock'); });
+  $('elevate').addEventListener('click', function () { press('/chat/unlock'); });
   $('lock').addEventListener('click', function () { press('/chat/lock'); });
-  $('ask').addEventListener('click', function () {
-    var q = $('question').value;
-    $('question').value = '';
-    press('/ask', { question: q });
+  $('statusBtn').addEventListener('click', function () {
+    var open = $('statusPanel').classList.contains('hidden');
+    show('statusPanel', open);
+    $('statusBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
-  $('question').addEventListener('keydown', function (e) { if (e.key === 'Enter') { $('ask').click(); } });
-  $('explain').addEventListener('click', function () { press('/ask', { explain: true }); });
+  $('apprBtn').addEventListener('click', function () { apprOpen = true; show('apprSheet', true); act('/approvals/refresh'); });
+  $('apprClose').addEventListener('click', function () {
+    apprOpen = false; show('apprSheet', false);
+    if (last && last.review) { press('/approvals/close'); }
+  });
   $('review').addEventListener('click', function () { press('/approvals/next'); });
   $('approve').addEventListener('click', function () { press('/approvals/decide', { decision: 'approve' }); });
   $('decline').addEventListener('click', function () { press('/approvals/decide', { decision: 'decline' }); });
@@ -395,18 +958,20 @@ if (typeof module !== 'undefined') { module.exports = AIC; }
   ['pointerdown', 'keydown'].forEach(function (ev) {
     document.addEventListener(ev, function () {
       var now = Date.now();
-      if (last && last.chat && !last.chat.locked && now - touchedAt > 30000) {
+      if (last && last.chat && last.chat.elevated && now - touchedAt > 30000) {
         touchedAt = now;
         call('/chat/touch').catch(function () {});
       }
     }, true);
   });
+  // Hidden: the owner unlock ends and (open chat) the conversation starts over.
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { closePad(); if (S) { call('/chat/lock').catch(function () {}); } }
+    if (document.hidden) { closePad(); setKb(false); if (S) { call('/chat/lock', { hidden: true }).catch(function () {}); } }
     else if (S) { poll(); }
   });
   window.addEventListener('pagehide', function () { if (S) { call('/session/close', {}, true).catch(function () {}); } });
 
+  setText('');
   if (!K || location.protocol !== 'http:') { offline('copy'); return; }
   if (typeof fetch !== 'function') { offline('nofetch'); return; }
   openSession().then(poll).catch(failed);

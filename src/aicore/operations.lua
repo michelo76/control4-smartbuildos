@@ -16,6 +16,7 @@
 
 local V = require("aicore.vocab")
 local Commands = require("aicore.commands")
+local ChatV2 = require("aicore.chatv2")
 
 local M = {}
 
@@ -32,6 +33,11 @@ local ARGS = {
     kind = true,
     pending_approvals = true,
     recommendation_count = true,
+    -- Chat v2 (aicore.chatv2): blocks and follow-up questions for the
+    -- touchscreen page. Validated again here; what fails is dropped and
+    -- counted, never a reason to refuse the answer.
+    display = true,
+    suggestions = true,
     -- Only on the answer to an ask that carried `unlock` (webui.UNLOCK): the
     -- answer belongs to the touchscreen page and is never a Composer answer.
     channel = true,
@@ -288,6 +294,8 @@ function M.parse(command, args)
     if not M.RESULT_KINDS[op.kind_of] then
       return nil, "kind must be one of answer, analysis, report, scene_suggestion, diagnostic"
     end
+    op.display, op.display_dropped = ChatV2.display(args.display)
+    op.suggestions, op.suggestions_dropped = ChatV2.suggestions(args.suggestions)
     if args.channel ~= nil then
       if type(args.channel) ~= "string" or not M.RESULT_CHANNELS[args.channel] then
         return nil, "channel must be touchscreen"

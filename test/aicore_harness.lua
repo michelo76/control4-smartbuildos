@@ -260,6 +260,10 @@ function H.load(reason)
   end
   clock.timers = {}
   Properties = xmlProperties()
+  -- A suite may pin a dealer setting across reloads (a restart keeps it).
+  for name, value in pairs(H.propertyOverrides or {}) do
+    Properties[name] = value
+  end
   H.props = {}
   dofile("drivers/smartbuildos-ai-core/driver.lua")
   H.loaded = true

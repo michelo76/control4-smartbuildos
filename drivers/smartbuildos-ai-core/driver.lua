@@ -81,6 +81,7 @@ local Diagnostic = require("aicore.diagnostic")
 local Reports = require("aicore.reports")
 local DeviceState = require("aicore.devicestate")
 local Webui = require("aicore.webui")
+local ChatV2 = require("aicore.chatv2")
 local pagedata = require("aicore.page")
 local RelayHost = require("lib.relayhost")
 local _pinned = { require("atmosphere.uirelay") } -- transitive (webui), pinned for the squish step
@@ -113,6 +114,14 @@ local DETAIL_OF = {
   ["Basic (status and approvals only)"] = "basic",
   ["Standard (no household activity)"] = "standard",
   ["Household (only if the homeowner allows it)"] = "household",
+}
+
+--- Touchscreen Chat Access (dealer property, owner decision 2026-11-21):
+--- `Open` = anyone at the screen may ask (standard detail; the owner PIN
+--- elevates), `Owner PIN` = the chat needs an owner PIN (ruling 17).
+local ACCESS_OF = {
+  ["Open"] = "open",
+  ["Owner PIN"] = "owner_pin",
 }
 
 --- AUTHORIZED statuses carry a feature list the backend issued; only then
@@ -1324,6 +1333,12 @@ function gWeb.detail()
   return DETAIL_OF[Properties["Touchscreen Detail"]] or "standard"
 end
 
+--- Touchscreen Chat Access (dealer property) → `open` or `owner_pin`.
+--- Anything unrecognised is `owner_pin` (the stricter mode).
+function gWeb.access()
+  return ACCESS_OF[Properties["Touchscreen Chat Access"]] or "owner_pin"
+end
+
 --- What PIN Lock can do for this screen, from the Agent's directory and
 --- pinlock.availability. Every doubt is "no" (fail closed).
 function gWeb.pinAvailability(cb)
@@ -1646,7 +1661,14 @@ function OPS.deliver_result(op)
     -- its owner PIN (ruling 17): never AI_LAST_RESPONSE, never persisted,
     -- no AI Response Ready (Composer programming could show it unlocked).
     -- Matched by the job id too: the platform's request_id is the relay's.
-    gWeb.ui:deliver(op.request_id, op.text, op.job_id)
+    -- Chat v2: the blocks and follow-up questions travel with the answer,
+    -- behind the same unlock (validated in operations.lua and again there).
+    gWeb.ui:deliver(op.request_id, op.text, op.job_id, {
+      display = op.display,
+      suggestions = op.suggestions,
+      display_dropped = op.display_dropped,
+      suggestions_dropped = op.suggestions_dropped,
+    })
     if op.pending_approvals ~= nil then
       gLast.pending_approvals = op.pending_approvals
     end
@@ -2064,7 +2086,7 @@ function OnDriverLateInit(reason)
     driver_version = gVersion,
     capabilities = { "ai_core", "local_diagnostics" },
     entitlements = { V.SKU },
-    commands = V.OPERATIONS,
+    commands = V.registeredCommands(),
     event_types = { V.EVENT_PREFIX },
     singleton = true,
     require_protocol = 2,
@@ -2147,6 +2169,7 @@ function OnDriverLateInit(reason)
     newRequestId = newRequestId,
     facts = gWeb.facts,
     detail = gWeb.detail,
+    access = gWeb.access,
     relayHost = gWeb.relayHost,
     pinAvailability = gWeb.pinAvailability,
     pinRequest = gWeb.pinRequest,
@@ -2402,6 +2425,7 @@ function EC.PRINT_DIAGNOSTICS()
     for _, line in ipairs(gWeb.ui:refusalLines()) do
       log:print("  touchscreen %s", line)
     end
+    log:print("  touchscreen chat: %s", gWeb.ui:chatLine())
   end
   if gReports then
     local rk = {}

@@ -38,6 +38,7 @@
 
 local uirelay = require("atmosphere.uirelay")
 local Commands = require("aicore.commands")
+local ChatV2 = require("aicore.chatv2")
 JSON = JSON or require("JSON")
 
 local M = {}
@@ -52,6 +53,7 @@ M.LIMITS = {
   sessions = 4, -- page sessions held at once (least recently seen evicted)
   session_gone_seconds = 75, -- no request for this long: the page is gone
   unlock_idle_seconds = 300, -- the chat locks after 5 minutes without interaction
+  open_idle_seconds = 300, -- open chat: cleared (and a new thread) 5 minutes after the last question
   unlock_max_seconds = 1800, -- …and 30 minutes after the PIN, whatever the activity (= the platform's age cap for `unlock`)
   conversation = 10, -- exchanges kept per session
   conversation_idle_seconds = 900, -- cleared after 15 minutes without interaction
@@ -60,7 +62,7 @@ M.LIMITS = {
   question = 500, -- characters
   answer_bytes = 2048, -- deliver_result's bound
   body_bytes = 4096, -- one request body
-  requests_per_minute = 90, -- per session (the page polls every 3 s at most)
+  requests_per_minute = 90, -- per session (the page polls every second at most, while an answer is pending)
   asks_per_minute = 4, -- the webview's own ask bucket (plus the shared one)
   challenges_per_minute = 6, -- PIN prompts, all sessions together
   approvals_refresh_seconds = 30, -- approvals_pending at most this often
@@ -74,6 +76,15 @@ M.LIMITS = {
 }
 
 M.DETAILS = { basic = true, standard = true, household = true }
+--- The privacy floor (open chat): the detail every ask carries from a
+--- session that is not owner-unlocked when it asks, whatever Touchscreen
+--- Detail says. The cloud only ever LOWERS the detail, so no household
+--- activity is answered without an owner PIN.
+M.OPEN_DETAIL = "standard"
+--- Touchscreen Chat Access (dealer property): `open` = anyone at the screen
+--- may ask and read their own session's answers, the owner PIN elevates;
+--- `owner_pin` = the chat needs an owner PIN to view and to ask (ruling 17).
+M.ACCESS = { open = true, owner_pin = true }
 M.DECISIONS = { "approve", "decline" }
 M.CHANNEL = "touchscreen"
 
@@ -121,6 +132,7 @@ M.TEXT = {
   pin_busy = "PIN Lock is busy. Try again in a minute.",
   -- the chat
   basic = "The chat is switched off on this screen. Use the SmartBuildOS portal.",
+  explain_needs_pin = "Unlock with the owner PIN to ask what just happened in the house.",
   chat_locked = "The chat is locked. Enter an owner PIN to open it.",
   not_licensed = "AI Core is not licensed. Ask your integrator.",
   -- the cloud's refusal of an unlicensed controller (rpc/handler.ts)
@@ -289,13 +301,19 @@ M.UNLOCK = { field = "unlock", role = "owner", method = "pin_lock" }
 M.RESULT_CHANNEL = "touchscreen"
 
 --- @param unlock table|nil M.verification(the session's chat_view proof)
-function M.askBody(requestId, question, detail, unlock)
+--- @param thread string|nil chat v2: the conversation's id (aicore.chatv2);
+---   the cloud continues the conversation it names. An invalid one is left out.
+--- `unlock` and `thread` are the ask's OPTIONAL keys: UI:optionalAskKeys
+--- decides them once per ask, and one retry drops whichever a platform that
+--- does not know them refuses (UI:retryWithoutRefusedKeys).
+function M.askBody(requestId, question, detail, unlock, thread)
   local body = {
     command = M.COMMANDS.ask,
     request_id = requestId,
     question = clean(question, M.LIMITS.question),
     channel = M.CHANNEL,
     detail = M.DETAILS[detail] and detail or "standard",
+    thread = ChatV2.validThread(thread) and thread or nil,
   }
   if unlock ~= nil then
     body[M.UNLOCK.field] = unlock
@@ -432,6 +450,10 @@ function M.new(deps)
   -- The platform answered `unknown_fields: unlock` (it is older than this
   -- driver): `unlock` is not sent again for the rest of this driver run.
   self.unlockNotAccepted = false
+  -- Optional ask keys (`thread`, `unlock`) a platform older than this driver
+  -- refused as unknown: never sent again in this driver run
+  -- (UI:retryWithoutRefusedKeys). unlockNotAccepted mirrors `unlock`.
+  self.refusedAskKeys = {}
   self.presetRev = math.floor(tonumber(deps.now()) or 0)
   self.presetSig = nil
   self.counters = {
@@ -447,6 +469,19 @@ function M.new(deps)
     decisions = 0,
     refused_locked = 0,
     pin_bodies_refused = 0,
+    -- chat v2 (counts only; never a question, an answer or a block's text)
+    threads_minted = 0,
+    thread_retries = 0, -- asks sent again without `thread` (the cloud did not know the key)
+    display_answers = 0, -- answers that carried at least one valid block
+    display_blocks = 0, -- blocks kept
+    display_dropped = 0, -- blocks (or whole values) dropped by validation
+    suggestions_kept = 0,
+    suggestions_dropped = 0,
+    -- open chat (counts only)
+    open_asks = 0, -- asks from a session that was not owner-unlocked (sent at OPEN_DETAIL)
+    elevated_asks = 0, -- asks from an owner-unlocked session
+    elevated_purged = 0, -- exchanges removed when an owner unlock ended (open mode)
+    open_cleared = 0, -- open conversations cleared (5 minutes without a question, page hidden)
     unlock_sent = 0, -- asks that carried `unlock`
     unlock_retried = 0, -- asks sent again without it (the platform did not know the field)
   }
@@ -494,7 +529,12 @@ function UI:sessionCount()
   return n
 end
 
+--- Locking ends the conversation's thread: the next unlock starts a new one
+--- (the cloud remembers nothing across it), and the page shows where.
 local function lockSession(s)
+  if s.proofs.chat_view ~= nil then
+    s.thread = nil
+  end
   s.proofs.chat_view = nil
 end
 
@@ -502,7 +542,7 @@ end
 --- or the driver is stopping).
 function UI:lockAll()
   for _, s in pairs(self.sessions) do
-    lockSession(s)
+    self:relock(s, false)
     s.proofs.approval = nil
     s.review = nil
     s.prompt = nil
@@ -585,8 +625,9 @@ function UI:sweep()
     else
       local chat = s.proofs.chat_view
       if chat ~= nil and t >= chat.ends then
-        lockSession(s)
+        self:relock(s, false)
       end
+      self:openIdle(s)
       local ap = s.proofs.approval
       if ap ~= nil and t >= ap.ends then
         s.proofs.approval = nil
@@ -654,6 +695,9 @@ function UI:openSession()
     review = nil, -- the approval item being reviewed
     notice = nil, -- one line for the page
     skipped = {}, -- refs decided here this session
+    thread = nil, -- chat v2: this unlock's conversation id (minted at unlock, gone at lock)
+    conv = 0, -- which unlock an exchange belongs to (the page marks where a new conversation starts)
+    asked = nil, -- when this session last asked (open chat: cleared 5 minutes later)
   }
   self.counters.sessions_opened = self.counters.sessions_opened + 1
   self:checkPin(true)
@@ -676,6 +720,109 @@ M._proofFor = proofFor
 
 function UI:unlocked(s)
   return proofFor(self, s, "chat_view", s.sid) ~= nil
+end
+
+-- open chat (Touchscreen Chat Access) ------------------------------------------
+
+--- `open` or `owner_pin`; anything else (or no such dependency) is `owner_pin`: fail
+--- closed to the stricter mode.
+function UI:access()
+  local a = self.deps.access and self.deps.access() or "owner_pin"
+  return a == "open" and "open" or "owner_pin"
+end
+
+function UI:openMode()
+  return self:access() == "open"
+end
+
+--- The detail an ask from `s` carries NOW: the configured one for an
+--- owner-unlocked session, OPEN_DETAIL for every other (never household).
+function UI:askDetail(s)
+  if self:unlocked(s) then
+    return self.deps.detail()
+  end
+  return M.OPEN_DETAIL
+end
+
+--- A new conversation thread for `s` (nil when no random id was available:
+--- the ask then goes without one).
+function UI:newThread(s)
+  s.thread = ChatV2.mintThread(self.deps.newHex)
+  if s.thread ~= nil then
+    self.counters.threads_minted = self.counters.threads_minted + 1
+  end
+end
+
+--- Stops waiting for every ask of `s` matching `pick` (nil: all): an answer
+--- arriving later is dropped, never shown (abandon).
+local function abandonAsks(self, s, pick)
+  for id, a in pairs(self.asks) do
+    if a.token == s.token and (pick == nil or pick(a.entry)) then
+      abandon(self, id)
+    end
+  end
+end
+
+--- Open mode: removes every exchange asked while owner-unlocked, from the
+--- session and from the page, and drops their answers still in flight.
+function UI:purgeElevated(s)
+  abandonAsks(self, s, function(e)
+    return e.elevated == true
+  end)
+  local keep = {}
+  for _, e in ipairs(s.conversation) do
+    if e.elevated then
+      self.counters.elevated_purged = self.counters.elevated_purged + 1
+    else
+      keep[#keep + 1] = e
+    end
+  end
+  s.conversation = keep
+end
+
+--- Open mode: the whole conversation goes (answers in flight dropped).
+function UI:clearConversation(s)
+  abandonAsks(self, s, nil)
+  if #s.conversation > 0 then
+    self.counters.open_cleared = self.counters.open_cleared + 1
+  end
+  s.conversation = {}
+  s.asked = nil
+end
+
+--- Ends an owner unlock (Lock, the idle timer, the page hidden, PIN Lock
+--- gone). In Owner PIN mode exactly as before: the conversation is kept
+--- (shown again after the next unlock). In open mode the elevated
+--- exchanges go, the page being hidden clears everything, and a new
+--- thread starts so nothing asked elevated is continued without the PIN.
+function UI:relock(s, hidden)
+  local wasUnlocked = s.proofs.chat_view ~= nil
+  lockSession(s)
+  if not self:openMode() then
+    return
+  end
+  if hidden then
+    self:clearConversation(s)
+  elseif wasUnlocked then
+    self:purgeElevated(s)
+  else
+    return -- nothing was elevated: the open conversation goes on
+  end
+  s.conv = s.conv + 1
+  self:newThread(s)
+end
+
+--- Open mode: 5 minutes after the last question, a session that is not
+--- owner-unlocked starts over (conversation cleared, new thread).
+function UI:openIdle(s)
+  if not self:openMode() or self:unlocked(s) or s.asked == nil then
+    return
+  end
+  if self:now() - s.asked >= M.LIMITS.open_idle_seconds then
+    self:clearConversation(s)
+    s.conv = s.conv + 1
+    self:newThread(s)
+  end
 end
 
 --- A person did something (not a poll): the unlock and the conversation
@@ -726,6 +873,9 @@ end
 function UI:chatAvailable()
   if self.deps.detail() == "basic" then
     return false, "basic"
+  end
+  if self:openMode() then
+    return true, "ready" -- no PIN Lock needed to ask; the owner unlock is an elevation
   end
   if not self:pinUsable() then
     return false, self.pinState.reason
@@ -850,6 +1000,9 @@ local function redeem(self, s, challengeId)
       s.proofs.chat_view = proof
       s.touched = t
       s.notice = nil
+      -- A new conversation for every unlock (chat v2).
+      s.conv = s.conv + 1
+      self:newThread(s)
       self.counters.unlocks = self.counters.unlocks + 1
     else
       proof.ends = math.min(t, r.verified_at) + M.LIMITS.grant_seconds
@@ -1049,77 +1202,19 @@ local function unlockFor(self, s)
   return M.verification(proof)
 end
 
---- Whether the platform refused an ask because it does not know `unlock`
---- (a platform older than this driver: invalid_args, reason unknown_fields,
---- fields naming it).
-local function unlockUnknown(answer)
-  answer = type(answer) == "table" and answer or {}
-  local r = type(answer.result) == "table" and answer.result or {}
-  if answer.status == "ok" or answer.error_code ~= "invalid_args" or r.reason ~= "unknown_fields" then
-    return false
-  end
-  for _, f in ipairs(type(r.fields) == "table" and r.fields or {}) do
-    if f == M.UNLOCK.field then
-      return true
-    end
-  end
-  return false
-end
-
---- Sends one ask and reads its accept answer. `unlock` ~= nil: the body
---- carries it (unlockFor).
-local function sendAsk(self, entry, requestId, question, detail, unlock)
-  if unlock ~= nil then
-    self.counters.unlock_sent = self.counters.unlock_sent + 1
-  end
-  self.deps.cloud("ask", M.askBody(requestId, question, detail, unlock), function(answer)
-    local r = Commands.interpret(answer)
-    if r.outcome == "accepted" then
-      entry.job_id = r.job_id
-      self.refusals.ask = nil
-      return
-    end
-    if unlock ~= nil and unlockUnknown(answer) and self.asks[requestId] ~= nil then
-      -- An older platform refuses the whole ask for the key it does not
-      -- know. ONCE: the same question again without `unlock` (answered at the
-      -- scope it always had), and never `unlock` again in this driver run,
-      -- so an old platform costs one extra round trip, not one per ask. A
-      -- NEW request id: the refusal is stored against the old one.
-      self.unlockNotAccepted = true
-      self.counters.unlock_retried = self.counters.unlock_retried + 1
-      local again = self.deps.newRequestId()
-      self.asks[again], self.asks[requestId] = self.asks[requestId], nil
-      entry.id = again
-      sendAsk(self, entry, again, question, detail, nil)
-      return
-    end
-    if r.outcome == "completed" then
-      self.asks[requestId] = nil
-      entry.state = "failed"
-      entry.message = M.text("unavailable")
-    elseif r.outcome == "unreachable" or r.outcome == "unavailable" then
-      -- The accept answer was lost; the platform may hold a job all the same.
-      abandon(self, requestId)
-      entry.state = "failed"
-      entry.message = M.text("cloud_unreachable")
-    else
-      self.asks[requestId] = nil
-      entry.state = "refused"
-      entry.message = M.text(cloudReason(answer))
-      self:refused("ask", answer)
-    end
-    notify(self)
-  end)
-end
-
 local function ask(self, s, body)
   local ok, why = self:chatAvailable()
   if not ok then
     return false, why
   end
-  if not self:unlocked(s) then
+  local elevated = self:unlocked(s)
+  if not elevated and not self:openMode() then
     self.counters.refused_locked = self.counters.refused_locked + 1
     return false, "chat_locked"
+  end
+  if body.explain == true and not elevated then
+    -- "What just happened" is house activity: owner unlock only.
+    return false, "explain_needs_pin"
   end
   local f = self.deps.facts()
   if not f.licensed then
@@ -1159,12 +1254,124 @@ local function ask(self, s, body)
     return false, "rate_limited"
   end
   local requestId = self.deps.newRequestId()
-  local entry = { id = requestId, q = question, state = "pending", at = self:now() }
+  local entry = {
+    id = requestId,
+    q = question,
+    state = "pending",
+    at = self:now(),
+    conv = s.conv,
+    elevated = elevated, -- removed with its answer when the owner unlock ends (open mode)
+    detail = self:askDetail(s), -- fixed at the moment of asking (the privacy floor)
+  }
   addEntry(s, entry)
   self.asks[requestId] = { token = s.token, entry = entry }
+  s.asked = entry.at
   self.counters.asks = self.counters.asks + 1
-  sendAsk(self, entry, requestId, question, self.deps.detail(), unlockFor(self, s))
-  return true, requestId
+  if elevated then
+    self.counters.elevated_asks = self.counters.elevated_asks + 1
+  else
+    self.counters.open_asks = self.counters.open_asks + 1
+  end
+  if s.thread == nil then
+    self:newThread(s)
+  end
+  entry.optional = self:optionalAskKeys(s)
+  self:sendAsk(s, entry, requestId)
+  return true, entry.id
+end
+
+--- Sends one touchscreen ask with the optional keys decided when it was
+--- asked (entry.optional), minus any the platform has refused in this
+--- driver run.
+function UI:sendAsk(s, entry, requestId)
+  local sent = {}
+  for k, v in pairs(entry.optional or {}) do
+    if not self.refusedAskKeys[k] then
+      sent[k] = v
+    end
+  end
+  if sent.unlock ~= nil then
+    self.counters.unlock_sent = self.counters.unlock_sent + 1
+  end
+  local body = M.askBody(requestId, entry.q, entry.detail, sent.unlock, sent.thread)
+  self.deps.cloud("ask", body, function(answer)
+    self:answered(s, entry, requestId, sent, answer)
+  end)
+end
+
+--- The OPTIONAL keys of an ask from `s`, decided ONCE when it is asked (a
+--- retry never adds one): `thread` (chat v2) and `unlock` (unlockFor: only
+--- at Household with a live owner proof). Another optional key joins here
+--- and inherits the one retry below.
+function UI:optionalAskKeys(s)
+  local out = {}
+  if s.thread ~= nil then
+    out.thread = s.thread
+  end
+  out.unlock = unlockFor(self, s)
+  return out
+end
+
+--- ONE mechanism for every optional key. A platform older than a key
+--- refuses the WHOLE ask (invalid_args, reason unknown_fields, the keys in
+--- `fields`; aicore.chatv2 refusedKeys), and an old platform names every
+--- key it does not know in that one answer. So: every refused key that the
+--- ask carried is remembered for the rest of this driver run (never sent
+--- again) and the ask is sent ONCE more without them, under a new request
+--- id (the platform replays a stored answer for a repeated id). Never a
+--- second retry. A key the platform knows and refuses (invalid_thread, …)
+--- is not retried: it is this driver's bug, shown as refused. True when it
+--- retried.
+function UI:retryWithoutRefusedKeys(s, entry, requestId, sent, answer)
+  local names = ChatV2.refusedKeys(answer, sent)
+  if #names == 0 or entry.retried or self.asks[requestId] == nil then
+    return false
+  end
+  for _, k in ipairs(names) do
+    self.refusedAskKeys[k] = true
+    if k == M.UNLOCK.field then
+      self.unlockNotAccepted = true
+      self.counters.unlock_retried = self.counters.unlock_retried + 1
+    elseif k == "thread" then
+      self.counters.thread_retries = self.counters.thread_retries + 1
+    end
+  end
+  entry.retried = true
+  local retryId = self.deps.newRequestId()
+  self.asks[requestId] = nil
+  entry.id = retryId
+  self.asks[retryId] = { token = s.token, entry = entry }
+  self:sendAsk(s, entry, retryId)
+  return true
+end
+
+--- The cloud's quick answer to a touchscreen ask.
+function UI:answered(s, entry, requestId, sent, answer)
+  local r = Commands.interpret(answer)
+  if r.outcome == "refused" and self:retryWithoutRefusedKeys(s, entry, requestId, sent, answer) then
+    return
+  end
+  if r.outcome == "accepted" then
+    entry.job_id = r.job_id
+    self.refusals.ask = nil
+    return
+  end
+  if r.outcome == "completed" then
+    self.asks[requestId] = nil
+    entry.state = "failed"
+    entry.message = M.text("unavailable")
+  elseif r.outcome == "unreachable" or r.outcome == "unavailable" then
+    -- The accept answer was lost; the platform may hold a job all the same.
+    abandon(self, requestId)
+    entry.state = "failed"
+    entry.message = M.text("cloud_unreachable")
+  else
+    self.asks[requestId] = nil
+    entry.state = "refused"
+    entry.message = M.text(cloudReason(answer))
+    self:refused("ask", answer)
+  end
+  notify(self)
 end
 
 --- deliver_result for a touchscreen ask (matched by request id or job id,
@@ -1172,7 +1379,11 @@ end
 --- AI_LAST_RESPONSE and its persisted copy). An answer for a locked session
 --- is HELD (never sent until the next unlock); one nobody waits for any more
 --- (abandon) is dropped.
-function UI:deliver(requestId, text, jobId)
+---
+--- `extra` (chat v2, optional): { display, suggestions, display_dropped,
+--- suggestions_dropped } as aicore.chatv2 validated them (operations.lua);
+--- kept with the exchange, behind the same unlock as its text.
+function UI:deliver(requestId, text, jobId, extra)
   local id, a = findAsk(self, requestId, jobId)
   if a == nil then
     if orphaned(self, requestId) or orphaned(self, jobId) then
@@ -1189,6 +1400,21 @@ function UI:deliver(requestId, text, jobId)
   end
   a.entry.a = Commands.cutBytes(tostring(text or ""), M.LIMITS.answer_bytes)
   a.entry.state, a.entry.message = "answered", nil
+  extra = type(extra) == "table" and extra or {}
+  local c = self.counters
+  -- Validated again here: the driver's parse is the first line, this the
+  -- second (a caller that skipped it still cannot hand the page anything
+  -- outside the contract).
+  local display, dDropped = ChatV2.display(extra.display)
+  local suggestions, sDropped = ChatV2.suggestions(extra.suggestions)
+  a.entry.display, a.entry.suggestions = display, suggestions
+  c.display_dropped = c.display_dropped + (tonumber(extra.display_dropped) or 0) + dDropped
+  c.suggestions_dropped = c.suggestions_dropped + (tonumber(extra.suggestions_dropped) or 0) + sDropped
+  if display ~= nil then
+    c.display_answers = c.display_answers + 1
+    c.display_blocks = c.display_blocks + #display
+  end
+  c.suggestions_kept = c.suggestions_kept + (suggestions ~= nil and #suggestions or 0)
   if not self:unlocked(s) then
     self.counters.answers_held = self.counters.answers_held + 1
   end
@@ -1270,12 +1496,31 @@ end
 --- locked session (no question, answer, suggestion or explain action).
 local function chatView(self, s)
   local p = proofFor(self, s, "chat_view", s.sid)
-  if p == nil then
+  local open = self:openMode()
+  if p == nil and not open then
     return nil
   end
   local list = {}
+  local t = self:now()
   for _, e in ipairs(s.conversation) do
-    list[#list + 1] = { id = e.id, q = e.q, a = e.a, state = e.state, message = e.message, at = e.at }
+    -- Never an exchange asked under an owner unlock to a session that is
+    -- not unlocked now (relock removes them; this holds even if the access
+    -- mode was changed while they were kept).
+    if p ~= nil or not e.elevated then
+      list[#list + 1] = {
+        id = e.id,
+        q = e.q,
+        a = e.a,
+        state = e.state,
+        message = e.message,
+        at = e.at,
+        age = math.max(0, t - e.at), -- seconds since it was asked (the page's thinking timer)
+        conv = e.conv,
+        elevated = e.elevated == true, -- asked under an owner unlock (the page marks where that began)
+        display = e.display,
+        suggestions = e.suggestions,
+      }
+    end
   end
   local sug = {}
   local presets, rev = currentPresets(self)
@@ -1287,13 +1532,19 @@ local function chatView(self, s)
   end
   return {
     locked = false,
-    locks_in = math.max(0, p.ends - self:now()),
+    mode = open and "open" or "owner_pin",
+    elevated = p ~= nil, -- owner-unlocked (open mode: the elevation)
+    can_elevate = open and p == nil and self:pinUsable(), -- "Unlock for more"
+    -- whichever comes first: 5 minutes without use, or 30 minutes after the PIN
+    locks_in = p ~= nil and math.max(0, p.ends - self:now()) or nil,
     -- true: the 30 minutes after the PIN end it, and using the chat no longer extends it
-    locks_fixed = p.ends >= p.max,
+    locks_fixed = p ~= nil and p.ends >= p.max or nil,
     conversation = list,
     suggestions = sug,
-    explain = true,
+    explain = p ~= nil, -- house activity: owner unlock only
     detail = self.deps.detail(),
+    conv = s.conv, -- this unlock's conversation (entries with another conv are from before)
+    followups = not self.refusedAskKeys.thread, -- whether the cloud is told the conversation (a thread per conversation)
   }
 end
 
@@ -1382,6 +1633,7 @@ M.POSTS = POSTS
 --- Body keys each route accepts (closed). No route accepts `pin`.
 local BODY_KEYS = {
   ["/pin/done"] = { challenge_id = true },
+  ["/chat/lock"] = { hidden = true },
   ["/ask"] = { question = true, suggestion_id = true, explain = true },
   ["/approvals/decide"] = { decision = true },
 }
@@ -1481,7 +1733,8 @@ function UI:route(req, token)
     return reply(200, { ok = true })
   end
   if path == "/chat/lock" then
-    lockSession(s)
+    -- hidden = the page was hidden: in open mode the whole conversation goes.
+    self:relock(s, body.hidden == true)
     if s.prompt ~= nil and s.prompt.purpose == "chat_view" then
       s.prompt = nil
     end
@@ -1611,6 +1864,25 @@ function UI:route(req, token)
   return reply(404, { ok = false })
 end
 
+--- Chat v2 in one line, counts only (Print Diagnostics): the capability,
+--- conversation threads, and what validation kept and dropped from the
+--- cloud's blocks and follow-up questions.
+function UI:chatLine()
+  local c = self.counters
+  return string.format(
+    "%s declared; %d conversation(s) started, %d ask(s) sent again without a thread; "
+      .. "%d answer(s) with blocks, %d block(s) shown, %d dropped; %d follow-up(s) shown, %d dropped",
+    ChatV2.CAPABILITY,
+    c.threads_minted,
+    c.thread_retries,
+    c.display_answers,
+    c.display_blocks,
+    c.display_dropped,
+    c.suggestions_kept,
+    c.suggestions_dropped
+  )
+end
+
 --- A one-line summary for the read-only Composer property.
 function UI:summary()
   local detail = self.deps.detail()
@@ -1618,9 +1890,18 @@ function UI:summary()
   if self:pinUsable() then
     pinPart = "PIN Lock ready (owner PINs only)"
   else
-    pinPart = "PIN Lock unavailable (" .. tostring(self.pinState.reason) .. "): chat and approvals off, use the portal"
+    pinPart = "PIN Lock unavailable ("
+      .. tostring(self.pinState.reason)
+      .. (self:openMode() and "): approvals and the owner unlock off" or "): chat and approvals off, use the portal")
   end
-  local chatPart = detail == "basic" and "chat off (Basic)" or ("chat " .. detail .. ", owner PIN to view")
+  local chatPart
+  if detail == "basic" then
+    chatPart = "chat off (Basic)"
+  elseif self:openMode() then
+    chatPart = "chat open (standard without a PIN; " .. detail .. " after an owner PIN)"
+  else
+    chatPart = "chat " .. detail .. ", owner PIN to view"
+  end
   local a = self.approvals
   local apPart
   if self.refusals.approvals_pending ~= nil then
