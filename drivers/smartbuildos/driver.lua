@@ -7496,6 +7496,29 @@ function EC.SEND_FULL_SYNC()
   end
 end
 
+--- Builds the `note(fmt, ...)` the diagnostic reports share: formats one line,
+--- keeps it in `lines` and prints it.
+---
+--- The finished line is printed through "%s", never as the format string
+--- itself. The logger runs string.format on its first argument, so a line that
+--- already contains "%" -- "mem 71.8% used", a URL-encoded value, a host or
+--- device name -- used to throw there and abort the whole report (found on
+--- hardware 2026-11-21). A bad format is kept as text for the same reason: one
+--- probe's output must never be able to stop the probes after it.
+--- @param lines string[]
+--- @return fun(fmt: string, ...: any)
+local function lineNoter(lines)
+  return function(fmt, ...)
+    local line = tostring(fmt)
+    if select("#", ...) > 0 then
+      local okF, formatted = pcall(string.format, fmt, ...)
+      line = okF and formatted or (line .. " [format error: " .. tostring(formatted) .. "]")
+    end
+    table.insert(lines, line)
+    log:print("%s", line)
+  end
+end
+
 --- Reports what Director actually returns, to the log AND to SmartBuildOS.
 ---
 --- Two enumeration APIs have now been read the wrong way from the reference
@@ -7507,11 +7530,7 @@ end
 ---
 --- @param lines string[] Accumulator, also printed.
 local function diagnose(lines)
-  local function note(fmt, ...)
-    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
-    table.insert(lines, line)
-    log:print(line)
-  end
+  local note = lineNoter(lines)
 
   note(
     "controller=%s os=%s driver=%s",
@@ -7747,7 +7766,13 @@ local function diagnose(lines)
   -- the project item's name or the device's own name standing in for it. The
   -- two cases point at completely different fixes, and nothing recorded so far
   -- distinguishes them.
-  local directorId = select(1, directorIdentity())
+  -- Guarded like the probes: an identity read that throws must not take the
+  -- LOCATIONS, hierarchy and dev[...] lines below down with it.
+  local okDirector, directorId = pcall(directorIdentity)
+  if not okDirector then
+    note("directorIdentity() -> ERROR %s", tostring(directorId):sub(1, 160))
+    directorId = nil
+  end
   probe("directorId", function()
     return directorId
   end)
@@ -7811,15 +7836,16 @@ local function diagnose(lines)
     shown = shown + 1
     local id = tointeger(rawId)
     local okB, raw = pcall(function()
-      return C4:GetBindingsByDevice(id or rawId)
+      local bindings = C4:GetBindingsByDevice(id or rawId)
+      return type(bindings) == "table" and JSON:encode(bindings):sub(1, 1200) or tostring(bindings)
     end)
     note(
       "dev[%s] key=%s name=%s -> bindings %s: %s",
       tostring(rawId),
       type(rawId),
-      tostring(device and (device.deviceName or device.name)),
+      tostring(type(device) == "table" and (device.deviceName or device.name) or device),
       tostring(okB),
-      okB and (type(raw) == "table" and JSON:encode(raw):sub(1, 1200) or tostring(raw)) or tostring(raw)
+      tostring(raw)
     )
   end
 end
@@ -7863,11 +7889,7 @@ end
 ---
 --- @param lines string[] Accumulator, also printed.
 local function surveyTelemetry(lines)
-  local function note(fmt, ...)
-    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
-    table.insert(lines, line)
-    log:print(line)
-  end
+  local note = lineNoter(lines)
 
   local function count(t)
     if type(t) ~= "table" then
@@ -8117,11 +8139,7 @@ end
 -- the documentation. A probe that only looks for `binding.mac` would report
 -- "no MAC available" on a controller that calls it something else.
 local function probeCapabilities(lines)
-  local function note(fmt, ...)
-    local line = select("#", ...) > 0 and string.format(fmt, ...) or fmt
-    table.insert(lines, line)
-    log:print(line)
-  end
+  local note = lineNoter(lines)
 
   local function dump(value, limit)
     local ok, encoded = pcall(function()
