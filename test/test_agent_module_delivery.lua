@@ -18,7 +18,11 @@
 --     and a request that cannot run now is owed, never dropped: [5a] two
 --     changes 30 s apart, [5b] five requests, [5c] in flight (success and
 --     failure), [5d] the dealer action, [5e] a restart
--- [6] unpaired: like REQUEST_HEARTBEAT, the command never arrives
+-- [6] Test Connection: the platform claims queued commands on ANY
+--     heartbeat, the "test" one included, so its answer runs and
+--     acknowledges them like a heartbeat's; a claimed command the Agent
+--     never ran would be lost (the queue shows it delivered for ever)
+-- [7] unpaired: like REQUEST_HEARTBEAT, the command never arrives
 --
 -- Run from the driver root: make test
 
@@ -715,7 +719,68 @@ do
   check("a new request runs at once", ask("e2b") == "entitlement refresh started" and #fetches() == 2)
 end
 
-print("[6] unpaired: the command never arrives, as for REQUEST_HEARTBEAT")
+print("[6] Test Connection runs and acknowledges the commands its answer carries")
+do
+  D.mode = "async"
+  check("(the module is registered)", gModules:find("ai_core", tostring(MODULE)) ~= nil)
+  requests = {}
+  local seenBefore = #commandsSeen
+  -- What the platform does: its heartbeat route claims the queue for every
+  -- heartbeat body, whatever its `kind`, and marks those commands delivered.
+  responders["heartbeat"] = function(data)
+    return {
+      ok = true,
+      body = {
+        ok = true,
+        commands = {
+          {
+            id = "c-test",
+            command = "MODULE_COMMAND",
+            payload = {
+              module_id = "ai_core",
+              command = "deliver_result",
+              request_id = "req-test-connection",
+              expires_at = os.time() + 60,
+              args = { job_id = "job-2" },
+            },
+          },
+        },
+      },
+    }
+  end
+  D.as(AGENT, function()
+    EC.TEST_CONNECTION()
+  end)
+  responders["heartbeat"] = nil
+  D.drain()
+  local beats = requestsTo("heartbeat")
+  check(
+    "Test Connection sent one heartbeat of kind test",
+    #beats == 1 and beats[1].data.kind == "test",
+    #beats .. " " .. tostring(beats[1] and beats[1].data.kind)
+  )
+  check(
+    "the command its answer carried reached the module",
+    #commandsSeen == seenBefore + 1 and commandsSeen[#commandsSeen] == "req-test-connection",
+    #commandsSeen - seenBefore
+  )
+  local rec = gModuleCommands["req-test-connection"]
+  check("the ledger reads Completed", rec ~= nil and rec.state == "Completed", rec and rec.state or "no record")
+  local acks = requestsTo("commands")
+  local ack = acks[#acks] and acks[#acks].data.acks and acks[#acks].data.acks[1] or nil
+  check(
+    "and it is acknowledged to the platform (not left 'delivered' for ever)",
+    ack ~= nil and ack.id == "c-test" and ack.ok == true,
+    ack and (ack.error or ack.result) or "no ack"
+  )
+  check(
+    "Connection Status still shows the test's result",
+    agent.Properties["Connection Status"] == "Connected",
+    agent.Properties["Connection Status"]
+  )
+end
+
+print("[7] unpaired: the command never arrives, as for REQUEST_HEARTBEAT")
 D.as(AGENT, function()
   EC.UNPAIR()
 end)
