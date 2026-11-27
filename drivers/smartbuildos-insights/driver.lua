@@ -1,9 +1,10 @@
 --[[==========================================================================
   SmartBuildOS Home Insights — WebView driver
 
-  Puts the Home Insights page on Control4 touchscreens and in the Control4 app.
-  Companion to the SmartBuildOS Connector: the Connector is the sensor, this is
-  the window.
+  Puts a web page on Control4 touchscreens and in the Control4 app. Written as
+  the window onto the SmartBuildOS Home Insights page. SmartBuildOS stopped
+  serving that page for touchscreens in November 2026, and the Connector no
+  longer issues its address, so the URL is whatever the installer pastes in.
 
   ── WHY THIS IS A SEPARATE DRIVER ─────────────────────────────────────────────
 
@@ -131,67 +132,17 @@ function ON_PROPERTY_CHANGED.URL()
   publishUrl("edited")
 end
 
---- Asks the SmartBuildOS Connector in this project for its panel URL.
----
---- ⚠ EXPERIMENTAL. `C4:SendToDevice` between two DriverWorks drivers is
---- documented, but this particular exchange has NOT been measured on hardware,
---- and this repository's rule is that documentation is a hypothesis and the
---- controller is the answer. So it degrades: on no reply the installer pastes
---- the URL by hand, exactly as they would with Control4's own sample, and the
---- Status property says which happened rather than leaving them guessing.
-function EC.PULL_URL()
-  local connectorId
-  for rawId, device in pairs(C4:GetDevices({}) or {}) do
-    local id = tonumber(rawId)
-    local name = tostring((type(device) == "table" and (device.deviceName or device.name)) or "")
-    -- Matched on the DRIVER FILE, not the device name: a dealer is free to
-    -- rename "SmartBuildOS Connector" to anything, and a name match would then
-    -- silently find nothing and report it as "not installed".
-    local file = tostring((type(device) == "table" and device.driverFileName) or "")
-    if id and (file:find("smartbuildos", 1, true) and not file:find("insights", 1, true)) then
-      connectorId = id
-      break
-    end
-    if id and name == "SmartBuildOS Connector" then
-      connectorId = id
-    end
-  end
-
-  if connectorId == nil then
-    setStatus("No SmartBuildOS Connector found in this project — paste the URL by hand")
-    return
-  end
-
-  local ok = pcall(function()
-    C4:SendToDevice(connectorId, "REQUEST_DISPLAY_URL", { requester = C4:GetDeviceID() })
-  end)
-  if not ok then
-    setStatus("Connector did not accept the request — paste the URL by hand")
-    return
-  end
-  setStatus("Asked the Connector for a URL — check back in a moment")
-end
-
---- The Connector's answer, if it supports one. Nothing calls this yet: the
---- Connector has no REQUEST_DISPLAY_URL handler to send one.
-function ReceivedFromDevice(_, command, params) -- luacheck: ignore 131
-  if command ~= "DISPLAY_URL" then
-    return
-  end
-  local url = trim(type(params) == "table" and params.url or "")
-  if not looksLikeUrl(url) then
-    setStatus("Connector replied with an unusable URL — paste it by hand")
-    return
-  end
-  C4:UpdateProperty("URL", url)
-  publishUrl("from connector")
-end
-
 function EC.RELOAD()
   publishUrl("manual")
 end
 
+--- Composer's Actions tab does not call a command by its own name. It sends
+--- "LUA_ACTION" with the action's command in `ACTION`, so that is unwrapped
+--- here. Without it an action runs nothing and reports nothing.
 function ExecuteCommand(command, params)
+  if command == "LUA_ACTION" and type(params) == "table" and params.ACTION ~= nil then
+    command = params.ACTION
+  end
   local handler = EC[command]
   if type(handler) == "function" then
     handler(params)
