@@ -132,6 +132,21 @@ if okData then
   check("catalog_data: every entry is id→name", total > 0, total)
   check("catalog_data: a healthy number of drivers", drivers >= 100, drivers)
   check("catalog_data: the Agent's own events are catalogued", data["smartbuildos.c4z"] ~= nil)
+  -- Control4's own lighting and keypad proxies: a dimmer's or keypad's
+  -- button presses arrive on these proxy devices, whose driverFileName is
+  -- the proxy c4i, never on the dimmer's own c4i (which declares nothing).
+  -- Read from Composer project backups, which carry Control4's c4i files.
+  local light, keypad = data["light_v2.c4i"], data["keypad_proxy.c4i"]
+  check("catalog_data: light_v2.c4i is catalogued", light ~= nil)
+  check("catalog_data: keypad_proxy.c4i is catalogued", keypad ~= nil)
+  if light ~= nil then
+    check("light_v2: button pushed is event 2", light[2] == "Button is pushed", light[2])
+    check("light_v2: turned on is event 100", light[100] == "Turns on", light[100])
+  end
+  if keypad ~= nil then
+    check("keypad_proxy: button pushed is event 1", keypad[1] == "Button is pushed", keypad[1])
+    check("keypad_proxy: release is event 0", keypad[0] == "Button is released", keypad[0])
+  end
 end
 
 print(string.format("\n%d passed, %d failed", pass, fail))

@@ -22,6 +22,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **Flight Recorder: Control4's own lighting and keypad events.** The built-in
+  event catalogue now names the events of Control4's light proxy
+  (`light_v2.c4i`: button pushed, released and tapped, on, off, brightness and
+  level) and keypad proxy (`keypad_proxy.c4i`), so dimmer and keypad button
+  presses are captured with probing off. A dimmer's own c4i declares no events;
+  its presses arrive on the proxy device. `tools/gen-event-catalog.py` now also
+  reads the driver files inside Composer project backups (`.c4p`), the only
+  local copies of Control4's c4i drivers, and gives a proxy's constant event
+  names (`PUSH`) the readable text of their description ("Button is pushed").
+  The regenerated catalogue covers 229 drivers (was 187).
 - **Logic Pack: Logic Blocks** (`docs/smartbuildos-logic-blocks/DESIGN.md`). Up
   to 16 named rules, set up on the Properties and Actions tabs: cooldown, quiet
   period, restartable timer, once per day, flag, counter, all/any conditions,
