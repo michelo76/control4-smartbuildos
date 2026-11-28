@@ -22,6 +22,25 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- **Every-driver smoke test** (`test/test_drivers_smoke.lua`,
+  `tools/smoke-driver.lua`). Each driver is loaded under the shim in its own
+  interpreter and driven as Director would: property defaults, init, every
+  writable property set to another value (and a STRING to empty), every command
+  with typed dummy parameters, every action as `LUA_ACTION`, ten minutes of
+  timers, then a reload with the persisted data kept. Any Lua error fails it,
+  including handler and timer errors the common library would otherwise swallow.
+  A fixture driver with one bug in each place proves the harness still sees
+  them.
+
+- **The suite runs on Lua 5.1 in CI** as well as LuaJIT, since controllers run
+  Lua 5.1 (`make test LUA=<interpreter>`). `test/test_lua51_guard.lua` names the
+  line for the two problems found: `math.random` bounds past a C int and `goto`.
+
+- **`make check-public`**, run in CI: refuses home folders, keys and tokens,
+  coordinates and Telegram chat ids in tracked files (allowed examples are
+  listed with a reason in `tools/public-allowlist.txt`), plus, where the
+  gitignored `tools/.public-denylist` exists, private names and addresses.
+
 - **Flight Recorder: Control4's own lighting and keypad events.** The built-in
   event catalogue now names the events of Control4's light proxy
   (`light_v2.c4i`: button pushed, released and tapped, on, off, brightness and
@@ -67,6 +86,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- **Guest Mode calendar polling.** `lib.http` calls the common library's global
+  `urlDo`, but Guest Mode never loaded that library, so its package shipped
+  without it and every poll would have failed with "attempt to call global
+  'urlDo'". `lib.http` now requires it itself. Found by the smoke test.
+
+- **Fallback ids on Lua 5.1.** `math.random(0, 0x7fffffff)` overflows on Lua
+  5.1: the Agent's fallback module token came out as 32 zeros, and the fallback
+  ids of AI Core and module requests had no random part. System Link's fallback
+  UUID used `math.random(0, 0xffffffff)`, which Lua 5.1 refuses. All four now
+  use `lib.randhex`. They run only when Director has no `C4:UUID("RANDOM")`.
+
+- A customer's name and a home folder path removed from docs, comments and a
+  test fixture.
+
 - **AI Core: the configuration System Studio publishes is now accepted, so
   learning can be switched on.** The platform's document had a different shape
   from the driver's schema 1 and was refused whole, which kept learning off.
@@ -75,6 +108,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   through the real Agent in the emulator. Excluded rooms go up to 500 (the
   platform's own bound). A room is the Director room id on both sides; the
   platform translates its learning categories to the driver's.
+
 - **AI Core: a pause takes effect at once.** `set_learning` gains
   `config_version`: System Studio sends it (and `apply_config` for exclusions)
   as soon as learning or exclusions change. The configuration document stays the
@@ -82,14 +116,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   preview holds only until that version's document arrives, an older
   `apply_config` never replaces a newer document, and learning cannot be
   switched on over a refused document.
+
 - **AI Core: `AI_RECORD_EVENT` works with learning off or paused** (it is a
   dealer's marker, not learning); excluded rooms and categories still refuse it.
+
 - **AI Core: payload text is cut between characters.** A long non-ASCII `DETAIL`
   or question used to reach the shared envelope, which cut it in the middle of a
   character; the Agent then refused the whole frame as malformed. AI Core now
   cuts every payload string and label between characters itself. The shared
   envelope is unchanged for the other drivers (`docs/ai-core/KNOWN-ISSUES.md`
   KI-1).
+
 - **AI Core: Sync Now's `status` request carries only its request id**, the only
   field the platform accepts.
 

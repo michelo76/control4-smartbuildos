@@ -12,6 +12,48 @@ if not loadstring then
   loadstring = load
 end
 
+-- The `bit` library: the controller provides it (Control4's websocket module
+-- calls bit.band/bor/bxor/rshift as a global) and LuaJIT has it built in, but
+-- plain Lua 5.1, which CI also runs the suite on, does not. A pure-Lua
+-- stand-in for 32-bit unsigned operands, used only when there is none.
+if bit == nil then
+  local function op(a, b, keep)
+    a, b = a % 4294967296, b % 4294967296
+    local r, p = 0, 1
+    for _ = 1, 32 do
+      local x, y = a % 2, b % 2
+      if keep(x, y) then
+        r = r + p
+      end
+      a, b, p = (a - x) / 2, (b - y) / 2, p * 2
+    end
+    return r
+  end
+  bit = {
+    band = function(a, b)
+      return op(a, b, function(x, y)
+        return x == 1 and y == 1
+      end)
+    end,
+    bor = function(a, b)
+      return op(a, b, function(x, y)
+        return x == 1 or y == 1
+      end)
+    end,
+    bxor = function(a, b)
+      return op(a, b, function(x, y)
+        return x ~= y
+      end)
+    end,
+    rshift = function(a, n)
+      return math.floor((a % 4294967296) / 2 ^ n)
+    end,
+    lshift = function(a, n)
+      return (a * 2 ^ n) % 4294967296
+    end,
+  }
+end
+
 -- Global C4 object shim
 C4 = {}
 Properties = {}

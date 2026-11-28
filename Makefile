@@ -319,21 +319,31 @@ lint: ## Check Lua for unknown names and dead code (luacheck)
 
 # ─── Test ─────────────────────────────────────────────────────────────────────
 
-.PHONY: test
+.PHONY: test check-public
+# The interpreter the suite runs on. Controllers run Lua 5.1, and CI runs the
+# suite on both: LuaJIT accepts some syntax and library calls Lua 5.1 does not.
+#   make test LUA=lua5.1
+LUA ?= luajit
+
 # test/ is on LUA_PATH and c4_shim is preloaded, matching the environment
 # test/run_test.sh sets up. Existing suites are written against that shim and
 # fail on a bare `luajit <file>` with "attempt to index global 'C4'". A test that
 # defines its own C4 still wins, since it assigns after the preload has run.
-test: ## Run the Lua test suite (test/test_*.lua)
+test: ## Run the Lua test suite (test/test_*.lua); LUA=<interpreter> to choose
 	@found=0; \
 	for f in test/test_*.lua; do \
 		[ -e "$$f" ] || continue; \
 		found=1; \
 		echo "==> $$f"; \
-		LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
-			luajit -e "require('c4_shim')" "$$f" || exit 1; \
+		LUA="$(LUA)" LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
+			$(LUA) -e "require('c4_shim')" "$$f" || exit 1; \
 	done; \
 	if [ "$$found" = "0" ]; then echo "No test/test_*.lua files found; nothing to run."; fi
+
+# This repository is public: refuse home folders, keys, coordinates, chat ids
+# and (where tools/.public-denylist exists) private names. See the script.
+check-public: ## Refuse private data in tracked files (runs in CI)
+	@python3 tools/check-public.py
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 

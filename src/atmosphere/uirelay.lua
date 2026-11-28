@@ -1,7 +1,7 @@
 --[[==========================================================================
   Atmosphere — LAN state relay (pure HTTP router)
 
-  Field finding (Doerr touchscreen, 2026-08-31): the Navigator WebView loads
+  Field finding (a customer touchscreen, 2026-08-31): the Navigator WebView loads
   the app but the JS API reply channel delivers nothing — the driver is
   healthy, the page starves. The proven answer in this repo is the Protect
   snapshot relay: the driver listens on a controller port and the page

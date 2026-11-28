@@ -89,6 +89,7 @@ local Rooms = require("telemetry.rooms")
 Modules = require("sbos.modules")
 EventQueue = require("sbos.eventqueue")
 SeqBlock = require("sbos.seqblock")
+RandHex = require("lib.randhex")
 Envelope = require("sbos.envelope")
 -- Module contract v2 (discovery, pub/sub, request/response, cloud relay):
 -- docs/protocol/MODULE-CONTRACT-V2.md. Global for the same reason.
@@ -4060,12 +4061,10 @@ MODULE_COMMAND_LEDGER = 100
 MODULE_SNAPSHOT_MAX_BYTES = 256 * 1024
 
 --- The v1 generator, kept as the fallback when Director has no UUID API.
+--- 32 hex characters from lib.randhex: the old math.random(0, 0x7fffffff)
+--- overflows on the controller's Lua 5.1 and gave a token of 32 zeros.
 function ModuleTokenV1()
-  local parts = {}
-  for i = 1, 4 do
-    parts[i] = string.format("%08x", math.random(0, 0x7fffffff))
-  end
-  return table.concat(parts)
+  return RandHex.hex(32)
 end
 
 --- Registration tokens: C4:UUID("RANDOM") (122 random bits) when available.

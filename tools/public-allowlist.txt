@@ -1,0 +1,20 @@
+# Findings of tools/check-public.py that are fine to publish.
+# Format: path<TAB>exact text. A path of * allows the text in any file.
+# Every entry needs a reason; an entry nothing matches any more fails the check.
+
+# Public city and landmark coordinates used by the sun and weather tests and docs
+*	26.1224, -80.1373
+*	26.1224,-80.1373
+*	38.8895, -77.0353
+*	40.0150, -105.2705
+*	25.7617, -80.1918
+*	51.4779, -0.0015
+*	78.2232, 15.6267
+# Mid-Pacific test coordinates chosen for the bench run (open ocean, no site)
+docs/driver-batch-20261110.md	35.0000, 166.0000
+
+# Placeholder Telegram group id (1234567890), the form the Router's manual explains
+*	-1001234567890
+
+# The well-known sample JWT from jwt.io, used to test that tokens are redacted
+test/test_agent_studio.lua	eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c

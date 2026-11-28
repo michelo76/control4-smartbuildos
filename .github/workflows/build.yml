@@ -50,6 +50,9 @@ jobs:
             fonts-noto-core \
             fonts-symbola
 
+      - name: Check for private data (this repository is public)
+        run: make check-public
+
       - name: Initialize project
         run: make init
 
@@ -90,3 +93,28 @@ jobs:
           path: dist/oss/*
           if-no-files-found: error
 
+  # Controllers run Lua 5.1, not LuaJIT. LuaJIT accepts code that Lua 5.1
+  # rejects or runs differently (goto, math.random bounds past a C int), so the
+  # whole suite runs on Lua 5.1 as well. No build here: the suite needs the
+  # interpreter and the sources, plus LuaJIT for the few tests that run the
+  # build tools (squish generator, page embedding), which build with LuaJIT.
+  test-lua51:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Lua 5.1
+        uses: leafo/gh-actions-lua@v12
+        with:
+          luaVersion: '5.1.5'
+
+      - name: Install LuaJIT (the build tools some tests run)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+          luajit -v
+
+      - name: Test on Lua 5.1
+        run: make test LUA=lua

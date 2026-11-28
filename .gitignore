@@ -3,3 +3,5 @@
 /.venv
 /.lua
 **/http-client.private.env.json
+# Private terms for tools/check-public.py: never committed (see that file)
+/tools/.public-denylist

@@ -4,6 +4,12 @@ local deferred = require("deferred")
 
 local log = require("lib.logging")
 
+-- Every request goes through the common library's global `urlDo`. Required
+-- here, not left to each driver: Guest Mode never required it, so its package
+-- shipped without it and every calendar poll would have failed with "attempt
+-- to call global 'urlDo'". Found by test/test_drivers_smoke.lua (28 Nov 2026).
+require("drivers-common-public.global.url")
+
 --- Maximum timeout for HTTP requests.
 --- @type number
 local MAX_TIMEOUT = 300

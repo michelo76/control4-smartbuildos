@@ -26,6 +26,7 @@
 ---     registration (the Agent forgets them on restart and re-registration).
 
 local Policy = require("sbos.modulepolicy")
+local RandHex = require("lib.randhex")
 JSON = JSON or require("JSON")
 
 local M = {}
@@ -71,7 +72,7 @@ function M.newId(c4)
     end
   end
   idCounter = idCounter + 1
-  return string.format("%x-%x-%08x", os.time(), idCounter, math.random(0, 0x7fffffff))
+  return string.format("%x-%x-%s", os.time(), idCounter, RandHex.hex(8))
 end
 
 --- @param io table {

@@ -35,6 +35,7 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local http = require("lib.http")
+local RandHex = require("lib.randhex")
 local license = require("sbos.license")
 local Engine = require("systemlink.engine")
 --- AI Core reporting (sbos.aireport, start mode). Module scope: the build
@@ -192,14 +193,8 @@ local function uuid()
   if ok and v ~= "" then
     return v
   end
-  return string.format(
-    "%08x-%04x-4%03x-8%03x-%012x",
-    math.random(0, 0xffffffff),
-    math.random(0, 0xffff),
-    math.random(0, 0xfff),
-    math.random(0, 0xfff),
-    math.random(0, 0xffffffffffff)
-  )
+  -- Not math.random(0, 0xffffffff): Lua 5.1 refuses that bound (lib.randhex).
+  return RandHex.uuid4()
 end
 
 -- ─── Agent discovery (exact filename, never substring) ───────────────────────

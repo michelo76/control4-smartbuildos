@@ -452,7 +452,7 @@ reset()
 pairBody = {
   token = "sbc4_feedface_token",
   property_id = "0f1c9a52-7d33-4f0e-9a11-2b6c8d4e5f00",
-  property_name = "Doerr Residence",
+  property_name = "Example Residence",
   agent_secret = SECRET,
   support_id = "SBOS-D0E44R",
 }
@@ -678,7 +678,7 @@ reset()
 pairBody = {
   token = "sbc4_feedface_token",
   property_id = "0f1c9a52-7d33-4f0e-9a11-2b6c8d4e5f00",
-  property_name = "Doerr Residence",
+  property_name = "Example Residence",
   agent_secret = SECRET,
   support_id = "SBOS-D0E44R",
   subscription_tier = "Professional",

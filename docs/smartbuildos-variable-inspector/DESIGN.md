@@ -20,7 +20,7 @@ records no variable values anywhere but memory, and uploads nothing.
 | Driver | `drivers/smartbuildos-variable-inspector/driver.lua` | licensing, Composer surface, relay socket (Atmosphere's `CreateServer` pattern), URL publishing, persistence |
 | Page | `www/app/index.html` | vanilla JS, phone-first, polls `/state` (2 s open device, 5 s otherwise), no external assets |
 
-Transport is Atmosphere's measured answer (Doerr touchscreen, 2026-08-31):
+Transport is Atmosphere's measured answer (a customer touchscreen, 2026-08-31):
 the JS API reply channel starved the page, the LAN relay worked. Same-origin
 serving from the relay (`http://<controller>:47823/app?k=`) when the
 controller address is known; otherwise the c4z page with `?relay=`.
