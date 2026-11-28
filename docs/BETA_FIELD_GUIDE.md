@@ -1,6 +1,6 @@
 # UniFi Protect (SBOS) — Beta Field Guide
 
-Build under test: `20260828.193057` · Reference site: Doerr-Fort-Lauderdale
+Build under test: `20260828.193057` · Reference site: a customer system
 (OS 4.2.1 / Protect 7.2.105, 3 cameras) · Status: **core verified live,
 advanced features awaiting field passes**
 

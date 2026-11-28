@@ -1,0 +1,22 @@
+<devicedata>
+  <name>Smoke Broken Fixture</name>
+  <version></version>
+  <config>
+    <script file="driver.lua"/>
+    <actions>
+      <action><name>Fine Action</name><command>FINE</command></action>
+      <action><name>Broken Action</name><command>BROKEN_ACTION</command></action>
+    </actions>
+    <commands>
+      <command>
+        <name>BROKEN_COMMAND</name>
+        <params><param><name>LEVEL</name><type>RANGED_INTEGER</type><minimum>1</minimum><maximum>9</maximum></param></params>
+      </command>
+    </commands>
+    <properties>
+      <property><name>Status</name><type>STRING</type><default>ok</default><readonly>true</readonly></property>
+      <property><name>Mode</name><type>LIST</type><items><item>A</item><item>B</item></items><default>A</default></property>
+      <property><name>Host</name><type>STRING</type><default>x</default></property>
+    </properties>
+  </config>
+</devicedata>

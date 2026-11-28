@@ -69,6 +69,7 @@ JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local license = require("sbos.license")
+local RandHex = require("lib.randhex")
 local client = require("sbos.moduleclient")
 local V = require("aicore.vocab")
 local Commands = require("aicore.commands")
@@ -251,7 +252,7 @@ local function newRequestId()
   if ok and type(uuid) == "string" and uuid:match("^[%w%-]+$") then
     core = uuid:lower()
   else
-    core = string.format("%x%x%04x", os.time(), math.random(0, 0x7fffffff), math.random(0, 0xffff))
+    core = string.format("%x%s", os.time(), RandHex.hex(12))
   end
   return "aic-" .. core
 end

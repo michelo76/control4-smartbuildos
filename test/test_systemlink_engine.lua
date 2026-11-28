@@ -240,23 +240,25 @@ function Relay:sync(epId, body)
       if env.t == "request" or env.t == "command" then
         self.requests[env.id] = { status = "accepted", to = ep.peer, routine = env.body.routine, deadline = exp }
       end
+      -- No goto: controllers run Lua 5.1, and the suite runs there too.
+      local skip = false
       if env.t == "request_update" or env.t == "command_update" then
         local r = self.requests[env.body.request_id]
         if not r then
           rejected[#rejected + 1] = { id = env.id, reason = "unknown request" }
-          goto continue
+          skip = true
         elseif r.to ~= epId then
           rejected[#rejected + 1] = { id = env.id, reason = "not the request target" }
-          goto continue
-        end
-        if r.status ~= "expired" then
+          skip = true
+        elseif r.status ~= "expired" then
           r.status = env.body.status
         end
       end
-      local seq = self:push(epId, ep.peer, env.gen, env.t, env.id, env.body, exp)
-      accepted[#accepted + 1] = { id = env.id, seq = seq }
+      if not skip then
+        local seq = self:push(epId, ep.peer, env.gen, env.t, env.id, env.body, exp)
+        accepted[#accepted + 1] = { id = env.id, seq = seq }
+      end
     end
-    ::continue::
   end
   for id, r in pairs(self.requests) do
     if

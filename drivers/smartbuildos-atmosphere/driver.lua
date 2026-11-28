@@ -1359,7 +1359,7 @@ UIR.suppressDebug = { ATMOS_GET_STATE = true }
 
 -- ─── LAN state relay ─────────────────────────────────────────────────────────
 --
--- Field-measured (Doerr touchscreen, 2026-08-31): the app renders but the
+-- Field-measured (a customer touchscreen, 2026-08-31): the app renders but the
 -- JS API delivers no state. The Protect-proven answer: the driver listens on
 -- a controller port; the page fetches plain LAN HTTP. The relay address and
 -- token ride the web_view_url query — the one channel that provably reaches

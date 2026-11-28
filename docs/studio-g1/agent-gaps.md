@@ -6,7 +6,7 @@ Read-only survey, 2026-11-20. Nothing was edited, checked out, pushed, run or qu
 
 - **Web** = clean checkout of `origin/main` at `c2f91e8c5`, at `.../scratchpad/ss-main`. Paths are relative to it.
 - **Drv** = driver repo `control4-smartbuildos` at `origin/main` = `f9326b7` (2026-11-20 08:05, "Merge pull request #52"). I exported it with `git archive` to `.../scratchpad/drv-main` and read it there. Paths are relative to the repo root.
-  - ⚠ The primary checkout `/Users/michelogermain/Documents/Codex/control4-smartbuildos` is **not** the released line. It sits on `wip/uncommitted-rescue-20260831`, 340 commits behind `origin/main`. It has 9 modified files, including `drivers/smartbuildos/driver.lua`, `Makefile` and `VERSION`. Do not plan from that working tree.
+  - ⚠ The primary checkout `~/Documents/Codex/control4-smartbuildos` is **not** the released line. It sits on `wip/uncommitted-rescue-20260831`, 340 commits behind `origin/main`. It has 9 modified files, including `drivers/smartbuildos/driver.lua`, `Makefile` and `VERSION`. Do not plan from that working tree.
 - The Agent is `drivers/smartbuildos/driver.lua`: 9,756 lines, plus `src/sbos/*.lua`, `src/telemetry/*.lua` and `src/lib/*.lua`.
 - Every claim below comes from reading code unless it is marked **UNVERIFIED**.
 - I folded in four other reports from the same folder: `code-data-model.md`, `browser-core.md` (its Data gaps section), `browser-tooling-ai.md` (its §E) and `notes.md`. I only skimmed `code-visual-system.md`.

@@ -32,6 +32,11 @@ function IsEmpty(v)
   return v == nil or v == ""
 end
 function urlDo() end
+-- lib.http requires the common URL library for urlDo; this suite tests only
+-- the redaction, so the library is replaced by the stub above.
+package.preload["drivers-common-public.global.url"] = function()
+  return true
+end
 
 -- vendor/JSON.lua calls this for every number it encodes. Without it any fixture
 -- containing a number makes encode throw, and since nearly every assertion below
